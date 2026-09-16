@@ -223,6 +223,18 @@ bool SettingsWindow::takeCardResetRequest() {
   return requested;
 }
 
+bool SettingsWindow::takeCompareToggle() {
+  const bool requested = compareToggleRequested_;
+  compareToggleRequested_ = false;
+  return requested;
+}
+
+bool SettingsWindow::takeBypassToggle() {
+  const bool requested = bypassToggleRequested_;
+  bypassToggleRequested_ = false;
+  return requested;
+}
+
 bool SettingsWindow::takeRangeRemeasureRequest() {
   const bool requested = rangeRemeasureRequested_;
   rangeRemeasureRequested_ = false;
@@ -1374,6 +1386,18 @@ void SettingsWindow::DrawImageTab() {
   // Reiter, nicht eine andere Sortierung innerhalb dieses hier.
   ImGui::Spacing();
 
+  // Ganz oben, weil sonst jeder Regler darunter scheinbar nichts tut.
+  if (bypassOn_) {
+    TextWarningWrapped(Format(T("Alle Filter sind aus (%s). Die Einstellungen hier wirken erst "
+                                "danach wieder.",
+                                "All filters are off (%s). The settings here take effect again "
+                                "once they are back on."),
+                              HotkeyText(cfg().hotkeys[HotkeyAction::BypassFilters]).c_str())
+                           .c_str());
+    if (ImGui::Button(T("Filter wieder an", "Filters back on"))) bypassToggleRequested_ = true;
+    ImGui::Spacing();
+  }
+
   ImGui::SeparatorText(T("Skalierung", "Scaling"));
   int filter = (int)img.filter;
   ImGui::SetNextItemWidth(-260.0f);
@@ -2055,9 +2079,9 @@ void SettingsWindow::DrawImageTab() {
     // rechts alles. Was danach kommt -- Schaerfen, Zeilen, Maske -- laeuft ueber
     // beide Haelften, sonst verglichen sich zwei Bilder statt zweier Filter.
     ImGui::Spacing();
-    bool compare = img.compare;
+    bool compare = compareOn_;
     if (ImGui::Checkbox(T("Mit und ohne vergleichen", "Compare with and without"), &compare)) {
-      img.compare = compare;
+      compareToggleRequested_ = true;
     }
     ImGui::SameLine();
     HelpMarker(T("Teilt das Bild: links das Signal, wie die Karte es liefert, rechts mit den "
@@ -2066,15 +2090,16 @@ void SettingsWindow::DrawImageTab() {
                  "Bild.\n\n"
                  "Geht nicht während einer Aufnahme und wird beim Start einer Aufnahme "
                  "abgeschaltet: Aufnahme und virtuelle Kamera greifen hinter demselben "
-                 "Durchgang ab und bekämen sonst ein halb gefiltertes Bild.",
+                 "Durchgang ab und bekämen sonst ein halb gefiltertes Bild. Gilt nur bis zum "
+                 "Beenden.",
                  "Splits the picture: on the left the signal as the card delivers it, on the "
                  "right with the filters from this section.\n\n"
                  "The divider sits in the source's own grid, so it turns with the picture.\n\n"
                  "Not available while recording, and switched off when one starts: the "
                  "recording and the virtual camera tap the same pass and would otherwise get "
-                 "a half filtered picture."));
+                 "a half filtered picture. Lasts until you quit."));
 
-    ImGui::BeginDisabled(!img.compare);
+    ImGui::BeginDisabled(!compareOn_);
     ImGui::Indent();
     float split = img.compareSplit * 100.0f;
     ImGui::SetNextItemWidth(-260.0f);

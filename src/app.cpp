@@ -1041,10 +1041,31 @@ void App::ToggleCompare() {
     Toast(T("Während der Aufnahme geht kein Vergleich.", "No compare while recording."));
     return;
   }
-  ImageSettings& img = config_.active().image;
-  img.compare = !img.compare;
-  Toast(img.compare ? T("Vergleich: links ohne Filter", "Compare: filters off on the left")
-                    : T("Vergleich aus", "Compare off"));
+  compare_ = !compare_;
+  // Neben einem Bild ganz ohne Filter gibt es nichts zu vergleichen.
+  if (compare_) bypass_ = false;
+  Toast(compare_ ? T("Vergleich: links ohne Filter", "Compare: filters off on the left")
+                 : T("Vergleich aus", "Compare off"));
+}
+
+// Das ganze Bild ohne Filter, fuer die Frage, ob ueberhaupt einer etwas taugt.
+//
+// Weg ist alles, was am Signal etwas veraendert: Deinterlacing (also Weave),
+// die Composite-Kette, Schaerfen, die vier Bildregler, das native Raster und
+// die Bildroehre. Stehen bleibt, was das Bild erst richtig hinstellt --
+// Zuschnitt, Seitenverhaeltnis, Drehung, Skalierung, Wertebereich und Matrix.
+// Ohne die waere das Bild nicht ungefiltert, sondern falsch.
+//
+// Aus denselben Gruenden wie das Standbild nicht waehrend einer Aufnahme, und
+// ebenso wenig im Profil: siehe EffectiveImage.
+void App::ToggleBypass() {
+  if (recorder_.recording()) {
+    Toast(T("Während der Aufnahme bleiben die Filter an.", "Filters stay on while recording."));
+    return;
+  }
+  bypass_ = !bypass_;
+  if (bypass_) compare_ = false;
+  Toast(bypass_ ? T("Alle Filter aus", "All filters off") : T("Filter wieder an", "Filters back on"));
 }
 
 void App::StartRecording() {
@@ -1201,7 +1222,7 @@ void App::StartRecording() {
   pendingSince_ = -1.0;
   if (config_.active().image.deinterlace != Deinterlace::Off) recordFps *= 2.0;
 
-  // Beide Sehhilfen wuerden in die Datei wandern, weil Aufnahme und virtuelle
+  // Alle drei Sehhilfen wuerden in die Datei wandern, weil Aufnahme und virtuelle
   // Kamera hinter denselben Durchgaengen abgreifen wie die Anzeige. Also fallen
   // sie hier weg, statt die Aufnahme zu verweigern: wer aufnimmt, meint das
   // ganze Bild von jetzt. Erst hier, weil alles davor noch abbrechen kann.
@@ -1209,7 +1230,8 @@ void App::StartRecording() {
     frozen_ = false;
     delayLine_.Clear();
   }
-  config_.active().image.compare = false;
+  compare_ = false;
+  bypass_ = false;
 
   // Die Platzwarnung gilt je Aufnahme, und die naechste Abfrage soll nicht die
   // Zahl von vor einer Sekunde benutzen, um sofort zu warnen oder zu schweigen.
@@ -4403,6 +4425,7 @@ bool App::ConnectorHasColourCarrier() const {
 ImageSettings App::EffectiveImage(const Profile& profile) const {
   ImageSettings img = profile.image;
   const VideoFormatInfo fmt = renderer_.sourceFormat();
+  img.compare = compare_;
 
   if (!SourceIsAnalogue()) {
     // Composite bringt diese Stoerungen mit, ein digitaler Eingang nicht. Der
@@ -4487,6 +4510,27 @@ ImageSettings App::EffectiveImage(const Profile& profile) const {
   const bool hasFields =
       fmt.interlaced || renderer_.detectedInterlace() == VideoRenderer::InterlaceVerdict::Interlaced;
   if (!SourceIsAnalogue() && !hasFields) img.deinterlaceAuto = true;
+
+  // Zuletzt, damit nichts darueber es wieder einschaltet. Siehe ToggleBypass.
+  if (bypass_) {
+    img.deinterlace = Deinterlace::Off;
+    img.deinterlaceAuto = false;
+    img.chromaSoft = 0;
+    img.adaptiveChroma = false;
+    img.temporalDenoise = 0.0f;
+    img.dotNotch = 0.0f;
+    img.motionCompensate = false;
+    img.bandwidthRestore = 0.0f;
+    img.compare = false;
+    img.sharpen = 0.0f;
+    img.brightness = 0.0f;
+    img.contrast = 1.0f;
+    img.saturation = 1.0f;
+    img.hue = 0.0f;
+    img.nativeWidth = 0;
+    img.scanlines = 0.0f;
+    img.mask = 0;
+  }
 
   return img;
 }
@@ -5523,7 +5567,7 @@ void App::DrawUi() {
       stats.scanLabel = T("progressiv", "progressive");
     } else if (renderer_.sourceCoSitedFields()) {
       stats.scanLabel = T("deckungsgleich (240p/288p)", "aligned (240p/288p)");
-    } else if (profile.image.deinterlace == Deinterlace::Off) {
+    } else if (bypass_ || profile.image.deinterlace == Deinterlace::Off) {
       stats.scanLabel = T("interlaced, kein Deinterlacer", "interlaced, no deinterlacer");
     } else {
       stats.scanLabel = std::string(T("interlaced, ", "interlaced, ")) +
@@ -5726,7 +5770,10 @@ void App::DrawUi() {
       renderer_.detectedInterlace() == VideoRenderer::InterlaceVerdict::Interlaced);
   settings_.SetScanlineRoom(renderer_.scanlineRoom());
   settings_.SetLevels(audio_.inputPeak(), mic_.peak(), mic_.running());
+  settings_.SetViewAids(compare_, bypass_);
   UpdateDiskSpace();
+  if (settings_.takeCompareToggle()) ToggleCompare();
+  if (settings_.takeBypassToggle()) ToggleBypass();
   if (settings_.takeCropPickRequest()) BeginCropPick();
   if (settings_.takeDeviceConfigRequest()) OpenDeviceConfig();
   if (settings_.takeCropDetectRequest()) DetectCrop();
@@ -5934,13 +5981,23 @@ void App::DrawContextMenu() {
                    "Holds the picture so filters can be set in peace. The filters keep "
                    "running; only the source stands still."));
   if (ImGui::MenuItem(T("Filter vergleichen", "Compare filters"), sc(HotkeyAction::Compare),
-                      config_.active().image.compare)) {
+                      compare_)) {
     ToggleCompare();
   }
   WrappedTooltip(T("Teilt das Bild: links ohne Composite-Filter, rechts mit. Die Trennlinie "
                    "steht unter Bild → Composite.",
                    "Splits the picture: composite filters off on the left, on on the right. "
                    "The divider is under Picture → Composite."));
+  if (ImGui::MenuItem(T("Alle Filter aus", "All filters off"), sc(HotkeyAction::BypassFilters),
+                      bypass_)) {
+    ToggleBypass();
+  }
+  WrappedTooltip(T("Zeigt das Bild ohne Deinterlacing, Composite-Filter, Schärfen, Bildregler, "
+                   "natives Raster und Bildröhre. Zuschnitt, Seitenverhältnis und Skalierung "
+                   "bleiben. Wird nicht gespeichert.",
+                   "Shows the picture without deinterlacing, composite filters, sharpening, "
+                   "picture controls, native pixel grid and CRT effects. Crop, aspect and "
+                   "scaling stay. Not saved."));
 
   // Der schwarze Rand ist etwas, das man sieht, und das Suchen danach gehoert
   // deshalb dorthin, wo man hinsieht, statt in einen Reiter des
@@ -6056,6 +6113,9 @@ bool App::HandleKeyDown(WPARAM key) {
       return true;
     case HotkeyAction::Compare:
       ToggleCompare();
+      return true;
+    case HotkeyAction::BypassFilters:
+      ToggleBypass();
       return true;
     case HotkeyAction::DetectCrop:
       DetectCrop();

@@ -129,6 +129,15 @@ class SettingsWindow {
     micPeak_ = mic;
     micRunning_ = micRunning;
   }
+  // Vergleich und "alle Filter aus" gehoeren der App und nicht dem Profil, also
+  // zeigt der Dialog sie nur und bittet ums Umschalten -- dann gelten auch
+  // dieselben Sperren wie bei der Taste.
+  void SetViewAids(bool compare, bool bypass) {
+    compareOn_ = compare;
+    bypassOn_ = bypass;
+  }
+  bool takeCompareToggle();
+  bool takeBypassToggle();
   bool isOpen() const { return open_; }
 
   // `liveCaps` are the capabilities of the device that is currently running, so
@@ -301,6 +310,10 @@ class SettingsWindow {
   bool deviceConfigRequested_ = false;
   bool cropDetectRequested_ = false;
   bool cardResetRequested_ = false;
+  bool compareOn_ = false;
+  bool bypassOn_ = false;
+  bool compareToggleRequested_ = false;
+  bool bypassToggleRequested_ = false;
   // Setzt den Eingabecursor beim Oeffnen des Namensdialogs ins Textfeld, aber
   // nur einmal -- sonst finge es jedes Bild die Eingabe neu ein.
   bool namePopupFocus_ = false;

@@ -164,6 +164,7 @@ class App {
   // die Anzeige anhaelt.
   void ToggleFreeze();
   void ToggleCompare();
+  void ToggleBypass();
   // Fragt den freien Platz auf dem Aufnahmelaufwerk ab, hoechstens einmal je
   // Sekunde. Die Einstellungen zeigen ihn an, die laufende Aufnahme haengt
   // daran.
@@ -394,6 +395,10 @@ class App {
   // Standbild: siehe ToggleFreeze. Kein Profilwert, sondern ein Zustand -- ein
   // angehaltenes Bild soll einen Neustart nicht ueberleben.
   bool frozen_ = false;
+  // Die beiden anderen Sehhilfen, aus demselben Grund ebenfalls hier und nicht
+  // im Profil: siehe ToggleCompare und ToggleBypass.
+  bool compare_ = false;
+  bool bypass_ = false;
   // Whether the bar was drawn this frame; the picture layout follows it.
   bool toolbarVisible_ = false;
 

@@ -469,6 +469,12 @@ struct ImageSettings {
   // liegen. Links das Rohbild, rechts das gefilterte -- und nur die Kette aus
   // diesem Abschnitt ist betroffen, Schaerfen, Skalierung und Roehrenmaske
   // laufen ueber beide Haelften, sonst waere der Vergleich keiner.
+  //
+  // Wird nicht gespeichert und im Profil nicht gefuehrt: ein Profil kommt immer
+  // mit false an, und was der Renderer sieht, setzt App::EffectiveImage aus
+  // App::compare_. Ein Vergleich ist eine Sehhilfe wie das Standbild und soll
+  // einen Neustart ebenso wenig ueberleben. Die Lage der Trennlinie dagegen ist
+  // eine Vorliebe und bleibt.
   bool compare = false;
   float compareSplit = 0.5f;  // 0..1, Anteil der Breite links vom Schnitt
   AspectMode aspect = AspectMode::Source;

@@ -23,6 +23,11 @@ Hotkeys::Hotkeys() {
   // in der Reihe noch frei sind. Beide aendern nur, was zu sehen ist.
   (*this)[HotkeyAction::Freeze].vk = VK_F11;
   (*this)[HotkeyAction::Compare].vk = VK_F12;
+  // Mit Umschalt dasselbe, nur ganz: nicht die halbe Anzeige ohne die
+  // Composite-Filter, sondern die ganze ohne jeden Filter. Wie bei F5 und
+  // Umschalt+F5 -- gleiche Taste, mehr weggenommen.
+  (*this)[HotkeyAction::BypassFilters].vk = VK_F12;
+  (*this)[HotkeyAction::BypassFilters].shift = true;
   // Der Zuschnitt wird im Zweifel mehrmals hintereinander gesucht -- die
   // Messung braucht ein richtiges Bild, und wann eines anliegt, weiss nur der,
   // der hinsieht. F8 liegt frei und in derselben Reihe wie das uebrige, was
@@ -63,6 +68,7 @@ const char* HotkeyActionName(HotkeyAction action) {
       return T("Screenshot in die Zwischenablage", "Screenshot to clipboard");
     case HotkeyAction::Freeze: return T("Standbild", "Freeze");
     case HotkeyAction::Compare: return T("Filter vergleichen", "Compare filters");
+    case HotkeyAction::BypassFilters: return T("Alle Filter aus", "All filters off");
     case HotkeyAction::DetectCrop: return T("Rand suchen", "Detect border");
     case HotkeyAction::DetectStandard: return T("Videonorm suchen", "Detect video standard");
     case HotkeyAction::RemeasureRange: return T("Wertebereich neu messen", "Measure range again");
@@ -85,6 +91,7 @@ const char* HotkeyActionKey(HotkeyAction action) {
     case HotkeyAction::ScreenshotClipboard: return "screenshotClipboard";
     case HotkeyAction::Freeze: return "freeze";
     case HotkeyAction::Compare: return "compare";
+    case HotkeyAction::BypassFilters: return "bypassFilters";
     case HotkeyAction::DetectCrop: return "detectCrop";
     case HotkeyAction::DetectStandard: return "detectStandard";
     case HotkeyAction::RemeasureRange: return "remeasureRange";

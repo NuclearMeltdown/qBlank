@@ -24,6 +24,7 @@ enum class HotkeyAction {
   ScreenshotClipboard,
   Freeze,
   Compare,
+  BypassFilters,
   DetectCrop,
   DetectStandard,
   RemeasureRange,
