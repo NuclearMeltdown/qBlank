@@ -213,6 +213,12 @@ class CapsModel {
   // still do it now. If it cannot, the ordinary choice applies.
   FormatSel PickDefault(const std::string& preferSubtype = std::string()) const;
 
+  // Die Groesse, die ein Raster mit `activeLines` sichtbaren Zeilen (576 oder
+  // 480) ohne Skalieren traegt, unter dem, was der Treiber fuer dieses
+  // Pixelformat wirklich meldet -- mit derselben Vorliebe fuer die echte
+  // Zeilenlaenge wie PickDefault. Breite 0, wenn nichts passt.
+  ResolutionOption FittingResolution(const std::string& subtype, int activeLines) const;
+
  private:
   std::vector<CapsEntry> entries_;
   int nativeLines_ = 0;

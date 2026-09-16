@@ -4598,6 +4598,38 @@ bool App::AnalogueRangeIsFull() const {
   return renderer_.detectedRange() == VideoRenderer::RangeVerdict::Full;
 }
 
+// Eine Aufloesung, die nicht zum Raster der anliegenden Norm passt: 720x480
+// an einer PAL-Quelle, 720x576 an NTSC, oder 1080p an einem analogen Eingang.
+// Die Karte skaliert dann die Zeilen, und das Bild sieht weich aus oder hat
+// Balken, ohne dass irgendwo steht, warum. Beim Wechsel der Norm laesst
+// ReleaseStandardBoundFormat die alte Groesse von selbst los; das hier faengt
+// den Rest ein -- eine von Hand gewaehlte oder aus einem alten Profil
+// mitgebrachte.
+//
+// Voll (576, 480 oder 486) und halb (288, 240) passen beide. Gemeldet wird nur,
+// wenn die Norm feststeht -- eingerastet und keine Suche unterwegs -- und die
+// Karte fuer das Pixelformat eine passende Groesse wirklich anbietet; sonst
+// gaebe es nichts, worauf der Hinweis zeigen koennte.
+int App::ResolutionMismatchLines() const {
+  if (captureState_ != CaptureState::Running || !SourceIsAnalogue()) return 0;
+  if (signalLocked_.load(std::memory_order_relaxed) != 1) return 0;
+  const SettingsWindow::StandardSearch search = StandardSearchDisplay();
+  if (search != SettingsWindow::StandardSearch::Off &&
+      search != SettingsWindow::StandardSearch::Result) {
+    return 0;
+  }
+  const int lines = VideoStandardLines(signalStandard_.load(std::memory_order_relaxed));
+  if (lines <= 0) return 0;
+  const int active = lines >= 600 ? 576 : 480;
+  const VideoFormatInfo fmt = renderer_.sourceFormat();
+  if (!fmt.valid()) return 0;
+  if (std::abs(fmt.height - active) <= 16 || std::abs(fmt.height - active / 2) <= 8) return 0;
+  const ResolutionOption fit =
+      capture_.capabilities().caps.FittingResolution(capture_.connectedFormat().subtype, active);
+  if (fit.width <= 0) return 0;
+  return active;
+}
+
 bool App::SourceLooksInterlaced(const Profile& profile) const {
   if (!profile.image.deinterlaceAuto) return true;
   // The media type is believed when it claims interlaced -- a card that bothers
@@ -5728,6 +5760,33 @@ void App::DrawUi() {
     } else if (!full) {
       analogueFullRangeLogged_ = false;
     }
+  }
+
+  // Eine Aufloesung neben dem Raster der Norm, siehe ResolutionMismatchLines.
+  // Toast einmal beim Eintreten, der Hinweis im Reiter Quelle, solange es so
+  // bleibt -- mit dem Knopf, der die passende Groesse einstellt.
+  {
+    const int active = ResolutionMismatchLines();
+    int shown = 0;
+    if (active <= 0) {
+      resolutionMismatchSince_ = -1.0;
+      resolutionMismatchToasted_ = false;
+    } else if (resolutionMismatchSince_ < 0.0) {
+      resolutionMismatchSince_ = ImGui::GetTime();
+    } else if (ImGui::GetTime() - resolutionMismatchSince_ >= 3.0) {
+      shown = active;
+      if (!resolutionMismatchToasted_) {
+        resolutionMismatchToasted_ = true;
+        const VideoFormatInfo fmt = renderer_.sourceFormat();
+        CAP_LOG("Resolution %dx%d does not fit the video standard (%d active lines) -- hint shown",
+                fmt.width, fmt.height, active);
+        Toast(Format(T("%dx%d passt nicht zur Videonorm (%d Zeilen) — bitte prüfen (Reiter Quelle)",
+                       "%dx%d does not fit the video standard (%d lines) — please check (Source "
+                       "tab)"),
+                     fmt.width, fmt.height, active));
+      }
+    }
+    settings_.SetResolutionMismatch(shown);
   }
   settings_.SetCoSitedFields(renderer_.sourceCoSitedFields());
   settings_.SetSignalLocked(PollSignalLocked());

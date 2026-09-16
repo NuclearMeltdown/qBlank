@@ -1176,6 +1176,27 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     }
     ImGui::EndCombo();
   }
+  // Gleich unter der Auswahl, um die es geht. Steht die passende Groesse schon
+  // drin und wartet nur auf den Neustart, gibt es nichts mehr zu sagen.
+  if (resolutionMismatch_ > 0) {
+    const ResolutionOption fit = caps.caps.FittingResolution(fmt.subtype, resolutionMismatch_);
+    if (fit.width > 0 && (fit.width != fmt.width || fit.height != fmt.height)) {
+      TextWarningWrapped(
+          Format(T("Die Auflösung passt nicht zur Videonorm (%d sichtbare Zeilen). Die Karte "
+                   "muss das Bild dafür strecken oder auffüllen.",
+                   "The resolution does not fit the video standard (%d visible lines). The "
+                   "card has to stretch or pad the picture for it."),
+                 resolutionMismatch_)
+              .c_str());
+      if (ImGui::Button(Format(T("%dx%d einstellen", "Use %dx%d"), fit.width, fit.height).c_str())) {
+        fmt.width = fit.width;
+        fmt.height = fit.height;
+        // Eine feste Rate war unter der falschen Groesse gewaehlt; die Norm
+        // sagt selbst, welche richtig ist. Wie in App::ReleaseStandardBoundFormat.
+        if (fmt.fps > 0.0) fmt.fps = kFpsNative;
+      }
+    }
+  }
 
   const std::vector<FpsOption> fpsOptions = caps.caps.FpsList(fmt.subtype, fmt.width, fmt.height);
   // Was die beiden Betriebsarten gerade bedeuten. Aufgeloest wird erst beim
@@ -1190,6 +1211,14 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     if (resolved > 0.0) text += "  (" + FpsLabel(resolved) + ")";
     return text;
   };
+  // Die Rate des Signals ist die Voreinstellung, angeboten wird sie aber nur,
+  // wo eine Norm bekannt ist. Am Digitaleingang laeuft sie auf die hoechste
+  // hinaus, also steht dort auch das da -- ohne den gespeicherten Wert
+  // anzufassen, damit dasselbe Profil an einer analogen Quelle wieder die Rate
+  // des Signals nimmt.
+  const bool nativeOffered = std::any_of(fpsOptions.begin(), fpsOptions.end(),
+                                         [](const FpsOption& f) { return f.native; });
+  const double shownFps = (fmt.fps < 0.0 && !nativeOffered) ? kFpsHighest : fmt.fps;
   ImGui::SetNextItemWidth(-260.0f);
   if (ImGui::BeginCombo(T("Bildrate", "Frame rate"), fpsEntryLabel(shownFps).c_str())) {
     bool forcedSection = false;
@@ -1211,14 +1240,6 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
       if (ImGui::Selectable(fpsEntryLabel(stored).c_str(), selected) && !selected) {
         fmt.fps = stored;
       }
-  // Die Rate des Signals ist die Voreinstellung, angeboten wird sie aber nur,
-  // wo eine Norm bekannt ist. Am Digitaleingang laeuft sie auf die hoechste
-  // hinaus, also steht dort auch das da -- ohne den gespeicherten Wert
-  // anzufassen, damit dasselbe Profil an einer analogen Quelle wieder die Rate
-  // des Signals nimmt.
-  const bool nativeOffered = std::any_of(fpsOptions.begin(), fpsOptions.end(),
-                                         [](const FpsOption& f) { return f.native; });
-  const double shownFps = (fmt.fps < 0.0 && !nativeOffered) ? kFpsHighest : fmt.fps;
       if (selected) ImGui::SetItemDefaultFocus();
     }
     ImGui::EndCombo();

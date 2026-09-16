@@ -920,6 +920,25 @@ FormatSel CapsModel::PickDefault(const std::string& preferSubtype) const {
   return best;
 }
 
+ResolutionOption CapsModel::FittingResolution(const std::string& subtype, int activeLines) const {
+  ResolutionOption best;
+  if (activeLines <= 0) return best;
+  long long bestScore = -1;
+  for (const CapsEntry& e : entries_) {
+    if (e.subtypeLabel != subtype) continue;
+    // Derselbe Schlupf wie in PickDefault: 486 unter 525 zaehlt mit.
+    if (e.height < activeLines || e.height > activeLines + 16) continue;
+    const long long lineBonus = (e.width >= 704 && e.width <= 720) ? 1LL << 40 : 0;
+    const long long score = lineBonus + (long long)e.width * e.height;
+    if (score > bestScore) {
+      bestScore = score;
+      best.width = e.width;
+      best.height = e.height;
+    }
+  }
+  return best;
+}
+
 // --------------------------------------------------------------- apply format
 
 namespace {

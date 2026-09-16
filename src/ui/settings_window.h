@@ -69,6 +69,10 @@ class SettingsWindow {
   // Eingang der volle Bereich ankommt. Die Bedingungen dafuer stehen bei
   // App::AnalogueRangeIsFull.
   void SetAnalogueFullRange(bool full) { analogueFullRange_ = full; }
+  // Die sichtbaren Zeilen der anliegenden Norm, wenn die laufende Aufloesung
+  // nicht dazu passt; 0 sonst. Die Bedingungen stehen bei
+  // App::ResolutionMismatchLines.
+  void SetResolutionMismatch(int activeLines) { resolutionMismatch_ = activeLines; }
   void SetCoSitedFields(bool on) { coSitedFields_ = on; }
   // False while the app is itself trying to open the card. Probing means
   // building a second graph on the same device, and doing that while the first
@@ -291,6 +295,7 @@ class SettingsWindow {
   const char* const* detectedInterlace_ = nullptr;
   bool interlaceDoubtful_ = false;
   bool analogueFullRange_ = false;
+  int resolutionMismatch_ = 0;
   bool fillsWindow_ = false;
   bool probeAllowed_ = true;
   Updater* updater_ = nullptr;

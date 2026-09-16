@@ -190,6 +190,10 @@ class App {
   // Ob an einem analogen Eingang der volle Wertebereich ankommt, wo die Norm
   // 16-235 vorsieht -- ein Hinweis, keine Warnung. Siehe die Umsetzung.
   bool AnalogueRangeIsFull() const;
+  // Die sichtbaren Zeilen der anliegenden Norm, wenn die laufende Aufloesung
+  // nicht dazu passt und die Karte eine passende anbietet; sonst 0. Siehe die
+  // Umsetzung.
+  int ResolutionMismatchLines() const;
 
   // Finds the analogue video standard by watching whether the decoder locks.
   // Runs only when the source is set to automatic.
@@ -426,6 +430,11 @@ class App {
   // oder einen Formatwechsel wieder auf -- also gehoert die Zeile an den
   // Augenblick, in dem er eintritt, und nicht an jedes Bild danach.
   bool analogueFullRangeLogged_ = false;
+  // Seit wann die Aufloesung nicht zur Norm passt (-1: sie passt), und ob das
+  // schon gemeldet ist. Die Wartezeit, weil Norm und Format nach einem
+  // Umschalten nicht im selben Bild ankommen.
+  double resolutionMismatchSince_ = -1.0;
+  bool resolutionMismatchToasted_ = false;
   DevicePropertyPages devicePages_;
   SettingsHost settingsHost_;
   Updater updater_;
