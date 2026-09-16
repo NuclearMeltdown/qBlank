@@ -1191,7 +1191,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     return text;
   };
   ImGui::SetNextItemWidth(-260.0f);
-  if (ImGui::BeginCombo(T("Bildrate", "Frame rate"), fpsEntryLabel(fmt.fps).c_str())) {
+  if (ImGui::BeginCombo(T("Bildrate", "Frame rate"), fpsEntryLabel(shownFps).c_str())) {
     bool forcedSection = false;
     bool namedSection = false;
     for (const FpsOption& f : fpsOptions) {
@@ -1205,12 +1205,20 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
                                "Not reported for this resolution"));
       }
       const double stored = f.native ? kFpsNative : (f.highest ? kFpsHighest : f.fps);
-      const bool selected = f.native    ? (fmt.fps < 0.0)
-                            : f.highest ? (std::fabs(fmt.fps) < 0.05)
-                                        : (fmt.fps > 0.0 && std::fabs(f.fps - fmt.fps) < 0.05);
+      const bool selected = f.native    ? (shownFps < 0.0)
+                            : f.highest ? (std::fabs(shownFps) < 0.05)
+                                        : (shownFps > 0.0 && std::fabs(f.fps - shownFps) < 0.05);
       if (ImGui::Selectable(fpsEntryLabel(stored).c_str(), selected) && !selected) {
         fmt.fps = stored;
       }
+  // Die Rate des Signals ist die Voreinstellung, angeboten wird sie aber nur,
+  // wo eine Norm bekannt ist. Am Digitaleingang laeuft sie auf die hoechste
+  // hinaus, also steht dort auch das da -- ohne den gespeicherten Wert
+  // anzufassen, damit dasselbe Profil an einer analogen Quelle wieder die Rate
+  // des Signals nimmt.
+  const bool nativeOffered = std::any_of(fpsOptions.begin(), fpsOptions.end(),
+                                         [](const FpsOption& f) { return f.native; });
+  const double shownFps = (fmt.fps < 0.0 && !nativeOffered) ? kFpsHighest : fmt.fps;
       if (selected) ImGui::SetItemDefaultFocus();
     }
     ImGui::EndCombo();

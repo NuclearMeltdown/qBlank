@@ -630,8 +630,10 @@ bool App::ReleaseStandardBoundFormat(int newLines) {
   // Eine Zahl faellt weg, eine Betriebsart nicht. "Hoechste verfuegbare" und
   // "die des Signals" sind keine Werte, die an der Norm haengen -- sie sind die
   // Anweisung, nach dem Umschalten neu zu antworten, und genau die soll das
-  // Umschalten nicht loeschen.
-  if (f.fps > 0.0) f.fps = kFpsHighest;
+  // Umschalten nicht loeschen. Eine feste Zahl dagegen wird zur Rate des
+  // Signals: sie war unter der alten Norm gewaehlt, und die neue sagt selbst,
+  // welche richtig ist.
+  if (f.fps > 0.0) f.fps = kFpsNative;
   f.forced = false;
   return true;
 }
@@ -659,7 +661,7 @@ void App::ReinitialiseCard() {
   // Anweisung, wie nach dem Neueinlesen zu antworten ist -- und die soll das
   // Neueinlesen nicht loeschen. Sonst steht hinterher wieder "hoechste
   // verfuegbare" da, obwohl niemand das ausgesucht hat.
-  const double keptFps = c.format.fps <= 0.0 ? c.format.fps : kFpsHighest;
+  const double keptFps = c.format.fps <= 0.0 ? c.format.fps : kFpsNative;
   c.videoStandard = -1;  // wieder suchen lassen
 
   // Aufloesung wieder suchen lassen, das Pixelformat nicht. Eine Karte, die eben

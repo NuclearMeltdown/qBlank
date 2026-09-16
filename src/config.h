@@ -300,7 +300,12 @@ struct FormatSel {
   int width = 0;
   int height = 0;
   // Eine Rate in Hz, oder kFpsHighest / kFpsNative.
-  double fps = kFpsHighest;
+  //
+  // Von Haus aus die des Signals. "Hoechste verfuegbare" fordert an einer
+  // PAL-Konsole von einer Karte, die 60 kann, mehr Bilder an, als das Signal
+  // hat. Wo keine Norm bekannt ist, am Digitaleingang, laeuft die Rate des
+  // Signals ohnehin auf die hoechste hinaus; siehe VideoCapture::Start.
+  double fps = kFpsNative;
   // True when this combination is not advertised by the driver but lies inside
   // the ranges it reports -- the 1080p60 case.
   bool forced = false;

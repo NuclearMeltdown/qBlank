@@ -557,7 +557,7 @@ FormatSel ReadFormat(const json::Value& v) {
   f.subtype = v["subtype"].AsString();
   f.width = v["width"].AsInt(0);
   f.height = v["height"].AsInt(0);
-  f.fps = v["fps"].AsNumber(0.0);
+  f.fps = v["fps"].AsNumber(kFpsNative);
   f.forced = v["forced"].AsBool(false);
   return f;
 }
