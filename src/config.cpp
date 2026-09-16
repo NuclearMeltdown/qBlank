@@ -995,6 +995,11 @@ bool Config::Load(std::string* error) {
   app.cameraHdr = a["cameraHdr"].AsBool(false);
   app.statsDetail = ReadEnum<StatsDetail>(a, "statsDetail", 3, StatsDetail::Compact);
   app.logToFile = a["logToFile"].AsBool(false);
+  app.logRetention.byAge = a["logByAge"].AsBool(true);
+  app.logRetention.days = Clamp(a["logDays"].AsInt(14), 1, 3650);
+  app.logRetention.byCount = a["logByCount"].AsBool(true);
+  app.logRetention.sessions = Clamp(a["logSessions"].AsInt(10), 1, 1000);
+  app.logRetention.olderVersions = a["logOlderVersions"].AsBool(false);
   app.windowX = a["windowX"].AsInt(AppSettings::kWindowPosUnset);
   app.windowY = a["windowY"].AsInt(AppSettings::kWindowPosUnset);
   app.windowW = Clamp(a["windowW"].AsInt(1280), 160, 16384);
@@ -1111,6 +1116,11 @@ std::string Config::Serialize() const {
   a["cameraHdr"] = app.cameraHdr;
   a["statsDetail"] = (int)app.statsDetail;
   a["logToFile"] = app.logToFile;
+  a["logByAge"] = app.logRetention.byAge;
+  a["logDays"] = app.logRetention.days;
+  a["logByCount"] = app.logRetention.byCount;
+  a["logSessions"] = app.logRetention.sessions;
+  a["logOlderVersions"] = app.logRetention.olderVersions;
   a["windowX"] = app.windowX;
   a["windowY"] = app.windowY;
   a["windowW"] = app.windowW;

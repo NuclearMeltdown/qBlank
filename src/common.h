@@ -36,8 +36,23 @@ std::string Format(const char* fmt, ...);
 
 // ---------------------------------------------------------------------- logging
 
-// Writes to the debugger and, if enabled, to qBlank.log next to the exe.
-void LogInit(bool toFile);
+// Which earlier sessions LogInit removes from the log before it adds a new one.
+// Each rule stands on its own, and a session goes as soon as one of them says
+// so. Always whole sessions, so what is left still starts with its first line.
+struct LogRetention {
+  bool byAge = true;
+  int days = 14;
+  bool byCount = true;
+  int sessions = 10;  // including the one about to start
+  bool olderVersions = false;
+};
+
+// Writes to the debugger and, if enabled, to qBlank.log next to the exe. The
+// file is kept across starts: every session opens with a line naming version
+// and time, and LogEnd closes it with another. One without its closing line
+// did not end normally.
+void LogInit(bool toFile, const LogRetention& keep);
+void LogEnd();
 void LogWrite(const char* level, const char* fmt, ...);
 
 #define CAP_LOG(...)  ::cap::LogWrite("INFO", __VA_ARGS__)

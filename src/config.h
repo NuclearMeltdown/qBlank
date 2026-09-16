@@ -702,6 +702,7 @@ struct AppSettings {
   bool cameraHdr = false;
   StatsDetail statsDetail = StatsDetail::Compact;
   bool logToFile = false;
+  LogRetention logRetention;
 
   // Where the volume readout appears when it changes.
   OsdCorner osdCorner = OsdCorner::TopRight;

@@ -179,8 +179,7 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
   // Load meldet dasselbe False fuer "keine Datei" und fuer "Datei kaputt". Der
   // Unterschied steht in error: beim allerersten Start ist es leer.
   firstRun_ = !config_.Load(&configError) && configError.empty();
-  LogInit(config_.app.logToFile);
-  CAP_LOG("%s started", AppNameUtf8().c_str());
+  LogInit(config_.app.logToFile, config_.app.logRetention);
   if (!configError.empty()) CAP_WARN("%s", configError.c_str());
 
   // Settings inherited from a name this program no longer uses need one thing

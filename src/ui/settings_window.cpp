@@ -2806,9 +2806,44 @@ void SettingsWindow::DrawDisplayTab() {
           .c_str(),
       &app.logToFile);
   ImGui::SameLine();
-  HelpMarker(T("Nur zur Fehlersuche. Wirkt beim nächsten Start.",
-               "For troubleshooting only. Takes effect on the next start."));
+  HelpMarker(T("Nur zur Fehlersuche. Alles landet in dieser einen Datei neben dem Programm, "
+               "jede Sitzung zwischen einer Start- und einer Endzeile mit Version und Uhrzeit. "
+               "Fehlt die Endzeile, wurde das Programm nicht normal beendet.\n\n"
+               "Aufgeräumt wird beim Start, immer ganze Sitzungen. Wirkt beim nächsten Start.",
+               "For troubleshooting only. Everything goes into this one file next to the "
+               "program, each session between a start and an end line with version and time. "
+               "A session without its end line did not close normally.\n\n"
+               "Cleaned up at start, whole sessions only. Takes effect on the next start."));
 
+  LogRetention& keep = app.logRetention;
+  ImGui::BeginDisabled(!app.logToFile);
+  ImGui::Indent();
+  ImGui::TextDisabled("%s", T("Beim Start entfernen:", "Remove at start:"));
+  ImGui::Checkbox(T("Sitzungen älter als##logAge", "Sessions older than##logAge"), &keep.byAge);
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!keep.byAge);
+  ImGui::SetNextItemWidth(64.0f);
+  if (ImGui::InputInt("##logDays", &keep.days, 0, 0, ImGuiInputTextFlags_CharsDecimal)) {
+    keep.days = Clamp(keep.days, 1, 3650);
+  }
+  ImGui::SameLine();
+  ImGui::TextUnformatted(T("Tage", "days"));
+  ImGui::EndDisabled();
+  ImGui::Checkbox(T("Alles vor den letzten##logCount", "Everything before the last##logCount"),
+                  &keep.byCount);
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!keep.byCount);
+  ImGui::SetNextItemWidth(64.0f);
+  if (ImGui::InputInt("##logSessions", &keep.sessions, 0, 0, ImGuiInputTextFlags_CharsDecimal)) {
+    keep.sessions = Clamp(keep.sessions, 1, 1000);
+  }
+  ImGui::SameLine();
+  ImGui::TextUnformatted(T("Sitzungen", "sessions"));
+  ImGui::EndDisabled();
+  ImGui::Checkbox(T("Sitzungen älterer Versionen", "Sessions from older versions"),
+                  &keep.olderVersions);
+  ImGui::Unindent();
+  ImGui::EndDisabled();
 }
 
 // --------------------------------------------------------------- record tab

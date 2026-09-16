@@ -136,7 +136,10 @@ int FetchFfmpeg() {
   AttachConsoleIfAny();
   // A windowed program handed a console it did not create cannot rely on stdout
   // surviving, so the log file is the dependable record of what happened.
-  cap::LogInit(true);
+  // Same file as the program's, so the same rules decide what stays in it.
+  cap::Config config;
+  config.Load(nullptr);
+  cap::LogInit(true, config.app.logRetention);
   cap::LogWrite("INFO", "--fetch-ffmpeg started");
   std::printf("\nqBlank: fetching ffmpeg ...\n");
 
@@ -163,6 +166,7 @@ int FetchFfmpeg() {
   }
   // A failure has been logged where it happened.
   if (ok) cap::LogWrite("INFO", "--fetch-ffmpeg: %s", downloader.resultPath().c_str());
+  cap::LogEnd();
   return ok ? 0 : 1;
 }
 
@@ -233,6 +237,6 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR commandLine, int sho
   }
 
   ::timeEndPeriod(1);
-  cap::LogWrite("INFO", "%s exited", cap::AppNameUtf8().c_str());
+  cap::LogEnd();
   return result;
 }
