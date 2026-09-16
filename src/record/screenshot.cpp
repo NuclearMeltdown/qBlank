@@ -335,10 +335,10 @@ bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath
     }
   }
 
-  args = args.substr(0, args.find(L"-i pipe:0")) + L"-i "" + raw + L"" " +
+  args = args.substr(0, args.find(L"-i pipe:0")) + L"-i \"" + raw + L"\" " +
          args.substr(args.find(L"-i pipe:0") + 9);
 
-  std::wstring command = L""" + ffmpegPath + L"" " + args;
+  std::wstring command = L"\"" + ffmpegPath + L"\" " + args;
   STARTUPINFOW si = {};
   si.cb = sizeof(si);
   si.dwFlags = STARTF_USESHOWWINDOW;
