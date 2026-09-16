@@ -152,10 +152,8 @@ bool ExtractWithTar(const std::wstring& archive, const std::wstring& intoFolder,
   if (::GetSystemDirectoryW(system32, MAX_PATH) == 0) return false;
   const std::wstring tar = std::wstring(system32) + L"\\tar.exe";
   if (::GetFileAttributesW(tar.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    if (error) {
-      *error = T("tar.exe fehlt (Windows 10 1803 oder neuer nötig).",
-                 "tar.exe is missing (needs Windows 10 1803 or newer).");
-    }
+    ReportError(error, CAP_SAID(T("tar.exe fehlt (Windows 10 1803 oder neuer nötig).",
+                                  "tar.exe is missing (needs Windows 10 1803 or newer).")));
     return false;
   }
 
@@ -172,7 +170,7 @@ bool ExtractWithTar(const std::wstring& archive, const std::wstring& intoFolder,
   PROCESS_INFORMATION pi = {};
   if (!::CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
                         nullptr, nullptr, &si, &pi)) {
-    if (error) *error = T("tar.exe ließ sich nicht starten.", "Could not start tar.exe.");
+    ReportError(error, CAP_SAID(T("tar.exe ließ sich nicht starten.", "Could not start tar.exe.")));
     return false;
   }
   ::WaitForSingleObject(pi.hProcess, 120000);
@@ -180,10 +178,11 @@ bool ExtractWithTar(const std::wstring& archive, const std::wstring& intoFolder,
   ::GetExitCodeProcess(pi.hProcess, &code);
   ::CloseHandle(pi.hThread);
   ::CloseHandle(pi.hProcess);
-  if (code != 0 && error) {
-    *error = T("Entpacken fehlgeschlagen.", "Extracting failed.");
+  if (code != 0) {
+    return ReportError(error, CAP_SAID(Format(T("Entpacken fehlgeschlagen (tar %lu).", "Extracting failed (tar %lu)."),
+                                              (unsigned long)code)));
   }
-  return code == 0;
+  return true;
 }
 
 }  // namespace
@@ -237,8 +236,9 @@ bool FfmpegDownloader::StartVersionCheck() {
 }
 
 void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
-  auto finish = [&](bool ok, const std::string& text) {
-    SetMessage(text);
+  auto finish = [&](bool ok, const Said& said) {
+    if (!ok && !said.logged.empty()) CAP_ERR("ffmpeg download: %s", said.logged.c_str());
+    SetMessage(said.shown);
     state_.store(ok ? State::Done : State::Failed, std::memory_order_relaxed);
   };
 
@@ -250,9 +250,9 @@ void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
   }
   if (versionOnly) {
     if (version.empty()) {
-      finish(false, T("Version konnte nicht ermittelt werden.", "Could not determine the version."));
+      finish(false, CAP_SAID(T("Version konnte nicht ermittelt werden.", "Could not determine the version.")));
     } else {
-      finish(true, T("Neueste Version: ", "Latest version: ") + version);
+      finish(true, CAP_SAID(T("Neueste Version: ", "Latest version: ") + version));
     }
     return;
   }
@@ -274,7 +274,7 @@ void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
   {
     WinHttpHandles h;
     if (!OpenRequest(&h, kPath, true)) {
-      finish(false, T("Verbindung fehlgeschlagen.", "The connection failed."));
+      finish(false, CAP_SAID(T("Verbindung fehlgeschlagen.", "The connection failed.")));
       return;
     }
     const std::wstring lengthText = ReadHeader(h.request, WINHTTP_QUERY_CONTENT_LENGTH);
@@ -283,8 +283,8 @@ void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
     HANDLE out = ::CreateFileW(archive.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                FILE_ATTRIBUTE_NORMAL, nullptr);
     if (out == INVALID_HANDLE_VALUE) {
-      finish(false, T("Temporäre Datei konnte nicht angelegt werden.",
-                      "Could not create the temporary file."));
+      finish(false, CAP_SAID(T("Temporäre Datei konnte nicht angelegt werden.",
+                               "Could not create the temporary file.")));
       return;
     }
 
@@ -313,9 +313,9 @@ void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
 
     if (!ok || received == 0) {
       ::DeleteFileW(archive.c_str());
-      finish(false, cancel_.load(std::memory_order_relaxed)
-                        ? T("Abgebrochen.", "Cancelled.")
-                        : T("Download fehlgeschlagen.", "The download failed."));
+      finish(false, CAP_SAID(cancel_.load(std::memory_order_relaxed)
+                                 ? T("Abgebrochen.", "Cancelled.")
+                                 : T("Download fehlgeschlagen.", "The download failed.")));
       return;
     }
   }
@@ -326,12 +326,12 @@ void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
     const std::string actual = HexSha256(archive);
     if (actual.empty() || actual != expected) {
       ::DeleteFileW(archive.c_str());
-      finish(false, T("Prüfsumme stimmt nicht — Download verworfen.",
-                      "Checksum mismatch — the download was discarded."));
+      finish(false, CAP_SAID(T("Prüfsumme stimmt nicht — Download verworfen.",
+                               "Checksum mismatch — the download was discarded.")));
       return;
     }
   } else {
-    CAP_WARN("ffmpeg-Download: Prüfsumme nicht abrufbar, wird ohne Prüfung entpackt");
+    CAP_WARN("ffmpeg download: no checksum to be had, extracting unchecked");
   }
 
   // --- extract ---
@@ -340,15 +340,14 @@ void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
   std::string extractError;
   if (!ExtractWithTar(archive, targetFolder, &extractError)) {
     ::DeleteFileW(archive.c_str());
-    finish(false, extractError.empty() ? T("Entpacken fehlgeschlagen.", "Extracting failed.")
-                                       : extractError);
+    finish(false, Relayed(extractError));
     return;
   }
   ::DeleteFileW(archive.c_str());
 
   const std::wstring exe = targetFolder + L"\\ffmpeg.exe";
   if (::GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    finish(false, T("ffmpeg.exe war nicht im Archiv.", "ffmpeg.exe was not in the archive."));
+    finish(false, CAP_SAID(T("ffmpeg.exe war nicht im Archiv.", "ffmpeg.exe was not in the archive.")));
     return;
   }
   {
@@ -356,8 +355,8 @@ void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
     resultPath_ = ToUtf8(exe);
   }
   progress_.store(1.0f);
-  CAP_LOG("ffmpeg heruntergeladen: %s (Version %s)", ToUtf8(exe).c_str(), version.c_str());
-  finish(true, T("ffmpeg ist bereit.", "ffmpeg is ready."));
+  CAP_LOG("ffmpeg downloaded: %s (version %s)", ToUtf8(exe).c_str(), version.c_str());
+  finish(true, CAP_SAID(T("ffmpeg ist bereit.", "ffmpeg is ready.")));
 }
 
 }  // namespace cap

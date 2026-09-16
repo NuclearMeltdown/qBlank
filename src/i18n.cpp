@@ -15,6 +15,9 @@ namespace {
 // would be hardest to explain.
 std::atomic<Language> g_language{Language::English};
 
+// Per thread, and a count rather than a flag so scopes can nest.
+thread_local int t_englishScopes = 0;
+
 }  // namespace
 
 void SetLanguage(Language language) {
@@ -25,8 +28,20 @@ Language CurrentLanguage() {
   return g_language.load(std::memory_order_relaxed);
 }
 
+EnglishScope::EnglishScope() {
+  ++t_englishScopes;
+}
+
+EnglishScope::~EnglishScope() {
+  --t_englishScopes;
+}
+
+bool SpeakingEnglish() {
+  return t_englishScopes > 0 || g_language.load(std::memory_order_relaxed) == Language::English;
+}
+
 const char* T(const char* de, const char* en) {
-  return g_language.load(std::memory_order_relaxed) == Language::German ? de : en;
+  return SpeakingEnglish() ? en : de;
 }
 
 }  // namespace cap

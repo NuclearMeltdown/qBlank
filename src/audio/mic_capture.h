@@ -63,7 +63,7 @@ class MicCapture {
 
  private:
   void CaptureThread(AudioDeviceInfo device);
-  void Fail(const std::string& message);
+  void Fail(const Said& said);
 
   AudioRing ring_;
   std::thread thread_;

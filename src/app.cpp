@@ -180,7 +180,7 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
   // Unterschied steht in error: beim allerersten Start ist es leer.
   firstRun_ = !config_.Load(&configError) && configError.empty();
   LogInit(config_.app.logToFile);
-  CAP_LOG("%s startet", AppNameUtf8().c_str());
+  CAP_LOG("%s started", AppNameUtf8().c_str());
   if (!configError.empty()) CAP_WARN("%s", configError.c_str());
 
   // Settings inherited from a name this program no longer uses need one thing
@@ -201,7 +201,7 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
       config_.record.screenshotFolder = ToUtf8(DefaultScreenshotFolder(was));
     }
     config_.Save();
-    CAP_LOG("Einstellungen von %s übernommen; Ordner festgeschrieben",
+    CAP_LOG("Settings adopted from %s; folders pinned",
             ToUtf8(AdoptedFrom()).c_str());
   }
 
@@ -235,7 +235,7 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
   // die Abkuerzung, denn dann ist "kein Geraet" keine Begruessung mehr, sondern
   // ein Problem.
   if (firstRun_) {
-    CAP_LOG("Erster Start: Willkommensbildschirm statt Einstellungen");
+    CAP_LOG("First start: welcome screen instead of settings");
   } else if (config_.active().capture.video.empty()) {
     OpenSettings(T("Noch kein Aufnahmegerät ausgewählt. Wähle unten die Capture-Karte aus.",
                    "No capture device selected yet. Pick your capture card below."));
@@ -533,7 +533,6 @@ bool App::StartCapture(std::string* error) {
 
   std::string rendererError;
   renderer_.SetSourceFormat(capture_.format(), &rendererError);
-  if (!rendererError.empty()) CAP_WARN("%s", rendererError.c_str());
 
   captureState_ = CaptureState::Running;
   captureError_.clear();
@@ -584,7 +583,7 @@ void App::StartAudio() {
       if (FindEmbeddedAudioDevice(capture_.resolvedDevice(), &found)) {
         input = found.ToRef();
       } else {
-        CAP_WARN("Kein eingebettetes Audiogerät gefunden, Ton bleibt aus");
+        CAP_WARN("No embedded audio device found, sound stays off");
         return;
       }
       break;
@@ -593,7 +592,7 @@ void App::StartAudio() {
 
   std::string err;
   if (!audio_.Start(input, p.audio, &err)) {
-    CAP_WARN("Ton konnte nicht gestartet werden: %s", err.c_str());
+    CAP_WARN("Sound stays off");
     Toast(T("Ton konnte nicht gestartet werden: ", "Sound could not be started: ") + err);
   }
   delayLine_.Configure(std::max(0, -p.audio.avOffsetMs));
@@ -623,7 +622,7 @@ bool App::ReleaseStandardBoundFormat(int newLines) {
   if (appliedStandardLines_ == newLines) return false;
   FormatSel& f = config_.active().capture.format;
   if (f.width <= 0 && f.height <= 0 && f.fps <= 0.0) return false;
-  CAP_LOG("Videonorm: %d statt %d Zeilen -- %s wird losgelassen", newLines, appliedStandardLines_,
+  CAP_LOG("Video standard: %d lines instead of %d -- releasing %s", newLines, appliedStandardLines_,
           f.Label().c_str());
   f.width = 0;
   f.height = 0;
@@ -676,9 +675,9 @@ void App::ReinitialiseCard() {
   // anderen Pfad auftauchen als der, den wir uns gemerkt haben.
   settings_.InvalidateDeviceLists();
 
-  CAP_LOG("Karte neu einlesen: Videonorm %s, Auflösung verworfen, Pixelformat %s",
-          hadStandard ? "verworfen" : "war schon automatisch",
-          keptSubtype.empty() ? "war schon automatisch" : keptSubtype.c_str());
+  CAP_LOG("Re-reading the card: video standard %s, resolution dropped, pixel format %s",
+          hadStandard ? "dropped" : "already automatic",
+          keptSubtype.empty() ? "already automatic" : keptSubtype.c_str());
 
   std::string error;
   if (StartCapture(&error)) {
@@ -780,7 +779,7 @@ void App::SyncConfigChanges() {
   const bool standardChanged = p.capture.videoStandard != applied_.videoStandard &&
                                p.capture.videoStandard > 0;
   if (standardChanged) {
-    CAP_LOG("Videonorm gewechselt: %s -> %s, Graph wird neu aufgebaut",
+    CAP_LOG("Video standard changed: %s -> %s, rebuilding the graph",
             VideoStandardSettingName(applied_.videoStandard).c_str(),
             VideoStandardSettingName(p.capture.videoStandard).c_str());
     // Vor dem Neubau, denn der liest die Groesse aus dem Profil.
@@ -865,7 +864,7 @@ void App::MaybeSaveConfig() {
   if (configDirty_ && now - lastConfigChange_ >= 1.0) {
     configDirty_ = false;
     std::string error;
-    if (!config_.Save(&error)) CAP_ERR("%s", error.c_str());
+    config_.Save(&error);
   }
 }
 
@@ -876,10 +875,7 @@ void App::SaveConfig() {
   RememberSettingsWindow();
   SaveWindowPlacement();
   std::string error;
-  if (!config_.Save(&error)) {
-    CAP_ERR("%s", error.c_str());
-    Toast(error);
-  }
+  if (!config_.Save(&error)) Toast(error);
 }
 
 void App::SwitchProfile(int index) {
@@ -977,14 +973,14 @@ void App::LoadCachedEncoders() {
   if (rec.encodersAvailable.empty() && rec.encoderProbeSignature.empty()) return;
 
   if (rec.encoderProbeSignature != EncoderSignature()) {
-    CAP_LOG("Encoder-Test verworfen: Hardware oder ffmpeg hat sich geändert");
+    CAP_LOG("Encoder probe discarded: hardware or ffmpeg has changed");
     rec.encoderProbeSignature.clear();
     rec.encodersAvailable.clear();
     return;
   }
 
   ApplyCachedProbe(&ffmpeg_, rec.encodersAvailable);
-  CAP_LOG("Encoder aus der Konfiguration übernommen: %zu verwendbar",
+  CAP_LOG("Encoders taken from the configuration: %zu usable",
           rec.encodersAvailable.size());
 }
 
@@ -1001,7 +997,7 @@ void App::SaveCachedEncoders() {
   // goes back to Auto rather than staying as a trap.
   const EncoderInfo* chosen = ffmpeg_.Find(rec.encoder);
   if (!IsAutoEncoder(rec.encoder) && (!chosen || !chosen->available)) {
-    CAP_WARN("Gewählter Encoder ist nicht verfügbar, zurück auf Automatisch");
+    CAP_WARN("Chosen encoder is not available, back to automatic");
     rec.encoder = RecordEncoder::Auto;
     Toast(T("Der gewählte Encoder funktioniert hier nicht, zurück auf Automatisch.",
             "The selected encoder does not work here, back to Automatic."));
@@ -1079,7 +1075,7 @@ void App::StartRecording() {
   // turns a confusing "ffmpeg exited with code 1" into an honest answer.
   if (ffmpeg_.found &&
       ::GetFileAttributesW(ToWide(ffmpeg_.path).c_str()) == INVALID_FILE_ATTRIBUTES) {
-    CAP_WARN("ffmpeg ist verschwunden: %s", ffmpeg_.path.c_str());
+    CAP_WARN("ffmpeg has disappeared: %s", ffmpeg_.path.c_str());
     ffmpeg_ = FfmpegInfo{};
   }
   if (!ffmpeg_.found) {
@@ -1273,7 +1269,7 @@ std::wstring App::ResolveOutputFolder(std::string* configured, const std::wstrin
   // It cannot be created either -- an unplugged drive, a path that is no longer
   // writable. Rather than refuse, fall back to the default and clear the custom
   // path so the settings show where the files are actually going now.
-  CAP_WARN("Ordner nicht verfügbar: %s", ToUtf8(folder).c_str());
+  CAP_WARN("Folder not available: %s", ToUtf8(folder).c_str());
   if (!configured->empty() && EnsureFolder(fallback)) {
     Toast(T("Ordner nicht verfügbar, Standardordner wird benutzt.",
             "Folder not available, using the default folder."));
@@ -1437,12 +1433,11 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
     std::string clipError;
     if (!CopyScreenshotToClipboard(hwnd_, pixels.data(), width, height, &clipError)) {
       Toast(T("Kopieren fehlgeschlagen: ", "Copy failed: ") + clipError);
-      CAP_ERR("Screenshot in die Zwischenablage fehlgeschlagen: %s", clipError.c_str());
       return;
     }
     Toast(T("In der Zwischenablage", "On the clipboard") +
           Format(" (%dx%d)", width, height) + note);
-    CAP_LOG("Screenshot in die Zwischenablage kopiert (%dx%d)", width, height);
+    CAP_LOG("Screenshot copied to the clipboard (%dx%d)", width, height);
     return;
   }
 
@@ -1454,7 +1449,7 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
                       : MakeScreenshotPath(folder, rec.screenshotFormat);
   if (path.empty()) {
     Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
-    CAP_ERR("Screenshot: Ordner nicht verfügbar: %s", ToUtf8(folder).c_str());
+    CAP_ERR("Screenshot: folder not available: %s", ToUtf8(folder).c_str());
     return;
   }
 
@@ -1469,7 +1464,6 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
                               config_.app.paperWhiteNits, &error);
   if (!ok) {
     Toast(T("Screenshot fehlgeschlagen: ", "Screenshot failed: ") + error);
-    CAP_ERR("Screenshot fehlgeschlagen: %s", error.c_str());
     return;
   }
 
@@ -1478,7 +1472,7 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
   const size_t slash = path.find_last_of(L'\\');
   Toast(T("Screenshot: ", "Screenshot: ") +
         ToUtf8(slash == std::wstring::npos ? path : path.substr(slash + 1)) + note);
-  CAP_LOG("Screenshot gespeichert: %s (%dx%d)", ToUtf8(path).c_str(), width, height);
+  CAP_LOG("Screenshot saved: %s (%dx%d)", ToUtf8(path).c_str(), width, height);
 }
 
 // ------------------------------------------------------------- crop picker
@@ -1526,8 +1520,8 @@ static const double kStandardLostSeconds = 1.5;
 // die Kuerzung bei Bildmangel weiter unten weg. Eine Vorhersage durch eine
 // Messung ersetzt, nicht durch eine zweite Vorhersage.
 //
-// Nachpruefbar bleibt es an derselben Zeile: "Videonorm automatisch gefunden:
-// ... (Lock nach %.2f s)". Bleiben diese Werte unter 0,85 s, stimmt die
+// Nachpruefbar bleibt es an derselben Zeile: "Video standard found
+// automatically: ... (lock after %.2f s)". Bleiben diese Werte unter 0,85 s, stimmt die
 // Rechnung; kommen sie in die Naehe von 1,25, gehoert die Frist zurueck auf
 // 1,5.
 static const double kStandardSettleSeconds = 1.25;
@@ -1563,8 +1557,8 @@ static const double kStandardSettleSeconds = 1.25;
 // wurde. Dort liegt ein Signal an, und dort liegt jeder gemessene Lock unter
 // 0,6 s.
 //
-// Nachpruefbar an "Videonorm automatisch gefunden: ... (Lock nach %.2f s)" --
-// dieselbe Zeile wie oben. Steht davor "schneller Durchgang" und liegt der Wert
+// Nachpruefbar an "Video standard found automatically: ... (lock after %.2f s)"
+// -- dieselbe Zeile wie oben. Steht davor "fast pass" und liegt der Wert
 // dicht unter 0,6, ist die Grenze zu eng; landen umgekehrt Faelle mit
 // anliegendem Signal regelmaessig erst im zweiten Durchgang, ebenso.
 static const double kStandardFastSeconds = 0.6;
@@ -1665,7 +1659,7 @@ static bool ColourStillRising(float previous, float current) {
 // unsichtbar. Bevor ueber eine frisch gesetzte Norm geurteilt werden darf,
 // wartet `UpdateVideoStandard` auf zwei frische Messwerte -- bei 250 ms Takt
 // sind das 0,25 bis 0,5 s, in denen nichts gemessen wird, sondern nur gewartet.
-// Genau diese Spanne steckt in jedem gemessenen "Lock nach"-Wert mit drin:
+// Genau diese Spanne steckt in jedem gemessenen "lock after"-Wert mit drin:
 // zehn davon aus drei Sitzungen liegen zwischen 0,32 und 0,88 s, und ein
 // gutes Drittel davon ist dieses Warten.
 //
@@ -1893,7 +1887,7 @@ void App::RemeasureRange() {
     return;
   }
   renderer_.ResetRangeAnalysis();
-  CAP_LOG("Wertebereich: Messung von Hand neu gestartet");
+  CAP_LOG("Signal range: measurement restarted by hand");
   // Gesagt werden muss es, weil sonst nichts passiert, was man sehen koennte:
   // die Messung braucht vierzig Bilder, und bis dahin steht in der Anzeige
   // dasselbe wie vorher.
@@ -1923,7 +1917,7 @@ void App::RescanVideoStandard() {
     return;
   }
 
-  CAP_LOG("Videonorm: Suche von Hand ausgelöst");
+  CAP_LOG("Video standard: search started by hand");
   // Stufe eins von vorn. Auch die Runden zurueck auf null: wer von Hand sucht,
   // will keine Pause, in der nichts geschieht. Und von vorn heisst mit dem
   // schnellen Durchgang: von Hand gesucht wird an einer Quelle, die laeuft und
@@ -1965,8 +1959,8 @@ void App::FinishManualStandardSearch(long standard, const std::string& detail) {
                                    idx >= 0 ? VideoStandardName(idx) : "?");
   standardResultDetail_ = detail;
   standardResultUntilQpc_ = QpcNow() + SecondsToQpc(kStandardResultSeconds);
-  CAP_LOG("Videonorm: Suche von Hand beendet -- %s (%s)",
-          idx >= 0 ? VideoStandardName(idx) : "?", detail.c_str());
+  CAP_LOG("Video standard: manual search finished -- %s",
+          idx >= 0 ? VideoStandardName(idx) : "?");
 }
 
 // Ob das Ergebnis gerade im Bild steht.
@@ -2049,10 +2043,10 @@ void App::UpdateVideoStandard() {
         capture_.capabilities().availableStandards, config_.app.videoRegion, 0, nullptr);
     if (!plan.empty()) {
       searchStartLogged = true;
-      const char* how = "von Hand gesetzt";
-      if (config_.app.videoRegion == VideoRegion::Auto) how = "automatisch aus Windows";
-      if (config_.app.videoRegion == VideoRegion::None) how = "keine, nur die allgemeine Folge";
-      CAP_LOG("Videonorm-Suche: Region %s, zuerst %s", how,
+      const char* how = "set by hand";
+      if (config_.app.videoRegion == VideoRegion::Auto) how = "automatic, from Windows";
+      if (config_.app.videoRegion == VideoRegion::None) how = "none, the general order only";
+      CAP_LOG("Video standard search: region %s, trying %s first", how,
               VideoStandardName(VideoStandardIndexOf(plan.front())));
     }
   }
@@ -2132,7 +2126,7 @@ void App::UpdateVideoStandard() {
       // Mit der Einfangzeit daneben. Sie sagt, ob die Wartefrist gereicht hat
       // oder ob sie nur knapp gereicht hat -- und was eine Norm braucht, die
       // die Zeilenfrequenz wirklich neu einfangen musste.
-      CAP_LOG("Videonorm automatisch gefunden: %s (Lock nach %.2f s)",
+      CAP_LOG("Video standard found automatically: %s (lock after %.2f s)",
               VideoStandardName(VideoStandardIndexOf(settled)),
               standardSetQpc_ != 0 ? QpcToSeconds(now - standardSetQpc_) : 0.0);
       standardSetQpc_ = 0;
@@ -2184,7 +2178,7 @@ void App::UpdateVideoStandard() {
       const std::vector<long> plan =
           AutoStandardCandidates(available, config_.app.videoRegion, standardLastGood_, &planned);
       if (planned > 0) {
-        CAP_LOG("Videonorm: Lock auf %s verloren, zuerst wird %s versucht",
+        CAP_LOG("Video standard: lost the lock on %s, trying %s first",
                 VideoStandardName(VideoStandardIndexOf(standardLastGood_)),
                 VideoStandardName(VideoStandardIndexOf(plan.front())));
       }
@@ -2243,8 +2237,8 @@ void App::UpdateVideoStandard() {
   // beginnen lassen, sobald wieder etwas anliegt.
   if (starved && !standardStarvedLogged_) {
     standardStarvedLogged_ = true;
-    CAP_LOG("Videonorm: seit %.1f s kommt kein Bild mehr an -- %s passt nicht zum anliegenden "
-            "Signal, die Suche laeuft weiter",
+    CAP_LOG("Video standard: no frame for %.1f s -- %s does not match the incoming signal, the "
+            "search goes on",
             frameAgeMs >= 0.0 ? frameAgeMs / 1000.0
                               : QpcToSeconds(now - standardStarvedSinceQpc_),
             VideoStandardName(VideoStandardIndexOf(capture_.currentStandard())));
@@ -2258,7 +2252,7 @@ void App::UpdateVideoStandard() {
         ResetStandardColourCheck();
         switched = true;
       }
-      CAP_LOG("Videonorm: kein Signal am Eingang, Suche angehalten und auf %s geparkt",
+      CAP_LOG("Video standard: no signal at the input, search paused and parked on %s",
               VideoStandardName(VideoStandardIndexOf(candidates.front())));
       standardCandidate_ = -1;
 
@@ -2321,8 +2315,8 @@ void App::UpdateVideoStandard() {
       standardPatientPass_ = true;
       standardNextTryQpc_ = now;
       if (standardSweeps_ == 1) {
-        CAP_LOG("Videonorm: schneller Durchgang ohne Lock (%d Normen zu je %.2f s), "
-                "zweiter Durchgang mit %.2f s",
+        CAP_LOG("Video standard: fast pass without a lock (%d standards at %.2f s each), second "
+                "pass at %.2f s",
                 (int)candidates.size(), kStandardFastSeconds, kStandardSettleSeconds);
       }
       return;
@@ -2358,7 +2352,7 @@ void App::UpdateVideoStandard() {
     // Nur beim ersten Mal, sonst laeuft das Log voll: dass pausiert wird, ist
     // einmal eine Nachricht und danach der Normalzustand.
     if (standardSweeps_ == 1) {
-      CAP_LOG("Videonorm: eine Runde ohne Lock, Suche pausiert (%.0f s), Karte auf %s gestellt",
+      CAP_LOG("Video standard: a full round without a lock, search paused (%.0f s), card set to %s",
               kStandardBackoffSeconds,
               VideoStandardName(VideoStandardIndexOf(candidates.front())));
     }
@@ -2381,10 +2375,10 @@ void App::UpdateVideoStandard() {
   // geduldigen einrastet, sagt, dass kStandardFastSeconds zu knapp bemessen
   // ist. Darum steht auch dabei, welcher Durchgang gerade verwirft.
   if (standardSweeps_ <= 1 && standardCandidate_ >= 0 && standardSetQpc_ != 0) {
-    CAP_LOG("Videonorm: %s nach %.2f s ohne Lock verworfen (%s Durchgang)",
+    CAP_LOG("Video standard: %s dropped after %.2f s without a lock (%s pass)",
             VideoStandardName(VideoStandardIndexOf(candidates[(size_t)standardCandidate_])),
             QpcToSeconds(now - standardSetQpc_),
-            standardPatientPass_ ? "geduldiger" : "schneller");
+            standardPatientPass_ ? "patient" : "fast");
   }
 
   ++standardCandidate_;
@@ -2779,7 +2773,7 @@ void App::VerifyStandardColour(int64_t now) {
   static const float kChromaLitWanted = 0.10f;
 
   auto darkText = [&](float d) {
-    return d < 0.0f ? std::string("keine dunklen Stellen") : Format("%.3f", d);
+    return d < 0.0f ? std::string("no dark areas") : Format("%.3f", d);
   };
 
   // Waehrend eines Vergleichs wird dicht abgetastet, sonst duenn.
@@ -2834,7 +2828,7 @@ void App::VerifyStandardColour(int64_t now) {
   // Ruecksprung.
   if (colourCandidates_.empty() && !ConnectorHasColourCarrier()) {
     if (colourCheckedStandard_ != current) {
-      CAP_LOG("Videonorm: Farbrunde entfällt -- %s führt keinen Farbträger",
+      CAP_LOG("Video standard: no colour round -- %s carries no colour subcarrier",
               AnalogConnectorName((int)ResolvedConnector()));
     }
     colourCheckedStandard_ = current;
@@ -2957,8 +2951,8 @@ void App::VerifyStandardColour(int64_t now) {
       // also zaehlt er. Aber er gehoert ins Log, denn er heisst entweder, dass
       // diese Karte laenger braucht als die Obergrenze, oder dass sich das
       // Bild waehrenddessen bewegt hat.
-      CAP_LOG("Videonorm: %s kommt in %.2f s nicht zur Ruhe (%.3f, davor %.3f) "
-              "-- der letzte Wert zaehlt",
+      CAP_LOG("Video standard: %s does not settle within %.2f s (%.3f, before that %.3f) -- the "
+              "last value counts",
               VideoStandardName(VideoStandardIndexOf(current)), waited, energy,
               colourWindowEnergy_);
     }
@@ -2989,7 +2983,7 @@ void App::VerifyStandardColour(int64_t now) {
     const bool forced =
         standardForceColourUntilQpc_ != 0 && now < standardForceColourUntilQpc_;
     if (!forced && energy >= kChromaConfident && dark < kDarkTinted) {
-      CAP_LOG("Videonorm: %s hat deutlich Farbe (%.3f), dunkle Bereiche neutral (%s)",
+      CAP_LOG("Video standard: %s has clear colour (%.3f), dark areas neutral (%s)",
               VideoStandardName(VideoStandardIndexOf(current)), energy, darkText(dark).c_str());
       colourCheckedStandard_ = current;
       colourStartedQpc_ = 0;
@@ -3031,8 +3025,8 @@ void App::VerifyStandardColour(int64_t now) {
     if (lit >= 0.0f && lit < kChromaLitWanted && dark >= 0.0f && dark < kDarkTinted) {
       if (!colourWaitingForPicture_) {
         colourWaitingForPicture_ = true;
-        CAP_LOG("Videonorm: %s ist zweifelhaft (Farbe %.3f), aber nur %.0f %% des Bildes sind "
-                "beleuchtet -- auf Schwarz ist keine Norm zu erkennen, es wird gewartet",
+        CAP_LOG("Video standard: %s is doubtful (colour %.3f), but only %.0f %% of the picture is "
+                "lit -- no standard can be told on black, waiting",
                 VideoStandardName(VideoStandardIndexOf(current)), energy, lit * 100.0f);
       }
       renderer_.ResetChroma();
@@ -3114,11 +3108,11 @@ void App::VerifyStandardColour(int64_t now) {
                    : dark >= kDarkTinted ? ColourDoubt::Tinted
                                          : ColourDoubt::Pale;
     standardForceColourUntilQpc_ = 0;
-    CAP_LOG("Videonorm: %s ist zweifelhaft (Farbe %.3f, dunkle Bereiche %s, %.0f %% beleuchtet) "
-            "-- die %d Normen mit %d Zeilen werden verglichen%s",
+    CAP_LOG("Video standard: %s is doubtful (colour %.3f, dark areas %s, %.0f %% lit) -- "
+            "comparing the %d standards with %d lines%s",
             VideoStandardName(VideoStandardIndexOf(current)), energy, darkText(dark).c_str(),
             lit < 0.0f ? 0.0f : lit * 100.0f, count, VideoStandardLines(current),
-            colourDoubt_ == ColourDoubt::Manual ? " (von Hand ausgelöst)" : "");
+            colourDoubt_ == ColourDoubt::Manual ? " (started by hand)" : "");
   }
 
   // Eintragen, was dieser Kandidat gemessen hat, und zum naechsten.
@@ -3126,9 +3120,9 @@ void App::VerifyStandardColour(int64_t now) {
   colourDarks_[(size_t)colourIndex_] = dark;
   colourAltV_[(size_t)colourIndex_] = renderer_.chromaAltV();
   colourAltU_[(size_t)colourIndex_] = renderer_.chromaAltU();
-  CAP_LOG("Videonorm: %s gemessen -- Farbe %s, dunkle Bereiche %s, Zeilenwechsel V %.4f U %.4f",
+  CAP_LOG("Video standard: %s measured -- colour %s, dark areas %s, line alternation V %.4f U %.4f",
           VideoStandardName(VideoStandardIndexOf(current)),
-          energy < 0.0f ? "keine Messung" : Format("%.3f", energy).c_str(),
+          energy < 0.0f ? "no measurement" : Format("%.3f", energy).c_str(),
           darkText(dark).c_str(), colourAltV_[(size_t)colourIndex_],
           colourAltU_[(size_t)colourIndex_]);
 
@@ -3210,17 +3204,17 @@ void App::VerifyStandardColour(int64_t now) {
     }
     if (d0 >= 0.0f && d1 >= 0.0f && (d0 < kDarkTinted) != (d1 < kDarkTinted)) sceneChanged = true;
 
-    CAP_LOG("Videonorm: %s zum zweiten Mal gemessen -- Farbe %s, dunkle Bereiche %s (zuerst %s "
-            "und %s)%s",
+    CAP_LOG("Video standard: %s measured a second time -- colour %s, dark areas %s (first %s and "
+            "%s)%s",
             VideoStandardName(VideoStandardIndexOf(colourCandidates_.front())),
-            colourEnergies_[last] < 0.0f ? "keine Messung"
+            colourEnergies_[last] < 0.0f ? "no measurement"
                                          : Format("%.3f", colourEnergies_[last]).c_str(),
             darkText(colourDarks_[last]).c_str(),
-            colourEnergies_[0] < 0.0f ? "keine Messung" : Format("%.3f", colourEnergies_[0]).c_str(),
+            colourEnergies_[0] < 0.0f ? "no measurement" : Format("%.3f", colourEnergies_[0]).c_str(),
             darkText(colourDarks_[0]).c_str(),
-            sceneChanged ? " -- die Szene hat sich waehrend der Runde geaendert, der Vergleich "
-                           "gilt nicht"
-                         : (better ? " -- die zweite zaehlt" : ""));
+            sceneChanged ? " -- the scene changed during the round, the comparison "
+                           "does not count"
+                         : (better ? " -- the second one counts" : ""));
     if (better) {
       colourEnergies_[0] = colourEnergies_[last];
       colourDarks_[0] = colourDarks_[last];
@@ -3280,8 +3274,8 @@ void App::VerifyStandardColour(int64_t now) {
   for (size_t i = 0; i < colourCandidates_.size(); ++i) {
     if (colourAltV_[i] >= kAltFlipping && colourAltV_[i] > colourAltU_[i] * kAltAxisRatio) {
       verdicts[i] = Verdict::Flipping;
-      CAP_LOG("Videonorm: %s klappt die Farbe von Zeile zu Zeile um (V %.4f, U %.4f) -- der "
-              "Dekoder hebt die Phasenumkehr des Signals nicht auf, die Norm scheidet aus",
+      CAP_LOG("Video standard: %s flips the colour from line to line (V %.4f, U %.4f) -- the "
+              "decoder does not undo the phase alternation, the standard is out",
               VideoStandardName(VideoStandardIndexOf(colourCandidates_[i])), colourAltV_[i],
               colourAltU_[i]);
       continue;
@@ -3338,8 +3332,8 @@ void App::VerifyStandardColour(int64_t now) {
       dark1 >= 0 && colour1 >= 0 && colour1 != dark1 &&
       colourEnergies_[(size_t)colour1] > colourEnergies_[(size_t)dark1] * kDarkYieldsToColourBy;
   if (darksYield) {
-    CAP_LOG("Videonorm: %s hat zwar die saubereren Tiefen (%s gegen %s), aber %s hat %.1f mal so "
-            "viel Farbe (%.3f gegen %.3f) -- darueber entscheidet die Farbmenge",
+    CAP_LOG("Video standard: %s has the cleaner shadows (%s against %s), but %s has %.1f times "
+            "the colour (%.3f against %.3f) -- the amount of colour decides",
             VideoStandardName(VideoStandardIndexOf(colourCandidates_[(size_t)dark1])),
             darkText(colourDarks_[(size_t)dark1]).c_str(),
             darkText(colourDarks_[(size_t)colour1]).c_str(),
@@ -3419,17 +3413,17 @@ void App::VerifyStandardColour(int64_t now) {
 
   if (decided) {
     if (alone) {
-      CAP_LOG("Videonorm: %s ist als einzige kraeftig farbig mit neutralen Tiefen (Farbe %.3f, "
-              "Tiefen %s) -- eingestellt",
+      CAP_LOG("Video standard: %s is the only one strongly coloured with neutral shadows (colour "
+              "%.3f, shadows %s) -- set",
               VideoStandardName(VideoStandardIndexOf(chosen)), winner, darkText(winnerDark).c_str());
     } else if (byDarks) {
-      CAP_LOG("Videonorm: %s hat die neutraleren Tiefen als %s (%s gegen %s, beide farbig) -- "
-              "eingestellt",
+      CAP_LOG("Video standard: %s has more neutral shadows than %s (%s against %s, both coloured) "
+              "-- set",
               VideoStandardName(VideoStandardIndexOf(chosen)),
               VideoStandardName(VideoStandardIndexOf(runnerUpStandard)),
               darkText(winnerDark).c_str(), darkText(secondDark).c_str());
     } else {
-      CAP_LOG("Videonorm: %s (Farbe %.3f) hat mehr Farbe als %s (%.3f) -- eingestellt",
+      CAP_LOG("Video standard: %s (colour %.3f) has more colour than %s (%.3f) -- set",
               VideoStandardName(VideoStandardIndexOf(chosen)), winner,
               VideoStandardName(VideoStandardIndexOf(runnerUpStandard)), second);
     }
@@ -3476,8 +3470,8 @@ void App::VerifyStandardColour(int64_t now) {
   // Tiefen bei 0,353 gegen eine Schwelle von 0,18.
   if (sceneChanged && originEnergy >= kChromaConfident && originDark >= 0.0f &&
       originDark < kDarkTinted) {
-    CAP_LOG("Videonorm: Vergleich verworfen, aber %s steht fuer sich (Farbe %.3f, dunkle "
-            "Bereiche %s) -- es bleibt dabei",
+    CAP_LOG("Video standard: comparison discarded, but %s stands on its own (colour %.3f, dark "
+            "areas %s) -- no change",
             VideoStandardName(VideoStandardIndexOf(origin)), originEnergy,
             darkText(originDark).c_str());
     colourCheckedStandard_ = origin;
@@ -3502,12 +3496,12 @@ void App::VerifyStandardColour(int64_t now) {
     // und ohne verlaesslichen Vergleich bleibt der Ausgangspunkt das Beste,
     // was wir haben.
     if (sceneChanged) {
-      CAP_LOG("Videonorm: nach %d Anlaeufen war das Bild jedesmal in Bewegung -- kein "
-              "verlaesslicher Vergleich moeglich, es bleibt bei %s",
+      CAP_LOG("Video standard: the picture moved in all %d attempts -- no reliable comparison "
+              "possible, staying on %s",
               colourAttempts_, VideoStandardName(VideoStandardIndexOf(origin)));
     } else {
-      CAP_LOG("Videonorm: nach %d Anlaeufen entscheidet nichts -- die Quelle ist wohl "
-              "schwarzweiss, es bleibt bei %s (Farbe %.3f, dunkle Bereiche %s)",
+      CAP_LOG("Video standard: nothing decides after %d attempts -- the source is probably black "
+              "and white, staying on %s (colour %.3f, dark areas %s)",
               colourAttempts_, VideoStandardName(VideoStandardIndexOf(origin)), originEnergy,
               darkText(originDark).c_str());
     }
@@ -3522,9 +3516,9 @@ void App::VerifyStandardColour(int64_t now) {
   }
   const double wait = sceneChanged ? kColourMotionRetrySeconds
                                    : kColourRetryBaseSeconds * (double)(1 << (colourAttempts_ - 1));
-  CAP_LOG("Videonorm: Vergleich %s -- in %.0f s noch einmal, bis dahin %s",
-          sceneChanged ? "verworfen, waehrenddessen hat sich das Bild geaendert"
-                       : "unentschieden, die Szene ist zu farbarm",
+  CAP_LOG("Video standard: comparison %s -- again in %.0f s, %s until then",
+          sceneChanged ? "discarded, the picture changed meanwhile"
+                       : "undecided, the scene has too little colour",
           wait, VideoStandardName(VideoStandardIndexOf(origin)));
   colourRetryQpc_ = now + SecondsToQpc(wait);
   // Auch das ist eine Antwort, und zwar die letzte, die der Tastendruck noch
@@ -3766,7 +3760,6 @@ void App::DrawSettingsWindowed() {
     if (!settingsHost_.Create(instance_, hwnd_, d3d_.device(), d3d_.context(),
                               ImGui::GetIO().Fonts, uiScale_, d3d_.tearingSupported(), where,
                               &error)) {
-      CAP_WARN("%s", error.c_str());
       config_.app.settingsSeparateWindow = false;
       Toast(error);
       return;
@@ -4104,7 +4097,7 @@ void App::DetectCrop() {
                     "picture from the console first."),
                   partW * partH * 100.0, partW * 100.0, partH * 100.0);
     Toast(text);
-    CAP_LOG("Zuschnitt verworfen: nur %dx%d von %dx%d uebrig (%.0f %% der Flaeche)", keptW, keptH,
+    CAP_LOG("Crop discarded: only %dx%d of %dx%d left (%.0f %% of the area)", keptW, keptH,
             format.width, format.height, partW * partH * 100.0);
     return;
   }
@@ -4247,7 +4240,7 @@ void App::UpdateCropForFormat() {
       img.cropTop = v->top;
       img.cropBottom = v->bottom;
       if (first || same) return;
-      CAP_LOG("Zuschnitt fuer %dx%d eingesetzt (links %d, rechts %d, oben %d, unten %d)", w, h,
+      CAP_LOG("Crop for %dx%d applied (left %d, right %d, top %d, bottom %d)", w, h,
               v->left, v->right, v->top, v->bottom);
       Toast(Format(T("Videoformat geändert (%dx%d) — gespeicherter Zuschnitt eingesetzt.",
                      "Video format changed (%dx%d) — stored crop applied."),
@@ -4261,8 +4254,7 @@ void App::UpdateCropForFormat() {
 
   if (!img.cropLeft && !img.cropRight && !img.cropTop && !img.cropBottom) return;
 
-  CAP_LOG("Zuschnitt zurueckgesetzt: Quelle jetzt %dx%d (Rand war links %d, rechts %d, oben %d, "
-          "unten %d)",
+  CAP_LOG("Crop reset: source now %dx%d (border was left %d, right %d, top %d, bottom %d)",
           w, h, img.cropLeft, img.cropRight, img.cropTop, img.cropBottom);
   img.cropLeft = 0;
   img.cropRight = 0;
@@ -4333,7 +4325,7 @@ void App::UpdateProfileForStandard() {
     if (!(p.capture.video == active.capture.video)) continue;
     if (p.capture.crossbarInput != active.capture.crossbarInput) continue;
 
-    CAP_LOG("Profil %d (%s) uebernimmt: erkannt wurde %s", i + 1, p.name.c_str(),
+    CAP_LOG("Profile %d (%s) takes over: detected %s", i + 1, p.name.c_str(),
             VideoStandardName(VideoStandardIndexOf(standard)));
     const std::string name = p.name;
     SwitchProfile(i);
@@ -4671,7 +4663,7 @@ void App::EndCropPick(bool apply) {
     img.cropRight = cropPick_.right;
     img.cropTop = cropPick_.top;
     img.cropBottom = cropPick_.bottom;
-    CAP_LOG("Zuschnitt gesetzt: links %d, rechts %d, oben %d, unten %d", img.cropLeft,
+    CAP_LOG("Crop set: left %d, right %d, top %d, bottom %d", img.cropLeft,
             img.cropRight, img.cropTop, img.cropBottom);
   }
   cropPick_.active = false;
@@ -4898,7 +4890,7 @@ void App::FeedRecorder() {
       // Der Neustart braucht ein Bild, sonst bricht `StartRecording` ab und die
       // Aufnahme waere nach dem Stop zu Ende statt geteilt. Waehrend ein Graph
       // neu gebaut wird, gibt es keins -- dann wird eben weiter gewartet.
-      CAP_LOG("Aufnahme: Quelle jetzt %dx%d @ %.2f fps statt %dx%d @ %.2f, neue Datei",
+      CAP_LOG("Recording: source now %dx%d @ %.2f fps instead of %dx%d @ %.2f, new file",
               liveWidth, liveHeight, liveFps, recorder_.frameWidth(), recorder_.frameHeight(),
               recordSourceFps_);
       StopRecording();
@@ -4915,7 +4907,7 @@ void App::FeedRecorder() {
       lastSplitCheck_ = now;
       const uint64_t limit = (uint64_t)config_.record.splitSizeMb * 1024ull * 1024ull;
       if (recorder_.outputFileSize() >= limit) {
-        CAP_LOG("Aufnahme: Größenlimit erreicht, neue Datei");
+        CAP_LOG("Recording: size limit reached, new file");
         StopRecording();
         StartRecording();
         return;
@@ -4942,7 +4934,7 @@ void App::FeedRecorder() {
     // rechnerisch noch lange, waehrend Windows schon keinen Platz mehr fuer
     // seine eigenen Schreibpuffer hat.
     if (diskFreeBytes_ < kDiskFloorBytes || (rate > 1.0 && left < 20.0)) {
-      CAP_WARN("Aufnahme: Platte fast voll (%s frei), beendet",
+      CAP_WARN("Recording: disk almost full (%s free), stopped",
                FormatBytes(diskFreeBytes_).c_str());
       StopRecording();
       Toast(T("Aufnahme beendet — Speicherplatz fast aufgebraucht.",
@@ -5194,7 +5186,6 @@ void App::Tick() {
   if (captureState_ == CaptureState::Running) {
     std::string message;
     if (capture_.PumpEvents(&message)) {
-      CAP_WARN("Capture unterbrochen: %s", message.c_str());
       captureError_ = message;
       captureState_ = CaptureState::Reconnecting;
       capture_.Stop();
@@ -5212,7 +5203,7 @@ void App::Tick() {
     ++retryCount_;
     std::string error;
     if (StartCapture(&error)) {
-      CAP_LOG("Wieder verbunden nach %d Versuchen", retryCount_);
+      CAP_LOG("Reconnected after %d attempts", retryCount_);
       Toast(T("Wieder verbunden", "Reconnected"));
     } else {
       captureError_ = error;
@@ -5223,7 +5214,7 @@ void App::Tick() {
   }
 
   if (audio_.failed()) {
-    CAP_WARN("Audio ausgefallen, starte neu");
+    CAP_WARN("Audio failed, restarting");
     StartAudio();
   }
 
@@ -5251,7 +5242,7 @@ void App::RenderFrame() {
     if (sink->AcquireFrame(&view) && view.valid()) {
       if (!sawFirstFrame_) {
         sawFirstFrame_ = true;
-        CAP_LOG("Erstes Bild nach %.0f ms empfangen (%zu Byte)",
+        CAP_LOG("First frame after %.0f ms (%zu bytes)",
                 QpcToSeconds(now - captureStartQpc_) * 1000.0, view.size);
       }
       renderer_.SetSourceFormat(sink->format(), nullptr);
@@ -5457,9 +5448,9 @@ void App::RenderFrame() {
         frameAgeMeter_.TakeRange(nullptr, &ageHigh);
         double bufLow = 0.0, bufHigh = 0.0;
         audioBufferMeter_.TakeRange(&bufLow, &bufHigh);
-        CAP_LOG("Status: Quelle %.2f fps, Ausgabe %.1f fps, %llu angezeigt, %llu verworfen, "
-                "Durchlauf %.1f ms (Spitze %.1f) | Halbbilder %llu/%llu | "
-                "Ton %.1f/%.0f ms (%.1f-%.1f), %llu leer, %llu übergelaufen",
+        CAP_LOG("Status: source %.2f fps, output %.1f fps, %llu shown, %llu dropped, frame age "
+                "%.1f ms (peak %.1f) | fields %llu/%llu | audio %.1f/%.0f ms (%.1f-%.1f), %llu "
+                "underruns, %llu overruns",
                 sinkStats.sourceFps, presentFps_, (unsigned long long)sinkStats.displayed,
                 (unsigned long long)sinkStats.dropped, frameAgeMeter_.average, ageHigh,
                 (unsigned long long)fieldsShown_[0], (unsigned long long)fieldsShown_[1],
@@ -5731,8 +5722,7 @@ void App::DrawUi() {
     if (doubtful && !interlaceDoubtToasted_) {
       interlaceDoubtToasted_ = true;
       const VideoFormatInfo fmt = renderer_.sourceFormat();
-      CAP_LOG("Interlacing bei %dx%d erkannt, obwohl die Karte progressiv meldet -- Hinweis "
-              "ausgegeben",
+      CAP_LOG("Interlacing detected at %dx%d although the card reports progressive -- hint shown",
               fmt.width, fmt.height);
       Toast(Format(T("Halbbilder bei %dx%d erkannt — bitte prüfen (Reiter Bild)",
                      "Fields detected at %dx%d — please check (Image tab)"),
@@ -5754,8 +5744,7 @@ void App::DrawUi() {
     if (full && !analogueFullRangeLogged_) {
       analogueFullRangeLogged_ = true;
       const VideoRenderer::RangeNumbers n = renderer_.rangeNumbers();
-      CAP_LOG("Analoger Eingang liefert vollen Wertebereich (min %d, max %d) -- Hinweis im Reiter "
-              "Bild",
+      CAP_LOG("Analogue input delivers the full range (min %d, max %d) -- hint in the Picture tab",
               n.min, n.max);
     } else if (!full) {
       analogueFullRangeLogged_ = false;

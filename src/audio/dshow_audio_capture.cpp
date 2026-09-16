@@ -355,7 +355,7 @@ HRESULT AudioSinkPin::ReceiveConnection(IPin* connector, const AM_MEDIA_TYPE* mt
   owner_->SetFormat(fmt);
   connected_ = connector;
 
-  CAP_LOG("DirectShow-Audio verbunden: %d Hz, %d Kanäle, %d Bit%s", fmt.sampleRate, fmt.channels,
+  CAP_LOG("DirectShow audio connected: %d Hz, %d channels, %d bit%s", fmt.sampleRate, fmt.channels,
           fmt.bitsPerSample, fmt.isFloat ? " float" : "");
   return S_OK;
 }
@@ -476,7 +476,7 @@ void ApplyBestAudioFormat(IPin* pin) {
     if (SUCCEEDED(cfg->SetFormat(best))) {
       StreamFormat fmt;
       ParseWaveFormat((const WAVEFORMATEX*)best->pbFormat, &fmt);
-      CAP_LOG("DirectShow-Audioformat gesetzt: %d Hz, %d Kanäle, %d Bit", fmt.sampleRate,
+      CAP_LOG("DirectShow audio format set: %d Hz, %d channels, %d bit", fmt.sampleRate,
               fmt.channels, fmt.bitsPerSample);
     }
     DeleteMediaType(best);
@@ -494,21 +494,21 @@ DShowAudioCapture::~DShowAudioCapture() {
 bool DShowAudioCapture::Start(const DeviceRef& device, AudioSinkFn sink, std::string* error) {
   Stop();
 
-  auto fail = [&](const std::string& msg) {
-    if (error) *error = msg;
-    CAP_ERR("DirectShow-Audio: %s", msg.c_str());
+  auto fail = [&](const Said& said) {
+    if (error) *error = said.shown;
+    CAP_ERR("DirectShow audio: %s", said.logged.c_str());
     Teardown();
     return false;
   };
 
-  if (!sink) return fail(T("Kein Ziel für die Audiodaten", "No destination for the audio data"));
+  if (!sink) return fail(CAP_SAID(T("Kein Ziel für die Audiodaten", "No destination for the audio data")));
 
   HRESULT hr = ::CoCreateInstance(CLSID_FilterGraph, nullptr, CLSCTX_INPROC_SERVER,
                                   IID_PPV_ARGS(&graph_));
   if (FAILED(hr))
-    return fail(T("Audiograph konnte nicht erstellt werden: ",
-                  "The audio graph could not be created: ") +
-                HrToString(hr));
+    return fail(CAP_SAID(T("Audiograph konnte nicht erstellt werden: ",
+                           "The audio graph could not be created: ") +
+                         HrToString(hr)));
 
   // The device reference points at a DirectShow audio input; look it up by the
   // same rules as a video device.
@@ -520,43 +520,43 @@ bool DShowAudioCapture::Start(const DeviceRef& device, AudioSinkFn sink, std::st
     }
   }
   if (!source) {
-    return fail(T("Audioeingang '", "Audio input '") +
-                (device.name.empty() ? device.id : device.name) +
-                T("' wurde nicht gefunden", "' was not found"));
+    return fail(CAP_SAID(T("Audioeingang '", "Audio input '") +
+                         (device.name.empty() ? device.id : device.name) +
+                         T("' wurde nicht gefunden", "' was not found")));
   }
   sourceFilter_ = source;
 
   hr = graph_->AddFilter(sourceFilter_.Get(), L"Audio Capture");
   if (FAILED(hr))
-    return fail(T("Audiofilter konnte nicht eingefügt werden: ",
-                  "The audio filter could not be added: ") +
-                HrToString(hr));
+    return fail(CAP_SAID(T("Audiofilter konnte nicht eingefügt werden: ",
+                           "The audio filter could not be added: ") +
+                         HrToString(hr)));
 
   ComPtr<IPin> outPin = FindPinByDirection(sourceFilter_.Get(), PINDIR_OUTPUT);
   if (!outPin)
-    return fail(T("Der Audioeingang hat keinen Ausgangs-Pin",
-                  "The audio input has no output pin"));
+    return fail(CAP_SAID(T("Der Audioeingang hat keinen Ausgangs-Pin",
+                           "The audio input has no output pin")));
   ApplyBestAudioFormat(outPin.Get());
 
   auto* sinkFilter = new (std::nothrow) AudioSinkFilter(std::move(sink));
   if (!sinkFilter)
-    return fail(T("Audio-Sink konnte nicht erstellt werden",
-                  "The audio sink could not be created"));
+    return fail(CAP_SAID(T("Audio-Sink konnte nicht erstellt werden",
+                           "The audio sink could not be created")));
   sinkFilter_.Attach(static_cast<IBaseFilter*>(sinkFilter));  // constructed with refcount 1
 
   hr = graph_->AddFilter(sinkFilter_.Get(), L"qBlank Audio Sink");
   if (FAILED(hr))
-    return fail(T("Audio-Sink konnte nicht eingefügt werden: ",
-                  "The audio sink could not be added: ") +
-                HrToString(hr));
+    return fail(CAP_SAID(T("Audio-Sink konnte nicht eingefügt werden: ",
+                           "The audio sink could not be added: ") +
+                         HrToString(hr)));
 
   IPin* sinkPin = static_cast<IPin*>(sinkFilter->pin());
   hr = graph_->ConnectDirect(outPin.Get(), sinkPin, nullptr);
   if (FAILED(hr)) hr = graph_->Connect(outPin.Get(), sinkPin);
   if (FAILED(hr)) {
-    return fail(T("Der Audioeingang liefert kein verwertbares Format (",
-                  "The audio input offers no usable format (") +
-                HrToString(hr) + ")");
+    return fail(CAP_SAID(T("Der Audioeingang liefert kein verwertbares Format (",
+                           "The audio input offers no usable format (") +
+                         HrToString(hr) + ")"));
   }
 
   // Same reasoning as the video graph: without a clock nothing gets scheduled,
@@ -565,14 +565,14 @@ bool DShowAudioCapture::Start(const DeviceRef& device, AudioSinkFn sink, std::st
   if (SUCCEEDED(graph_.As(&mediaFilter))) mediaFilter->SetSyncSource(nullptr);
 
   if (FAILED(hr = graph_.As(&control_))) {
-    return fail(T("IMediaControl nicht verfügbar: ", "IMediaControl not available: ") +
-                HrToString(hr));
+    return fail(CAP_SAID(T("IMediaControl nicht verfügbar: ", "IMediaControl not available: ") +
+                         HrToString(hr)));
   }
   hr = control_->Run();
   if (FAILED(hr))
-    return fail(T("Der Audiograph konnte nicht gestartet werden: ",
-                  "The audio graph could not be started: ") +
-                HrToString(hr));
+    return fail(CAP_SAID(T("Der Audiograph konnte nicht gestartet werden: ",
+                           "The audio graph could not be started: ") +
+                         HrToString(hr)));
 
   format_ = sinkFilter->format();
   return true;

@@ -125,7 +125,7 @@ class Parser {
 
   bool ParseValue(Value& out) {
     SkipWs();
-    if (pos_ >= s_.size()) return Fail("unerwartetes Dateiende");
+    if (pos_ >= s_.size()) return Fail("unexpected end of file");
     char c = s_[pos_];
     switch (c) {
       case '{': return ParseObject(out);
@@ -142,21 +142,21 @@ class Parser {
           out = Value(true);
           return true;
         }
-        return Fail("ungültiges Token");
+        return Fail("invalid token");
       case 'f':
         if (s_.compare(pos_, 5, "false") == 0) {
           pos_ += 5;
           out = Value(false);
           return true;
         }
-        return Fail("ungültiges Token");
+        return Fail("invalid token");
       case 'n':
         if (s_.compare(pos_, 4, "null") == 0) {
           pos_ += 4;
           out = Value();
           return true;
         }
-        return Fail("ungültiges Token");
+        return Fail("invalid token");
       default: return ParseNumber(out);
     }
   }
@@ -167,7 +167,7 @@ class Parser {
   bool Fail(const char* msg) {
     if (error_.empty()) {
       char buf[160];
-      std::snprintf(buf, sizeof(buf), "%s an Position %zu", msg, pos_);
+      std::snprintf(buf, sizeof(buf), "%s at position %zu", msg, pos_);
       error_ = buf;
     }
     return false;
@@ -207,7 +207,7 @@ class Parser {
   }
 
   bool ParseHex4(unsigned& out) {
-    if (pos_ + 4 > s_.size()) return Fail("abgeschnittene Unicode-Escape-Sequenz");
+    if (pos_ + 4 > s_.size()) return Fail("truncated Unicode escape");
     out = 0;
     for (int i = 0; i < 4; ++i) {
       char c = s_[pos_++];
@@ -219,25 +219,25 @@ class Parser {
       } else if (c >= 'A' && c <= 'F') {
         out |= (unsigned)(c - 'A' + 10);
       } else {
-        return Fail("ungültiges Hex-Zeichen");
+        return Fail("invalid hex digit");
       }
     }
     return true;
   }
 
   bool ParseString(std::string& out) {
-    if (pos_ >= s_.size() || s_[pos_] != '"') return Fail("String erwartet");
+    if (pos_ >= s_.size() || s_[pos_] != '"') return Fail("string expected");
     ++pos_;
     out.clear();
     while (true) {
-      if (pos_ >= s_.size()) return Fail("nicht abgeschlossener String");
+      if (pos_ >= s_.size()) return Fail("unterminated string");
       char c = s_[pos_++];
       if (c == '"') return true;
       if (c != '\\') {
         out += c;
         continue;
       }
-      if (pos_ >= s_.size()) return Fail("nicht abgeschlossene Escape-Sequenz");
+      if (pos_ >= s_.size()) return Fail("unterminated escape");
       char e = s_[pos_++];
       switch (e) {
         case '"': out += '"'; break;
@@ -264,7 +264,7 @@ class Parser {
           AppendUtf8(cp, out);
           break;
         }
-        default: return Fail("unbekannte Escape-Sequenz");
+        default: return Fail("unknown escape");
       }
     }
   }
@@ -285,7 +285,7 @@ class Parser {
         break;
       }
     }
-    if (!any) return Fail("Zahl erwartet");
+    if (!any) return Fail("number expected");
     out = Value(std::strtod(s_.substr(start, pos_ - start).c_str(), nullptr));
     return true;
   }
@@ -303,7 +303,7 @@ class Parser {
       if (!ParseValue(elem)) return false;
       out.Push(std::move(elem));
       SkipWs();
-      if (pos_ >= s_.size()) return Fail("nicht abgeschlossenes Array");
+      if (pos_ >= s_.size()) return Fail("unterminated array");
       if (s_[pos_] == ',') {
         ++pos_;
         continue;
@@ -312,7 +312,7 @@ class Parser {
         ++pos_;
         return true;
       }
-      return Fail("Komma oder ] erwartet");
+      return Fail("comma or ] expected");
     }
   }
 
@@ -329,13 +329,13 @@ class Parser {
       std::string key;
       if (!ParseString(key)) return false;
       SkipWs();
-      if (pos_ >= s_.size() || s_[pos_] != ':') return Fail("Doppelpunkt erwartet");
+      if (pos_ >= s_.size() || s_[pos_] != ':') return Fail("colon expected");
       ++pos_;
       Value val;
       if (!ParseValue(val)) return false;
       out[key] = std::move(val);
       SkipWs();
-      if (pos_ >= s_.size()) return Fail("nicht abgeschlossenes Objekt");
+      if (pos_ >= s_.size()) return Fail("unterminated object");
       if (s_[pos_] == ',') {
         ++pos_;
         continue;
@@ -344,7 +344,7 @@ class Parser {
         ++pos_;
         return true;
       }
-      return Fail("Komma oder } erwartet");
+      return Fail("comma or } expected");
     }
   }
 

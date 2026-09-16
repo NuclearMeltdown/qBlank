@@ -255,7 +255,7 @@ void LoadUiFont(float sizePixels) {
       return;
     }
   }
-  CAP_WARN("Segoe UI nicht gefunden, benutze die eingebaute Schrift");
+  CAP_WARN("Segoe UI not found, using the built-in font");
 }
 
 }  // namespace cap

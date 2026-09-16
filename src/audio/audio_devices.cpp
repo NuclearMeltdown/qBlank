@@ -286,12 +286,12 @@ bool FindEmbeddedAudioDevice(const VideoDeviceInfo& video, AudioDeviceInfo* out)
   // 45 is above what a single shared word can produce on its own, so a random
   // "USB Audio" does not get picked for an unrelated card.
   if (!best || bestScore < 45) {
-    CAP_WARN("Kein eingebettetes Audiogerät zu '%s' gefunden (bester Wert %d)",
+    CAP_WARN("No embedded audio device found for '%s' (best score %d)",
              video.name.c_str(), bestScore);
     return false;
   }
 
-  CAP_LOG("Eingebettetes Audio zu '%s': '%s' (%s, Wert %d)", video.name.c_str(),
+  CAP_LOG("Embedded audio for '%s': '%s' (%s, score %d)", video.name.c_str(),
           best->name.c_str(), best->directShow ? "DirectShow" : "WASAPI", bestScore);
   if (out) *out = *best;
   return true;

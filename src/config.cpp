@@ -946,9 +946,11 @@ bool Config::Load(std::string* error) {
   std::string parseError;
   json::Value root = json::Parse(text, &parseError);
   if (!parseError.empty() || !root.IsObject()) {
+    // Only ever logged, and before the log is open -- so English, and handed
+    // back rather than written.
     if (error) {
-      *error = parseError.empty() ? "Konfigurationsdatei hat kein gültiges Format"
-                                  : ("Konfigurationsdatei fehlerhaft: " + parseError);
+      *error = parseError.empty() ? "The settings file is not valid JSON"
+                                  : ("The settings file is damaged: " + parseError);
     }
     return false;
   }
@@ -1058,10 +1060,9 @@ bool Config::Load(std::string* error) {
 bool Config::Save(std::string* error) const {
   if (error) error->clear();
   if (!WriteWholeFileAtomic(FilePath(), Serialize())) {
-    if (error) {
-      *error = T("Konfiguration konnte nicht geschrieben werden (Schreibrechte im Programmordner?)",
-                 "Could not write the configuration (write access to the program folder?)");
-    }
+    ReportError(error,
+                CAP_SAID(T("Konfiguration konnte nicht geschrieben werden (Schreibrechte im Programmordner?)",
+                           "Could not write the configuration (write access to the program folder?)")));
     return false;
   }
   return true;

@@ -85,21 +85,21 @@ bool D3DContext::Initialize(HWND hwnd, std::string* error) {
   }
 #endif
   if (FAILED(hr)) {
-    CAP_WARN("Hardware-Gerät nicht verfügbar (%s), versuche WARP", HrToString(hr).c_str());
+    CAP_WARN("Hardware device not available (%s), trying WARP", HrToEnglish(hr).c_str());
     hr = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, flags, levels,
                              (UINT)std::size(levels), D3D11_SDK_VERSION, &device_, &obtained,
                              &context_);
   }
   if (FAILED(hr)) {
-    if (error) *error = T("Direct3D 11 konnte nicht initialisiert werden: ",
-                             "Direct3D 11 could not be initialised: ") + HrToString(hr);
+    ReportError(error, CAP_SAID(T("Direct3D 11 konnte nicht initialisiert werden: ",
+                                     "Direct3D 11 could not be initialised: ") + HrToString(hr)));
     return false;
   }
 
   ComPtr<IDXGIDevice1> dxgiDevice;
   if (FAILED(hr = device_.As(&dxgiDevice))) {
-    if (error) *error = T("IDXGIDevice1 nicht verfügbar: ",
-                             "IDXGIDevice1 is not available: ") + HrToString(hr);
+    ReportError(error, CAP_SAID(T("IDXGIDevice1 nicht verfügbar: ",
+                                     "IDXGIDevice1 is not available: ") + HrToString(hr)));
     return false;
   }
   // One frame of latency: the CPU never runs more than a frame ahead of the GPU.
@@ -107,14 +107,14 @@ bool D3DContext::Initialize(HWND hwnd, std::string* error) {
 
   ComPtr<IDXGIAdapter> adapter;
   if (FAILED(hr = dxgiDevice->GetAdapter(&adapter))) {
-    if (error) *error = T("DXGI-Adapter nicht verfügbar: ",
-                             "The DXGI adapter is not available: ") + HrToString(hr);
+    ReportError(error, CAP_SAID(T("DXGI-Adapter nicht verfügbar: ",
+                                     "The DXGI adapter is not available: ") + HrToString(hr)));
     return false;
   }
   ComPtr<IDXGIFactory2> factory;
   if (FAILED(hr = adapter->GetParent(IID_PPV_ARGS(&factory)))) {
-    if (error) *error = T("DXGI-Factory nicht verfügbar: ",
-                             "The DXGI factory is not available: ") + HrToString(hr);
+    ReportError(error, CAP_SAID(T("DXGI-Factory nicht verfügbar: ",
+                                     "The DXGI factory is not available: ") + HrToString(hr)));
     return false;
   }
 
@@ -142,8 +142,8 @@ bool D3DContext::Initialize(HWND hwnd, std::string* error) {
 
   hr = factory->CreateSwapChainForHwnd(device_.Get(), hwnd_, &desc, nullptr, nullptr, &swapchain_);
   if (FAILED(hr)) {
-    if (error) *error = T("Swapchain konnte nicht erstellt werden: ",
-                             "The swapchain could not be created: ") + HrToString(hr);
+    ReportError(error, CAP_SAID(T("Swapchain konnte nicht erstellt werden: ",
+                                     "The swapchain could not be created: ") + HrToString(hr)));
     return false;
   }
 
@@ -154,13 +154,13 @@ bool D3DContext::Initialize(HWND hwnd, std::string* error) {
   RefreshDisplayCapability();
 
   if (!CreateRenderTarget()) {
-    if (error) *error = T("Rendertarget konnte nicht erstellt werden",
-                             "The render target could not be created");
+    ReportError(error, CAP_SAID(T("Rendertarget konnte nicht erstellt werden",
+                                     "The render target could not be created")));
     return false;
   }
 
-  CAP_LOG("D3D11 bereit: Feature Level 0x%X, Tearing %s", (unsigned)obtained,
-          tearingSupported_ ? "unterstützt" : "nicht unterstützt");
+  CAP_LOG("D3D11 ready: feature level 0x%X, tearing %s", (unsigned)obtained,
+          tearingSupported_ ? "supported" : "not supported");
   return true;
 }
 
@@ -206,7 +206,7 @@ void D3DContext::Resize() {
   ReleaseRenderTarget();
   HRESULT hr = swapchain_->ResizeBuffers(0, (UINT)w, (UINT)h, DXGI_FORMAT_UNKNOWN, swapchainFlags_);
   if (FAILED(hr)) {
-    CAP_ERR("ResizeBuffers fehlgeschlagen: %s", HrToString(hr).c_str());
+    CAP_ERR("ResizeBuffers failed: %s", HrToEnglish(hr).c_str());
   }
   CreateRenderTarget();
 }
@@ -289,8 +289,8 @@ void D3DContext::EndFrame(bool vsync) {
   if (hr == DXGI_STATUS_OCCLUDED) {
     occluded_ = true;
   } else if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
-    CAP_ERR("Grafikgerät verloren: %s",
-            HrToString(device_ ? device_->GetDeviceRemovedReason() : hr).c_str());
+    CAP_ERR("Graphics device lost: %s",
+            HrToEnglish(device_ ? device_->GetDeviceRemovedReason() : hr).c_str());
   }
 }
 
@@ -328,10 +328,8 @@ bool D3DContext::SetHdrOutput(bool enabled, std::string* error) {
   const DXGI_FORMAT format = enabled ? kHdrBackBufferFormat : kBackBufferFormat;
   HRESULT hr = swapchain_->ResizeBuffers(0, (UINT)width_, (UINT)height_, format, swapchainFlags_);
   if (FAILED(hr)) {
-    if (error) {
-      *error = T("Die Anzeige ließ sich nicht auf HDR umstellen: ",
-                 "The display could not be switched to HDR: ") + HrToString(hr);
-    }
+    ReportError(error, CAP_SAID(T("Die Anzeige ließ sich nicht auf HDR umstellen: ",
+                                  "The display could not be switched to HDR: ") + HrToString(hr)));
     swapchain_->ResizeBuffers(0, (UINT)width_, (UINT)height_,
                               hdrOutput_ ? kHdrBackBufferFormat : kBackBufferFormat,
                               swapchainFlags_);
@@ -352,10 +350,8 @@ bool D3DContext::SetHdrOutput(bool enabled, std::string* error) {
         (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT)) {
       swapchain3->SetColorSpace1(space);
     } else if (enabled) {
-      if (error) {
-        *error = T("Diese Anzeige nimmt kein scRGB entgegen.",
-                   "This display will not take scRGB.");
-      }
+      ReportError(error, CAP_SAID(T("Diese Anzeige nimmt kein scRGB entgegen.",
+                                    "This display will not take scRGB.")));
       swapchain_->ResizeBuffers(0, (UINT)width_, (UINT)height_, kBackBufferFormat,
                                 swapchainFlags_);
       CreateRenderTarget();
@@ -365,7 +361,7 @@ bool D3DContext::SetHdrOutput(bool enabled, std::string* error) {
 
   hdrOutput_ = enabled;
   CreateRenderTarget();
-  CAP_LOG("Anzeige auf %s umgestellt", enabled ? "scRGB (HDR)" : "sRGB");
+  CAP_LOG("Display switched to %s", enabled ? "scRGB (HDR)" : "sRGB");
   return true;
 }
 
@@ -375,7 +371,7 @@ void D3DContext::SetFrameLatency(UINT frames) {
   if (FAILED(device_.As(&dxgiDevice)) || !dxgiDevice) return;
   if (SUCCEEDED(dxgiDevice->SetMaximumFrameLatency(frames))) {
     frameLatency_ = frames;
-    CAP_LOG("Bildwarteschlange auf %u gesetzt", frames);
+    CAP_LOG("Frame queue set to %u", frames);
   }
 }
 

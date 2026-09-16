@@ -112,7 +112,7 @@ void Updater::CleanUpPreviousBuild() {
   const std::wstring old = ExePath() + L".old";
   if (::GetFileAttributesW(old.c_str()) != INVALID_FILE_ATTRIBUTES) {
     if (::DeleteFileW(old.c_str())) {
-      CAP_LOG("Vorherige Programmversion entfernt");
+      CAP_LOG("Previous program version removed");
     }
   }
 }
@@ -173,8 +173,8 @@ void Updater::Run(bool install) {
     downloadUrl_.clear();
     if (const ReleaseAsset* program = PickProgram(release)) {
       downloadUrl_ = program->url;
-      CAP_LOG("Update-Asset: %s (%s)", program->name.c_str(),
-              program->label.empty() ? "ohne Etikett" : program->label.c_str());
+      CAP_LOG("Update asset: %s (%s)", program->name.c_str(),
+              program->label.empty() ? "no label" : program->label.c_str());
     }
 
     const bool newer = IsNewerRelease(release, currentVersion());
@@ -183,8 +183,8 @@ void Updater::Run(bool install) {
       s.state = UpdateStatus::State::Failed;
       s.error = UpdateError::NoAsset;
     }
-    CAP_LOG("Update-Prüfung: installiert %s, neueste %s -> %s", currentVersion(),
-            s.latestVersion.c_str(), newer ? "neuer verfügbar" : "aktuell");
+    CAP_LOG("Update check: installed %s, latest %s -> %s", currentVersion(),
+            s.latestVersion.c_str(), newer ? "newer available" : "up to date");
     SetStatus(s);
     busy_.store(false, std::memory_order_release);
     return;
@@ -280,7 +280,7 @@ void Updater::Run(bool install) {
     return;
   }
 
-  CAP_LOG("Update auf %s eingesetzt, Neustart steht aus", s.latestVersion.c_str());
+  CAP_LOG("Update to %s installed, restart pending", s.latestVersion.c_str());
   s.state = UpdateStatus::State::Ready;
   s.percent = 100;
   SetStatus(s);

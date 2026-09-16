@@ -171,7 +171,7 @@ FfmpegInfo LocateFfmpeg(const std::string& configuredPath) {
   info.found = true;
   info.path = ToUtf8(found);
   info.version = FirstLine(output);
-  CAP_LOG("ffmpeg gefunden: %s (%s)", info.path.c_str(), info.version.c_str());
+  CAP_LOG("ffmpeg found: %s (%s)", info.path.c_str(), info.version.c_str());
   return info;
 }
 
@@ -210,16 +210,20 @@ bool TestOne(const std::string& exe, EncoderInfo* e) {
 
   std::string output;
   DWORD exitCode = 0;
+  std::string logged;
   if (!RunFfmpeg(exe, args, &output, &exitCode, 20000)) {
+    const Said said = CAP_SAID(T("ffmpeg konnte nicht gestartet werden", "ffmpeg could not be started"));
     e->available = false;
-    e->error = T("ffmpeg konnte nicht gestartet werden", "ffmpeg could not be started");
+    e->error = said.shown;
+    logged = said.logged;
   } else {
     e->available = (exitCode == 0);
     e->error = e->available ? std::string() : FirstLine(Trim(output));
+    logged = e->error;
   }
   e->tested = true;
-  CAP_LOG("Encoder %s: %s%s%s", e->ffmpegName.c_str(), e->available ? "ok" : "nicht verfügbar",
-          e->error.empty() ? "" : " - ", e->error.c_str());
+  CAP_LOG("Encoder %s: %s%s%s", e->ffmpegName.c_str(), e->available ? "ok" : "not available",
+          logged.empty() ? "" : " - ", logged.c_str());
   return e->available;
 }
 

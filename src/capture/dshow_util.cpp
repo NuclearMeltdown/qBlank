@@ -564,7 +564,7 @@ std::vector<CapsEntry> EnumerateCaps(IPin* capturePin) {
   int count = 0, size = 0;
   if (FAILED(cfg->GetNumberOfCapabilities(&count, &size))) return out;
   if (size != sizeof(VIDEO_STREAM_CONFIG_CAPS)) {
-    CAP_WARN("Unerwartete Größe von VIDEO_STREAM_CONFIG_CAPS (%d), Caps werden übersprungen",
+    CAP_WARN("Unexpected size of VIDEO_STREAM_CONFIG_CAPS (%d), skipping the caps",
              size);
     return out;
   }
@@ -608,7 +608,7 @@ std::vector<CapsEntry> EnumerateCaps(IPin* capturePin) {
     DeleteMediaType(mt);
   }
 
-  CAP_LOG("Capture-Pin meldet %d Capability-Einträge, %zu davon lesbar", count, out.size());
+  CAP_LOG("Capture pin reports %d capabilities, %zu of them readable", count, out.size());
   return out;
 }
 
@@ -1008,7 +1008,7 @@ HRESULT ApplyFormat(IPin* capturePin, const FormatSel& fmt, VideoFormatInfo* app
 
   GUID wantSubtype = GUID_NULL;
   if (!SubtypeFromLabel(fmt.subtype, &wantSubtype)) {
-    CAP_WARN("Unbekanntes Farbformat '%s'", fmt.subtype.c_str());
+    CAP_WARN("Unknown colour format '%s'", fmt.subtype.c_str());
     return E_INVALIDARG;
   }
 
@@ -1046,7 +1046,7 @@ HRESULT ApplyFormat(IPin* capturePin, const FormatSel& fmt, VideoFormatInfo* app
 
   if (!templateMt || templateScore < 0) {
     DeleteMediaType(templateMt);
-    CAP_WARN("Kein passender Media-Type für %s gefunden", fmt.subtype.c_str());
+    CAP_WARN("No matching media type found for %s", fmt.subtype.c_str());
     return VFW_E_INVALIDMEDIATYPE;
   }
 
@@ -1061,8 +1061,8 @@ HRESULT ApplyFormat(IPin* capturePin, const FormatSel& fmt, VideoFormatInfo* app
       // Some drivers reject an unusual frame interval but accept the size.
       // Retry with the template's own interval so at least the resolution
       // takes effect; the actual rate is reported back to the caller.
-      CAP_WARN("SetFormat mit %.3f fps abgelehnt (%s), versuche ohne Bildrate",
-               fmt.fps, HrToString(hr).c_str());
+      CAP_WARN("SetFormat with %.3f fps refused (%s), trying without a frame rate",
+               fmt.fps, HrToEnglish(hr).c_str());
       AM_MEDIA_TYPE* retry = CreateMediaTypeCopy(patched);
       if (retry && PatchMediaType(retry, fmt.width, fmt.height, 0.0)) {
         hr = cfg->SetFormat(retry);
@@ -1255,11 +1255,11 @@ bool RouteVendorInput(IBaseFilter* captureFilter, int index) {
   DWORD value = v.sel->inputs[(size_t)index].value;
   const HRESULT hr = v.ks->Set(v.sel->set, v.sel->property, nullptr, 0, &value, sizeof(value));
   if (FAILED(hr)) {
-    CAP_WARN("%s: Eingang '%s' konnte nicht gesetzt werden (0x%08lX)", v.sel->card,
+    CAP_WARN("%s: could not set input '%s' (0x%08lX)", v.sel->card,
              v.sel->inputs[(size_t)index].name, (unsigned long)hr);
     return false;
   }
-  CAP_LOG("%s: Eingang '%s' gesetzt (Property %lu = %lu)", v.sel->card,
+  CAP_LOG("%s: input '%s' set (property %lu = %lu)", v.sel->card,
           v.sel->inputs[(size_t)index].name, (unsigned long)v.sel->property,
           (unsigned long)value);
   return true;
@@ -1322,7 +1322,7 @@ bool RouteCrossbarInput(ICaptureGraphBuilder2* builder, IBaseFilter* captureFilt
     if (xbar->CanRoute(o, videoIn) != S_OK) continue;
     if (SUCCEEDED(xbar->Route(o, videoIn))) {
       routed = true;
-      CAP_LOG("Crossbar: Videoeingang '%s' auf Ausgang %ld geroutet",
+      CAP_LOG("Crossbar: video input '%s' routed to output %ld",
               inputs[(size_t)index].name.c_str(), o);
       // Route the paired audio input to the matching audio output, so picking
       // "Component" also selects the audio jacks that belong to it.
@@ -1334,7 +1334,7 @@ bool RouteCrossbarInput(ICaptureGraphBuilder2* builder, IBaseFilter* captureFilt
       break;
     }
   }
-  if (!routed) CAP_WARN("Crossbar: Eingang %d konnte nicht geroutet werden", index);
+  if (!routed) CAP_WARN("Crossbar: could not route input %d", index);
   return routed;
 }
 
@@ -1606,11 +1606,11 @@ bool SetVideoStandard(IBaseFilter* filter, long standard) {
   if (!dec || standard == 0) return false;
   const HRESULT hr = dec->put_TVFormat(standard);
   if (FAILED(hr)) {
-    CAP_WARN("Videonorm %s konnte nicht gesetzt werden: %s",
-             VideoStandardName(VideoStandardIndexOf(standard)), HrToString(hr).c_str());
+    CAP_WARN("Could not set video standard %s: %s",
+             VideoStandardName(VideoStandardIndexOf(standard)), HrToEnglish(hr).c_str());
     return false;
   }
-  CAP_LOG("Videonorm gesetzt: %s", VideoStandardName(VideoStandardIndexOf(standard)));
+  CAP_LOG("Video standard set: %s", VideoStandardName(VideoStandardIndexOf(standard)));
   return true;
 }
 
@@ -1621,7 +1621,7 @@ int NeutraliseProcAmp(IBaseFilter* filter) {
   // richtig", und das ist genau die Frage, die dieser Durchgang beantworten
   // soll: kommt hier ein unveraendertes Bild an oder nicht.
   if (!amp) {
-    CAP_LOG("Kartenregler: keine vorhanden, Bild kommt unveraendert an");
+    CAP_LOG("Card controls: none present, the picture arrives unchanged");
     return 0;
   }
 
@@ -1643,11 +1643,11 @@ int NeutraliseProcAmp(IBaseFilter* filter) {
     if (value == def && (flags & VideoProcAmp_Flags_Manual) != 0) continue;
 
     if (FAILED(amp->Set(prop, def, VideoProcAmp_Flags_Manual))) {
-      CAP_WARN("Kartenregler %s liess sich nicht neutralisieren",
+      CAP_WARN("Card control %s could not be neutralised",
                kProcAmpProps[i].name);
       continue;
     }
-    CAP_LOG("Kartenregler %s neutralisiert: %ld -> %ld", kProcAmpProps[i].name, value, def);
+    CAP_LOG("Card control %s neutralised: %ld -> %ld", kProcAmpProps[i].name, value, def);
     ++moved;
   }
   // Der dritte Fall, und auf der PEXHDCAP60L der tatsaechliche: die Karte
@@ -1657,9 +1657,9 @@ int NeutraliseProcAmp(IBaseFilter* filter) {
   // laeuft in dem Fall ueber eine eigene Schnittstelle und ist von hier aus
   // nicht erreichbar.
   if (checked == 0) {
-    CAP_LOG("Kartenregler: Schnittstelle da, aber keine von Hand einstellbar");
+    CAP_LOG("Card controls: interface present, but none adjustable");
   } else if (moved == 0) {
-    CAP_LOG("Kartenregler: %d gefunden, alle bereits neutral", checked);
+    CAP_LOG("Card controls: %d found, all already neutral", checked);
   }
   return moved;
 }

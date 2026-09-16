@@ -287,7 +287,7 @@ const DeviceProbeResult& SettingsWindow::CapsFor(const DeviceRef& device,
   const std::string key = device.id.empty() ? device.name : device.id;
   if (!probeAllowed_) return probed_;
   if (probedId_ != key) {
-    CAP_LOG("Frage Fähigkeiten von '%s' ab", device.name.c_str());
+    CAP_LOG("Querying the capabilities of '%s'", device.name.c_str());
     probed_ = VideoCapture::Probe(device);
     probedId_ = key;
   }

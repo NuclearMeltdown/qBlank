@@ -147,10 +147,8 @@ bool SettingsHost::Create(HINSTANCE instance, HWND owner, ID3D11Device* device,
                                &device_, &got, &ctx_);
     }
     if (FAILED(CAP_HR(hr)) || !device_ || !ctx_) {
-      if (error) {
-        *error = T("Eigenes Grafikgerät für das Einstellungsfenster fehlgeschlagen",
-                   "Could not create a graphics device for the settings window");
-      }
+      ReportError(error, CAP_SAID(T("Eigenes Grafikgerät für das Einstellungsfenster fehlgeschlagen",
+                                    "Could not create a graphics device for the settings window")));
       return false;
     }
     // Der Dialog darf ruhig eine Warteschlange haben: er will fluessig dem
@@ -207,8 +205,8 @@ bool SettingsHost::Create(HINSTANCE instance, HWND owner, ID3D11Device* device,
   hwnd_ = ::CreateWindowExW(WS_EX_APPWINDOW, kClassName.c_str(), kAppName, WS_OVERLAPPEDWINDOW,
                             x, y, w, h, owner, nullptr, instance, this);
   if (!hwnd_) {
-    if (error) *error = T("Einstellungsfenster konnte nicht erstellt werden",
-                             "The settings window could not be created");
+    ReportError(error, CAP_SAID(T("Einstellungsfenster konnte nicht erstellt werden",
+                                     "The settings window could not be created")));
     return false;
   }
 
@@ -218,8 +216,8 @@ bool SettingsHost::Create(HINSTANCE instance, HWND owner, ID3D11Device* device,
   if (FAILED(CAP_HR(device_.As(&dxgiDevice))) ||
       FAILED(CAP_HR(dxgiDevice->GetAdapter(&adapter))) ||
       FAILED(CAP_HR(adapter->GetParent(IID_PPV_ARGS(&factory))))) {
-    if (error) *error = T("DXGI-Factory für das Einstellungsfenster fehlt",
-                             "The settings window has no DXGI factory");
+    ReportError(error, CAP_SAID(T("DXGI-Factory für das Einstellungsfenster fehlt",
+                                     "The settings window has no DXGI factory")));
     Destroy();
     return false;
   }
@@ -253,8 +251,8 @@ bool SettingsHost::Create(HINSTANCE instance, HWND owner, ID3D11Device* device,
   desc.Flags = swapchainFlags_;
   if (FAILED(CAP_HR(factory->CreateSwapChainForHwnd(device_.Get(), hwnd_, &desc, nullptr, nullptr,
                                                     &swapchain_)))) {
-    if (error) *error = T("Swapchain für das Einstellungsfenster fehlgeschlagen",
-                             "The settings window swapchain failed");
+    ReportError(error, CAP_SAID(T("Swapchain für das Einstellungsfenster fehlgeschlagen",
+                                     "The settings window swapchain failed")));
     Destroy();
     return false;
   }
@@ -289,14 +287,14 @@ bool SettingsHost::Create(HINSTANCE instance, HWND owner, ID3D11Device* device,
       ImGui_ImplWin32_Init(hwnd_) && ImGui_ImplDX11_Init(device_.Get(), ctx_.Get());
   ImGui::SetCurrentContext(previous);
   if (!ok) {
-    if (error) *error = T("ImGui für das Einstellungsfenster fehlgeschlagen",
-                             "ImGui failed for the settings window");
+    ReportError(error, CAP_SAID(T("ImGui für das Einstellungsfenster fehlgeschlagen",
+                                     "ImGui failed for the settings window")));
     Destroy();
     return false;
   }
 
   CreateRenderTarget();
-  CAP_LOG("Einstellungsfenster angelegt");
+  CAP_LOG("Settings window created");
   return true;
 }
 

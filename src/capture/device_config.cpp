@@ -42,18 +42,18 @@ bool DevicePropertyPages::Available(IBaseFilter* filter) {
 bool DevicePropertyPages::Open(IBaseFilter* filter, const std::wstring& title,
                                std::string* error) {
   if (running_.load(std::memory_order_relaxed)) {
-    if (error) *error = T("Der Konfigurationsdialog ist bereits offen.",
-               "The configuration dialog is already open.");
+    ReportError(error, CAP_SAID(T("Der Konfigurationsdialog ist bereits offen.",
+                       "The configuration dialog is already open.")));
     return false;
   }
   if (thread_.joinable()) thread_.join();  // reap the previous one
   if (!filter) {
-    if (error) *error = T("Die Karte läuft nicht.", "The card is not running.");
+    ReportError(error, CAP_SAID(T("Die Karte läuft nicht.", "The card is not running.")));
     return false;
   }
   if (!Available(filter)) {
-    if (error) *error = T("Diese Karte bringt keinen eigenen Konfigurationsdialog mit.",
-               "This card brings no configuration dialog of its own.");
+    ReportError(error, CAP_SAID(T("Diese Karte bringt keinen eigenen Konfigurationsdialog mit.",
+                       "This card brings no configuration dialog of its own.")));
     return false;
   }
 
@@ -84,7 +84,7 @@ void DevicePropertyPages::Run(std::wstring title) {
   CollectPages(filter_.Get(), &pages);
 
   if (!pages.empty()) {
-    CAP_LOG("Konfigurationsdialog der Karte: %d Seiten", (int)pages.size());
+    CAP_LOG("Card configuration dialog: %d pages", (int)pages.size());
     // No owner window. The obvious thing is to pass the main window, and it is
     // wrong: a modal dialog owned across a thread boundary ties the two input
     // queues together, and the frame comes up blank and takes no input but the
@@ -94,9 +94,9 @@ void DevicePropertyPages::Run(std::wstring title) {
     IUnknown* object = filter_.Get();
     const HRESULT hr = ::OleCreatePropertyFrame(nullptr, 0, 0, title.c_str(), 1, &object,
                                                 (ULONG)pages.size(), pages.data(), 0, 0, nullptr);
-    if (FAILED(hr)) CAP_LOG("OleCreatePropertyFrame fehlgeschlagen: 0x%08lX", (unsigned long)hr);
+    if (FAILED(hr)) CAP_LOG("OleCreatePropertyFrame failed: 0x%08lX", (unsigned long)hr);
   } else {
-    CAP_LOG("Konfigurationsdialog der Karte: keine Seiten gefunden");
+    CAP_LOG("Card configuration dialog: no pages found");
   }
 
   if (SUCCEEDED(init)) ::CoUninitialize();

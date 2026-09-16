@@ -488,7 +488,7 @@ void FrameSink::OnDisconnected() {
 }
 
 void FrameSink::OnEndOfStream() {
-  CAP_WARN("Sink: End-of-Stream vom Capture-Filter");
+  CAP_WARN("Sink: end of stream from the capture filter");
   ended_.store(true, std::memory_order_relaxed);
 }
 
@@ -513,7 +513,7 @@ HRESULT FrameSink::OnSample(IMediaSample* sample) {
       std::lock_guard<std::mutex> lock(mutex_);
       if (info.width != format_.width || info.height != format_.height ||
           !IsEqualGUID(info.subtype, format_.subtype)) {
-        CAP_LOG("Formatwechsel mitten im Stream: %s %dx%d", info.subtypeLabel.c_str(), info.width,
+        CAP_LOG("Format change mid-stream: %s %dx%d", info.subtypeLabel.c_str(), info.width,
                 info.height);
         for (int i = 0; i < 3; ++i) {
           slots_[i].assign(info.imageSize, 0);

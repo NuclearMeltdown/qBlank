@@ -137,12 +137,12 @@ int FetchFfmpeg() {
   // A windowed program handed a console it did not create cannot rely on stdout
   // surviving, so the log file is the dependable record of what happened.
   cap::LogInit(true);
-  cap::LogWrite("INFO", "--fetch-ffmpeg gestartet");
-  std::printf("\nqBlank: hole ffmpeg ...\n");
+  cap::LogWrite("INFO", "--fetch-ffmpeg started");
+  std::printf("\nqBlank: fetching ffmpeg ...\n");
 
   cap::FfmpegDownloader downloader;
   if (!downloader.Start(cap::ExeDirectory() + L"ffmpeg")) {
-    std::printf("Download konnte nicht gestartet werden.\n");
+    std::printf("Could not start the download.\n");
     return 1;
   }
 
@@ -161,8 +161,8 @@ int FetchFfmpeg() {
   if (ok && !downloader.resultPath().empty()) {
     std::printf("  %s\n", downloader.resultPath().c_str());
   }
-  cap::LogWrite(ok ? "INFO" : "ERR ", "--fetch-ffmpeg: %s (%s)", downloader.message().c_str(),
-                ok ? downloader.resultPath().c_str() : "fehlgeschlagen");
+  // A failure has been logged where it happened.
+  if (ok) cap::LogWrite("INFO", "--fetch-ffmpeg: %s", downloader.resultPath().c_str());
   return ok ? 0 : 1;
 }
 
@@ -172,14 +172,14 @@ int ListEncoders() {
   AttachConsoleIfAny();
   cap::FfmpegInfo info = cap::LocateFfmpeg({});
   if (!info.found) {
-    std::printf("\nffmpeg nicht gefunden.\n");
+    std::printf("\nffmpeg not found.\n");
     return 1;
   }
   std::printf("\n%s\n%s\n\n", info.path.c_str(), info.version.c_str());
   cap::ProbeEncoders(&info);
   for (const cap::EncoderInfo& e : info.encoders) {
     std::printf("  %-30s %-9s %s\n", e.label.c_str(), e.hardware ? "Hardware" : "CPU",
-                e.available ? "verfügbar" : ("nicht verfügbar  " + e.error).c_str());
+                e.available ? "available" : ("not available  " + e.error).c_str());
   }
   return 0;
 }
@@ -197,7 +197,7 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR commandLine, int sho
   // their own threads, and MTA keeps those calls free of apartment marshalling.
   cap::ComScope com(COINIT_MULTITHREADED);
   if (!com.ok()) {
-    ::MessageBoxW(nullptr, L"COM konnte nicht initialisiert werden.", cap::kAppName,
+    ::MessageBoxW(nullptr, L"COM could not be initialised.", cap::kAppName,
                   MB_ICONERROR | MB_OK);
     return 1;
   }
@@ -233,6 +233,6 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR commandLine, int sho
   }
 
   ::timeEndPeriod(1);
-  cap::LogWrite("INFO", "%s beendet", cap::AppNameUtf8().c_str());
+  cap::LogWrite("INFO", "%s exited", cap::AppNameUtf8().c_str());
   return result;
 }

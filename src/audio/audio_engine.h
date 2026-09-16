@@ -95,7 +95,7 @@ class AudioEngine {
  private:
   void CaptureThread(AudioDeviceInfo device);
   void RenderThread(AudioDeviceInfo device, bool exclusive);
-  void Fail(const std::string& message);
+  void Fail(const Said& said);
 
   // Single entry point for captured audio, whichever backend produced it.
   // Feeds the playback ring and, when recording, the tap.

@@ -152,26 +152,27 @@ void Remuxer::Run(std::wstring ffmpegPath) {
         RunFfmpeg(ToUtf8(ffmpegPath), args, &captured, &exitCode, 30 * 60 * 1000);
 
     const bool good = started && exitCode == 0 && FileExists(output);
+    Said failure;
+    if (!good) {
+      failure = started ? CAP_SAID(ExplainFailure(captured, exitCode))
+                        : CAP_SAID(T("ffmpeg konnte nicht gestartet werden.",
+                                     "ffmpeg could not be started."));
+    }
     {
       std::lock_guard<std::mutex> lock(mutex_);
       items_[i].output = output;
       items_[i].done = true;
       items_[i].ok = good;
-      if (!good) {
-        items_[i].error = started ? ExplainFailure(captured, exitCode)
-                                  : T("ffmpeg konnte nicht gestartet werden.",
-                                      "ffmpeg could not be started.");
-      }
+      if (!good) items_[i].error = failure.shown;
     }
     if (good) {
       ok_.fetch_add(1, std::memory_order_relaxed);
-      CAP_LOG("Umgepackt: %s", ToUtf8(FileNameOf(output)).c_str());
+      CAP_LOG("Remuxed: %s", ToUtf8(FileNameOf(output)).c_str());
     } else {
       // A half written MP4 is worse than none: it looks like a result.
       ::DeleteFileW(output.c_str());
-      std::lock_guard<std::mutex> lock(mutex_);
-      LogWrite("ERR ", "Umpacken fehlgeschlagen: %s -- %s", ToUtf8(FileNameOf(input)).c_str(),
-               items_[i].error.c_str());
+      LogWrite("ERR ", "Remux failed: %s -- %s", ToUtf8(FileNameOf(input)).c_str(),
+               failure.logged.c_str());
     }
 
     done_.fetch_add(1, std::memory_order_relaxed);

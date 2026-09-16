@@ -122,10 +122,8 @@ bool WriteFilterDll(std::string* error) {
   DWORD bytes = 0;
   const uint8_t* data = FilterBytes(&bytes);
   if (!data || bytes == 0) {
-    if (error) {
-      *error = T("Diese qBlank-Fassung enthält keine Kameraquelle.",
-                 "This build of qBlank carries no camera source.");
-    }
+    ReportError(error, CAP_SAID(T("Diese qBlank-Fassung enthält keine Kameraquelle.",
+                                  "This build of qBlank carries no camera source.")));
     return false;
   }
 
@@ -135,23 +133,19 @@ bool WriteFilterDll(std::string* error) {
   HANDLE file = ::CreateFileW(target.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
   if (file == INVALID_HANDLE_VALUE) {
-    if (error) {
-      *error = T("Konnte die Kameraquelle nicht in den Programmordner schreiben.",
-                 "Could not write the camera source into the program folder.");
-    }
+    ReportError(error, CAP_SAID(T("Konnte die Kameraquelle nicht in den Programmordner schreiben.",
+                                  "Could not write the camera source into the program folder.")));
     return false;
   }
   DWORD written = 0;
   const bool ok = ::WriteFile(file, data, bytes, &written, nullptr) && written == bytes;
   ::CloseHandle(file);
   if (!ok) {
-    if (error) {
-      *error = T("Die Kameraquelle wurde nicht vollständig geschrieben.",
-                 "The camera source was not written in full.");
-    }
+    ReportError(error, CAP_SAID(T("Die Kameraquelle wurde nicht vollständig geschrieben.",
+                                  "The camera source was not written in full.")));
     return false;
   }
-  CAP_LOG("Kameraquelle geschrieben: %lu Byte", (unsigned long)bytes);
+  CAP_LOG("Camera source written: %lu bytes", (unsigned long)bytes);
   return true;
 }
 
@@ -160,10 +154,8 @@ bool WriteFilterDll(std::string* error) {
 bool RunRegsvr(bool remove, std::string* error) {
   const std::wstring dll = DllPath();
   if (!FileThere(dll)) {
-    if (error) {
-      *error = T("qblank_vcam.dll fehlt neben qBlank.exe.",
-                 "qblank_vcam.dll is missing next to qBlank.exe.");
-    }
+    ReportError(error, CAP_SAID(T("qblank_vcam.dll fehlt neben qBlank.exe.",
+                                  "qblank_vcam.dll is missing next to qBlank.exe.")));
     return false;
   }
 
@@ -181,14 +173,12 @@ bool RunRegsvr(bool remove, std::string* error) {
 
   if (!::ShellExecuteExW(&info) || !info.hProcess) {
     const DWORD err = ::GetLastError();
-    CAP_ERR("Kamera: ShellExecuteEx(runas, regsvr32) fehlgeschlagen, Fehler %lu",
-            (unsigned long)err);
-    if (error) {
-      *error = err == ERROR_CANCELLED
-                   ? T("Abgebrochen -- ohne Administratorrechte geht es nicht.",
-                       "Cancelled -- this cannot be done without administrator rights.")
-                   : T("regsvr32 ließ sich nicht starten.", "regsvr32 could not be started.");
-    }
+    CAP_ERR("Camera: ShellExecuteEx(runas, regsvr32) failed, error %lu", (unsigned long)err);
+    ReportError(error,
+                CAP_SAID(err == ERROR_CANCELLED
+                             ? T("Abgebrochen -- ohne Administratorrechte geht es nicht.",
+                                 "Cancelled -- this cannot be done without administrator rights.")
+                             : T("regsvr32 ließ sich nicht starten.", "regsvr32 could not be started.")));
     return false;
   }
 
@@ -197,23 +187,23 @@ bool RunRegsvr(bool remove, std::string* error) {
   ::GetExitCodeProcess(info.hProcess, &code);
   ::CloseHandle(info.hProcess);
 
-  CAP_LOG("Kamera: regsvr32 %s beendet mit %lu", remove ? "/u" : "", (unsigned long)code);
+  CAP_LOG("Camera: regsvr32 %s exited with %lu", remove ? "/u" : "", (unsigned long)code);
 
   if (code != 0) {
-    if (error) {
-      // regsvr32's own numbering, said plainly. "It failed" is what made this
-      // take three rounds to understand, so the number goes in the message.
-      const char* why =
-          code == 3   ? T("die DLL ließ sich nicht laden", "the DLL would not load")
-          : code == 4 ? T("der Einstiegspunkt fehlt", "the entry point is missing")
-          : code == 5 ? T("abgelehnt -- vermutlich fehlen Administratorrechte",
-                          "refused -- probably missing administrator rights")
-                      : T("unbekannter Grund", "reason unknown");
-      *error = std::string(remove ? T("Entfernen fehlgeschlagen (", "Removing failed (")
-                                  : T("Registrierung fehlgeschlagen (", "Registration failed (")) +
-               why + ", regsvr32 " + std::to_string((int)code) + ").";
-    }
-    return false;
+    // regsvr32's own numbering, said plainly. "It failed" is what made this
+    // take three rounds to understand, so the number goes in the message.
+    auto why = [code]() {
+      return code == 3   ? T("die DLL ließ sich nicht laden", "the DLL would not load")
+             : code == 4 ? T("der Einstiegspunkt fehlt", "the entry point is missing")
+             : code == 5 ? T("abgelehnt -- vermutlich fehlen Administratorrechte",
+                             "refused -- probably missing administrator rights")
+                         : T("unbekannter Grund", "reason unknown");
+    };
+    return ReportError(
+        error, CAP_SAID(std::string(remove ? T("Entfernen fehlgeschlagen (", "Removing failed (")
+                                           : T("Registrierung fehlgeschlagen (",
+                                               "Registration failed (")) +
+                        why() + ", regsvr32 " + std::to_string((int)code) + ")."));
   }
   return true;
 }
@@ -379,7 +369,7 @@ void VirtualCamera::CleanUpOldSources() {
     } while (::FindNextFileW(search, &found));
     ::FindClose(search);
   }
-  if (removed > 0) CAP_LOG("Kameraquelle: %d alte Datei(en) entfernt", removed);
+  if (removed > 0) CAP_LOG("Camera source: %d old file(s) removed", removed);
 }
 
 // ---------------------------------------------------------------- lifetime
@@ -441,10 +431,8 @@ bool VirtualCamera::StartBlocking(std::string* error) {
   if (running()) return true;
 
   if (Status() != Install::Installed) {
-    if (error) {
-      *error = T("Die Kameraquelle ist nicht installiert.",
-                 "The camera source is not installed.");
-    }
+    ReportError(error, CAP_SAID(T("Die Kameraquelle ist nicht installiert.",
+                                  "The camera source is not installed.")));
     return false;
   }
 
@@ -454,7 +442,7 @@ bool VirtualCamera::StartBlocking(std::string* error) {
   wake_ = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
   running_ = true;
   worker_ = std::thread(&VirtualCamera::WorkerLoop, this);
-  CAP_LOG("Virtuelle Kamera gestartet");
+  CAP_LOG("Virtual camera started");
   return true;
 }
 
@@ -478,12 +466,10 @@ bool VirtualCamera::CreateControl(std::string* error) {
                                          sizeof(vcam::ControlBlock), vcam::kControlSectionName);
   const DWORD created = ::GetLastError();
   if (!controlSection_) {
-    CAP_ERR("Virtuelle Kamera: CreateFileMapping fehlgeschlagen, Fehler %lu",
+    CAP_ERR("Virtual camera: CreateFileMapping failed, error %lu",
             (unsigned long)created);
-    if (error) {
-      *error = T("Der geteilte Speicher für die Kamera ließ sich nicht anlegen.",
-                 "The camera's shared memory could not be created.");
-    }
+    ReportError(error, CAP_SAID(T("Der geteilte Speicher für die Kamera ließ sich nicht anlegen.",
+                                  "The camera's shared memory could not be created.")));
     return false;
   }
   controlView_ = ::MapViewOfFile(controlSection_, FILE_MAP_WRITE | FILE_MAP_READ, 0, 0,
@@ -491,10 +477,8 @@ bool VirtualCamera::CreateControl(std::string* error) {
   if (!controlView_) {
     ::CloseHandle(controlSection_);
     controlSection_ = nullptr;
-    if (error) {
-      *error = T("Der geteilte Speicher für die Kamera ließ sich nicht abbilden.",
-                 "The camera's shared memory could not be mapped.");
-    }
+    ReportError(error, CAP_SAID(T("Der geteilte Speicher für die Kamera ließ sich nicht abbilden.",
+                                  "The camera's shared memory could not be mapped.")));
     return false;
   }
 
@@ -509,7 +493,7 @@ bool VirtualCamera::CreateControl(std::string* error) {
     // taken over. Carrying the generation forward matters too: reusing a number
     // a consumer already has mapped would leave it looking at a dead section.
     generation_ = cb->frameGeneration;
-    CAP_LOG("Virtuelle Kamera: vorhandenen Steuerblock übernommen (Generation %u)",
+    CAP_LOG("Virtual camera: took over the existing control block (generation %u)",
             (unsigned)generation_);
   } else {
     ::memset(cb, 0, sizeof(*cb));
@@ -663,7 +647,7 @@ bool VirtualCamera::EnsureFrameSection(uint32_t width, uint32_t height, uint32_t
       continue;
     }
     if (!tried) {
-      CAP_ERR("Virtuelle Kamera: Bildspeicher (%llu Byte) fehlgeschlagen, Fehler %lu",
+      CAP_ERR("Virtual camera: frame memory (%llu bytes) failed, error %lu",
               (unsigned long long)bytes, (unsigned long)::GetLastError());
       return false;
     }
@@ -702,7 +686,7 @@ bool VirtualCamera::EnsureFrameSection(uint32_t width, uint32_t height, uint32_t
   ::MemoryBarrier();
   cb->frameGeneration = generation;
 
-  CAP_LOG("Virtuelle Kamera: %ux%u %s, Generation %u, %llu Byte", (unsigned)width,
+  CAP_LOG("Virtual camera: %ux%u %s, generation %u, %llu bytes", (unsigned)width,
           (unsigned)height, pixel == vcam::kPixelP010 ? "P010" : "NV12", (unsigned)generation,
           (unsigned long long)bytes);
   return true;
@@ -788,7 +772,7 @@ void VirtualCamera::PruneConsumers() {
         alive = false;  // no such process
       }
       if (!alive) {
-        CAP_LOG("Virtuelle Kamera: Leser %u (PID %lu) verschwunden", (unsigned)i,
+        CAP_LOG("Virtual camera: reader %u (PID %lu) gone", (unsigned)i,
                 (unsigned long)s.pid);
         s.streaming = 0;
         s.framesServed = 0;
@@ -800,7 +784,7 @@ void VirtualCamera::PruneConsumers() {
   }
 
   if (consumed_.exchange(anyLive) != anyLive) {
-    CAP_LOG("Virtuelle Kamera: Leser %s", anyLive ? "da" : "weg");
+    CAP_LOG("Virtual camera: readers %s", anyLive ? "present" : "gone");
   }
 }
 
@@ -870,7 +854,7 @@ void VirtualCamera::WorkerLoop() {
         for (uint32_t i = 0; i < vcam::kConsumerSlots; ++i) {
           if (cb->consumers[i].inUse) ++live;
         }
-        CAP_LOG("Virtuelle Kamera: %ux%u %s, Leser %u, veröffentlicht %u", (unsigned)frameWidth_,
+        CAP_LOG("Virtual camera: %ux%u %s, readers %u, published %u", (unsigned)frameWidth_,
                 (unsigned)frameHeight_, framePixel_ == vcam::kPixelP010 ? "P010" : "NV12", live,
                 (unsigned)published_);
       }

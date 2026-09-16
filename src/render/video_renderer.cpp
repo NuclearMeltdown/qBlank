@@ -182,7 +182,7 @@ void PruneShaderCache() {
     if (!live && ::DeleteFileW(path.c_str())) ++removed;
   } while (::FindNextFileW(search, &found));
   ::FindClose(search);
-  if (removed > 0) CAP_LOG("Shadercache: %d veraltete Datei(en) entfernt", removed);
+  if (removed > 0) CAP_LOG("Shader cache: %d stale file(s) removed", removed);
 }
 
 ComPtr<ID3DBlob> CompileShader(const char* source, const char* target, std::string* error) {
@@ -197,7 +197,7 @@ ComPtr<ID3DBlob> CompileShader(const char* source, const char* target, std::stri
   HRESULT hr = ::D3DCompile(source, strlen(source), nullptr, nullptr, nullptr, "main", target,
                             flags, 0, &code, &errors);
   if (SUCCEEDED(hr)) {
-    CAP_LOG("Shader %s kompiliert in %lu ms, gespeichert", target,
+    CAP_LOG("Shader %s compiled in %lu ms, cached", target,
             (unsigned long)(::GetTickCount() - started));
     StoreCachedShader(cachePath, code.Get());
   }
@@ -205,9 +205,9 @@ ComPtr<ID3DBlob> CompileShader(const char* source, const char* target, std::stri
     std::string detail = errors ? std::string((const char*)errors->GetBufferPointer(),
                                               errors->GetBufferSize())
                                 : HrToString(hr);
-    if (error) *error = T("Shader (", "Shader (") + std::string(target) +
-                  T(") konnte nicht kompiliert werden: ", ") could not be compiled: ") + detail;
-    CAP_ERR("Shaderfehler: %s", detail.c_str());
+    ReportError(error, CAP_SAID(T("Shader (", "Shader (") + std::string(target) +
+                          T(") konnte nicht kompiliert werden: ", ") could not be compiled: ") + detail));
+    CAP_ERR("Shader error: %s", detail.c_str());
     return nullptr;
   }
   return code;
@@ -240,7 +240,7 @@ VideoRenderer::~VideoRenderer() {
 bool VideoRenderer::Initialize(D3DContext* ctx, std::string* error) {
   ctx_ = ctx;
   if (!ctx_ || !ctx_->device()) {
-    if (error) *error = T("Kein Direct3D-Gerät", "No Direct3D device");
+    ReportError(error, CAP_SAID(T("Kein Direct3D-Gerät", "No Direct3D device")));
     return false;
   }
   if (!CreateShaders(error)) return false;
@@ -273,8 +273,8 @@ bool VideoRenderer::CreateShaders(std::string* error) {
   if (!vsCode) return false;
   if (FAILED(CAP_HR(dev->CreateVertexShader(vsCode->GetBufferPointer(), vsCode->GetBufferSize(),
                                             nullptr, &vs_)))) {
-    if (error) *error = T("Vertex-Shader konnte nicht erstellt werden",
-                             "The vertex shader could not be created");
+    ReportError(error, CAP_SAID(T("Vertex-Shader konnte nicht erstellt werden",
+                                     "The vertex shader could not be created")));
     return false;
   }
 
@@ -282,8 +282,8 @@ bool VideoRenderer::CreateShaders(std::string* error) {
   if (!cleanCode) return false;
   if (FAILED(CAP_HR(dev->CreatePixelShader(cleanCode->GetBufferPointer(),
                                            cleanCode->GetBufferSize(), nullptr, &psClean_)))) {
-    if (error) *error = T("Aufbereitungs-Shader konnte nicht erstellt werden",
-                             "The cleanup shader could not be created");
+    ReportError(error, CAP_SAID(T("Aufbereitungs-Shader konnte nicht erstellt werden",
+                                     "The cleanup shader could not be created")));
     return false;
   }
 
@@ -291,8 +291,8 @@ bool VideoRenderer::CreateShaders(std::string* error) {
   if (!convertCode) return false;
   if (FAILED(CAP_HR(dev->CreatePixelShader(convertCode->GetBufferPointer(),
                                            convertCode->GetBufferSize(), nullptr, &psConvert_)))) {
-    if (error) *error = T("Konvertierungs-Shader konnte nicht erstellt werden",
-                             "The conversion shader could not be created");
+    ReportError(error, CAP_SAID(T("Konvertierungs-Shader konnte nicht erstellt werden",
+                                     "The conversion shader could not be created")));
     return false;
   }
 
@@ -300,8 +300,8 @@ bool VideoRenderer::CreateShaders(std::string* error) {
   if (!scaleCode) return false;
   if (FAILED(CAP_HR(dev->CreatePixelShader(scaleCode->GetBufferPointer(), scaleCode->GetBufferSize(),
                                            nullptr, &psScale_)))) {
-    if (error) *error = T("Skalierungs-Shader konnte nicht erstellt werden",
-                             "The scaling shader could not be created");
+    ReportError(error, CAP_SAID(T("Skalierungs-Shader konnte nicht erstellt werden",
+                                     "The scaling shader could not be created")));
     return false;
   }
 
@@ -310,8 +310,8 @@ bool VideoRenderer::CreateShaders(std::string* error) {
   if (FAILED(CAP_HR(dev->CreatePixelShader(recordCode->GetBufferPointer(),
                                            recordCode->GetBufferSize(), nullptr,
                                            &psHdrRecord_)))) {
-    if (error) *error = T("Aufnahme-Shader konnte nicht erstellt werden",
-                             "The recording shader could not be created");
+    ReportError(error, CAP_SAID(T("Aufnahme-Shader konnte nicht erstellt werden",
+                                     "The recording shader could not be created")));
     return false;
   }
 
@@ -319,8 +319,8 @@ bool VideoRenderer::CreateShaders(std::string* error) {
   if (!uiCode) return false;
   if (FAILED(CAP_HR(dev->CreatePixelShader(uiCode->GetBufferPointer(), uiCode->GetBufferSize(),
                                            nullptr, &psUiComposite_)))) {
-    if (error) *error = T("Oberflächen-Shader konnte nicht erstellt werden",
-                             "The interface shader could not be created");
+    ReportError(error, CAP_SAID(T("Oberflächen-Shader konnte nicht erstellt werden",
+                                     "The interface shader could not be created")));
     return false;
   }
 
@@ -334,19 +334,19 @@ bool VideoRenderer::CreateShaders(std::string* error) {
 
   bd.ByteWidth = sizeof(ConvertCB);
   if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbConvert_)))) {
-    if (error) *error = T("Konstantenpuffer konnte nicht erstellt werden",
-                             "The constant buffer could not be created");
+    ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
+                                     "The constant buffer could not be created")));
     return false;
   }
   bd.ByteWidth = 16;  // one float plus padding
   if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbRecord_)))) {
-    if (error) *error = T("Konstantenpuffer konnte nicht erstellt werden",
-                             "The constant buffer could not be created");
+    ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
+                                     "The constant buffer could not be created")));
     return false;
   }
   if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbUi_)))) {
-    if (error) *error = T("Konstantenpuffer konnte nicht erstellt werden",
-                             "The constant buffer could not be created");
+    ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
+                                     "The constant buffer could not be created")));
     return false;
   }
 
@@ -362,15 +362,15 @@ bool VideoRenderer::CreateShaders(std::string* error) {
   pm.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
   pm.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
   if (FAILED(CAP_HR(dev->CreateBlendState(&pm, &blendPremultiplied_)))) {
-    if (error) *error = T("Blend-State konnte nicht erstellt werden",
-                             "The blend state could not be created");
+    ReportError(error, CAP_SAID(T("Blend-State konnte nicht erstellt werden",
+                                     "The blend state could not be created")));
     return false;
   }
 
   bd.ByteWidth = sizeof(ScaleCB);
   if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbScale_)))) {
-    if (error) *error = T("Konstantenpuffer konnte nicht erstellt werden",
-                             "The constant buffer could not be created");
+    ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
+                                     "The constant buffer could not be created")));
     return false;
   }
   return true;
@@ -386,14 +386,14 @@ bool VideoRenderer::CreateStates(std::string* error) {
 
   sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
   if (FAILED(CAP_HR(dev->CreateSamplerState(&sd, &sampPoint_)))) {
-    if (error) *error = T("Sampler konnte nicht erstellt werden",
-                             "The sampler could not be created");
+    ReportError(error, CAP_SAID(T("Sampler konnte nicht erstellt werden",
+                                     "The sampler could not be created")));
     return false;
   }
   sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
   if (FAILED(CAP_HR(dev->CreateSamplerState(&sd, &sampLinear_)))) {
-    if (error) *error = T("Sampler konnte nicht erstellt werden",
-                             "The sampler could not be created");
+    ReportError(error, CAP_SAID(T("Sampler konnte nicht erstellt werden",
+                                     "The sampler could not be created")));
     return false;
   }
 
@@ -402,16 +402,16 @@ bool VideoRenderer::CreateStates(std::string* error) {
   rd.CullMode = D3D11_CULL_NONE;
   rd.DepthClipEnable = TRUE;
   if (FAILED(CAP_HR(dev->CreateRasterizerState(&rd, &raster_)))) {
-    if (error) *error = T("Rasterizer-State konnte nicht erstellt werden",
-                             "The rasteriser state could not be created");
+    ReportError(error, CAP_SAID(T("Rasterizer-State konnte nicht erstellt werden",
+                                     "The rasteriser state could not be created")));
     return false;
   }
 
   D3D11_BLEND_DESC bd = {};
   bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
   if (FAILED(CAP_HR(dev->CreateBlendState(&bd, &blendOpaque_)))) {
-    if (error) *error = T("Blend-State konnte nicht erstellt werden",
-                             "The blend state could not be created");
+    ReportError(error, CAP_SAID(T("Blend-State konnte nicht erstellt werden",
+                                     "The blend state could not be created")));
     return false;
   }
   return true;
@@ -553,11 +553,11 @@ bool VideoRenderer::CreateSourceTextures(std::string* error) {
 
   if (!ok) {
     ReleaseSourceTextures();
-    if (error) *error = T("Videotexturen konnten nicht angelegt werden",
-                             "The video textures could not be created");
+    ReportError(error, CAP_SAID(T("Videotexturen konnten nicht angelegt werden",
+                                     "The video textures could not be created")));
     return false;
   }
-  CAP_LOG("Quelltexturen angelegt: %s %dx%d (%d Ebenen)", source_.subtypeLabel.c_str(), w, h,
+  CAP_LOG("Source textures created: %s %dx%d (%d planes)", source_.subtypeLabel.c_str(), w, h,
           planeCount_);
   return true;
 }
@@ -1066,9 +1066,9 @@ void VideoRenderer::AnalyzeLevels(const FrameView& frame) {
   // range signals are allowed to carry superwhites, and plenty of sources do.
   rangeVerdict_ = below > 0.002 ? RangeVerdict::Full : RangeVerdict::Limited;
   CAP_LOG(
-      "Wertebereich erkannt: %s (min %d, max %d, %.3f %% unter 16, %llu Proben aus x %d..%d, y "
+      "Signal range detected: %s (min %d, max %d, %.3f %% below 16, %llu samples from x %d..%d, y "
       "%d..%d)",
-      rangeVerdict_ == RangeVerdict::Full ? "voll 0-255" : "begrenzt 16-235", rangeMin_, rangeMax_,
+      rangeVerdict_ == RangeVerdict::Full ? "full 0-255" : "limited 16-235", rangeMin_, rangeMax_,
       below * 100.0, (unsigned long long)rangeSamples_, x0, x1 - 1, y0, y1 - 1);
 }
 
@@ -1797,7 +1797,8 @@ void VideoRenderer::AnalyzeContentBounds(const FrameView& frame) {
   boundsFramesSeen_ = 0;
   accAny_ = false;
   if (changed) {
-    CAP_LOG("Bildinhalt gemessen: x %d..%d, y %d..%d (Rand links %d, rechts %d, oben %d, unten %d)",
+    CAP_LOG("Picture content measured: x %d..%d, y %d..%d (border left %d, right %d, top %d, "
+            "bottom %d)",
             boundsL_, boundsR_, boundsT_, boundsB_, boundsL_, source_.width - 1 - boundsR_,
             boundsT_, source_.height - 1 - boundsB_);
   }
@@ -1889,10 +1890,10 @@ void VideoRenderer::AnalyzeSignal(const FrameView& frame) {
     signalVerdict_ = verdict;
     signalSinceTick_ = ::GetTickCount();
     if (signalSinceTick_ == 0) signalSinceTick_ = 1;  // 0 means "never measured"
-    CAP_LOG("Signal: %s (Spanne %d, Aenderung %d)",
-            verdict == SignalVerdict::Picture ? "Bild"
-            : verdict == SignalVerdict::Snow  ? "Rauschen"
-                                              : "flach",
+    CAP_LOG("Signal: %s (spread %d, change %d)",
+            verdict == SignalVerdict::Picture ? "picture"
+            : verdict == SignalVerdict::Snow  ? "snow"
+                                              : "flat",
             spread, delta);
   }
 }
@@ -2048,8 +2049,8 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
     // row. Capture heights are even, so the phase carries over unchanged.
     coSitedPhase_ = dInner < dOuter ? 0 : 1;
     interlaceVerdict_ = InterlaceVerdict::Interlaced;
-    CAP_LOG("Interlacing erkannt: ja, Halbbilder deckungsgleich, 240p/288p-Quelle "
-            "(%.2f gegen %.2f pro Zeilenpaar, Phase %d)",
+    CAP_LOG("Interlacing check: yes, fields co-sited, 240p/288p source (%.2f against %.2f per "
+            "line pair, phase %d)",
             lo, hi, coSitedPhase_);
     return;
   }
@@ -2057,12 +2058,12 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
   // Ohne diesen Zusatz liest sich eine Zeile mit dreissig Prozent in einer
   // Kachel und dem Urteil "nein" wie ein Fehler. Der Kachelwert wird immer
   // gemessen, auch wo er nichts entscheiden darf.
-  const char* tileNote = analogueSource_ ? "" : ", Kachelweg aus (digitale Quelle)";
+  const char* tileNote = analogueSource_ ? "" : ", tile path off (digital source)";
 
   if (looksCombed && mayLatch) {
     interlaceVerdict_ = InterlaceVerdict::Interlaced;
-    CAP_LOG("Interlacing erkannt: ja (%d von %d Bildern mit Kammartefakten, davon %d nur in "
-            "einzelnen Kacheln; hoechstens %.1f%% im Bild, %.1f%% in einer Kachel%s)",
+    CAP_LOG("Interlacing check: yes (%d of %d frames with combing, %d of them only in single "
+            "tiles; at most %.1f%% of the frame, %.1f%% of a tile%s)",
             combFrameHits_, combFramesAnalysed_, combTileOnly_, combFrameBest_ * 100.0,
             combTileBest_ * 100.0, tileNote);
     return;
@@ -2084,10 +2085,9 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
   // stumm.
   if (rateVetoed && !rateVetoLogged_) {
     rateVetoLogged_ = true;
-    CAP_LOG("Interlacing erkannt: nein, die Bildrate schliesst Halbbilder aus "
-            "(%.1f Bilder/s bei %d Zeilen; gemessen %d von %d Bildern mit "
-            "Kammartefakten, hoechstens %.1f%% im Bild und %.1f%% in einer Kachel, "
-            "%.2f/%.2f pro Zeilenpaar)",
+    CAP_LOG("Interlacing check: no, the frame rate rules out fields (%.1f frames/s at %d lines; "
+            "measured %d of %d frames with combing, at most %.1f%% of the frame and %.1f%% of a "
+            "tile, %.2f/%.2f per line pair)",
             frameRateHint_, h, combFrameHits_, combFramesAnalysed_, combFrameBest_ * 100.0,
             combTileBest_ * 100.0, lo, hi);
   }
@@ -2095,8 +2095,8 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
   if (interlaceVerdict_ == InterlaceVerdict::Pending && !rateNotYetIn) {
     interlaceVerdict_ = InterlaceVerdict::Progressive;
     if (!rateVetoed) {
-      CAP_LOG("Interlacing erkannt: nein (%d von %d Bildern mit Kammartefakten, hoechstens "
-              "%.1f%% im Bild und %.1f%% in einer Kachel%s, %.2f/%.2f pro Zeilenpaar)",
+      CAP_LOG("Interlacing check: no (%d of %d frames with combing, at most %.1f%% of the frame "
+              "and %.1f%% of a tile%s, %.2f/%.2f per line pair)",
               combFrameHits_, combFramesAnalysed_, combFrameBest_ * 100.0, combTileBest_ * 100.0,
               tileNote, lo, hi);
     }
@@ -2712,7 +2712,7 @@ void VideoRenderer::ComputeDeliverySize(const ImageSettings& image) {
     loggedDeliveryH_ = h;
     loggedOutW_ = outputWidth_;
     loggedOutH_ = outputHeight_;
-    CAP_LOG("Ausgabe auf quadratische Pixel: %dx%d -> %dx%d (Seitenverhältnis %.4f)",
+    CAP_LOG("Output to square pixels: %dx%d -> %dx%d (aspect ratio %.4f)",
             outputWidth_, outputHeight_, w, h, target);
   }
 }

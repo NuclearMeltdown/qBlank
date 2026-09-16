@@ -13,6 +13,7 @@
 // What the program is called, and where its own files are. Everything that
 // spells out a name gets it from there -- see src/app_identity.h.
 #include "app_identity.h"
+#include "i18n.h"
 
 // Short alias -- ComPtr shows up on almost every line of the DirectShow / D3D code.
 template <typename T>
@@ -48,8 +49,19 @@ HRESULT LogHrFailure(HRESULT hr, const char* expr, const char* file, int line);
 
 #define CAP_HR(expr) ::cap::LogHrFailure((expr), #expr, __FILE__, __LINE__)
 
-// Human readable HRESULT, e.g. "0x80070002 (Das System kann die Datei nicht finden)".
+// Human readable HRESULT, e.g. "0x80070002 (The system cannot find the file
+// specified)". The text comes from Windows: in English where T() speaks English
+// and Windows has the English text, otherwise in the language of the system.
 std::string HrToString(HRESULT hr);
+
+// The same, always asking for English first -- for log lines written directly
+// rather than through CAP_SAID.
+std::string HrToEnglish(HRESULT hr);
+
+// Hands a failure message to the caller in the interface language and writes
+// it to the log in English, at the place it arises. `error` may be null. False,
+// so `return ReportError(error, CAP_SAID(...));` works.
+bool ReportError(std::string* error, const Said& said);
 
 // ------------------------------------------------------------------ misc utils
 

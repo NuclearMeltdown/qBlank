@@ -105,18 +105,43 @@ void LogWrite(const char* level, const char* fmt, ...) {
   }
 }
 
-std::string HrToString(HRESULT hr) {
+namespace {
+
+std::string SystemMessage(HRESULT hr, LANGID language) {
   LPWSTR buf = nullptr;
   DWORD n = ::FormatMessageW(
       FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-      nullptr, (DWORD)hr, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPWSTR)&buf, 0, nullptr);
+      nullptr, (DWORD)hr, language, (LPWSTR)&buf, 0, nullptr);
   std::string text;
   if (n && buf) {
     text = Trim(ToUtf8(std::wstring(buf, n)));
   }
   if (buf) ::LocalFree(buf);
+  return text;
+}
+
+}  // namespace
+
+std::string HrToString(HRESULT hr) {
+  // A German Windows usually carries no English message table, and then the
+  // English request fails outright -- so the system's own language follows.
+  // The code in front stays either way, and that is what a search finds.
+  std::string text;
+  if (SpeakingEnglish()) text = SystemMessage(hr, MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US));
+  if (text.empty()) text = SystemMessage(hr, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT));
   if (text.empty()) return Format("0x%08X", (unsigned)hr);
   return Format("0x%08X (%s)", (unsigned)hr, text.c_str());
+}
+
+std::string HrToEnglish(HRESULT hr) {
+  EnglishScope english;
+  return HrToString(hr);
+}
+
+bool ReportError(std::string* error, const Said& said) {
+  LogWrite("ERR ", "%s", said.logged.c_str());
+  if (error) *error = said.shown;
+  return false;
 }
 
 HRESULT LogHrFailure(HRESULT hr, const char* expr, const char* file, int line) {
@@ -125,7 +150,7 @@ HRESULT LogHrFailure(HRESULT hr, const char* expr, const char* file, int line) {
     for (const char* p = file; *p; ++p) {
       if (*p == '\\' || *p == '/') base = p + 1;
     }
-    LogWrite("ERR ", "%s:%d  %s -> %s", base, line, expr, HrToString(hr).c_str());
+    LogWrite("ERR ", "%s:%d  %s -> %s", base, line, expr, HrToEnglish(hr).c_str());
   }
   return hr;
 }

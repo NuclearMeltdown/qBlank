@@ -127,7 +127,7 @@ class Recorder {
   // drives the video timeline.
   void AudioThread(HANDLE pipe, AudioPullFn pull, bool countsAsClock);
   void StderrThread();
-  void Fail(const std::string& message);
+  void Fail(const Said& said);
   bool WriteAll(HANDLE pipe, const uint8_t* data, size_t size);
   int PickWriteSlotLocked() const;
 

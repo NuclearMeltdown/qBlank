@@ -24,13 +24,13 @@ AudioEngine::~AudioEngine() {
   Stop();
 }
 
-void AudioEngine::Fail(const std::string& message) {
+void AudioEngine::Fail(const Said& said) {
   {
     std::lock_guard<std::mutex> lock(statsMutex_);
-    lastError_ = message;
+    lastError_ = said.shown;
   }
   failed_.store(true, std::memory_order_relaxed);
-  CAP_ERR("Audio: %s", message.c_str());
+  CAP_ERR("Audio: %s", said.logged.c_str());
 }
 
 std::string AudioEngine::lastError() const {
@@ -43,13 +43,11 @@ bool AudioEngine::Start(const DeviceRef& input, const AudioSettings& settings, s
 
   AudioDeviceInfo inputInfo;
   if (!ResolveAudioDevice(input, true, &inputInfo)) {
-    if (error) {
-      *error = input.empty()
-                   ? std::string(T("Kein Audiogerät ausgewählt", "No audio device selected"))
-                   : (T("Audioeingang '", "Audio input '") +
-                      (input.name.empty() ? input.id : input.name) +
-                      T("' wurde nicht gefunden", "' was not found"));
-    }
+    const std::string name = input.name.empty() ? input.id : input.name;
+    ReportError(error, CAP_SAID(input.empty()
+                                    ? std::string(T("Kein Audiogerät ausgewählt", "No audio device selected"))
+                                    : (T("Audioeingang '", "Audio input '") + name +
+                                       T("' wurde nicht gefunden", "' was not found"))));
     return false;
   }
 
@@ -58,12 +56,12 @@ bool AudioEngine::Start(const DeviceRef& input, const AudioSettings& settings, s
     // Empty or stale reference: fall back to the system default output.
     std::vector<AudioDeviceInfo> outputs = EnumerateAudioDevices(false);
     if (outputs.empty()) {
-      if (error) *error = T("Kein Wiedergabegerät verfügbar", "No playback device available");
+      ReportError(error, CAP_SAID(T("Kein Wiedergabegerät verfügbar", "No playback device available")));
       return false;
     }
     outputInfo = outputs.front();
     if (!settings.output.empty()) {
-      CAP_WARN("Wiedergabegerät '%s' nicht gefunden, benutze '%s'", settings.output.name.c_str(),
+      CAP_WARN("Playback device '%s' not found, using '%s'", settings.output.name.c_str(),
                outputInfo.name.c_str());
     }
   }
@@ -88,8 +86,8 @@ bool AudioEngine::Start(const DeviceRef& input, const AudioSettings& settings, s
 
   stopEvent_ = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
   if (!stopEvent_) {
-    if (error) *error = T("Audio-Stopp-Event konnte nicht erstellt werden",
-                             "The audio stop event could not be created");
+    ReportError(error, CAP_SAID(T("Audio-Stopp-Event konnte nicht erstellt werden",
+                                     "The audio stop event could not be created")));
     return false;
   }
   ring_.Reset(kRingCapacityFrames);
@@ -114,7 +112,7 @@ bool AudioEngine::Start(const DeviceRef& input, const AudioSettings& settings, s
 
   renderThread_ = std::thread(&AudioEngine::RenderThread, this, outputInfo, settings.exclusive);
 
-  CAP_LOG("Audio gestartet: '%s' (%s) -> '%s', Ziel %d ms%s", inputInfo.name.c_str(),
+  CAP_LOG("Audio started: '%s' (%s) -> '%s', target %d ms%s", inputInfo.name.c_str(),
           inputInfo.directShow ? "DirectShow" : "WASAPI", outputInfo.name.c_str(),
           targetMs_.load(), settings.exclusive ? ", Exclusive" : "");
   return true;
@@ -223,23 +221,23 @@ void AudioEngine::CaptureThread(AudioDeviceInfo device) {
 
   ComPtr<IMMDevice> endpoint = OpenAudioEndpoint(device, true);
   if (!endpoint) {
-    Fail(T("Audioeingang konnte nicht geöffnet werden", "The audio input could not be opened"));
+    Fail(CAP_SAID(T("Audioeingang konnte nicht geöffnet werden", "The audio input could not be opened")));
     cleanup();
     return;
   }
 
   ComPtr<IAudioClient> client;
   if (FAILED(endpoint->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client))) {
-    Fail(T("Audioeingang konnte nicht aktiviert werden",
-           "The audio input could not be activated"));
+    Fail(CAP_SAID(T("Audioeingang konnte nicht aktiviert werden",
+                    "The audio input could not be activated")));
     cleanup();
     return;
   }
 
   WAVEFORMATEX* mixFormat = nullptr;
   if (FAILED(client->GetMixFormat(&mixFormat)) || !mixFormat) {
-    Fail(T("Audioformat des Eingangs konnte nicht ermittelt werden",
-           "The audio input's format could not be determined"));
+    Fail(CAP_SAID(T("Audioformat des Eingangs konnte nicht ermittelt werden",
+                    "The audio input's format could not be determined")));
     cleanup();
     return;
   }
@@ -247,8 +245,8 @@ void AudioEngine::CaptureThread(AudioDeviceInfo device) {
   StreamFormat fmt;
   if (!ParseWaveFormat(mixFormat, &fmt)) {
     ::CoTaskMemFree(mixFormat);
-    Fail(T("Der Audioeingang liefert ein unbekanntes Format",
-           "The audio input delivers an unknown format"));
+    Fail(CAP_SAID(T("Der Audioeingang liefert ein unbekanntes Format",
+                    "The audio input delivers an unknown format")));
     cleanup();
     return;
   }
@@ -259,9 +257,9 @@ void AudioEngine::CaptureThread(AudioDeviceInfo device) {
                                   20 * kMsToRefTime, 0, mixFormat, nullptr);
   ::CoTaskMemFree(mixFormat);
   if (FAILED(hr)) {
-    Fail(T("Audioeingang konnte nicht initialisiert werden: ",
-           "The audio input could not be initialised: ") +
-         HrToString(hr));
+    Fail(CAP_SAID(T("Audioeingang konnte nicht initialisiert werden: ",
+                    "The audio input could not be initialised: ") +
+                  HrToString(hr)));
     cleanup();
     return;
   }
@@ -269,7 +267,7 @@ void AudioEngine::CaptureThread(AudioDeviceInfo device) {
 
   ComPtr<IAudioCaptureClient> capture;
   if (FAILED(client->GetService(IID_PPV_ARGS(&capture)))) {
-    Fail(T("IAudioCaptureClient nicht verfügbar", "IAudioCaptureClient not available"));
+    Fail(CAP_SAID(T("IAudioCaptureClient nicht verfügbar", "IAudioCaptureClient not available")));
     cleanup();
     return;
   }
@@ -278,7 +276,7 @@ void AudioEngine::CaptureThread(AudioDeviceInfo device) {
   captureRate_.store(fmt.sampleRate, std::memory_order_relaxed);
 
   client->Start();
-  CAP_LOG("WASAPI-Aufnahme: %d Hz, %d Kanäle, %d Bit%s", fmt.sampleRate, fmt.channels,
+  CAP_LOG("WASAPI capture: %d Hz, %d channels, %d bit%s", fmt.sampleRate, fmt.channels,
           fmt.bitsPerSample, fmt.isFloat ? " float" : "");
 
   std::vector<float> scratch;
@@ -311,7 +309,7 @@ void AudioEngine::CaptureThread(AudioDeviceInfo device) {
     }
 
     if (hr == AUDCLNT_E_DEVICE_INVALIDATED) {
-      Fail(T("Der Audioeingang wurde entfernt", "The audio input was removed"));
+      Fail(CAP_SAID(T("Der Audioeingang wurde entfernt", "The audio input was removed")));
       break;
     }
   }
@@ -334,24 +332,24 @@ void AudioEngine::RenderThread(AudioDeviceInfo device, bool exclusive) {
 
   ComPtr<IMMDevice> endpoint = OpenAudioEndpoint(device, false);
   if (!endpoint) {
-    Fail(T("Wiedergabegerät konnte nicht geöffnet werden",
-           "The playback device could not be opened"));
+    Fail(CAP_SAID(T("Wiedergabegerät konnte nicht geöffnet werden",
+                    "The playback device could not be opened")));
     cleanup();
     return;
   }
 
   ComPtr<IAudioClient> client;
   if (FAILED(endpoint->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client))) {
-    Fail(T("Wiedergabegerät konnte nicht aktiviert werden",
-           "The playback device could not be activated"));
+    Fail(CAP_SAID(T("Wiedergabegerät konnte nicht aktiviert werden",
+                    "The playback device could not be activated")));
     cleanup();
     return;
   }
 
   WAVEFORMATEX* mixFormat = nullptr;
   if (FAILED(client->GetMixFormat(&mixFormat)) || !mixFormat) {
-    Fail(T("Audioformat der Wiedergabe konnte nicht ermittelt werden",
-           "The playback format could not be determined"));
+    Fail(CAP_SAID(T("Audioformat der Wiedergabe konnte nicht ermittelt werden",
+                    "The playback format could not be determined")));
     cleanup();
     return;
   }
@@ -401,10 +399,10 @@ void AudioEngine::RenderThread(AudioDeviceInfo device, bool exclusive) {
         usingExclusive = ParseWaveFormat(candidate, &fmt);
         if (!usingExclusive) hr = E_FAIL;
       } else {
-        CAP_WARN("Exclusive Mode nicht möglich (%s), benutze Shared Mode", HrToString(hr).c_str());
+        CAP_WARN("Exclusive mode not possible (%s), using shared mode", HrToEnglish(hr).c_str());
       }
     } else {
-      CAP_WARN("Exclusive Mode: kein passendes Format, benutze Shared Mode");
+      CAP_WARN("Exclusive mode: no suitable format, using shared mode");
     }
   }
 
@@ -412,8 +410,8 @@ void AudioEngine::RenderThread(AudioDeviceInfo device, bool exclusive) {
     if (!client) {
       if (FAILED(endpoint->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client))) {
         ::CoTaskMemFree(mixFormat);
-        Fail(T("Wiedergabegerät konnte nicht aktiviert werden",
-               "The playback device could not be activated"));
+        Fail(CAP_SAID(T("Wiedergabegerät konnte nicht aktiviert werden",
+                        "The playback device could not be activated")));
         cleanup();
         return;
       }
@@ -427,9 +425,9 @@ void AudioEngine::RenderThread(AudioDeviceInfo device, bool exclusive) {
   mixFormat = nullptr;
 
   if (FAILED(hr) || !fmt.valid()) {
-    Fail(T("Wiedergabe konnte nicht initialisiert werden: ",
-           "Playback could not be initialised: ") +
-         HrToString(hr));
+    Fail(CAP_SAID(T("Wiedergabe konnte nicht initialisiert werden: ",
+                    "Playback could not be initialised: ") +
+                  HrToString(hr)));
     cleanup();
     return;
   }
@@ -438,7 +436,7 @@ void AudioEngine::RenderThread(AudioDeviceInfo device, bool exclusive) {
 
   ComPtr<IAudioRenderClient> render;
   if (FAILED(client->GetService(IID_PPV_ARGS(&render)))) {
-    Fail(T("IAudioRenderClient nicht verfügbar", "IAudioRenderClient not available"));
+    Fail(CAP_SAID(T("IAudioRenderClient nicht verfügbar", "IAudioRenderClient not available")));
     cleanup();
     return;
   }
@@ -450,7 +448,7 @@ void AudioEngine::RenderThread(AudioDeviceInfo device, bool exclusive) {
   renderChannels_.store(fmt.channels, std::memory_order_relaxed);
   exclusiveActive_.store(usingExclusive, std::memory_order_relaxed);
 
-  CAP_LOG("Audiowiedergabe: %d Hz, %d Kanäle, %d Bit%s, Puffer %u Frames, %s", fmt.sampleRate,
+  CAP_LOG("Audio playback: %d Hz, %d channels, %d bit%s, buffer %u frames, %s", fmt.sampleRate,
           fmt.channels, fmt.bitsPerSample, fmt.isFloat ? " float" : "", bufferFrames,
           usingExclusive ? "Exclusive" : "Shared");
 
@@ -589,7 +587,7 @@ void AudioEngine::RenderThread(AudioDeviceInfo device, bool exclusive) {
     hr = render->GetBuffer(frames, &data);
     if (FAILED(hr)) {
       if (hr == AUDCLNT_E_DEVICE_INVALIDATED) {
-        Fail(T("Das Wiedergabegerät wurde entfernt", "The playback device was removed"));
+        Fail(CAP_SAID(T("Das Wiedergabegerät wurde entfernt", "The playback device was removed")));
         break;
       }
       continue;

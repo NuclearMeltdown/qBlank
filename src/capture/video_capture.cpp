@@ -14,20 +14,20 @@ bool CreateGraph(ComPtr<IGraphBuilder>* graph, ComPtr<ICaptureGraphBuilder2>* bu
   HRESULT hr = ::CoCreateInstance(CLSID_FilterGraph, nullptr, CLSCTX_INPROC_SERVER,
                                   IID_PPV_ARGS(graph->GetAddressOf()));
   if (FAILED(hr)) {
-    if (error) *error = T("Filtergraph konnte nicht erstellt werden: ",
-                             "The filter graph could not be created: ") + HrToString(hr);
+    ReportError(error, CAP_SAID(T("Filtergraph konnte nicht erstellt werden: ",
+                                     "The filter graph could not be created: ") + HrToString(hr)));
     return false;
   }
   hr = ::CoCreateInstance(CLSID_CaptureGraphBuilder2, nullptr, CLSCTX_INPROC_SERVER,
                           IID_PPV_ARGS(builder->GetAddressOf()));
   if (FAILED(hr)) {
-    if (error) *error = T("Capture Graph Builder konnte nicht erstellt werden: ",
-                             "The capture graph builder could not be created: ") + HrToString(hr);
+    ReportError(error, CAP_SAID(T("Capture Graph Builder konnte nicht erstellt werden: ",
+                                     "The capture graph builder could not be created: ") + HrToString(hr)));
     return false;
   }
   hr = (*builder)->SetFiltergraph(graph->Get());
   if (FAILED(hr)) {
-    if (error) *error = T("SetFiltergraph fehlgeschlagen: ", "SetFiltergraph failed: ") + HrToString(hr);
+    ReportError(error, CAP_SAID(T("SetFiltergraph fehlgeschlagen: ", "SetFiltergraph failed: ") + HrToString(hr)));
     return false;
   }
   return true;
@@ -231,37 +231,37 @@ DeviceProbeResult VideoCapture::Probe(const DeviceRef& device) {
 bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
   Stop();
 
-  auto fail = [&](const std::string& msg) {
-    if (error) *error = msg;
-    CAP_ERR("Start fehlgeschlagen: %s", msg.c_str());
+  auto fail = [&](const Said& said) {
+    if (error) *error = said.shown;
+    if (!said.logged.empty()) CAP_ERR("Capture could not be started: %s", said.logged.c_str());
     Teardown();
     return false;
   };
 
   if (settings.video.empty())
-    return fail(T("Kein Videogerät ausgewählt", "No video device selected"));
+    return fail(CAP_SAID(T("Kein Videogerät ausgewählt", "No video device selected")));
 
   std::string err;
-  if (!CreateGraph(&graph_, &builder_, &err)) return fail(err);
+  if (!CreateGraph(&graph_, &builder_, &err)) return fail(Relayed(err));
 
   captureFilter_ = CreateVideoFilter(settings.video, &capabilities_.device);
   if (!captureFilter_) {
-    return fail(T("Videogerät '", "Video device '") +
-                (settings.video.name.empty() ? settings.video.id : settings.video.name) +
-                T("' nicht gefunden. Ist die Capture-Karte angeschlossen?",
-                  "' not found. Is the capture card plugged in?"));
+    return fail(CAP_SAID(T("Videogerät '", "Video device '") +
+                         (settings.video.name.empty() ? settings.video.id : settings.video.name) +
+                         T("' nicht gefunden. Ist die Capture-Karte angeschlossen?",
+                           "' not found. Is the capture card plugged in?")));
   }
 
   HRESULT hr = graph_->AddFilter(captureFilter_.Get(), L"Capture");
   if (FAILED(hr))
-    return fail(T("Capture-Filter konnte nicht eingefügt werden: ",
-                  "The capture filter could not be added: ") +
-                HrToString(hr));
+    return fail(CAP_SAID(T("Capture-Filter konnte nicht eingefügt werden: ",
+                           "The capture filter could not be added: ") +
+                         HrToString(hr)));
 
   capturePin_ = FindCapturePin(builder_.Get(), captureFilter_.Get());
   if (!capturePin_)
-    return fail(T("Das Gerät hat keinen brauchbaren Capture-Pin",
-                  "The device has no usable capture pin"));
+    return fail(CAP_SAID(T("Das Gerät hat keinen brauchbaren Capture-Pin",
+                           "The device has no usable capture pin")));
 
   // Bevor irgendetwas anderes eingestellt wird, und bei jedem Start neu: was in
   // diesen Reglern steht, wird angewendet, bevor das Bild ueberhaupt bei uns
@@ -285,7 +285,7 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
   // Wer die Quelle ausdruecklich als digital angegeben hat, meint genau das.
   const bool digital = settings.signalKind == SignalKind::Digital;
   if (digital && settings.videoStandard > 0) {
-    CAP_LOG("Quelle ist als digital angegeben, Videonorm wird nicht gesetzt");
+    CAP_LOG("Source is marked digital, video standard not set");
   }
   if (!digital && settings.videoStandard > 0 &&
       (capabilities_.availableStandards & settings.videoStandard) != 0) {
@@ -323,18 +323,18 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
     // stillschweigend auf ihrer hoechsten.
     const double wishFps = wanted.fps;
     if (capabilities_.caps.nativeLines() > 0) {
-      CAP_LOG("Auflösungssuche: %d Zeilen kommen an, hochskalierte Formate scheiden aus",
+      CAP_LOG("Resolution search: %d lines arrive, upscaled formats are out",
               capabilities_.caps.nativeLines());
     }
     wanted = capabilities_.caps.PickDefault(wish);
     wanted.fps = wishFps;
     if (wish.empty()) {
-      CAP_LOG("Kein Format konfiguriert, verwende Standard: %s", wanted.Label().c_str());
+      CAP_LOG("No format configured, using the default: %s", wanted.Label().c_str());
     } else if (wanted.subtype == wish) {
-      CAP_LOG("Auflösung neu gesucht, Pixelformat %s beibehalten: %s", wish.c_str(),
+      CAP_LOG("Resolution searched again, pixel format %s kept: %s", wish.c_str(),
               wanted.Label().c_str());
     } else {
-      CAP_WARN("Pixelformat %s bietet die Karte nicht mehr an, stattdessen: %s", wish.c_str(),
+      CAP_WARN("The card no longer offers pixel format %s, instead: %s", wish.c_str(),
                wanted.Label().c_str());
     }
   }
@@ -352,36 +352,36 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
     const double nat = capabilities_.caps.NativeFps(wanted.subtype, wanted.width, wanted.height);
     if (nat > 0.0) {
       wanted.fps = nat;
-      CAP_LOG("Bildrate des Signals für %dx%d %s: %.3f fps (%s, %d Zeilen, Norm %.3f Hz)",
+      CAP_LOG("Signal frame rate for %dx%d %s: %.3f fps (%s, %d lines, standard %.3f Hz)",
               wanted.width, wanted.height, wanted.subtype.c_str(), nat,
               VideoStandardName(VideoStandardIndexOf(capabilities_.currentStandard)),
               capabilities_.caps.nativeLines(), capabilities_.caps.nativeFieldRate());
     } else {
       wanted.fps = 0.0;
-      CAP_LOG("Bildrate des Signals: keine Norm bekannt, weiche auf die höchste aus");
+      CAP_LOG("Signal frame rate: no standard known, falling back to the highest");
     }
   }
   if (wanted.fps <= 0.0) {
     const double top = capabilities_.caps.HighestFps(wanted.subtype, wanted.width, wanted.height);
     if (top > 0.0) {
       wanted.fps = top;
-      CAP_LOG("Höchste verfügbare Bildrate für %dx%d %s: %.3f fps", wanted.width, wanted.height,
+      CAP_LOG("Highest available frame rate for %dx%d %s: %.3f fps", wanted.width, wanted.height,
               wanted.subtype.c_str(), top);
     } else {
-      CAP_LOG("Höchste verfügbare Bildrate: Karte meldet keine, Treiberstandard bleibt stehen");
+      CAP_LOG("Highest available frame rate: the card reports none, keeping the driver default");
     }
   }
 
   sink_ = FrameSink::Create();
   if (!sink_)
-    return fail(T("Sink-Filter konnte nicht erstellt werden",
-                  "The sink filter could not be created"));
+    return fail(CAP_SAID(T("Sink-Filter konnte nicht erstellt werden",
+                           "The sink filter could not be created")));
 
   hr = graph_->AddFilter(sink_.Get(), L"qBlank Sink");
   if (FAILED(hr))
-    return fail(T("Sink-Filter konnte nicht eingefügt werden: ",
-                  "The sink filter could not be added: ") +
-                HrToString(hr));
+    return fail(CAP_SAID(T("Sink-Filter konnte nicht eingefügt werden: ",
+                           "The sink filter could not be added: ") +
+                         HrToString(hr)));
 
   IPin* sinkPin = static_cast<IPin*>(sink_->pin());
 
@@ -389,14 +389,17 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
   // Only a format-shaped refusal is worth retrying with a different format; if
   // the device is simply taken, trying eleven more formats just makes the user
   // wait for the same answer eleven more times.
-  std::string lastError;
+  // What failed last, kept in parts so the message can be built in either language.
+  std::string lastStep;
+  HRESULT lastHr = S_OK;
   bool connected = false;
   for (const FormatSel& candidate : BuildFormatCandidates(wanted, capabilities_.caps)) {
     VideoFormatInfo appliedFormat;
     hr = ApplyFormat(capturePin_.Get(), candidate, &appliedFormat);
     if (FAILED(hr)) {
-      if (IsDeviceBusyError(hr)) return fail(BusyMessage(settings.video));
-      lastError = "SetFormat " + candidate.Label() + ": " + HrToString(hr);
+      if (IsDeviceBusyError(hr)) return fail(CAP_SAID(BusyMessage(settings.video)));
+      lastStep = "SetFormat " + candidate.Label();
+      lastHr = hr;
       continue;
     }
 
@@ -407,7 +410,7 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
 
     if (SUCCEEDED(hr)) {
       if (!candidate.SameFormat(wanted)) {
-        CAP_WARN("Format %s ging nicht, benutze stattdessen %s", wanted.Label().c_str(),
+        CAP_WARN("Format %s failed, using %s instead", wanted.Label().c_str(),
                  candidate.Label().c_str());
       }
       connectedFormat_ = candidate;
@@ -415,19 +418,20 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
       break;
     }
 
-    if (IsDeviceBusyError(hr)) return fail(BusyMessage(settings.video));
+    if (IsDeviceBusyError(hr)) return fail(CAP_SAID(BusyMessage(settings.video)));
 
-    lastError = "Connect " + candidate.Label() + ": " + HrToString(hr);
-    CAP_WARN("%s", lastError.c_str());
+    lastStep = "Connect " + candidate.Label();
+    lastHr = hr;
+    CAP_WARN("%s: %s", lastStep.c_str(), HrToEnglish(hr).c_str());
     // Leave no half-connected pins behind before the next attempt.
     capturePin_->Disconnect();
     sinkPin->Disconnect();
   }
 
   if (!connected) {
-    return fail(T("Die Karte hat kein einziges Format akzeptiert. Letzter Fehler: ",
-                  "The card accepted none of the formats. Last error: ") +
-                lastError);
+    return fail(CAP_SAID(T("Die Karte hat kein einziges Format akzeptiert. Letzter Fehler: ",
+                           "The card accepted none of the formats. Last error: ") +
+                         (lastStep.empty() ? std::string() : lastStep + ": " + HrToString(lastHr))));
   }
 
   // Only now that the capture pin is connected is the crossbar filter part of
@@ -449,21 +453,21 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
   }
 
   if (FAILED(hr = graph_.As(&control_))) {
-    return fail(T("IMediaControl nicht verfügbar: ", "IMediaControl not available: ") +
-                HrToString(hr));
+    return fail(CAP_SAID(T("IMediaControl nicht verfügbar: ", "IMediaControl not available: ") +
+                         HrToString(hr)));
   }
   graph_.As(&events_);
 
   hr = control_->Run();
   if (FAILED(hr)) {
-    return fail(T("Der Graph konnte nicht gestartet werden (",
-                  "The graph could not be started (") +
-                HrToString(hr) + T("). Benutzt ein anderes Programm die Karte gerade?",
-                                   "). Is another program using the card right now?"));
+    return fail(CAP_SAID(T("Der Graph konnte nicht gestartet werden (",
+                           "The graph could not be started (") +
+                         HrToString(hr) + T("). Benutzt ein anderes Programm die Karte gerade?",
+                                            "). Is another program using the card right now?")));
   }
 
   VideoFormatInfo info = sink_->format();
-  CAP_LOG("Capture läuft: %s %dx%d @ %.3f fps%s", info.subtypeLabel.c_str(), info.width,
+  CAP_LOG("Capture running: %s %dx%d @ %.3f fps%s", info.subtypeLabel.c_str(), info.width,
           info.height, info.fps, info.interlaced ? " (interlaced)" : "");
   return true;
 }
@@ -498,6 +502,7 @@ VideoFormatInfo VideoCapture::format() const {
 bool VideoCapture::PumpEvents(std::string* message) {
   if (!events_) return false;
   bool fatal = false;
+  Said said;
   long code = 0;
   LONG_PTR p1 = 0, p2 = 0;
   while (SUCCEEDED(events_->GetEvent(&code, &p1, &p2, 0))) {
@@ -506,23 +511,20 @@ bool VideoCapture::PumpEvents(std::string* message) {
         // p2 == 0 means the device went away; == 1 means it came back.
         if (p2 == 0) {
           fatal = true;
-          if (message)
-            *message = T("Das Aufnahmegerät wurde entfernt.", "The capture device was removed.");
+          said = CAP_SAID(T("Das Aufnahmegerät wurde entfernt.", "The capture device was removed."));
         }
         break;
       case EC_ERRORABORT:
       case EC_ERRORABORTEX:
         fatal = true;
-        if (message) {
-          *message = T("Der Capture-Graph wurde mit einem Fehler abgebrochen (",
-                       "The capture graph was aborted with an error (") +
-                     HrToString((HRESULT)p1) + ").";
-        }
+        said = CAP_SAID(T("Der Capture-Graph wurde mit einem Fehler abgebrochen (",
+                          "The capture graph was aborted with an error (") +
+                        HrToString((HRESULT)p1) + ").");
         break;
       case EC_COMPLETE:
       case EC_USERABORT:
         fatal = true;
-        if (message) *message = T("Der Stream wurde beendet.", "The stream ended.");
+        said = CAP_SAID(T("Der Stream wurde beendet.", "The stream ended."));
         break;
       default: break;
     }
@@ -530,7 +532,11 @@ bool VideoCapture::PumpEvents(std::string* message) {
   }
   if (!fatal && sink_ && sink_->ended()) {
     fatal = true;
-    if (message) *message = T("Die Karte liefert keine Daten mehr.", "The card stopped sending data.");
+    said = CAP_SAID(T("Die Karte liefert keine Daten mehr.", "The card stopped sending data."));
+  }
+  if (fatal) {
+    CAP_WARN("Capture interrupted: %s", said.logged.c_str());
+    if (message) *message = said.shown;
   }
   return fatal;
 }

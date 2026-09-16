@@ -21,23 +21,24 @@ bool FileExists(const std::wstring& path) {
 
 bool SaveScreenshot(const std::wstring& path, const uint8_t* pixels, int width, int height,
                     ScreenshotFormat format, int jpegQuality, std::string* error) {
-  auto fail = [&](const char* what) {
-    if (error) *error = what;
+  auto fail = [&](const Said& said) {
+    CAP_ERR("Screenshot: %s", said.logged.c_str());
+    if (error) *error = said.shown;
     return false;
   };
 
-  if (!pixels || width <= 0 || height <= 0) return fail(T("Kein Bild.", "No picture."));
+  if (!pixels || width <= 0 || height <= 0) return fail(CAP_SAID(T("Kein Bild.", "No picture.")));
 
   ComPtr<IWICImagingFactory> factory;
   if (FAILED(CAP_HR(::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                        IID_PPV_ARGS(&factory))))) {
-    return fail(T("WIC nicht verfügbar.", "WIC not available."));
+    return fail(CAP_SAID(T("WIC nicht verfügbar.", "WIC not available.")));
   }
 
   ComPtr<IWICStream> stream;
   if (FAILED(CAP_HR(factory->CreateStream(&stream))) ||
       FAILED(CAP_HR(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)))) {
-    return fail(T("Datei konnte nicht angelegt werden.", "Could not create the file."));
+    return fail(CAP_SAID(T("Datei konnte nicht angelegt werden.", "Could not create the file.")));
   }
 
   const GUID container =
@@ -46,13 +47,13 @@ bool SaveScreenshot(const std::wstring& path, const uint8_t* pixels, int width, 
   ComPtr<IWICBitmapEncoder> encoder;
   if (FAILED(CAP_HR(factory->CreateEncoder(container, nullptr, &encoder))) ||
       FAILED(CAP_HR(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)))) {
-    return fail(T("Encoder konnte nicht erstellt werden.", "Could not create the encoder."));
+    return fail(CAP_SAID(T("Encoder konnte nicht erstellt werden.", "Could not create the encoder.")));
   }
 
   ComPtr<IWICBitmapFrameEncode> frame;
   ComPtr<IPropertyBag2> props;
   if (FAILED(CAP_HR(encoder->CreateNewFrame(&frame, &props)))) {
-    return fail(T("Bild konnte nicht angelegt werden.", "Could not create the frame."));
+    return fail(CAP_SAID(T("Bild konnte nicht angelegt werden.", "Could not create the frame.")));
   }
 
   if (format == ScreenshotFormat::Jpeg && props) {
@@ -67,7 +68,7 @@ bool SaveScreenshot(const std::wstring& path, const uint8_t* pixels, int width, 
 
   if (FAILED(CAP_HR(frame->Initialize(props.Get()))) ||
       FAILED(CAP_HR(frame->SetSize((UINT)width, (UINT)height)))) {
-    return fail(T("Bild konnte nicht angelegt werden.", "Could not create the frame."));
+    return fail(CAP_SAID(T("Bild konnte nicht angelegt werden.", "Could not create the frame.")));
   }
 
   // 24 bit BGR on purpose. Both the PNG and the JPEG encoder take it natively,
@@ -76,10 +77,10 @@ bool SaveScreenshot(const std::wstring& path, const uint8_t* pixels, int width, 
   // is only a request, so the result is checked rather than trusted.
   WICPixelFormatGUID wanted = GUID_WICPixelFormat24bppBGR;
   if (FAILED(CAP_HR(frame->SetPixelFormat(&wanted)))) {
-    return fail(T("Pixelformat abgelehnt.", "Pixel format rejected."));
+    return fail(CAP_SAID(T("Pixelformat abgelehnt.", "Pixel format rejected.")));
   }
   if (wanted != GUID_WICPixelFormat24bppBGR) {
-    return fail(T("Pixelformat abgelehnt.", "Pixel format rejected."));
+    return fail(CAP_SAID(T("Pixelformat abgelehnt.", "Pixel format rejected.")));
   }
 
   // RGBA in, BGR out: drop alpha and swap the two outer channels.
@@ -93,35 +94,36 @@ bool SaveScreenshot(const std::wstring& path, const uint8_t* pixels, int width, 
       row[(size_t)x * 3 + 2] = src[(size_t)x * 4 + 0];  // R
     }
     if (FAILED(CAP_HR(frame->WritePixels(1, stride, (UINT)row.size(), row.data())))) {
-      return fail(T("Schreiben fehlgeschlagen.", "Writing failed."));
+      return fail(CAP_SAID(T("Schreiben fehlgeschlagen.", "Writing failed.")));
     }
   }
 
   if (FAILED(CAP_HR(frame->Commit())) || FAILED(CAP_HR(encoder->Commit()))) {
-    return fail(T("Datei konnte nicht abgeschlossen werden.", "Could not finalise the file."));
+    return fail(CAP_SAID(T("Datei konnte nicht abgeschlossen werden.", "Could not finalise the file.")));
   }
   return true;
 }
 
 bool CopyScreenshotToClipboard(HWND owner, const uint8_t* pixels, int width, int height,
                                std::string* error) {
-  auto fail = [&](const char* what) {
-    if (error) *error = what;
+  auto fail = [&](const Said& said) {
+    CAP_ERR("Screenshot to the clipboard: %s", said.logged.c_str());
+    if (error) *error = said.shown;
     return false;
   };
 
-  if (!pixels || width <= 0 || height <= 0) return fail(T("Kein Bild.", "No picture."));
+  if (!pixels || width <= 0 || height <= 0) return fail(CAP_SAID(T("Kein Bild.", "No picture.")));
 
   const size_t stride = ((size_t)width * 3 + 3) & ~(size_t)3;
   const size_t image = stride * (size_t)height;
 
   HGLOBAL handle = ::GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + image);
-  if (!handle) return fail(T("Kein Speicher.", "Out of memory."));
+  if (!handle) return fail(CAP_SAID(T("Kein Speicher.", "Out of memory.")));
 
   uint8_t* block = (uint8_t*)::GlobalLock(handle);
   if (!block) {
     ::GlobalFree(handle);
-    return fail(T("Kein Speicher.", "Out of memory."));
+    return fail(CAP_SAID(T("Kein Speicher.", "Out of memory.")));
   }
 
   BITMAPINFOHEADER* header = (BITMAPINFOHEADER*)block;
@@ -156,7 +158,7 @@ bool CopyScreenshotToClipboard(HWND owner, const uint8_t* pixels, int width, int
   }
   if (!opened) {
     ::GlobalFree(handle);
-    return fail(T("Zwischenablage ist belegt.", "The clipboard is busy."));
+    return fail(CAP_SAID(T("Zwischenablage ist belegt.", "The clipboard is busy.")));
   }
 
   ::EmptyClipboard();
@@ -166,29 +168,30 @@ bool CopyScreenshotToClipboard(HWND owner, const uint8_t* pixels, int width, int
   // On success the clipboard owns the block; on failure it never took it.
   if (!ok) {
     ::GlobalFree(handle);
-    return fail(T("Zwischenablage abgelehnt.", "The clipboard refused it."));
+    return fail(CAP_SAID(T("Zwischenablage abgelehnt.", "The clipboard refused it.")));
   }
   return true;
 }
 
 bool SaveScreenshotHdr(const std::wstring& path, const uint16_t* halfRgba, int width, int height,
                        int stride, float paperWhiteNits, std::string* error) {
-  auto fail = [&](const char* what) {
-    if (error) *error = what;
+  auto fail = [&](const Said& said) {
+    CAP_ERR("HDR screenshot: %s", said.logged.c_str());
+    if (error) *error = said.shown;
     return false;
   };
-  if (!halfRgba || width <= 0 || height <= 0) return fail(T("Kein Bild.", "No picture."));
+  if (!halfRgba || width <= 0 || height <= 0) return fail(CAP_SAID(T("Kein Bild.", "No picture.")));
 
   ComPtr<IWICImagingFactory> factory;
   if (FAILED(CAP_HR(::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                        IID_PPV_ARGS(&factory))))) {
-    return fail(T("WIC nicht verfügbar.", "WIC not available."));
+    return fail(CAP_SAID(T("WIC nicht verfügbar.", "WIC not available.")));
   }
 
   ComPtr<IWICStream> stream;
   if (FAILED(CAP_HR(factory->CreateStream(&stream))) ||
       FAILED(CAP_HR(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)))) {
-    return fail(T("Datei konnte nicht angelegt werden.", "Could not create the file."));
+    return fail(CAP_SAID(T("Datei konnte nicht angelegt werden.", "Could not create the file.")));
   }
 
   // JPEG XR, because it is the one container Windows ships an encoder for that
@@ -197,24 +200,24 @@ bool SaveScreenshotHdr(const std::wstring& path, const uint16_t* halfRgba, int w
   ComPtr<IWICBitmapEncoder> encoder;
   if (FAILED(CAP_HR(factory->CreateEncoder(GUID_ContainerFormatWmp, nullptr, &encoder))) ||
       FAILED(CAP_HR(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)))) {
-    return fail(T("Für HDR-Screenshots fehlt der JPEG-XR-Encoder.",
-                  "The JPEG XR encoder needed for HDR screenshots is missing."));
+    return fail(CAP_SAID(T("Für HDR-Screenshots fehlt der JPEG-XR-Encoder.",
+                           "The JPEG XR encoder needed for HDR screenshots is missing.")));
   }
 
   ComPtr<IWICBitmapFrameEncode> frame;
   ComPtr<IPropertyBag2> props;
   if (FAILED(CAP_HR(encoder->CreateNewFrame(&frame, &props)))) {
-    return fail(T("Bild konnte nicht angelegt werden.", "Could not create the frame."));
+    return fail(CAP_SAID(T("Bild konnte nicht angelegt werden.", "Could not create the frame.")));
   }
   if (FAILED(CAP_HR(frame->Initialize(props.Get()))) ||
       FAILED(CAP_HR(frame->SetSize((UINT)width, (UINT)height)))) {
-    return fail(T("Bild konnte nicht angelegt werden.", "Could not create the frame."));
+    return fail(CAP_SAID(T("Bild konnte nicht angelegt werden.", "Could not create the frame.")));
   }
 
   WICPixelFormatGUID wanted = GUID_WICPixelFormat64bppRGBAHalf;
   if (FAILED(CAP_HR(frame->SetPixelFormat(&wanted))) ||
       wanted != GUID_WICPixelFormat64bppRGBAHalf) {
-    return fail(T("Pixelformat abgelehnt.", "Pixel format rejected."));
+    return fail(CAP_SAID(T("Pixelformat abgelehnt.", "Pixel format rejected.")));
   }
 
   // Into scRGB, whose 1.0 is eighty nits by definition. Alpha is forced opaque:
@@ -234,12 +237,12 @@ bool SaveScreenshotHdr(const std::wstring& path, const uint16_t* halfRgba, int w
       row[(size_t)x * 4 + 3] = opaque;
     }
     if (FAILED(CAP_HR(frame->WritePixels(1, rowBytes, rowBytes, reinterpret_cast<BYTE*>(row.data()))))) {
-      return fail(T("Schreiben fehlgeschlagen.", "Writing failed."));
+      return fail(CAP_SAID(T("Schreiben fehlgeschlagen.", "Writing failed.")));
     }
   }
 
   if (FAILED(CAP_HR(frame->Commit())) || FAILED(CAP_HR(encoder->Commit()))) {
-    return fail(T("Datei konnte nicht abgeschlossen werden.", "Could not finalise the file."));
+    return fail(CAP_SAID(T("Datei konnte nicht abgeschlossen werden.", "Could not finalise the file.")));
   }
   return true;
 }
@@ -286,14 +289,15 @@ void HalfToPq10(const uint16_t* halfRgba, int width, int height, int stride,
 bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath,
                         const uint16_t* halfRgba, int width, int height, int stride,
                         float paperWhiteNits, std::string* error) {
-  auto fail = [&](const std::string& what) {
-    if (error) *error = what;
+  auto fail = [&](const Said& said) {
+    CAP_ERR("AVIF screenshot: %s", said.logged.c_str());
+    if (error) *error = said.shown;
     return false;
   };
-  if (!halfRgba || width <= 0 || height <= 0) return fail(T("Kein Bild.", "No picture."));
+  if (!halfRgba || width <= 0 || height <= 0) return fail(CAP_SAID(T("Kein Bild.", "No picture.")));
   if (ffmpegPath.empty()) {
-    return fail(T("AVIF braucht ffmpeg. Unter Aufnahme herunterladen, oder JPEG XR wählen.",
-                  "AVIF needs ffmpeg. Download it under Recording, or choose JPEG XR."));
+    return fail(CAP_SAID(T("AVIF braucht ffmpeg. Unter Aufnahme herunterladen, oder JPEG XR wählen.",
+                           "AVIF needs ffmpeg. Download it under Recording, or choose JPEG XR.")));
   }
 
   std::vector<uint32_t> packed;
@@ -314,15 +318,15 @@ bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath
   ::GetTempPathW(MAX_PATH, tempDir);
   wchar_t tempFile[MAX_PATH] = {};
   if (!::GetTempFileNameW(tempDir, L"cvs", 0, tempFile)) {
-    return fail(T("Kein Platz für die Zwischendatei.", "Nowhere to put the working file."));
+    return fail(CAP_SAID(T("Kein Platz für die Zwischendatei.", "Nowhere to put the working file.")));
   }
   const std::wstring raw = tempFile;
   {
     HANDLE file = ::CreateFileW(raw.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                 FILE_ATTRIBUTE_TEMPORARY, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-      return fail(T("Zwischendatei ließ sich nicht anlegen.",
-                    "The working file could not be created."));
+      return fail(CAP_SAID(T("Zwischendatei ließ sich nicht anlegen.",
+                             "The working file could not be created.")));
     }
     DWORD written = 0;
     const DWORD bytes = (DWORD)(packed.size() * sizeof(uint32_t));
@@ -330,8 +334,8 @@ bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath
     ::CloseHandle(file);
     if (!ok) {
       ::DeleteFileW(raw.c_str());
-      return fail(T("Zwischendatei ließ sich nicht schreiben.",
-                    "The working file could not be written."));
+      return fail(CAP_SAID(T("Zwischendatei ließ sich nicht schreiben.",
+                             "The working file could not be written.")));
     }
   }
 
@@ -357,8 +361,8 @@ bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath
   ::DeleteFileW(raw.c_str());
 
   if (code != 0) {
-    return fail(T("ffmpeg konnte das AVIF nicht schreiben.",
-                  "ffmpeg could not write the AVIF."));
+    return fail(CAP_SAID(T("ffmpeg konnte das AVIF nicht schreiben.",
+                           "ffmpeg could not write the AVIF.")));
   }
   return true;
 }

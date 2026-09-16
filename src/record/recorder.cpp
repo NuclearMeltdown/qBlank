@@ -48,13 +48,13 @@ Recorder::~Recorder() {
   Stop();
 }
 
-void Recorder::Fail(const std::string& message) {
+void Recorder::Fail(const Said& said) {
   {
     std::lock_guard<std::mutex> lock(infoMutex_);
-    if (error_.empty()) error_ = message;
+    if (error_.empty()) error_ = said.shown;
   }
   failed_.store(true, std::memory_order_relaxed);
-  CAP_ERR("Aufnahme: %s", message.c_str());
+  CAP_ERR("Recording: %s", said.logged.c_str());
 }
 
 // ------------------------------------------------------------- command line
@@ -311,24 +311,24 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
                      const AudioSource& mic, MicTrackMode micTrackMode, std::string* error) {
   Stop();
 
-  auto fail = [&](const std::string& msg) {
-    if (error) *error = msg;
-    CAP_ERR("Aufnahme konnte nicht gestartet werden: %s", msg.c_str());
+  auto fail = [&](const Said& said) {
+    if (error) *error = said.shown;
+    CAP_ERR("Recording could not be started: %s", said.logged.c_str());
     Stop();
     return false;
   };
 
   if (!ffmpeg.found) {
-    return fail(T("ffmpeg wurde nicht gefunden.", "ffmpeg was not found."));
+    return fail(CAP_SAID(T("ffmpeg wurde nicht gefunden.", "ffmpeg was not found.")));
   }
   if (width <= 0 || height <= 0) {
-    return fail(T("Kein Bild zum Aufnehmen.", "No picture to record."));
+    return fail(CAP_SAID(T("Kein Bild zum Aufnehmen.", "No picture to record.")));
   }
 
   const EncoderInfo* encoder = ffmpeg.Resolve(settings.encoder);
   if (!encoder || !encoder->available) {
-    return fail(T("Kein verwendbarer Encoder. Encoder-Test in den Einstellungen ausführen.",
-                  "No usable encoder. Run the encoder test in the settings."));
+    return fail(CAP_SAID(T("Kein verwendbarer Encoder. Encoder-Test in den Einstellungen ausführen.",
+                           "No usable encoder. Run the encoder test in the settings.")));
   }
 
   // Odd sizes break 4:2:0 chroma. Rather than refuse, round down by a pixel --
@@ -348,8 +348,8 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
                                                       : ToWide(settings.outputFolder);
   if (!folder.empty() && (folder.back() == L'\\' || folder.back() == L'/')) folder.pop_back();
   if (!EnsureFolder(folder)) {
-    return fail(T("Zielordner konnte nicht angelegt werden: ", "Could not create the folder: ") +
-                ToUtf8(folder));
+    return fail(CAP_SAID(T("Zielordner konnte nicht angelegt werden: ", "Could not create the folder: ") +
+                         ToUtf8(folder)));
   }
   const std::wstring outFile = folder + L"\\" + TimestampedName(settings.container);
 
@@ -362,7 +362,7 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
   // A generous pipe buffer keeps a brief encoder stall from reaching back to
   // the writer thread.
   if (!::CreatePipe(&videoRead, &videoPipe_, &sa, 1 << 22)) {
-    return fail(T("Videopipe konnte nicht erstellt werden.", "Could not create the video pipe."));
+    return fail(CAP_SAID(T("Videopipe konnte nicht erstellt werden.", "Could not create the video pipe.")));
   }
   ::SetHandleInformation(videoPipe_, HANDLE_FLAG_INHERIT, 0);
 
@@ -380,15 +380,15 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
     audioPipe_ = makeAudioPipe(L"qblank_audio_", &audioPipeName_);
     if (!audioPipe_) {
       ::CloseHandle(videoRead);
-      return fail(T("Audiopipe konnte nicht erstellt werden.", "Could not create the audio pipe."));
+      return fail(CAP_SAID(T("Audiopipe konnte nicht erstellt werden.", "Could not create the audio pipe.")));
     }
   }
   if (micRate_ > 0) {
     micPipe_ = makeAudioPipe(L"qblank_mic_", &micPipeName_);
     if (!micPipe_) {
       ::CloseHandle(videoRead);
-      return fail(T("Mikrofonpipe konnte nicht erstellt werden.",
-                    "Could not create the microphone pipe."));
+      return fail(CAP_SAID(T("Mikrofonpipe konnte nicht erstellt werden.",
+                             "Could not create the microphone pipe.")));
     }
   }
 
@@ -426,7 +426,7 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
   ::CloseHandle(videoRead);  // the child owns it now
   if (stderrWrite) ::CloseHandle(stderrWrite);
   if (!ok) {
-    return fail(T("ffmpeg konnte nicht gestartet werden.", "Could not start ffmpeg."));
+    return fail(CAP_SAID(T("ffmpeg konnte nicht gestartet werden.", "Could not start ffmpeg.")));
   }
   ::CloseHandle(pi.hThread);
   process_ = pi.hProcess;
@@ -462,7 +462,7 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
   }
   videoThread_ = std::thread(&Recorder::VideoThread, this);
 
-  CAP_LOG("Aufnahme gestartet: %s, %dx%d @ %.3f fps, %s", ToUtf8(outFile).c_str(), width_,
+  CAP_LOG("Recording started: %s, %dx%d @ %.3f fps, %s", ToUtf8(outFile).c_str(), width_,
           height_, fps_, encoder->label.c_str());
   return true;
 }
@@ -494,13 +494,13 @@ void Recorder::Stop() {
   // happens when ffmpeg exits -- so it is joined after the wait below.
   if (process_) {
     if (::WaitForSingleObject(process_, 15000) == WAIT_TIMEOUT) {
-      CAP_WARN("ffmpeg beendet sich nicht, wird abgebrochen - Datei kann unvollständig sein");
+      CAP_WARN("ffmpeg does not exit, terminating it - the file may be incomplete");
       ::TerminateProcess(process_, 1);
     }
     DWORD code = 0;
     ::GetExitCodeProcess(process_, &code);
     if (wasRunning) {
-      CAP_LOG("Aufnahme beendet, ffmpeg-Exitcode %lu, %llu Bilder", code,
+      CAP_LOG("Recording stopped, ffmpeg exit code %lu, %llu frames", code,
               (unsigned long long)videoFramesWritten_.load());
     }
     ::CloseHandle(process_);
@@ -629,7 +629,7 @@ void Recorder::VideoThread() {
 
     if (audioStalled && !audioStallLogged_) {
       audioStallLogged_ = true;
-      CAP_WARN("Aufnahme: kein Ton mehr, Bildtakt läuft auf der Systemuhr weiter");
+      CAP_WARN("Recording: audio stopped, frame timing continues on the system clock");
     }
 
     uint64_t target = 0;
@@ -651,7 +651,7 @@ void Recorder::VideoThread() {
     // belongs.
     for (uint64_t i = written; i < target && running_.load(std::memory_order_relaxed); ++i) {
       if (!WriteAll(videoPipe_, held, frameBytes_)) {
-        Fail(T("Verbindung zu ffmpeg abgebrochen.", "Lost the connection to ffmpeg."));
+        Fail(CAP_SAID(T("Verbindung zu ffmpeg abgebrochen.", "Lost the connection to ffmpeg.")));
         running_.store(false, std::memory_order_relaxed);
         return;
       }
@@ -703,12 +703,12 @@ void Recorder::AudioThread(HANDLE pipe, AudioPullFn pull, bool countsAsClock) {
     DWORD wrote = 0;
     if (!::WriteFile(pipe, buffer.data(), (DWORD)bytes, &wrote, &wov)) {
       if (::GetLastError() != ERROR_IO_PENDING) {
-        Fail(T("Audiopipe abgebrochen.", "The audio pipe broke."));
+        Fail(CAP_SAID(T("Audiopipe abgebrochen.", "The audio pipe broke.")));
         running_.store(false, std::memory_order_relaxed);
         break;
       }
       if (!::GetOverlappedResult(pipe, &wov, &wrote, TRUE)) {
-        Fail(T("Audiopipe abgebrochen.", "The audio pipe broke."));
+        Fail(CAP_SAID(T("Audiopipe abgebrochen.", "The audio pipe broke.")));
         running_.store(false, std::memory_order_relaxed);
         break;
       }

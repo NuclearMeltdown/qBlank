@@ -26,12 +26,12 @@ MicCapture::~MicCapture() {
   Stop();
 }
 
-void MicCapture::Fail(const std::string& message) {
+void MicCapture::Fail(const Said& said) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (lastError_.empty()) lastError_ = message;
+    if (lastError_.empty()) lastError_ = said.shown;
   }
-  CAP_ERR("Mikrofon: %s", message.c_str());
+  CAP_ERR("Microphone: %s", said.logged.c_str());
 }
 
 std::string MicCapture::lastError() const {
@@ -66,19 +66,19 @@ bool MicCapture::Start(const DeviceRef& device, std::string* error) {
     // resolve.
     info.name = T("Systemstandard", "System default");
   } else if (!ResolveAudioDevice(device, true, &info)) {
-    const std::string msg = T("Mikrofon nicht gefunden.", "Microphone not found.");
-    if (error) *error = msg;
-    Fail(msg);
+    const Said said = CAP_SAID(T("Mikrofon nicht gefunden.", "Microphone not found."));
+    if (error) *error = said.shown;
+    Fail(said);
     return false;
   }
   // A DirectShow-only input is a capture card's embedded audio, not a
   // microphone; it belongs on the main path, not here.
   if (info.directShow) {
-    const std::string msg =
-        T("Dieses Gerät ist ein DirectShow-Eingang und kommt hier nicht in Frage.",
-          "That device is a DirectShow input and does not belong here.");
-    if (error) *error = msg;
-    Fail(msg);
+    const Said said =
+        CAP_SAID(T("Dieses Gerät ist ein DirectShow-Eingang und kommt hier nicht in Frage.",
+                   "That device is a DirectShow input and does not belong here."));
+    if (error) *error = said.shown;
+    Fail(said);
     return false;
   }
 
@@ -91,7 +91,8 @@ bool MicCapture::Start(const DeviceRef& device, std::string* error) {
   stopEvent_ = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
   readyEvent_ = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
   if (!stopEvent_ || !readyEvent_) {
-    if (error) *error = T("Ereignis konnte nicht erstellt werden.", "Could not create the event.");
+    ReportError(error,
+                CAP_SAID(T("Ereignis konnte nicht erstellt werden.", "Could not create the event.")));
     Stop();
     return false;
   }
@@ -108,10 +109,13 @@ bool MicCapture::Start(const DeviceRef& device, std::string* error) {
   // start without the microphone track and never notice.
   if (::WaitForSingleObject(readyEvent_, 3000) != WAIT_OBJECT_0 ||
       startFailed_.load(std::memory_order_relaxed)) {
-    const std::string msg = lastError().empty()
-                                ? T("Mikrofon antwortet nicht.", "The microphone is not responding.")
-                                : lastError();
-    if (error) *error = msg;
+    // What the thread reported is in the log already; only silence is new.
+    const std::string reported = lastError();
+    if (reported.empty()) {
+      ReportError(error, CAP_SAID(T("Mikrofon antwortet nicht.", "The microphone is not responding.")));
+    } else if (error) {
+      *error = reported;
+    }
     Stop();
     return false;
   }
@@ -151,14 +155,14 @@ void MicCapture::CaptureThread(AudioDeviceInfo device) {
 
   ComPtr<IMMDevice> endpoint = OpenAudioEndpoint(device, true);
   if (!endpoint) {
-    Fail(T("Mikrofon konnte nicht geöffnet werden.", "Could not open the microphone."));
+    Fail(CAP_SAID(T("Mikrofon konnte nicht geöffnet werden.", "Could not open the microphone.")));
     cleanup();
     return;
   }
 
   ComPtr<IAudioClient> client;
   if (FAILED(endpoint->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client))) {
-    Fail(T("Mikrofon konnte nicht aktiviert werden.", "Could not activate the microphone."));
+    Fail(CAP_SAID(T("Mikrofon konnte nicht aktiviert werden.", "Could not activate the microphone.")));
     cleanup();
     return;
   }
@@ -168,7 +172,7 @@ void MicCapture::CaptureThread(AudioDeviceInfo device) {
   if (FAILED(client->GetMixFormat(&mixFormat)) || !mixFormat ||
       !ParseWaveFormat(mixFormat, &fmt)) {
     if (mixFormat) ::CoTaskMemFree(mixFormat);
-    Fail(T("Unbekanntes Mikrofonformat.", "Unknown microphone format."));
+    Fail(CAP_SAID(T("Unbekanntes Mikrofonformat.", "Unknown microphone format.")));
     cleanup();
     return;
   }
@@ -178,8 +182,8 @@ void MicCapture::CaptureThread(AudioDeviceInfo device) {
                                   40 * kMsToRefTime, 0, mixFormat, nullptr);
   ::CoTaskMemFree(mixFormat);
   if (FAILED(hr)) {
-    Fail(T("Mikrofon konnte nicht initialisiert werden: ",
-           "Could not initialise the microphone: ") + HrToString(hr));
+    Fail(CAP_SAID(T("Mikrofon konnte nicht initialisiert werden: ",
+                    "Could not initialise the microphone: ") + HrToString(hr)));
     cleanup();
     return;
   }
@@ -187,7 +191,7 @@ void MicCapture::CaptureThread(AudioDeviceInfo device) {
 
   ComPtr<IAudioCaptureClient> capture;
   if (FAILED(client->GetService(IID_PPV_ARGS(&capture)))) {
-    Fail(T("IAudioCaptureClient nicht verfügbar.", "IAudioCaptureClient is not available."));
+    Fail(CAP_SAID(T("IAudioCaptureClient nicht verfügbar.", "IAudioCaptureClient is not available.")));
     cleanup();
     return;
   }
@@ -196,7 +200,7 @@ void MicCapture::CaptureThread(AudioDeviceInfo device) {
   sampleRate_.store(fmt.sampleRate, std::memory_order_relaxed);
   client->Start();
   if (readyEvent_) ::SetEvent(readyEvent_);  // Start() may return now
-  CAP_LOG("Mikrofon läuft: '%s', %d Hz, %d Kanäle", device.name.c_str(), fmt.sampleRate,
+  CAP_LOG("Microphone running: '%s', %d Hz, %d channels", device.name.c_str(), fmt.sampleRate,
           fmt.channels);
 
   std::vector<float> scratch;
@@ -248,7 +252,7 @@ void MicCapture::CaptureThread(AudioDeviceInfo device) {
     }
 
     if (hr == AUDCLNT_E_DEVICE_INVALIDATED) {
-      Fail(T("Das Mikrofon wurde entfernt.", "The microphone was removed."));
+      Fail(CAP_SAID(T("Das Mikrofon wurde entfernt.", "The microphone was removed.")));
       break;
     }
   }
