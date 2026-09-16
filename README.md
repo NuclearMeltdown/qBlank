@@ -51,6 +51,7 @@ compositing and streaming are not. For those, use OBS.
 - **Native pixel grid**: one output pixel per console pixel, where the card samples a line 720 times and a SNES drew 256.
 - **Freeze** (**F11**) holds the source, so a slider can be judged on a still picture.
 - **A/B compare** (**F12**) splits the picture, composite filters off on the left.
+- **All filters off** (**Shift+F12**) shows the signal as it arrives, with crop, aspect and range kept.
 
 **Crop and colour range** · [wiki](../../wiki/Cropping-and-geometry)
 - Dragged on the picture or found by **Detect** (**F8**).
@@ -151,9 +152,10 @@ compositing and streaming are not. For those, use OBS.
 | F2 | Settings | | Ctrl+F10 | Screenshot to clipboard |
 | F5 | Restart capture | | F11 | Freeze |
 | Shift+F5 | Reinitialise card | | F12 | Compare filters |
-| F6 | Measure colour range | | M | Mute |
-| F7 | Detect video standard | | `+` `-` / wheel | Volume |
-| F8 | Detect border | | Ctrl+1 … Ctrl+9 | Switch profile |
+| F6 | Measure colour range | | Shift+F12 | All filters off |
+| F7 | Detect video standard | | M | Mute |
+| F8 | Detect border | | `+` `-` / wheel | Volume |
+| | | | Ctrl+1 … Ctrl+9 | Switch profile |
 
 Right click opens the menu. All except Esc, the profile digits and Alt+F4 are
 reassignable under *Settings → Keys*. [Shortcuts](../../wiki/Shortcuts)
