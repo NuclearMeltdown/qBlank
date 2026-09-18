@@ -143,20 +143,76 @@ bool OlderThanThisBuild(const std::string& version) {
   return false;
 }
 
-// Takes out the earlier sessions the rules are done with. The file is only
-// rewritten when something goes, and through a second file, so a crash halfway
-// cannot cost the part that was meant to stay.
-void TrimLog(const std::wstring& path, const LogRetention& keep) {
-  if (!keep.byAge && !keep.byCount && !keep.olderVersions) return;
-
+// The whole file without its byte order mark, empty when there is none.
+std::string ReadLog(const std::wstring& path) {
   std::string text;
   FILE* in = _wfopen(path.c_str(), L"rb");
-  if (!in) return;
+  if (!in) return text;
   char buffer[1 << 16];
   size_t n = 0;
   while ((n = std::fread(buffer, 1, sizeof(buffer), in)) > 0) text.append(buffer, n);
   std::fclose(in);
   if (text.rfind(kUtf8Bom, 0) == 0) text.erase(0, 3);
+  return text;
+}
+
+// The last session in the log, if no end line follows its start line.
+bool FindUnfinished(const std::string& text, LogSession* last) {
+  bool open = false;
+  for (size_t pos = 0; pos < text.size();) {
+    const size_t newline = text.find('\n', pos);
+    const size_t end = newline == std::string::npos ? text.size() : newline;
+    const std::string line = text.substr(pos, end - pos);
+    LogSession session;
+    if (ParseSessionStart(line, &session)) {
+      *last = session;
+      open = true;
+    } else if (open && line.rfind("===== ", 0) == 0 && line.find(" | ended ") != std::string::npos) {
+      open = false;
+    }
+    pos = end + 1;
+  }
+  return open;
+}
+
+// Another instance still writing to the log: one started from the same folder,
+// or the build an update just replaced, still on its way out. Its session has
+// no end line *yet*, and that is not a crash. A writer keeps the file open up
+// to its end line, and while it does, an open that will not share writing is
+// refused -- which also answers for builds from before this check.
+bool LogInUseElsewhere(const std::wstring& path) {
+  const HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return ::GetLastError() == ERROR_SHARING_VIOLATION;
+  ::CloseHandle(file);
+  return false;
+}
+
+// The end line a session never got to write, put in at the next start: from
+// the file's last change, which is about when its last line went in.
+std::string LateEndLine(const std::wstring& path, const LogSession& session) {
+  std::string line = Format("===== %s %s | ended abnormally", AppNameUtf8().c_str(),
+                            session.version.c_str());
+  WIN32_FILE_ATTRIBUTE_DATA info;
+  SYSTEMTIME utc, local;
+  if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info) &&
+      ::FileTimeToSystemTime(&info.ftLastWriteTime, &utc) &&
+      ::SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local)) {
+    line += " " + Stamp(local);
+    const ULONGLONG last = Seconds(local);
+    if (session.started != 0 && last >= session.started) {
+      line += " after " + FormatDuration((double)(last - session.started));
+    }
+  }
+  return line + " =====\r\n";
+}
+
+// Takes out the earlier sessions the rules are done with. The file is only
+// rewritten when something goes, and through a second file, so a crash halfway
+// cannot cost the part that was meant to stay.
+void TrimLog(const std::wstring& path, const std::string& text, const LogRetention& keep) {
+  if (!keep.byAge && !keep.byCount && !keep.olderVersions) return;
+  if (text.empty()) return;
 
   // Text ahead of the first start line was written by a build that overwrote
   // the log on every start. It has neither date nor version, so every rule that
@@ -222,20 +278,42 @@ void WriteToLogFile(const std::string& text) {
 
 }  // namespace
 
-void LogInit(bool toFile, const LogRetention& keep) {
+UnfinishedSession LogInit(bool toFile, const LogRetention& keep) {
+  UnfinishedSession unfinished;
   std::lock_guard<std::mutex> lock(g_log_mutex);
   if (g_log_file) {
     std::fclose(g_log_file);
     g_log_file = nullptr;
   }
-  if (!toFile) return;
+  if (!toFile) return unfinished;
   const std::wstring path = AppFile(L"log");
-  TrimLog(path, keep);
+  std::string text = ReadLog(path);
+
+  // Before the clean-up, which may well be about to take that very session out.
+  LogSession last;
+  if (!LogInUseElsewhere(path) && FindUnfinished(text, &last)) {
+    unfinished.found = true;
+    unfinished.version = last.version;
+    // Back from the seconds ParseSessionStart made of the local time.
+    const ULONGLONG ticks = last.started * 10000000ULL;
+    const FILETIME ft = {(DWORD)ticks, (DWORD)(ticks >> 32)};
+    if (last.started == 0 || !::FileTimeToSystemTime(&ft, &unfinished.started)) {
+      unfinished.started = {};
+    }
+    // A power cut can leave the last line half written.
+    std::string end = text.empty() || text.back() == '\n' ? "" : "\r\n";
+    end += LateEndLine(path, last);
+    if (FILE* out = _wfopen(path.c_str(), L"ab")) {
+      if (std::fwrite(end.data(), 1, end.size(), out) == end.size()) text += end;
+      std::fclose(out);
+    }
+  }
+  TrimLog(path, text, keep);
 
   // Binary, and the line ends written out: the bytes already in the file stay
   // exactly as they are.
   g_log_file = _wfopen(path.c_str(), L"ab");
-  if (!g_log_file) return;
+  if (!g_log_file) return unfinished;
   g_log_opened = ::GetTickCount64();
 
   std::fseek(g_log_file, 0, SEEK_END);
@@ -248,6 +326,7 @@ void LogInit(bool toFile, const LogRetention& keep) {
   head += Format("===== %s %s | started %s =====\r\n", AppNameUtf8().c_str(), kAppVersion,
                  Stamp(st).c_str());
   WriteToLogFile(head);
+  return unfinished;
 }
 
 void LogEnd() {

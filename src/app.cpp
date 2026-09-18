@@ -179,7 +179,14 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
   // Load meldet dasselbe False fuer "keine Datei" und fuer "Datei kaputt". Der
   // Unterschied steht in error: beim allerersten Start ist es leer.
   firstRun_ = !config_.Load(&configError) && configError.empty();
-  LogInit(config_.app.logToFile, config_.app.logRetention);
+  unfinishedSession_ = LogInit(config_.app.logToFile, config_.app.logRetention);
+  if (unfinishedSession_.found) {
+    const SYSTEMTIME& s = unfinishedSession_.started;
+    CAP_WARN("Previous session (%s, started %04u-%02u-%02u %02u:%02u:%02u) has no end line",
+             unfinishedSession_.version.c_str(), s.wYear, s.wMonth, s.wDay, s.wHour, s.wMinute,
+             s.wSecond);
+    crashNoticeQueued_ = true;
+  }
   if (!configError.empty()) CAP_WARN("%s", configError.c_str());
 
   // Settings inherited from a name this program no longer uses need one thing
@@ -3970,7 +3977,8 @@ void App::DrawUpdatePrompt() {
   }
 
   const char* id = T("Update verfügbar###app_update", "Update available###app_update");
-  if (updatePromptQueued_) {
+  // Not over the crash notice: opened at the same level, it would replace it.
+  if (updatePromptQueued_ && !ImGui::IsPopupOpen("###crash_notice")) {
     ImGui::OpenPopup(id);
     updatePromptQueued_ = false;
   }
@@ -4036,6 +4044,58 @@ void App::DrawUpdatePrompt() {
     OpenReleasePage(st);
     ImGui::CloseCurrentPopup();
   }
+  ImGui::EndPopup();
+}
+
+void App::DrawCrashNotice() {
+  const char* id = T("Nicht normal beendet###crash_notice", "Did not close normally###crash_notice");
+  if (crashNoticeQueued_) {
+    ImGui::OpenPopup(id);
+    crashNoticeQueued_ = false;
+  }
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                 viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+                          ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  // Date and time the way Windows is set to show them.
+  std::string when;
+  const SYSTEMTIME& s = unfinishedSession_.started;
+  if (s.wYear != 0) {
+    wchar_t date[64] = {};
+    wchar_t time[64] = {};
+    ::GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &s, nullptr, date, 64, nullptr);
+    ::GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &s, nullptr, time, 64);
+    when = ToUtf8(std::wstring(date) + L" " + time);
+  }
+
+  ImGui::Text(T("%s wurde beim letzten Mal nicht normal beendet.",
+                "%s did not close normally last time."),
+              AppNameUtf8().c_str());
+  if (!when.empty()) {
+    ImGui::TextDisabled(T("Sitzung vom %s, Version %s", "Session from %s, version %s"),
+                        when.c_str(), unfinishedSession_.version.c_str());
+  }
+  ImGui::Spacing();
+  ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+  ImGui::TextUnformatted(T("Die Sitzung hat im Protokoll keine Endzeile: meist ein Absturz, "
+                           "sonst Task-Manager oder Stromausfall. Was zuletzt passiert ist, "
+                           "steht dort über der nachgetragenen Zeile \"ended abnormally\".",
+                           "The session has no end line in the log: usually a crash, otherwise "
+                           "the task manager or a power cut. What happened last is right above "
+                           "the \"ended abnormally\" line added there now."));
+  ImGui::PopTextWrapPos();
+  ImGui::Spacing();
+
+  const float buttonWidth = 130.0f * uiScale_;
+  if (ImGui::Button(T("Protokoll öffnen", "Open log"), ImVec2(buttonWidth, 0))) {
+    ::ShellExecuteW(nullptr, L"open", AppFile(L"log").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("OK", ImVec2(buttonWidth, 0))) ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
 
@@ -5900,6 +5960,7 @@ void App::DrawUi() {
     }
   }
   if (settings_.takeProbeRequest()) StartEncoderProbe(true);
+  DrawCrashNotice();
   DrawUpdatePrompt();
   if (settings_.takeRestartRequest()) {
     if (updater_.RestartIntoNewBuild()) {
@@ -6367,6 +6428,17 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
       SaveConfig();
       running_ = false;
       ::PostQuitMessage(0);
+      return 0;
+
+    // Windows shutting down or logging off ends the process as soon as this
+    // returns, without the way out through main -- the log would take that for
+    // a crash at the next start.
+    case WM_ENDSESSION:
+      if (wparam) {
+        SaveConfig();
+        CAP_LOG("Windows session ending");
+        LogEnd();
+      }
       return 0;
 
     case WM_DESTROY:

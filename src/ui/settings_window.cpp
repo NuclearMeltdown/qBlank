@@ -2818,11 +2818,13 @@ void SettingsWindow::DrawDisplayTab() {
   ImGui::SameLine();
   HelpMarker(T("Nur zur Fehlersuche. Alles landet in dieser einen Datei neben dem Programm, "
                "jede Sitzung zwischen einer Start- und einer Endzeile mit Version und Uhrzeit. "
-               "Fehlt die Endzeile, wurde das Programm nicht normal beendet.\n\n"
+               "Fehlt die Endzeile, wurde das Programm nicht normal beendet: Das meldet es "
+               "beim nächsten Start und trägt sie nach.\n\n"
                "Aufgeräumt wird beim Start, immer ganze Sitzungen. Wirkt beim nächsten Start.",
                "For troubleshooting only. Everything goes into this one file next to the "
                "program, each session between a start and an end line with version and time. "
-               "A session without its end line did not close normally.\n\n"
+               "A session without its end line did not close normally; the next start says "
+               "so and adds the line.\n\n"
                "Cleaned up at start, whole sessions only. Takes effect on the next start."));
 
   LogRetention& keep = app.logRetention;

@@ -47,11 +47,19 @@ struct LogRetention {
   bool olderVersions = false;
 };
 
+// The session before this one, if its end line is missing: the program went
+// down without reaching LogEnd -- a crash, the task manager, the power.
+struct UnfinishedSession {
+  bool found = false;
+  std::string version;
+  SYSTEMTIME started = {};  // local time, all zero when the start line had none
+};
+
 // Writes to the debugger and, if enabled, to qBlank.log next to the exe. The
 // file is kept across starts: every session opens with a line naming version
 // and time, and LogEnd closes it with another. One without its closing line
-// did not end normally.
-void LogInit(bool toFile, const LogRetention& keep);
+// did not end normally, and LogInit says so.
+UnfinishedSession LogInit(bool toFile, const LogRetention& keep);
 void LogEnd();
 void LogWrite(const char* level, const char* fmt, ...);
 

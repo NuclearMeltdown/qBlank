@@ -254,6 +254,8 @@ class App {
   // The one-off notice when the check made at startup finds something. Shown in
   // the picture, because a tab nobody opened is not a notice.
   void DrawUpdatePrompt();
+  // Once, when the log's previous session never got its end line.
+  void DrawCrashNotice();
 
   void OpenDeviceConfig();
   void DetectCrop();
@@ -453,6 +455,8 @@ class App {
   int hdrDisplayPoll_ = 0;
   bool updatePromptQueued_ = false;   // waiting to be opened
   bool updatePromptRaised_ = false;   // already shown once this session
+  UnfinishedSession unfinishedSession_;  // what the crash notice reports
+  bool crashNoticeQueued_ = false;
   bool devicePagesWereBusy_ = false;
   // Guards the frame drawn from inside a window drag against re-entering itself.
   bool inModalFrame_ = false;
