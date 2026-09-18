@@ -64,11 +64,15 @@ struct ConvertCB {
   int32_t motionComp;   // 1 = follow the movement when averaging noise away
   int32_t adaptChroma;  // 1 = soften colour only where the brightness invites it
   float bandwidth;      // 0..1, how much of the rolled off luma band to restore
-  // Where the A/B divider sits, as a share of the cropped width. Negative turns
-  // the comparison off; zero cannot, because zero is a divider on the left edge.
+  // Where the A/B divider sits, as a share of the cropped width or height.
+  // Negative turns the comparison off; zero cannot, because zero is a divider on
+  // the left or top edge.
   float compareSplit;
 
   float coef[4];
+
+  int32_t compareAxis;  // 0 = divider upright, 1 = lying across
+  int32_t pad[3];
 };
 static_assert(sizeof(ConvertCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
@@ -2912,6 +2916,7 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
                                                  : image.bandwidthRestore;
   cb.adaptChroma = image.adaptiveChroma ? 1 : 0;
   cb.compareSplit = image.compare ? Clamp(image.compareSplit, 0.0f, 1.0f) : -1.0f;
+  cb.compareAxis = image.compareHorizontal ? 1 : 0;
   cb.coSitedPhase = coSitedFields_ ? coSitedPhase_ : -1;
   if (range == ColorRange::Limited) {
     cb.yOffset = 16.0f / 255.0f;

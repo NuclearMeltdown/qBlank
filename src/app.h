@@ -266,6 +266,8 @@ class App {
   void BeginCropPick();
   void EndCropPick(bool apply);
   void DrawCropPicker();
+  // Moves the A/B divider when it is dragged on the picture.
+  void DragCompareDivider();
  public:
   bool cropPickActive() const { return cropPick_.active; }
  private:
@@ -402,6 +404,7 @@ class App {
   // Die beiden anderen Sehhilfen, aus demselben Grund ebenfalls hier und nicht
   // im Profil: siehe ToggleCompare und ToggleBypass.
   bool compare_ = false;
+  bool compareDrag_ = false;  // the divider is being dragged with the mouse
   bool bypass_ = false;
   // Whether the bar was drawn this frame; the picture layout follows it.
   bool toolbarVisible_ = false;

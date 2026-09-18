@@ -604,6 +604,7 @@ json::Value WriteProfile(const Profile& p) {
   img["bandwidthRestore"] = p.image.bandwidthRestore;
   img["adaptiveChroma"] = p.image.adaptiveChroma;
   img["compareSplit"] = p.image.compareSplit;
+  img["compareHorizontal"] = p.image.compareHorizontal;
   img["aspect"] = (int)p.image.aspect;
   img["squarePixelOutput"] = p.image.squarePixelOutput;
   img["cropLeft"] = p.image.cropLeft;
@@ -697,6 +698,7 @@ Profile ReadProfile(const json::Value& v) {
   p.image.bandwidthRestore = (float)Clamp(i["bandwidthRestore"].AsNumber(0.0), 0.0, 1.0);
   p.image.adaptiveChroma = i["adaptiveChroma"].AsBool(false);
   p.image.compareSplit = (float)Clamp(i["compareSplit"].AsNumber(0.5), 0.0, 1.0);
+  p.image.compareHorizontal = i["compareHorizontal"].AsBool(false);
   p.image.aspect = ReadEnum<AspectMode>(i, "aspect", kAspectModeCount, AspectMode::Source);
   p.image.squarePixelOutput = i["squarePixelOutput"].AsBool(true);
   p.image.cropLeft = Clamp(i["cropLeft"].AsInt(0), 0, 16384);

@@ -99,6 +99,11 @@ cbuffer ConvertCB : register(b0) {
   float gCompareSplit;
 
   float4 gCoef;           // Cr->R, Cb->G, Cr->G, Cb->B
+
+  // Which way the A/B divider runs: 0 upright, cutting the cropped width, 1
+  // across, cutting the cropped height. Either way the unfiltered part is the
+  // one nearer the origin -- left, or above.
+  int   gCompareAxis;
 };
 
 struct VSOut {
@@ -1081,10 +1086,13 @@ float4 main(VSOut i) : SV_Target {
   // The A/B divider, and the only place it can sit. Everything that moves the
   // picture around -- cropping, rotation, scaling -- happens in the passes after
   // this one, so a divider measured in the window would slide off the picture
-  // the moment any of them changed. Measured across the cropped width in the
+  // the moment any of them changed. Measured across the cropped picture in the
   // source's own grid it stays where it was put and turns with the picture.
-  const float edge = (float)gCropLeft + gCompareSplit * (float)gOutWidth;
-  const bool raw = gCompareSplit >= 0.0 && (float)p.x < edge;
+  const bool across = gCompareAxis != 0;
+  const float edge = across ? (float)gCropTop + gCompareSplit * (float)gOutHeight
+                            : (float)gCropLeft + gCompareSplit * (float)gOutWidth;
+  const float at = across ? (float)p.y : (float)p.x;
+  const bool raw = gCompareSplit >= 0.0 && at < edge;
 
   // Everything that cleans the signal happens here, before any deinterlacer has
   // touched it. That is the entire reason this pass exists. A cleanup that runs
@@ -1181,11 +1189,17 @@ float4 main(VSOut i) : SV_Target {
   // thinner as the window grows, and laid across the boundary rather than inside
   // the left half: the line marks where the two halves meet, so it should not
   // belong to one of them.
+  //
+  // Lying across, it is drawn twice as thick while a deinterlacer runs. Every
+  // row of this pass belongs to one field, and bob shows one field at a time: a
+  // line one row thick would be there in every other picture and flicker at
+  // the field rate. Two rows give each field a line and a dark edge each side.
   if (gCompareSplit >= 0.0) {
-    const float dx = (float)p.x - edge;
-    if (dx >= -1.0 && dx < 0.0) {
+    const float rows = (across && gDeinterlaceMode != 0) ? 2.0 : 1.0;
+    const float d = at - edge;
+    if (d >= -rows && d < 0.0) {
       rgb = float3(1.0, 1.0, 1.0);
-    } else if (dx >= -2.0 && dx < 1.0) {
+    } else if (d >= -2.0 * rows && d < rows) {
       rgb *= 0.25;
     }
   }

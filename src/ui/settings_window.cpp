@@ -2113,23 +2113,33 @@ void SettingsWindow::DrawImageTab() {
       compareToggleRequested_ = true;
     }
     ImGui::SameLine();
-    HelpMarker(T("Teilt das Bild: links das Signal, wie die Karte es liefert, rechts mit den "
-                 "Filtern aus diesem Abschnitt.\n\n"
-                 "Die Trennlinie liegt im Raster der Quelle und dreht sich deshalb mit dem "
-                 "Bild.\n\n"
+    HelpMarker(T("Teilt das Bild: links (bei waagerechter Linie oben) das Signal, wie die "
+                 "Karte es liefert, rechts (unten) mit den Filtern aus diesem Abschnitt.\n\n"
+                 "Die Trennlinie lässt sich im Bild mit der Maus ziehen. Sie liegt im Raster "
+                 "der Quelle und dreht sich deshalb mit dem Bild.\n\n"
                  "Geht nicht während einer Aufnahme und wird beim Start einer Aufnahme "
                  "abgeschaltet: Aufnahme und virtuelle Kamera greifen hinter demselben "
                  "Durchgang ab und bekämen sonst ein halb gefiltertes Bild. Gilt nur bis zum "
                  "Beenden.",
-                 "Splits the picture: on the left the signal as the card delivers it, on the "
-                 "right with the filters from this section.\n\n"
-                 "The divider sits in the source's own grid, so it turns with the picture.\n\n"
+                 "Splits the picture: on the left (on top, with a horizontal divider) the "
+                 "signal as the card delivers it, on the right (below) with the filters from "
+                 "this section.\n\n"
+                 "The divider can be dragged with the mouse in the picture. It sits in the "
+                 "source's own grid, so it turns with the picture.\n\n"
                  "Not available while recording, and switched off when one starts: the "
                  "recording and the virtual camera tap the same pass and would otherwise get "
                  "a half filtered picture. Lasts until you quit."));
 
     ImGui::BeginDisabled(!compareOn_);
     ImGui::Indent();
+    const char* axisNames[] = {
+        T("Senkrecht – links ungefiltert", "Vertical – unfiltered on the left"),
+        T("Waagerecht – oben ungefiltert", "Horizontal – unfiltered on top")};
+    int axis = img.compareHorizontal ? 1 : 0;
+    ImGui::SetNextItemWidth(-260.0f);
+    if (ImGui::Combo(T("Richtung", "Direction"), &axis, axisNames, 2)) {
+      img.compareHorizontal = axis == 1;
+    }
     float split = img.compareSplit * 100.0f;
     ImGui::SetNextItemWidth(-260.0f);
     if (ImGui::SliderFloat(T("Trennlinie", "Divider"), &split, 0.0f, 100.0f, "%.0f %%")) {

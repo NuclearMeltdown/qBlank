@@ -1041,8 +1041,13 @@ void App::ToggleCompare() {
   compare_ = !compare_;
   // Neben einem Bild ganz ohne Filter gibt es nichts zu vergleichen.
   if (compare_) bypass_ = false;
-  Toast(compare_ ? T("Vergleich: links ohne Filter", "Compare: filters off on the left")
-                 : T("Vergleich aus", "Compare off"));
+  if (!compare_) {
+    Toast(T("Vergleich aus", "Compare off"));
+  } else if (config_.active().image.compareHorizontal) {
+    Toast(T("Vergleich: über der Linie ohne Filter", "Compare: filters off above the line"));
+  } else {
+    Toast(T("Vergleich: links ohne Filter", "Compare: filters off on the left"));
+  }
 }
 
 // Das ganze Bild ohne Filter, fuer die Frage, ob ueberhaupt einer etwas taugt.
@@ -4827,6 +4832,55 @@ void App::DrawCropPicker() {
   ImGui::End();
 }
 
+// Die Trennlinie des Vergleichs mit der Maus verschieben, so wie die Raender
+// beim Zuschnitt. Gezeichnet wird sie weiterhin im Shader; hier wird nur
+// ausgerechnet, wo sie auf dem Schirm liegt, und die Maus zurueck in einen
+// Anteil verwandelt.
+void App::DragCompareDivider() {
+  if (!compare_ || !ImGui::IsMousePosValid()) {
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) compareDrag_ = false;
+    return;
+  }
+  const ImageSettings img = EffectiveImage(config_.active());
+  const RECT& r = renderer_.videoRect();
+  const float rw = (float)(r.right - r.left);
+  const float rh = (float)(r.bottom - r.top);
+  if (!img.compare || !renderer_.hasFrame() || rw < 8.0f || rh < 8.0f) {
+    compareDrag_ = false;
+    return;
+  }
+
+  // Der Schnitt liegt im Raster der Quelle, gedreht wird erst danach. Eine
+  // Vierteldrehung legt die Linie also quer, und bei zwei der vier Drehungen
+  // zaehlt ihr Anteil vom anderen Rand her -- dieselbe Zuordnung wie im
+  // zweiten Durchgang.
+  const int rot = (int)img.rotation & 3;
+  const bool upright = img.compareHorizontal == ((rot & 1) != 0);
+  const bool reversed = img.compareHorizontal ? (rot == 1 || rot == 2) : rot >= 2;
+  const float lo = upright ? (float)r.left : (float)r.top;
+  const float len = upright ? rw : rh;
+  const float split = Clamp(img.compareSplit, 0.0f, 1.0f);
+  const float at = lo + (reversed ? 1.0f - split : split) * len;
+
+  const ImVec2 mouse = ImGui::GetMousePos();
+  const float across = upright ? mouse.x : mouse.y;
+  const float along = upright ? mouse.y : mouse.x;
+  const bool alongPicture = upright ? along >= (float)r.top && along <= (float)r.bottom
+                                    : along >= (float)r.left && along <= (float)r.right;
+  const bool hot = compareDrag_ || (!ImGui::GetIO().WantCaptureMouse && alongPicture &&
+                                    std::abs(across - at) <= 8.0f * uiScale_);
+  if (!hot) return;
+
+  ImGui::SetMouseCursor(upright ? ImGuiMouseCursor_ResizeEW : ImGuiMouseCursor_ResizeNS);
+  if (!compareDrag_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) compareDrag_ = true;
+  if (compareDrag_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) compareDrag_ = false;
+  if (!compareDrag_) return;
+
+  float share = Clamp((across - lo) / len, 0.0f, 1.0f);
+  if (reversed) share = 1.0f - share;
+  config_.active().image.compareSplit = share;
+}
+
 void App::FeedRecorder() {
   if (!recorder_.recording()) return;
 
@@ -5626,6 +5680,8 @@ void App::DrawUi() {
   if (cropPick_.active) {
     DrawCropPicker();
     if (!cropPick_.active) return;  // Apply or Cancel closed it this frame
+  } else {
+    DragCompareDivider();
   }
 
   // ---- recording indicator ----
