@@ -302,6 +302,9 @@ class App {
   void SaveConfig();
 
   bool HandleKeyDown(WPARAM key);
+  // Every key press from either window comes through here. `busy` is true when
+  // the ImGui context of the window it arrived at wants the key for itself.
+  bool OnKey(WPARAM key, LPARAM lparam, bool busy);
 
   HINSTANCE instance_ = nullptr;
   HWND hwnd_ = nullptr;

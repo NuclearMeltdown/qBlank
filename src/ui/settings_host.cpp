@@ -36,10 +36,20 @@ LRESULT CALLBACK SettingsHost::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
   ImGuiContext* previous = ImGui::GetCurrentContext();
   ImGui::SetCurrentContext(self->imgui_);
   const bool handled = ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam) != 0;
+  // Not WantCaptureKeyboard: with keyboard navigation on, that is true whenever
+  // this window has focus at all, which is exactly when the shortcuts should
+  // work. What the dialog really needs the keys for is typing and open lists.
+  const bool busy = ImGui::GetIO().WantTextInput ||
+                    ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId |
+                                               ImGuiPopupFlags_AnyPopupLevel);
   ImGui::SetCurrentContext(previous);
   if (handled) return 1;
 
   switch (msg) {
+    case WM_KEYDOWN:
+    case WM_SYSKEYDOWN:
+      if (self->onKey_ && self->onKey_(wParam, lParam, busy)) return 0;
+      break;
     case WM_CLOSE:
       self->closeRequested_ = true;
       self->Hide();
@@ -112,9 +122,9 @@ void SettingsHost::PumpModalFrame() {
   inFrameCallback_ = false;
 }
 
-bool SettingsHost::Create(HINSTANCE instance, HWND owner, ID3D11Device* device,
-                          ID3D11DeviceContext* context, ImFontAtlas* atlas, float uiScale,
-                          bool allowTearing, const Placement& where, std::string* error) {
+bool SettingsHost::Create(HINSTANCE instance, ID3D11Device* device, ID3D11DeviceContext* context,
+                          ImFontAtlas* atlas, float uiScale, bool allowTearing,
+                          const Placement& where, std::string* error) {
   if (hwnd_) return true;
   // Ein eigenes Direct3D-Geraet, nicht das der Vorschau.
   //
@@ -196,14 +206,17 @@ bool SettingsHost::Create(HINSTANCE instance, HWND owner, ID3D11Device* device,
       y = where.y;
     }
   }
-  // WS_EX_APPWINDOW, and it is not decoration. An owned window is deliberately
-  // kept off the taskbar by Windows -- and a window with no taskbar button, when
-  // minimised, has nowhere to go, so it lands as a stub in the bottom left
-  // corner of the screen the way windows did before there was a taskbar. That is
-  // both reported symptoms, and this one flag is both fixes. The owner is worth
-  // keeping: it makes the settings stay above the preview and close with it.
+  // WS_EX_APPWINDOW, so it has a taskbar button and somewhere to go when
+  // minimised -- without one it lands as a stub in the bottom left corner of the
+  // screen.
+  //
+  // No owner. An owned window is lifted above its owner every time the owner is
+  // activated, so a click into the preview dragged the settings in front of it
+  // as well, from wherever they had been left. Unowned, the two stack like any
+  // other two windows. What the owner did besides -- close with the preview,
+  // stay above it while it is topmost -- App does by hand.
   hwnd_ = ::CreateWindowExW(WS_EX_APPWINDOW, kClassName.c_str(), kAppName, WS_OVERLAPPEDWINDOW,
-                            x, y, w, h, owner, nullptr, instance, this);
+                            x, y, w, h, nullptr, nullptr, instance, this);
   if (!hwnd_) {
     ReportError(error, CAP_SAID(T("Einstellungsfenster konnte nicht erstellt werden",
                                      "The settings window could not be created")));
@@ -367,6 +380,47 @@ void SettingsHost::Hide() {
   if (!hwnd_) return;
   ::ShowWindow(hwnd_, SW_HIDE);
   visible_ = false;
+}
+
+void SettingsHost::Raise() {
+  if (!hwnd_ || !visible_) return;
+  if (::IsIconic(hwnd_)) ::ShowWindow(hwnd_, SW_RESTORE);
+  ::SetForegroundWindow(hwnd_);
+}
+
+bool SettingsHost::RaiseIfCoveredBy(HWND other) {
+  if (!hwnd_ || !visible_) return false;
+  if (::IsIconic(hwnd_)) {
+    Raise();
+    return true;
+  }
+  RECT mine = {}, theirs = {}, overlap = {};
+  if (!other || !::IsWindowVisible(other) || ::IsIconic(other) ||
+      !::GetWindowRect(hwnd_, &mine) || !::GetWindowRect(other, &theirs) ||
+      !::IntersectRect(&overlap, &mine, &theirs)) {
+    return false;
+  }
+  // Overlapping is not covering: `other` has to be above this window as well.
+  // Everything before this window in the z-order is above it.
+  for (HWND above = ::GetWindow(hwnd_, GW_HWNDPREV); above;
+       above = ::GetWindow(above, GW_HWNDPREV)) {
+    if (above == other) {
+      Raise();
+      return true;
+    }
+  }
+  return false;
+}
+
+void SettingsHost::SetTopmost(bool top) {
+  if (!hwnd_) return;
+  // Only when it changes. HWND_TOPMOST also moves the window to the front of
+  // the topmost windows, and doing that every time would put the settings back
+  // over a preview that had just been clicked into.
+  const bool now = (::GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+  if (now == top) return;
+  ::SetWindowPos(hwnd_, top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 bool SettingsHost::takeCloseRequest() {

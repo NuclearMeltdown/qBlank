@@ -33,8 +33,6 @@ class SettingsHost {
 
   // Creates the window hidden. `atlas` is the main context's font atlas, shared
   // rather than rebuilt: the fonts are identical and one copy is enough.
-  // `owner` only decides stacking -- the window is not a child and can be moved
-  // anywhere on the desktop.
   // `allowTearing` comes from the main context, which has already asked DXGI
   // whether the adapter supports it.
   // Where the window should come up, and where it ended up. Zero or negative
@@ -47,9 +45,9 @@ class SettingsHost {
   };
   Placement placement() const;
 
-  bool Create(HINSTANCE instance, HWND owner, ID3D11Device* device,
-              ID3D11DeviceContext* context, ImFontAtlas* atlas, float uiScale,
-              bool allowTearing, const Placement& where, std::string* error);
+  bool Create(HINSTANCE instance, ID3D11Device* device, ID3D11DeviceContext* context,
+              ImFontAtlas* atlas, float uiScale, bool allowTearing, const Placement& where,
+              std::string* error);
   void Destroy();
 
   bool created() const { return hwnd_ != nullptr; }
@@ -65,8 +63,25 @@ class SettingsHost {
   // that still gets through.
   void SetFrameCallback(std::function<void()> callback) { onFrame_ = std::move(callback); }
 
+  // Offered every key press this window receives, so the shortcuts work with
+  // the settings in front as well. `busy` says this window's ImGui wants the key
+  // for itself -- a text field is being typed into, or a list is open. True
+  // from the callback means the key was used and goes no further.
+  void SetKeyCallback(std::function<bool(WPARAM key, LPARAM lparam, bool busy)> callback) {
+    onKey_ = std::move(callback);
+  }
+
   void Show(const std::wstring& title);
   void Hide();
+  // Brings the window back in front of everything, from minimised as well.
+  void Raise();
+  // Raise, but only if `other` covers part of it or it is minimised -- the
+  // settings shortcut fetches a window that was lost behind the preview instead
+  // of closing it. False when nothing was in the way.
+  bool RaiseIfCoveredBy(HWND other);
+  // Mirrors the preview's "always on top". Without an owner nothing else keeps
+  // the settings above a topmost preview.
+  void SetTopmost(bool top);
 
   // True when the user clicked the window's close button since the last call.
   bool takeCloseRequest();
@@ -115,6 +130,7 @@ class SettingsHost {
   bool inFrameCallback_ = false;
   unsigned long lastDrawTick_ = 0;
   std::function<void()> onFrame_;
+  std::function<bool(WPARAM, LPARAM, bool)> onKey_;
   float uiScale_ = 1.0f;
 };
 

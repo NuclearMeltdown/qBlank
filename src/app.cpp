@@ -377,8 +377,16 @@ void App::ApplyWindowFlags() {
   // what keeps it out of our message loop -- and also means nothing lifts it
   // above a window that insists on staying on top. So while it is up, we do not.
   const bool top = config_.app.alwaysOnTop && !devicePages_.busy();
-  ::SetWindowPos(hwnd_, top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  // Only when it changes. Asserting HWND_TOPMOST again also brings the window to
+  // the front, and leaving fullscreen from a shortcut pressed in the settings
+  // window would then bury that window under the preview.
+  const bool now = (::GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+  if (now != top) {
+    ::SetWindowPos(hwnd_, top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  }
+  // Second, so that it ends up in front of the preview rather than behind it.
+  settingsHost_.SetTopmost(top);
 }
 
 void App::SetFullscreen(bool on) {
@@ -411,9 +419,15 @@ void App::SetFullscreen(bool on) {
     if (!haveTarget) return;
 
     ::SetWindowLongPtrW(hwnd_, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-    ::SetWindowPos(hwnd_, config_.app.alwaysOnTop ? HWND_TOPMOST : HWND_TOP, target.left,
-                   target.top, target.right - target.left, target.bottom - target.top,
-                   SWP_FRAMECHANGED | SWP_NOACTIVATE);
+    // Straight under the settings window if that is where the keyboard is --
+    // the shortcut was pressed there, and the window it was pressed in should
+    // not vanish behind the picture it just made bigger.
+    HWND after = config_.app.alwaysOnTop ? HWND_TOPMOST : HWND_TOP;
+    if (settingsHost_.visible() && ::GetForegroundWindow() == settingsHost_.hwnd()) {
+      after = settingsHost_.hwnd();
+    }
+    ::SetWindowPos(hwnd_, after, target.left, target.top, target.right - target.left,
+                   target.bottom - target.top, SWP_FRAMECHANGED | SWP_NOACTIVATE);
     fullscreen_ = true;
   } else {
     ::SetWindowLongPtrW(hwnd_, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
@@ -735,6 +749,10 @@ void App::RestartAll(bool userRequested) {
 
 void App::OpenSettings(const std::string& reason) {
   settings_.Open(&config_, reason);
+  // Already open in its own window, but possibly behind the preview since the
+  // two no longer stack together: asking for the settings means wanting to see
+  // them.
+  settingsHost_.Raise();
 }
 
 void App::CaptureAppliedState() {
@@ -3768,14 +3786,16 @@ void App::DrawSettingsWindowed() {
       where.width = config_.app.settingsPanelW;
       where.height = config_.app.settingsPanelH;
     }
-    if (!settingsHost_.Create(instance_, hwnd_, d3d_.device(), d3d_.context(),
-                              ImGui::GetIO().Fonts, uiScale_, d3d_.tearingSupported(), where,
-                              &error)) {
+    if (!settingsHost_.Create(instance_, d3d_.device(), d3d_.context(), ImGui::GetIO().Fonts,
+                              uiScale_, d3d_.tearingSupported(), where, &error)) {
       config_.app.settingsSeparateWindow = false;
       Toast(error);
       return;
     }
     settingsHost_.ApplyTheme(darkMode_, config_.app.accentColor);
+    ApplyWindowFlags();
+    settingsHost_.SetKeyCallback(
+        [this](WPARAM key, LPARAM lparam, bool busy) { return OnKey(key, lparam, busy); });
     // While its window is being dragged, Windows keeps the loop to itself. The
     // timer inside that loop is what still lets the picture run.
     // Dragging a window puts Windows into a modal loop of its own that does not
@@ -6250,10 +6270,13 @@ bool App::HandleKeyDown(WPARAM key) {
       ToggleFullscreen();
       return true;
     case HotkeyAction::Settings:
-      if (settings_.isOpen()) {
-        settings_.Close();
-      } else {
+      // A settings window lost behind the preview is fetched, not closed: the
+      // key was pressed to see it, and closing what cannot be seen is the one
+      // thing that cannot be what was meant.
+      if (!settings_.isOpen()) {
         OpenSettings({});
+      } else if (!settingsHost_.RaiseIfCoveredBy(hwnd_)) {
+        settings_.Close();
       }
       return true;
     case HotkeyAction::Stats:
@@ -6316,6 +6339,23 @@ bool App::HandleKeyDown(WPARAM key) {
     return true;
   }
   return false;
+}
+
+bool App::OnKey(WPARAM key, LPARAM lparam, bool busy) {
+  // The binding editor wants the raw key, before anyone acts on it -- that is
+  // the whole point of it being open. From either window: in the separate one
+  // it used to wait for a key that never reached it.
+  if (settings_.waitingForKey()) {
+    settings_.OfferKey((int)key, (::GetKeyState(VK_CONTROL) & 0x8000) != 0,
+                       (::GetKeyState(VK_SHIFT) & 0x8000) != 0,
+                       (::GetKeyState(VK_MENU) & 0x8000) != 0);
+    return true;
+  }
+  // Typing, or a list is open: the key is ImGui's, Esc included -- it cancels
+  // the edit or closes the list before it closes anything bigger.
+  if (busy) return false;
+  lastKeyLParam_ = (uint64_t)lparam;
+  return HandleKeyDown(key);
 }
 
 LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -6382,24 +6422,16 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
       break;
 
     case WM_KEYDOWN:
-    case WM_SYSKEYDOWN:
-      // The binding editor wants the raw key, before anyone acts on it -- that
-      // is the whole point of it being open.
-      if (settings_.waitingForKey()) {
-        settings_.OfferKey((int)wparam, (::GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                           (::GetKeyState(VK_SHIFT) & 0x8000) != 0,
-                           (::GetKeyState(VK_MENU) & 0x8000) != 0);
-        return 0;
-      }
-      // While the settings window has the keyboard, let it type.
-      if (!(imguiReady_ && ImGui::GetIO().WantCaptureKeyboard)) {
-        lastKeyLParam_ = (uint64_t)lparam;
-        if (HandleKeyDown(wparam)) return 0;
-      } else if (wparam == VK_ESCAPE) {
-        settings_.Close();
-        return 0;
-      }
+    case WM_SYSKEYDOWN: {
+      // Not WantCaptureKeyboard, which keyboard navigation holds true whenever
+      // the embedded panel has focus -- see SettingsHost::WndProc.
+      const bool busy = imguiReady_ &&
+                        (ImGui::GetIO().WantTextInput ||
+                         ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId |
+                                                    ImGuiPopupFlags_AnyPopupLevel));
+      if (OnKey(wparam, lparam, busy)) return 0;
       break;
+    }
 
     case WM_SYSCOMMAND:
       // Block the screensaver from starting over our window.
