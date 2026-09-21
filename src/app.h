@@ -270,6 +270,8 @@ class App {
   void DrawCropPicker();
   // Moves the A/B divider when it is dragged on the picture.
   void DragCompareDivider();
+  // Fullscreen on a double click on the picture.
+  void DoubleClickFullscreen();
  public:
   bool cropPickActive() const { return cropPick_.active; }
  private:
@@ -410,6 +412,7 @@ class App {
   // im Profil: siehe ToggleCompare und ToggleBypass.
   bool compare_ = false;
   bool compareDrag_ = false;  // the divider is being dragged with the mouse
+  bool clickOnPicture_ = false;  // the last left click landed on the bare picture
   bool bypass_ = false;
   // Whether the bar was drawn this frame; the picture layout follows it.
   bool toolbarVisible_ = false;

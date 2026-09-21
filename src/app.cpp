@@ -4967,6 +4967,24 @@ void App::DragCompareDivider() {
   config_.active().image.compareSplit = share;
 }
 
+// Doppelklick aufs Bild schaltet das Vollbild um, wie in jedem Videoplayer.
+//
+// Beide Klicks muessen auf dem blossen Bild landen. Der erste koennte sonst
+// ein Menue geschlossen oder die Trennlinie gegriffen haben, und der zweite
+// machte daraus einen Wechsel, den niemand wollte. Laeuft nach
+// DragCompareDivider, damit ein Griff an die Linie schon zaehlt.
+void App::DoubleClickFullscreen() {
+  if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+  const bool onPicture = !ImGui::GetIO().WantCaptureMouse && !compareDrag_;
+  if (onPicture && clickOnPicture_ && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+    ToggleFullscreen();
+    // Ein dritter Klick zaehlt als neuer erster.
+    clickOnPicture_ = false;
+    return;
+  }
+  clickOnPicture_ = onPicture;
+}
+
 void App::FeedRecorder() {
   if (!recorder_.recording()) return;
 
@@ -5764,10 +5782,12 @@ void App::DrawUi() {
 
   // ---- crop picker ----
   if (cropPick_.active) {
+    clickOnPicture_ = false;
     DrawCropPicker();
     if (!cropPick_.active) return;  // Apply or Cancel closed it this frame
   } else {
     DragCompareDivider();
+    DoubleClickFullscreen();
   }
 
   // ---- recording indicator ----
