@@ -1101,12 +1101,12 @@ float4 main(VSOut i) : SV_Target {
   // subtracts a pattern that pixel never carried, which is not a cleanup but a
   // new artefact. Doing it first removes the question.
   //
-  // And it is the whole of it, which is why the comparison cuts here and
-  // nowhere else: one branch takes out every composite artefact this program
-  // knows how to take out, so skipping it shows the signal as the card handed
-  // it over. What comes later -- sharpening, scanlines, the mask -- runs over
-  // both halves, or the two sides would differ in more than the one thing the
-  // comparison is about.
+  // One branch takes out every composite artefact this program knows how to
+  // take out, so skipping it shows the signal as the card handed it over. The
+  // scale pass leaves out the rest on the same side -- sharpening, the picture
+  // controls, the native grid, scanlines and the mask -- so the comparison is
+  // the same one Shift+F12 makes, side by side. Deinterlacing runs on both,
+  // because combing is not the signal but two fields shown at once.
   if (!raw) {
     // The two halves have to be told about each other. Both work out how much
     // pattern is present from the *captured* pixels, so where the four frame
@@ -1699,7 +1699,11 @@ cbuffer ScaleCB : register(b0) {
 
   float  gHue;          // radians, converted on the way in
   int    gProcAmp;      // apply the four above in this pass
-  float2 gPad;
+  float  gCompareSplit; // as in the clean pass: negative = no comparison
+  int    gCompareAxis;  // 0 upright, 1 across
+
+  int    gRotation;     // the quarter turns the convert pass applied
+  int3   gPad;
 };
 
 struct VSOut {
@@ -2063,11 +2067,31 @@ float3 ApplyProcAmp(float3 rgb) {
   return lin ? max(rgb, 0.0) : saturate(rgb);
 }
 
+// Which side of the A/B divider a pixel is on. The clean pass drew the divider
+// and left the composite chain out on one side; everything this pass adds on
+// top has to stay out there as well, or the unfiltered half would still be
+// sharpened, graded and put behind a mask -- and a comparison that differs in
+// five things answers none of them.
+//
+// The divider was measured across the cropped picture before any quarter turn,
+// so the turn is undone here to find that same axis again. `uv` covers the
+// intermediate exactly, which is the cropped picture turned.
+bool CompareRaw(float2 uv) {
+  if (gCompareSplit < 0.0) return false;
+  float2 l;
+  if (gRotation == 1)      l = float2(uv.y, 1.0 - uv.x);
+  else if (gRotation == 2) l = float2(1.0 - uv.x, 1.0 - uv.y);
+  else if (gRotation == 3) l = float2(1.0 - uv.y, uv.x);
+  else                     l = uv;
+  return (gCompareAxis != 0 ? l.y : l.x) < gCompareSplit;
+}
+
 float4 main(VSOut i) : SV_Target {
   float2 pos = i.uv * gSrcSize;  // position in source pixels
+  const bool raw = CompareRaw(i.uv);
 
   float3 rgb;
-  if (gNativeWidth > 0) {
+  if (gNativeWidth > 0 && !raw) {
     // Deliberately ahead of the filter choice and instead of it. Resolving to
     // the console's own pixel *is* a nearest-neighbour decision -- that is the
     // point of it -- and running a smoothing filter afterwards would put back
@@ -2091,7 +2115,7 @@ float4 main(VSOut i) : SV_Target {
   // is the user's decision rather than a property of the pass. gProcAmp is how
   // that decision arrives -- set for the window whenever a knob is off centre,
   // set on the way out only when the user asked for it.
-  if (gProcAmp != 0) rgb = ApplyProcAmp(rgb);
+  if (gProcAmp != 0 && !raw) rgb = ApplyProcAmp(rgb);
 
   // Resampling on the way out to something that is not a screen. Everything
   // below this line is either a display effect or a decision about which screen
@@ -2100,7 +2124,7 @@ float4 main(VSOut i) : SV_Target {
   // a value above one is the highlight the whole exercise is about.
   if (gPassthrough != 0) return float4(rgb, 1.0);
 
-  if (gSharpen > 0.001) {
+  if (gSharpen > 0.001 && !raw) {
     rgb = Sharpen(rgb, i.uv, gSharpen);
   }
 
@@ -2108,7 +2132,7 @@ float4 main(VSOut i) : SV_Target {
   // belong on the picture as it will be seen and not on the signal. Neither
   // reaches a recording, a screenshot or the virtual camera -- those take the
   // intermediate, which is upstream of this pass entirely.
-  if (gScanlines > 0.001 || (gMask != 0 && gMaskStrength > 0.001)) {
+  if (!raw && (gScanlines > 0.001 || (gMask != 0 && gMaskStrength > 0.001))) {
     float3 gain = 1.0;
     if (gScanlines > 0.001) gain *= Scanline(i.uv);
     if (gMask != 0 && gMaskStrength > 0.001) gain *= Mask(i.pos.xy);

@@ -101,7 +101,11 @@ struct ScaleCB {
 
   float hue;           // radians
   int32_t procAmp;     // apply the four above in this pass
-  float pad[2];
+  float compareSplit;  // as ConvertCB::compareSplit; the unfiltered side skips this pass's effects
+  int32_t compareAxis;
+
+  int32_t rotation;    // to find the divider's axis again after the quarter turns
+  int32_t pad[3];
 };
 static_assert(sizeof(ScaleCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
@@ -928,6 +932,9 @@ bool VideoRenderer::RenderDelivery(bool half) {
   sc.contrast = deliveryContrast_;
   sc.saturation = deliverySaturation_;
   sc.hue = deliveryHue_;
+  sc.compareSplit = compareSplit_;
+  sc.compareAxis = compareAxis_;
+  sc.rotation = rotation_;
 
   D3D11_MAPPED_SUBRESOURCE mapped = {};
   if (SUCCEEDED(dc->Map(cbScale_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
@@ -2659,6 +2666,9 @@ void VideoRenderer::ComputeDeliverySize(const ImageSettings& image) {
   deliverySaturation_ = Clamp(image.saturation, 0.0f, 2.0f);
   deliveryHue_ = Clamp(image.hue, -180.0f, 180.0f) * 3.14159265358979f / 180.0f;
   deliveryProcAmp_ = image.procAmpToOutput;
+  compareSplit_ = image.compare ? Clamp(image.compareSplit, 0.0f, 1.0f) : -1.0f;
+  compareAxis_ = image.compareHorizontal ? 1 : 0;
+  rotation_ = (int)image.rotation;
 
   if (!image.squarePixelOutput) return;
   if (outputWidth_ <= 0 || outputHeight_ <= 0) return;
@@ -3083,6 +3093,9 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   sc.contrast = deliveryContrast_;
   sc.saturation = deliverySaturation_;
   sc.hue = deliveryHue_;
+  sc.compareSplit = compareSplit_;
+  sc.compareAxis = compareAxis_;
+  sc.rotation = rotation_;
 
   if (SUCCEEDED(dc->Map(cbScale_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
     memcpy(mapped.pData, &sc, sizeof(sc));

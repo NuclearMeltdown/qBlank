@@ -1397,6 +1397,7 @@ void SettingsWindow::DrawImageTab() {
   //   Zuschnitt, und direkt darunter das native Raster
   //   Composite-Filter
   //   Bildröhre
+  //   Vergleich, hinter allem, was er abschaltet
   //   Farbe
   //
   // Zuschnitt und natives Raster stehen beieinander, weil beide dasselbe
@@ -2103,51 +2104,6 @@ void SettingsWindow::DrawImageTab() {
                    "Horizontal only: vertically the picture is limited by the line count, "
                    "and no filter changes that."));
     }  // Composite-only
-
-    // Der A/B-Vergleich steht am Ende dieses Abschnitts, weil er genau ihn
-    // betrifft: links laeuft nichts von dem, was darueber eingestellt ist,
-    // rechts alles. Was danach kommt -- Schaerfen, Zeilen, Maske -- laeuft ueber
-    // beide Haelften, sonst verglichen sich zwei Bilder statt zweier Filter.
-    ImGui::Spacing();
-    bool compare = compareOn_;
-    if (ImGui::Checkbox(T("Mit und ohne vergleichen", "Compare with and without"), &compare)) {
-      compareToggleRequested_ = true;
-    }
-    ImGui::SameLine();
-    HelpMarker(T("Teilt das Bild: links (bei waagerechter Linie oben) das Signal, wie die "
-                 "Karte es liefert, rechts (unten) mit den Filtern aus diesem Abschnitt.\n\n"
-                 "Die Trennlinie lässt sich im Bild mit der Maus ziehen. Sie liegt im Raster "
-                 "der Quelle und dreht sich deshalb mit dem Bild.\n\n"
-                 "Geht nicht während einer Aufnahme und wird beim Start einer Aufnahme "
-                 "abgeschaltet: Aufnahme und virtuelle Kamera greifen hinter demselben "
-                 "Durchgang ab und bekämen sonst ein halb gefiltertes Bild. Gilt nur bis zum "
-                 "Beenden.",
-                 "Splits the picture: on the left (on top, with a horizontal divider) the "
-                 "signal as the card delivers it, on the right (below) with the filters from "
-                 "this section.\n\n"
-                 "The divider can be dragged with the mouse in the picture. It sits in the "
-                 "source's own grid, so it turns with the picture.\n\n"
-                 "Not available while recording, and switched off when one starts: the "
-                 "recording and the virtual camera tap the same pass and would otherwise get "
-                 "a half filtered picture. Lasts until you quit."));
-
-    ImGui::BeginDisabled(!compareOn_);
-    ImGui::Indent();
-    const char* axisNames[] = {
-        T("Senkrecht – links ungefiltert", "Vertical – unfiltered on the left"),
-        T("Waagerecht – oben ungefiltert", "Horizontal – unfiltered on top")};
-    int axis = img.compareHorizontal ? 1 : 0;
-    ImGui::SetNextItemWidth(-260.0f);
-    if (ImGui::Combo(T("Richtung", "Direction"), &axis, axisNames, 2)) {
-      img.compareHorizontal = axis == 1;
-    }
-    float split = img.compareSplit * 100.0f;
-    ImGui::SetNextItemWidth(-260.0f);
-    if (ImGui::SliderFloat(T("Trennlinie", "Divider"), &split, 0.0f, 100.0f, "%.0f %%")) {
-      img.compareSplit = Clamp(split / 100.0f, 0.0f, 1.0f);
-    }
-    ImGui::Unindent();
-    ImGui::EndDisabled();
   }
 
   // Bildröhre. Anzeigeeffekte und keine Signalbearbeitung: sie landen weder in
@@ -2270,6 +2226,58 @@ void SettingsWindow::DrawImageTab() {
                  "wirken.",
                  "Needs a high output resolution to read as a mask rather than as a tint."));
   }
+
+  // Der A/B-Vergleich steht hinter allem, was er vergleicht, und vor der
+  // Farbe, die er nicht anfasst. Links fehlt dasselbe wie unter "Alle Filter
+  // aus": Composite-Filter, Schaerfen, Bildregler, natives Raster, Bildroehre.
+  // Deinterlacing, Zuschnitt und Farbe laufen auf beiden Seiten -- ohne sie
+  // waere die linke Haelfte nicht ungefiltert, sondern falsch.
+  //
+  // Stand bis 4.4 am Ende des Composite-Abschnitts und verglich nur ihn. Damit
+  // war er an jedem digitalen Eingang verschwunden.
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Vergleich", "Compare"));
+  bool compare = compareOn_;
+  if (ImGui::Checkbox(T("Mit und ohne Filter vergleichen", "Compare with and without filters"),
+                      &compare)) {
+    compareToggleRequested_ = true;
+  }
+  ImGui::SameLine();
+  HelpMarker(T("Teilt das Bild: links (bei waagerechter Linie oben) ohne Composite-Filter, "
+               "Schärfen, Bildregler, natives Raster und Bildröhre, rechts (unten) mit. "
+               "Deinterlacing, Zuschnitt und Farbe laufen auf beiden Seiten.\n\n"
+               "Die Trennlinie lässt sich im Bild mit der Maus ziehen. Sie liegt im Raster "
+               "der Quelle und dreht sich deshalb mit dem Bild.\n\n"
+               "Geht nicht während einer Aufnahme und wird beim Start einer Aufnahme "
+               "abgeschaltet: Aufnahme und virtuelle Kamera bekämen sonst ein halb "
+               "gefiltertes Bild. Gilt nur bis zum Beenden.",
+               "Splits the picture: on the left (on top, with a horizontal divider) without "
+               "composite filters, sharpening, picture controls, native pixel grid and CRT "
+               "effects, on the right (below) with them. Deinterlacing, crop and colour run "
+               "on both sides.\n\n"
+               "The divider can be dragged with the mouse in the picture. It sits in the "
+               "source's own grid, so it turns with the picture.\n\n"
+               "Not available while recording, and switched off when one starts: the "
+               "recording and the virtual camera would otherwise get a half filtered "
+               "picture. Lasts until you quit."));
+
+  ImGui::BeginDisabled(!compareOn_);
+  ImGui::Indent();
+  const char* axisNames[] = {
+      T("Senkrecht – links ungefiltert", "Vertical – unfiltered on the left"),
+      T("Waagerecht – oben ungefiltert", "Horizontal – unfiltered on top")};
+  int axis = img.compareHorizontal ? 1 : 0;
+  ImGui::SetNextItemWidth(-260.0f);
+  if (ImGui::Combo(T("Richtung", "Direction"), &axis, axisNames, 2)) {
+    img.compareHorizontal = axis == 1;
+  }
+  float split = img.compareSplit * 100.0f;
+  ImGui::SetNextItemWidth(-260.0f);
+  if (ImGui::SliderFloat(T("Trennlinie", "Divider"), &split, 0.0f, 100.0f, "%.0f %%")) {
+    img.compareSplit = Clamp(split / 100.0f, 0.0f, 1.0f);
+  }
+  ImGui::Unindent();
+  ImGui::EndDisabled();
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Farbe", "Colour"));

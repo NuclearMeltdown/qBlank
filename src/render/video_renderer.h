@@ -589,6 +589,11 @@ class VideoRenderer {
   float deliverySaturation_ = 1.0f;
   float deliveryHue_ = 0.0f;
   bool deliveryProcAmp_ = false;  // the user wants them past the window too
+  // The A/B comparison as the scale pass needs it: which part of the picture
+  // gets none of that pass's effects. Negative split = no comparison.
+  float compareSplit_ = -1.0f;
+  int compareAxis_ = 0;
+  int rotation_ = 0;
   // Last sizes written to the log, so the line appears when it changes rather
   // than sixty times a second.
   int loggedDeliveryW_ = -1;

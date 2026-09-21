@@ -50,7 +50,7 @@ compositing and streaming are not. For those, use OBS.
 - Aspect override, integer scaling, square pixels, quarter turns, line doubling for 240p and 288p.
 - **Native pixel grid**: one output pixel per console pixel, where the card samples a line 720 times and a SNES drew 256.
 - **Freeze** (**F11**) holds the source, so a slider can be judged on a still picture.
-- **A/B compare** (**F12**) splits the picture, composite filters off on the left.
+- **A/B compare** (**F12**) splits the picture, every filter off on the left, deinterlacing on both sides.
 - **All filters off** (**Shift+F12**) shows the signal as it arrives, with deinterlacing, crop, aspect and range kept.
 
 **Crop and colour range** · [wiki](../../wiki/Cropping-and-geometry)

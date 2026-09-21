@@ -1086,8 +1086,11 @@ void App::ToggleCompare() {
 // Das Deinterlacing stand frueher auf der anderen Seite und schaltete auf
 // Weave. Aber Kammlinien sind nicht das Signal, wie es ankommt, sondern zwei
 // Halbbilder, die nie zusammen gezeigt werden sollten; neben ihnen war jeder
-// Filter schlecht zu beurteilen. Der Vergleich (F12) laesst es aus demselben
-// Grund auf beiden Seiten laufen.
+// Filter schlecht zu beurteilen.
+//
+// Der Vergleich (F12) ist dasselbe auf einer Haelfte: links fehlt genau, was
+// hier fehlt, und das Deinterlacing laeuft auf beiden Seiten. Die Kette faellt
+// im ersten Durchgang weg, der Rest im Skalierdurchgang (CompareRaw).
 //
 // Aus denselben Gruenden wie das Standbild nicht waehrend einer Aufnahme, und
 // ebenso wenig im Profil: siehe EffectiveImage.
@@ -4525,9 +4528,8 @@ ImageSettings App::EffectiveImage(const Profile& profile) const {
     img.bandwidthRestore = 0.0f;
     // Das native Raster rechnet das Abtasten einer analogen Zeile zurueck.
     img.nativeWidth = 0;
-    // Und damit hat der Vergleich nichts mehr zu vergleichen: uebrig bliebe ein
-    // Strich quer durch ein Bild, das links und rechts dasselbe zeigt.
-    img.compare = false;
+    // Der Vergleich bleibt: er zeigt jetzt auch Schaerfen, Bildregler und
+    // Bildroehre, und die gibt es an jedem Eingang.
   } else if (!ConnectorMixesLumaAndChroma()) {
     // Analog, aber Helligkeit und Farbe kommen getrennt an -- S-Video auf zwei
     // Leitungen, Component auf drei. Damit faellt alles weg, was Uebersprechen
@@ -6174,20 +6176,20 @@ void App::DrawContextMenu() {
                       compare_)) {
     ToggleCompare();
   }
-  WrappedTooltip(T("Teilt das Bild: links ohne Composite-Filter, rechts mit. Die Trennlinie "
-                   "steht unter Bild → Composite.",
-                   "Splits the picture: composite filters off on the left, on on the right. "
-                   "The divider is under Picture → Composite."));
+  WrappedTooltip(T("Teilt das Bild: links alle Filter aus, rechts an. Das Deinterlacing läuft "
+                   "auf beiden Seiten. Die Trennlinie steht unter Bild → Vergleich.",
+                   "Splits the picture: every filter off on the left, on on the right. "
+                   "Deinterlacing runs on both sides. The divider is under Picture → Compare."));
   if (ImGui::MenuItem(T("Alle Filter aus", "All filters off"), sc(HotkeyAction::BypassFilters),
                       bypass_)) {
     ToggleBypass();
   }
-  WrappedTooltip(T("Zeigt das Bild ohne Deinterlacing, Composite-Filter, Schärfen, Bildregler, "
-                   "natives Raster und Bildröhre. Zuschnitt, Seitenverhältnis und Skalierung "
+  WrappedTooltip(T("Zeigt das Bild ohne Composite-Filter, Schärfen, Bildregler, natives Raster "
+                   "und Bildröhre. Deinterlacing, Zuschnitt, Seitenverhältnis und Skalierung "
                    "bleiben. Wird nicht gespeichert.",
-                   "Shows the picture without deinterlacing, composite filters, sharpening, "
-                   "picture controls, native pixel grid and CRT effects. Crop, aspect and "
-                   "scaling stay. Not saved."));
+                   "Shows the picture without composite filters, sharpening, picture controls, "
+                   "native pixel grid and CRT effects. Deinterlacing, crop, aspect and scaling "
+                   "stay. Not saved."));
 
   // Der schwarze Rand ist etwas, das man sieht, und das Suchen danach gehoert
   // deshalb dorthin, wo man hinsieht, statt in einen Reiter des
