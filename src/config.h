@@ -660,6 +660,11 @@ struct AppSettings {
   // working in is worth the four bytes; reopening on the first one every time
   // means finding the same thing again on every visit.
   int settingsTab = 0;
+  // Wie oft der Toast zu einer Datei schon dazugesagt hat, dass ein Klick sie
+  // im Ordner zeigt. Nach ein paar Malen weiss man es, und wer einmal
+  // geklickt hat, weiss es sofort -- dann steht hier gleich die Hoechstzahl
+  // (kFileToastHints in app.cpp).
+  int fileToastHints = 0;
   // Wo das *eingebettete* Feld zuletzt stand, im Hauptfenster. Getrennt von der
   // Lage des freigestellten Fensters gefuehrt: das sind zwei verschiedene Orte
   // in zwei verschiedenen Bezugssystemen, und der eine soll den anderen nicht

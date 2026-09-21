@@ -111,7 +111,16 @@ void DrawIdleScreen(unsigned long long icon, int iconPixels, const std::string& 
 void DrawStatusCard(const std::string& title, const std::string& detail, bool spinner);
 
 // Fades out over its lifetime; `age` and `duration` are in seconds.
-void DrawToast(const std::string& text, double age, double duration);
+//
+// A toast about a file is clickable: it takes the mouse, shows the hand, and
+// `hint`, if not empty, as a second, quieter line. The other kind lets every
+// click through to the picture underneath.
+struct ToastResult {
+  bool hovered = false;
+  bool clicked = false;
+};
+ToastResult DrawToast(const std::string& text, double age, double duration,
+                      bool clickable = false, const char* hint = nullptr);
 
 // Standard search, shown on the picture itself while it runs.
 //

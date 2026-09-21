@@ -1,6 +1,7 @@
 #include "app.h"
 
 #include <shellapi.h>   // ShellExecuteW
+#include <shlobj.h>     // SHOpenFolderAndSelectItems
 #include <windowsx.h>  // GET_X_LPARAM
 
 #include <algorithm>
@@ -918,9 +919,89 @@ void App::SwitchProfile(int index) {
 
 // --------------------------------------------------------------------- misc
 
-void App::Toast(const std::string& text) {
+namespace {
+
+// So lange steht ein Toast. Einer zu einer Datei etwas laenger: den will man
+// vielleicht noch anklicken, und bis die Maus unten in der Mitte ist, waere
+// der kurze schon halb verblasst.
+constexpr double kToastSeconds = 2.5;
+constexpr double kFileToastSeconds = 4.0;
+// Wie viele Toasts zu einer Datei dazusagen, dass ein Klick sie zeigt.
+constexpr int kFileToastHints = 3;
+
+// Explorer, mit der Datei markiert. SHOpenFolderAndSelectItems nimmt ein
+// Fenster, das den Ordner schon zeigt, statt ein neues danebenzustellen, will
+// aber ein STA -- und dieser Faden ist wegen DirectShow MTA. Also ein kurzer
+// eigener. Geht es dort schief, tut es explorer /select auch, nur eben mit
+// einem Fenster mehr.
+void ShowFileInExplorer(const std::wstring& file) {
+  // Nur wer vorn ist, darf das weitergeben -- und das sind wir gerade, es
+  // wurde eben auf uns geklickt. Sonst ginge der Explorer hinter dem Bild auf.
+  ::AllowSetForegroundWindow(ASFW_ANY);
+  std::thread([file] {
+    ComScope com(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    HRESULT hr = E_FAIL;
+    if (PIDLIST_ABSOLUTE item = ::ILCreateFromPathW(file.c_str())) {
+      hr = ::SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
+      ::ILFree(item);
+    }
+    if (FAILED(hr)) {
+      const std::wstring args = L"/select,\"" + file + L"\"";
+      ::ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+    }
+  }).detach();
+}
+
+}  // namespace
+
+void App::Toast(const std::string& text, const std::wstring& file) {
   toastText_ = text;
+  toastFile_ = file;
+  toastTouched_ = false;
   toastStart_ = ImGui::GetTime();
+  // Beim Entstehen entschieden, nicht je Bild: sonst verschwaende die Zeile
+  // beim letzten Mal mitten im Toast, sobald der Zaehler oben ankommt.
+  toastHint_ = !file.empty() && config_.app.fileToastHints < kFileToastHints;
+  if (toastHint_) ++config_.app.fileToastHints;
+}
+
+// Ein Toast zu einer Datei -- Aufnahme gespeichert, Screenshot -- zeigt sie auf
+// Klick im Explorer. Solange die Maus darauf liegt, bleibt er stehen: wer
+// hinzeigt, will ihn noch lesen oder gleich anklicken. Aber nur, wenn sie sich
+// dort auch bewegt hat. Eine Maus, die zufaellig unten in der Mitte parkt,
+// hielte ihn sonst fuer immer ueber dem Bild.
+void App::DrawToastStrip() {
+  if (toastText_.empty()) return;
+  const bool clickable = !toastFile_.empty();
+  const double duration = clickable ? kFileToastSeconds : kToastSeconds;
+  const double age = ImGui::GetTime() - toastStart_;
+  if (age > duration) {
+    toastText_.clear();
+    toastFile_.clear();
+    return;
+  }
+
+  const ToastResult result =
+      DrawToast(toastText_, age, duration, clickable,
+                toastHint_ ? T("Klicken zeigt die Datei im Ordner", "Click to show the file in its folder")
+                           : nullptr);
+  if (!result.hovered) return;
+
+  const ImVec2 delta = ImGui::GetIO().MouseDelta;
+  if (delta.x != 0.0f || delta.y != 0.0f) toastTouched_ = true;
+  if (toastTouched_) toastStart_ = ImGui::GetTime();
+
+  if (result.clicked) {
+    // Wer einmal geklickt hat, braucht den Hinweis nicht mehr.
+    config_.app.fileToastHints = kFileToastHints;
+    if (::GetFileAttributesW(toastFile_.c_str()) == INVALID_FILE_ATTRIBUTES) {
+      Toast(T("Die Datei ist nicht mehr da.", "The file is no longer there."));
+      return;
+    }
+    ShowFileInExplorer(toastFile_);
+    toastText_.clear();
+    toastFile_.clear();
+  }
 }
 
 void App::UpdatePowerRequest() {
@@ -1293,7 +1374,8 @@ void App::StopRecording() {
   recorder_.Stop();
   renderer_.SetReadbackEnabled(false);
   audio_.SetTapEnabled(false);
-  Toast(Format(T("Aufnahme gespeichert (%.0f s)", "Recording saved (%.0f s)"), stats.seconds));
+  Toast(Format(T("Aufnahme gespeichert (%.0f s)", "Recording saved (%.0f s)"), stats.seconds),
+        ToWide(stats.file));
 }
 
 std::wstring App::ResolveOutputFolder(std::string* configured, const std::wstring& fallback) {
@@ -1509,7 +1591,8 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
   // message is "it worked and it is called this".
   const size_t slash = path.find_last_of(L'\\');
   Toast(T("Screenshot: ", "Screenshot: ") +
-        ToUtf8(slash == std::wstring::npos ? path : path.substr(slash + 1)) + note);
+            ToUtf8(slash == std::wstring::npos ? path : path.substr(slash + 1)) + note,
+        path);
   CAP_LOG("Screenshot saved: %s (%dx%d)", ToUtf8(path).c_str(), width, height);
 }
 
@@ -5805,14 +5888,7 @@ void App::DrawUi() {
   }
 
   // ---- toast ----
-  if (!toastText_.empty()) {
-    const double age = ImGui::GetTime() - toastStart_;
-    if (age > 2.5) {
-      toastText_.clear();
-    } else {
-      DrawToast(toastText_, age, 2.5);
-    }
-  }
+  DrawToastStrip();
 
   DrawContextMenu();
 

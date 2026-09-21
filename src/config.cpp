@@ -976,6 +976,7 @@ bool Config::Load(std::string* error) {
   app.showToolbar = a["showToolbar"].AsBool(true);
   app.settingsSeparateWindow = a["settingsSeparateWindow"].AsBool(false);
   app.settingsTab = a["settingsTab"].AsInt(0);
+  app.fileToastHints = Clamp(a["fileToastHints"].AsInt(0), 0, 1000);
   app.settingsPanelX = a["settingsPanelX"].AsInt(-1);
   app.settingsPanelY = a["settingsPanelY"].AsInt(-1);
   app.settingsPanelW = a["settingsPanelW"].AsInt(0);
@@ -1098,6 +1099,7 @@ std::string Config::Serialize() const {
   a["showToolbar"] = app.showToolbar;
   a["settingsSeparateWindow"] = app.settingsSeparateWindow;
   a["settingsTab"] = app.settingsTab;
+  a["fileToastHints"] = app.fileToastHints;
   a["settingsPanelX"] = app.settingsPanelX;
   a["settingsPanelY"] = app.settingsPanelY;
   a["settingsPanelW"] = app.settingsPanelW;

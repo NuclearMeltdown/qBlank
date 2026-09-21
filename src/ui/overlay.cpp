@@ -386,8 +386,10 @@ void DrawStatusCard(const std::string& title, const std::string& detail, bool sp
   ImGui::End();
 }
 
-void DrawToast(const std::string& text, double age, double duration) {
-  if (age >= duration) return;
+ToastResult DrawToast(const std::string& text, double age, double duration, bool clickable,
+                      const char* hint) {
+  ToastResult result;
+  if (age >= duration) return result;
   const float fade = (float)Clamp((duration - age) / 0.4, 0.0, 1.0);
 
   const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -397,11 +399,22 @@ void DrawToast(const std::string& text, double age, double duration) {
   ImGui::SetNextWindowBgAlpha(0.82f * fade);
   ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fade);
 
-  if (ImGui::Begin("##toast", nullptr, kOverlayFlags)) {
+  // Klickbar heisst: die Maus gehoert dem Toast. Sonst ginge ein Klick darauf
+  // durch aufs Bild, und zwei davon machten Vollbild statt Explorer.
+  const ImGuiWindowFlags flags =
+      clickable ? kOverlayFlags & ~ImGuiWindowFlags_NoInputs : kOverlayFlags;
+  if (ImGui::Begin("##toast", nullptr, flags)) {
     ImGui::TextUnformatted(text.c_str());
+    if (clickable && hint && *hint) ImGui::TextDisabled("%s", hint);
+    if (clickable && ImGui::IsWindowHovered()) {
+      result.hovered = true;
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      result.clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    }
   }
   ImGui::End();
   ImGui::PopStyleVar();
+  return result;
 }
 
 void DrawSearchIndicator(const std::string& text, const std::string& detail) {
