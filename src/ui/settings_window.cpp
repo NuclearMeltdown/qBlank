@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 #include "i18n.h"
 #include "record/screenshot.h"
@@ -284,6 +285,12 @@ void SettingsWindow::SetVirtualCameraState(bool running,
 void SettingsWindow::Close() {
   open_ = false;
   captureAction_ = -1;
+  searchBuf_[0] = 0;
+  searchQuery_.clear();
+  searchRows_.clear();
+  jumpKey_ = nullptr;
+  flashKey_ = nullptr;
+  searchNoteTime_ = -10.0;
 }
 
 void SettingsWindow::InvalidateDeviceLists() {
@@ -517,27 +524,14 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
     tabContext_ = nowContext;
     wantTab_ = activeTab_;
   }
-  // Feste Nummern statt eines mitlaufenden Zaehlers: welcher Reiter zuletzt
-  // offen war, steht in der Konfiguration, und die Reihenfolge haengt davon ab,
-  // ob ein Geraet ausgewaehlt ist. Ein Zaehler wuerde dieselbe Zahl je nach Lage
-  // auf verschiedene Reiter zeigen lassen.
-  enum Tab {
-    kTabSource = 0,
-    kTabPicture,
-    kTabHdr,
-    kTabAudio,
-    kTabDisplay,
-    kTabRecord,
-    kTabEncoder,
-    kTabKeys,
-    kTabProfiles,
-    kTabUpdates,
-  };
   auto tabFlags = [&](int tab) {
     return wantTab_ == tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
   };
 
-  if (ImGui::BeginTabBar("settings_tabs", ImGuiTabBarFlags_None)) {
+  DrawSearchField();
+  const bool searching = DrawSearchResults(footer);
+
+  if (!searching && ImGui::BeginTabBar("settings_tabs", ImGuiTabBarFlags_None)) {
     if (ImGui::BeginTabItem(T("Quelle###source", "Source###source"), nullptr,
                             tabFlags(kTabSource))) {
       activeTab_ = kTabSource;
@@ -628,7 +622,23 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
     }
     ImGui::EndTabBar();
   }
-  wantTab_ = -1;
+  // Only once the tabs were actually drawn: a tab asked for while the results
+  // stand in their place would otherwise be forgotten unseen.
+  if (!searching) {
+    wantTab_ = -1;
+    // Hidden controls never draw their anchor -- whatever they hang on, the
+    // source or another setting, says no right now. Better to say so than to
+    // land on the tab and leave the reader searching it by eye.
+    if (jumpKey_ && ++jumpWait_ > 8) {
+      searchNote_ = Format(T("„%s“ ist gerade ausgeblendet – hängt an der Quelle "
+                             "oder einer anderen Einstellung.",
+                             "“%s” is hidden right now – it depends on the source "
+                             "or another setting."),
+                           jumpLabel_);
+      searchNoteTime_ = ImGui::GetTime();
+      jumpKey_ = nullptr;
+    }
+  }
   cfg().app.settingsTab = activeTab_;
 
   ImGui::Separator();
@@ -652,6 +662,150 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
   return result;
 }
 
+// -------------------------------------------------------------------- search
+
+void SettingsWindow::DrawSearchField() {
+  // Strg+F from anywhere in the dialog. Embedded, only while it has the focus:
+  // over the picture the keys belong to the app, and someone may have bound
+  // them. In its own window the keys only get here when that window has the
+  // focus anyway -- and asking ImGui as well would fail whenever nothing inside
+  // has been clicked yet.
+  if ((fillsWindow_ || ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) &&
+      ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+    focusSearch_ = true;
+  }
+  if (focusSearch_) {
+    ImGui::SetKeyboardFocusHere();
+    focusSearch_ = false;
+  }
+
+  // A note after a jump takes the hint's place for a few seconds: it is about
+  // the search, it needs no room of its own, and nothing below it moves.
+  const bool note = ImGui::GetTime() - searchNoteTime_ < 5.0;
+  if (note) ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImVec4(0.95f, 0.72f, 0.35f, 1.0f));
+  ImGui::SetNextItemWidth(-1.0f);
+  const bool entered = ImGui::InputTextWithHint(
+      "##search", note ? searchNote_.c_str() : T("Suchen … (Strg+F)", "Search … (Ctrl+F)"),
+      searchBuf_, sizeof(searchBuf_),
+      ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll |
+          ImGuiInputTextFlags_CallbackHistory,
+      [](ImGuiInputTextCallbackData* data) {
+        // Up and down walk the results without leaving the field.
+        auto* self = static_cast<SettingsWindow*>(data->UserData);
+        self->searchSel_ += data->EventKey == ImGuiKey_UpArrow ? -1 : 1;
+        return 0;
+      },
+      this);
+  if (note) ImGui::PopStyleColor();
+
+  if (searchQuery_ != searchBuf_) {
+    searchQuery_ = searchBuf_;
+    searchRows_.clear();
+    searchSel_ = 0;
+    // What matches the label as it reads comes first; the guesses -- a
+    // synonym, the other language, a typo -- after it, and fewer of them.
+    const std::vector<SettingsSearchHit> hits = SearchSettings(searchBuf_);
+    for (const SettingsSearchHit& hit : hits) {
+      if (hit.direct && searchRows_.size() < 12) searchRows_.push_back(hit.entry);
+    }
+    searchDirectRows_ = (int)searchRows_.size();
+    int guesses = 0;
+    for (const SettingsSearchHit& hit : hits) {
+      if (!hit.direct && guesses++ < 6) searchRows_.push_back(hit.entry);
+    }
+  }
+  const int rows = (int)searchRows_.size();
+  searchSel_ = rows > 0 ? std::clamp(searchSel_, 0, rows - 1) : 0;
+
+  if (entered && rows > 0) PickSearchHit(searchRows_[searchSel_]);
+}
+
+bool SettingsWindow::DrawSearchResults(float footer) {
+  if (searchBuf_[0] == 0) return false;
+
+  int picked = -1;
+  ImGui::BeginChild("search_results", ImVec2(0, -footer));
+  ImGui::Spacing();
+  if (searchRows_.empty()) {
+    ImGui::TextDisabled("%s", T("Nichts gefunden.", "Nothing found."));
+  }
+  for (int row = 0; row < (int)searchRows_.size(); ++row) {
+    if (row == searchDirectRows_) {
+      if (row > 0) ImGui::Spacing();
+      ImGui::TextDisabled("%s", searchDirectRows_ == 0 ? T("Meintest du:", "Did you mean:")
+                                                       : T("Ähnlich:", "Related:"));
+    }
+    const int entry = searchRows_[row];
+    const bool selected = row == searchSel_;
+    const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+    ImGui::PushID(row);
+    if (ImGui::Selectable(SearchLabel(entry), selected, ImGuiSelectableFlags_AllowOverlap)) {
+      picked = entry;
+    }
+    if (selected && !ImGui::IsItemVisible()) ImGui::SetScrollHereY(0.5f);
+    // Where it lives, right-aligned. Two controls share a name now and then;
+    // this is what tells them apart.
+    const std::string place = SearchPlace(entry);
+    ImGui::SameLine(right - ImGui::CalcTextSize(place.c_str()).x);
+    ImGui::TextDisabled("%s", place.c_str());
+    ImGui::PopID();
+  }
+  ImGui::EndChild();
+
+  if (picked >= 0) PickSearchHit(picked);
+  return true;
+}
+
+void SettingsWindow::PickSearchHit(int entry) {
+  int tab = SearchTab(entry);
+  const char* key = SearchKey(entry);
+  jumpLabel_ = SearchLabel(entry);
+  // Without a device only Source and Updates exist. Pointing at the device
+  // list is the useful answer: that is the step between here and there.
+  if (SettingsTabNeedsDevice(tab) && cfg().active().capture.video.empty()) {
+    tab = kTabSource;
+    key = "videodev";
+    searchNote_ = T("Erst ein Videogerät wählen.", "Select a video device first.");
+    searchNoteTime_ = ImGui::GetTime();
+  }
+  wantTab_ = tab;
+  jumpKey_ = key;
+  jumpWait_ = 0;
+  flashKey_ = nullptr;
+  searchBuf_[0] = 0;
+  searchQuery_.clear();
+  searchRows_.clear();
+  searchSel_ = 0;
+}
+
+void SettingsWindow::Anchor(const char* key) {
+  const ImVec2 min = ImGui::GetItemRectMin();
+  const ImVec2 max = ImGui::GetItemRectMax();
+  if (jumpKey_ && std::strcmp(jumpKey_, key) == 0) {
+    // A third of the way down rather than at the top edge: what belongs to it
+    // above -- the heading, the line it depends on -- stays in view.
+    ImGui::SetScrollFromPosY((min.y + max.y) * 0.5f - ImGui::GetWindowPos().y, 0.3f);
+    flashKey_ = jumpKey_;
+    flashStart_ = ImGui::GetTime();
+    jumpKey_ = nullptr;
+  }
+  if (!flashKey_ || std::strcmp(flashKey_, key) != 0) return;
+
+  const double t = (ImGui::GetTime() - flashStart_) / 1.5;
+  if (t >= 1.0) {
+    flashKey_ = nullptr;
+    return;
+  }
+  const float fade = (float)(1.0 - t);
+  const ImVec4 c = ImGui::GetStyleColorVec4(ImGuiCol_CheckMark);
+  const ImVec2 a(min.x - 4.0f, min.y - 2.0f);
+  const ImVec2 b(max.x + 4.0f, max.y + 2.0f);
+  const float rounding = ImGui::GetStyle().FrameRounding;
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  draw->AddRectFilled(a, b, ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, 0.22f * fade)), rounding);
+  draw->AddRect(a, b, ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, 0.9f * fade)), rounding, 0, 1.5f);
+}
+
 // ---------------------------------------------------------------- updates tab
 
 void SettingsWindow::DrawUpdatesTab() {
@@ -665,6 +819,7 @@ void SettingsWindow::DrawUpdatesTab() {
 
   ImGui::Checkbox(T("Beim Start nach Updates suchen", "Check for updates at startup"),
                   &app.checkUpdatesOnStart);
+  Anchor("updatestartup");
   ImGui::SameLine();
   HelpMarker(T("Fragt die Releases auf GitHub ab. Heruntergeladen wird nichts, solange du "
                "es nicht verlangst.",
@@ -680,6 +835,7 @@ void SettingsWindow::DrawUpdatesTab() {
 
   ImGui::BeginDisabled(busy);
   if (ImGui::Button(T("Jetzt suchen", "Check now"))) updater_->CheckAsync();
+  Anchor("updatecheck");
   ImGui::EndDisabled();
 
   ImGui::SameLine();
@@ -796,6 +952,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
                   SignalInputLook)) {
       SignalInputApply(input, &p.capture.signalKind, &p.capture.connector);
     }
+    Anchor("input");
     ImGui::SameLine();
     HelpMarker(
         T("Was hinten an der Karte steckt. Auslesen lässt sich das nicht, und davon hängt "
@@ -854,8 +1011,10 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     }
     ImGui::EndCombo();
   }
+  Anchor("videodev");
   ImGui::SameLine();
   if (ImGui::Button(T("Aktualisieren", "Refresh"), ImVec2(-1, 0))) InvalidateDeviceLists();
+  Anchor("refresh");
 
   // Hier ist Schluss, solange nichts ausgewählt ist. Alles Weitere -- Norm,
   // Eingang, Ton, Format -- beschreibt eine Karte, und es gibt noch keine.
@@ -877,6 +1036,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   if (ImGui::Button(T("Karte konfigurieren ...", "Configure card ..."))) {
     deviceConfigRequested_ = true;
   }
+  Anchor("cardcfg");
   ImGui::EndDisabled();
   WrappedTooltip(
       captureRunning_
@@ -891,6 +1051,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   if (ImGui::Button(T("Karte neu einlesen", "Reinitialise card"))) {
     cardResetRequested_ = true;
   }
+  Anchor("cardreinit");
   WrappedTooltip(
       T("Gibt die Karte ganz frei, sucht sie neu und beginnt von vorn.\n\n"
         "Videonorm und Format gehen dabei auf automatisch zurück: beide gehören zu "
@@ -938,6 +1099,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
       }
       ImGui::EndCombo();
     }
+    Anchor("vstandard");
     WrappedTooltip(
         T("Zusammengefasst zu den Normen, die am Kabel wirklich verschieden aussehen -- "
           "die Buchstaben hinter PAL und SECAM betreffen nur die Übertragung im "
@@ -1027,6 +1189,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   // ---- crossbar ----
   ImGui::Spacing();
   ImGui::SeparatorText(T("Eingang der Karte", "Card input"));
+  Anchor("crossbar");
   if (cfg().active().capture.video.empty()) {
     // Nothing has been probed yet, so there is nothing true to say about inputs.
     ImGui::TextDisabled(T("Zuerst ein Videogerät wählen.", "Select a video device first."));
@@ -1078,6 +1241,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   // ---- audio source ----
   ImGui::Spacing();
   ImGui::SeparatorText(T("Ton der Quelle", "Source audio"));
+  Anchor("srcaudio");
 
   bool useEmbedded = (p.capture.audioSource == AudioSource::Embedded);
   if (ImGui::Checkbox(T("Eingebettetes Audio des Videogeräts verwenden",
@@ -1085,6 +1249,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
                       &useEmbedded)) {
     p.capture.audioSource = useEmbedded ? AudioSource::Embedded : AudioSource::Manual;
   }
+  Anchor("embedded");
   ImGui::SameLine();
   HelpMarker(T("Sucht das Aufnahmegerät auf derselben Karte.",
                "Finds the recording device on the same card."));
@@ -1140,11 +1305,13 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
       }
       ImGui::EndCombo();
     }
+    Anchor("audiodev");
   }
 
   // ---- format ----
   ImGui::Spacing();
   ImGui::SeparatorText("Format");
+  Anchor("format");
 
   if (!caps.ok || caps.caps.empty()) {
     ImGui::TextDisabled(T("Erst ein Videogerät auswählen.", "Select a video device first."));
@@ -1179,6 +1346,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     }
     ImGui::EndCombo();
   }
+  Anchor("subtype");
   ImGui::SameLine();
   HelpMarker(T("YUY2, UYVY, NV12: unkomprimiert. MJPG: braucht einen Decoder, kostet Latenz.",
                "YUY2, UYVY, NV12: uncompressed. MJPG: needs a decoder, costs latency."));
@@ -1204,6 +1372,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     }
     ImGui::EndCombo();
   }
+  Anchor("resolution");
   // Gleich unter der Auswahl, um die es geht. Steht die passende Groesse schon
   // drin und wartet nur auf den Neustart, gibt es nichts mehr zu sagen.
   if (resolutionMismatch_ > 0) {
@@ -1272,6 +1441,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     }
     ImGui::EndCombo();
   }
+  Anchor("fps");
   ImGui::SameLine();
   HelpMarker(T("\"Rate des Signals\" nimmt, was die Videonorm vorgibt — 50 Hz bei PAL und "
                "SECAM, 59,94 bei NTSC, glatte 60 bei PAL 60 — und steht nur da, wo die Norm "
@@ -1288,6 +1458,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   ImGui::EndDisabled();
 
   ImGui::Checkbox(T("Werte von Hand eingeben", "Enter values manually"), &customFormat_);
+  Anchor("manualfmt");
   if (customFormat_) {
     ImGui::Indent();
     ImGui::SetNextItemWidth(120.0f);
@@ -1458,16 +1629,19 @@ void SettingsWindow::DrawImageTab() {
   }
 
   ImGui::SeparatorText(T("Skalierung", "Scaling"));
+  Anchor("scaling");
   int filter = (int)img.filter;
   ImGui::SetNextItemWidth(-260.0f);
   if (ComboEnum(T("Filter", "Filter"), &filter, 5, ScaleFilterName, ScaleFilterHelp)) {
     img.filter = (ScaleFilter)filter;
   }
+  Anchor("filter");
   ImGui::SameLine();
   HelpMarker(ScaleFilterHelp(filter));
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Schärfen", "Sharpen"), &img.sharpen, 0.0f, 1.0f, "%.2f");
+  Anchor("sharpen");
   ResetOnRightClick(img.sharpen, kImage.sharpen);
   ImGui::SameLine();
   HelpMarker(T("Hebt Kanten nach der Skalierung an. 0 schaltet es ab.",
@@ -1479,6 +1653,7 @@ void SettingsWindow::DrawImageTab() {
                 AspectHelp)) {
     img.aspect = (AspectMode)aspect;
   }
+  Anchor("aspect");
   ImGui::SameLine();
   HelpMarker(AspectHelp(aspect));
 
@@ -1495,6 +1670,7 @@ void SettingsWindow::DrawImageTab() {
     ImGui::Checkbox(T("Auch für Aufnahme, Screenshot und Kamera",
                       "Apply to recording, screenshots and camera"),
                     &img.squarePixelOutput);
+                    Anchor("aspectout");
     ImGui::PopID();
     ImGui::SameLine();
     HelpMarker(
@@ -1514,6 +1690,7 @@ void SettingsWindow::DrawImageTab() {
   if (ComboEnum(T("Drehung", "Rotation"), &rotation, kRotationCount, RotationName)) {
     img.rotation = (Rotation)rotation;
   }
+  Anchor("rotation");
   ImGui::SameLine();
   HelpMarker(T("Gilt auch für Aufnahme und Screenshots.",
                "Applies to recordings and screenshots as well."));
@@ -1529,6 +1706,7 @@ void SettingsWindow::DrawImageTab() {
   // schlechteste Sorte.
   if (analogueSource_ && sourceHeight_ > 0 && sourceHeight_ <= kHalfHeightLines) {
     ImGui::Checkbox(T("Zeilen verdoppeln", "Double lines"), &img.lineDouble);
+    Anchor("linedouble");
     ImGui::SameLine();
     HelpMarker(T("Für 240p/288p-Quellen, die halb so hoch ankommen wie sie sollen.",
                  "For 240p/288p sources that arrive half as tall as they should."));
@@ -1540,9 +1718,11 @@ void SettingsWindow::DrawImageTab() {
   // hat; siehe NeutraliseProcAmp.
   ImGui::Spacing();
   ImGui::SeparatorText(T("Bildregler", "Picture controls"));
+  Anchor("procamp");
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Helligkeit", "Brightness"), &img.brightness, -1.0f, 1.0f, "%+.2f");
+  Anchor("brightness");
   ResetOnRightClick(img.brightness, kImage.brightness);
   ImGui::SameLine();
   HelpMarker(T("Hebt oder senkt das ganze Bild. 0 ist neutral.",
@@ -1550,6 +1730,7 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Kontrast", "Contrast"), &img.contrast, 0.0f, 2.0f, "%.2f");
+  Anchor("contrast");
   ResetOnRightClick(img.contrast, kImage.contrast);
   ImGui::SameLine();
   HelpMarker(T("Spreizt um das mittlere Grau. 1 ist neutral.",
@@ -1557,6 +1738,7 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Sättigung", "Saturation"), &img.saturation, 0.0f, 2.0f, "%.2f");
+  Anchor("saturation");
   ResetOnRightClick(img.saturation, kImage.saturation);
   ImGui::SameLine();
   HelpMarker(T("0 macht das Bild grau, 1 ist neutral, 2 doppelt so bunt.",
@@ -1564,6 +1746,7 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Farbton", "Hue"), &img.hue, -180.0f, 180.0f, "%+.0f°");
+  Anchor("hue");
   ResetOnRightClick(img.hue, kImage.hue);
   ImGui::SameLine();
   HelpMarker(
@@ -1581,6 +1764,7 @@ void SettingsWindow::DrawImageTab() {
     img.saturation = 1.0f;
     img.hue = 0.0f;
   }
+  Anchor("procampreset");
   ImGui::EndDisabled();
 
   ImGui::SameLine();
@@ -1590,6 +1774,7 @@ void SettingsWindow::DrawImageTab() {
   ImGui::Checkbox(T("Auch für Aufnahme, Screenshot und Kamera",
                     "Apply to recording, screenshots and camera"),
                   &img.procAmpToOutput);
+                  Anchor("procampout");
   ImGui::PopID();
   ImGui::SameLine();
   HelpMarker(
@@ -1614,8 +1799,10 @@ void SettingsWindow::DrawImageTab() {
   if (analogueSource_ || sourceInterlaced_ || sourceHeight_ == 0) {
   ImGui::Spacing();
   ImGui::SeparatorText(T("Halbbilder", "Fields"));
+  Anchor("fields");
   ImGui::Checkbox(T("Nur bei interlaced Quellen anwenden", "Only apply to interlaced sources"),
                   &img.deinterlaceAuto);
+  Anchor("interlacedonly");
   ImGui::SameLine();
   HelpMarker(T("Erkennung aus dem Bild, nicht aus der Formatmeldung der Karte.",
                "Detected from the picture, not from what the card reports."));
@@ -1649,6 +1836,7 @@ void SettingsWindow::DrawImageTab() {
                 DeinterlaceHelp)) {
     img.deinterlace = (Deinterlace)deint;
   }
+  Anchor("deinterlace");
   ImGui::SameLine();
   HelpMarker(DeinterlaceHelp(deint));
   if (coSitedFields_) {
@@ -1663,6 +1851,7 @@ void SettingsWindow::DrawImageTab() {
   if (ComboEnum(T("Halbbildreihenfolge", "Field order"), &order, 3, FieldOrderName)) {
     img.fieldOrder = (FieldOrder)order;
   }
+  Anchor("fieldorder");
   ImGui::SameLine();
   HelpMarker(T("Springt das Bild auf und ab, die andere Reihenfolge wählen.",
                "If the picture jumps up and down, pick the other order."));
@@ -1670,6 +1859,7 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Bildrand abschneiden", "Crop"));
+  Anchor("crop");
   ImGui::TextDisabled(T("Pixel, die vom Quellbild wegfallen.",
                         "Pixels removed from the source picture."));
   const float quarter =
@@ -1705,6 +1895,7 @@ void SettingsWindow::DrawImageTab() {
   ImGui::SameLine();
   ImGui::BeginDisabled(!captureRunning_);
   if (ImGui::Button(T("Erkennen", "Detect"))) cropDetectRequested_ = true;
+  Anchor("cropdetect");
   ImGui::EndDisabled();
   ImGui::SetItemTooltip(T("Misst den schwarzen Rand aus und schneidet ihn weg.",
                           "Measures the black border and crops it away."));
@@ -1715,6 +1906,7 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::Checkbox(T("Je Bildgröße getrennt merken", "Remember per picture size"),
                   &img.cropPerFormat);
+  Anchor("cropperres");
   ImGui::SameLine();
   HelpMarker(T("Dieselbe Quelle kann zwei Bildgrößen liefern — ein PAL-GameCube 576 Zeilen und im "
                "60-Hz-Modus 480 —, und an beiden hängt ein anderer Rand. Angehakt behält jede "
@@ -1748,6 +1940,7 @@ void SettingsWindow::DrawImageTab() {
   if (analogueSource_ && (sourceHeight_ == 0 || sourceHeight_ <= kStandardLines)) {
   ImGui::Spacing();
   ImGui::SeparatorText(T("Natives Pixelraster", "Native pixel grid"));
+  Anchor("native");
 
   // Die Konsole steht in der Liste selbst, nicht nur im Tooltip: wer hier
   // vorbeikommt, weiß was er angeschlossen hat und sucht die Zahl dazu -- nicht
@@ -1779,6 +1972,7 @@ void SettingsWindow::DrawImageTab() {
     }
     ImGui::EndCombo();
   }
+  Anchor("nativewidth");
   ImGui::SameLine();
   HelpMarker(T("Wie viele Pixel die Konsole waagerecht wirklich zeichnet. Die Karte tastet "
                "mit fester Rate ab, meist 720 -- ein SNES-Pixel landet damit auf 2,8 "
@@ -1817,6 +2011,7 @@ void SettingsWindow::DrawImageTab() {
     ImGui::Spacing();
     ImGui::SeparatorText(composite ? T("Composite-Filter", "Composite filter")
                                    : T("Rauschen", "Noise"));
+    Anchor("composite");
     if (composite) {
       ImGui::TextDisabled(T("Gegen das, was Composite immer mitbringt: falsche Farbe, "
                             "Punktkriechen, Rauschen und einen weichen Bildrand.",
@@ -1839,6 +2034,7 @@ void SettingsWindow::DrawImageTab() {
       ImGui::SetNextItemWidth(-260.0f);
       ImGui::SliderInt(T("Farbschimmern", "Colour shimmer"), &img.chromaSoft, 0, 8,
                        img.chromaSoft == 0 ? T("aus", "off") : "%d");
+      Anchor("chromasoft");
       ResetOnRightClick(img.chromaSoft, kImage.chromaSoft);
       ImGui::SameLine();
       HelpMarker(T("Regenbogenmuster über feinen Strukturen. Weichzeichnet die Farbe "
@@ -1857,6 +2053,7 @@ void SettingsWindow::DrawImageTab() {
       if (ImGui::Checkbox(T("Nur wo nötig", "Only where needed"), &adaptive)) {
         img.adaptiveChroma = adaptive;
       }
+      Anchor("chromaadaptive");
       ImGui::Unindent();
       ImGui::EndDisabled();
       ImGui::SameLine();
@@ -1899,6 +2096,7 @@ void SettingsWindow::DrawImageTab() {
     if (ImGui::Checkbox(T("Stillstehendes mitteln", "Average what stands still"), &average)) {
       img.temporalDenoise = average ? 1.0f : 0.0f;
     }
+    Anchor("average");
     ImGui::EndDisabled();
     ImGui::SameLine();
     // Derselbe Filter, zwei Beschreibungen, und das ist keine Schoenfaerberei.
@@ -1942,6 +2140,7 @@ void SettingsWindow::DrawImageTab() {
     if (ImGui::Checkbox(T("Ghosting vermeiden", "Avoid ghosting"), &quick)) {
       img.avoidGhosting = quick;
     }
+    Anchor("ghosting");
     ImGui::Unindent();
     ImGui::EndDisabled();
     ImGui::SameLine();
@@ -1999,6 +2198,7 @@ void SettingsWindow::DrawImageTab() {
     if (ImGui::Checkbox(T("Bewegung folgen", "Follow the movement"), &follow)) {
       img.motionCompensate = follow;
     }
+    Anchor("follow");
     ImGui::SameLine();
     // Ohne Traeger faellt die halbe Erklaerung weg: kein Kriechen, an dem er
     // nichts aendert, und kein Regler darunter, dem er zuarbeitet. Was bleibt,
@@ -2079,6 +2279,7 @@ void SettingsWindow::DrawImageTab() {
                            label)) {
         img.dotNotch = stepIndex <= 0 ? 0.0f : steps[stepIndex - 1].slider;
       }
+      Anchor("cleanmove");
       ResetOnRightClick(img.dotNotch, kImage.dotNotch);
       ImGui::SameLine();
       HelpMarker(T("Rechnet den Farbträger aus der Helligkeit heraus -- das Einzige, was gegen "
@@ -2115,6 +2316,7 @@ void SettingsWindow::DrawImageTab() {
       ImGui::SetNextItemWidth(-260.0f);
       ImGui::SliderFloat(T("Bandbreite zurückholen", "Restore bandwidth"), &img.bandwidthRestore,
                          0.0f, 1.0f, "%.2f");
+      Anchor("bandwidth");
       ResetOnRightClick(img.bandwidthRestore, kImage.bandwidthRestore);
       ImGui::SameLine();
       HelpMarker(T("Composite überträgt Helligkeit nur bis zum Farbträger, und beide Enden "
@@ -2164,6 +2366,7 @@ void SettingsWindow::DrawImageTab() {
   // erklaert, warum er gerade nichts tut, ist besser als einer, der fehlt.
   ImGui::Spacing();
   ImGui::SeparatorText(T("Bildröhre", "Cathode ray tube"));
+  Anchor("crt");
   ImGui::TextDisabled(
       "%s", T("Setzt zurück, was ein Röhrenmonitor hinzugefügt hat. Nur für die Anzeige.",
               "Puts back what a CRT added. Display only."));
@@ -2198,6 +2401,7 @@ void SettingsWindow::DrawImageTab() {
     }
     ImGui::EndCombo();
   }
+  Anchor("crtlines");
   ImGui::SameLine();
   HelpMarker(Format(T("Wie viele Bildzeilen die Konsole wirklich zeichnet. Nötig, sobald mehr "
                "ankommen: eine Karte, die erst bei 720p anfängt, oder ein Dongle mit "
@@ -2229,6 +2433,7 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Zeilenlücken", "Scanlines"), &img.scanlines, 0.0f, 0.5f, "%.2f");
+  Anchor("scanlines");
   ResetOnRightClick(img.scanlines, kImage.scanlines);
   ImGui::SameLine();
   HelpMarker(T("Dunkelt die Lücken zwischen den Zeilen der Quelle ab. Unter doppelter Höhe "
@@ -2256,12 +2461,14 @@ void SettingsWindow::DrawImageTab() {
   int mask = Clamp(img.mask, 0, 2);
   ImGui::SetNextItemWidth(-260.0f);
   if (ComboEnum(T("Maske", "Mask"), &mask, 3, MaskName, MaskHelp)) img.mask = mask;
+  Anchor("mask");
   ImGui::SameLine();
   HelpMarker(MaskHelp(mask));
 
   if (img.mask != 0) {
     ImGui::SetNextItemWidth(-260.0f);
     ImGui::SliderFloat(T("Maskenstärke", "Mask strength"), &img.maskStrength, 0.0f, 0.5f, "%.2f");
+    Anchor("maskstrength");
     ResetOnRightClick(img.maskStrength, kImage.maskStrength);
     ImGui::SameLine();
     HelpMarker(T("Braucht eine hohe Ausgabeauflösung, um als Maske statt als Farbstich zu "
@@ -2284,6 +2491,7 @@ void SettingsWindow::DrawImageTab() {
                       &compare)) {
     compareToggleRequested_ = true;
   }
+  Anchor("compare");
   ImGui::SameLine();
   HelpMarker(T("Teilt das Bild: links (bei waagerechter Linie oben) ohne Composite-Filter, "
                "Schärfen, Bildregler, natives Raster und Bildröhre, rechts (unten) mit. "
@@ -2313,11 +2521,13 @@ void SettingsWindow::DrawImageTab() {
   if (ImGui::Combo(T("Richtung", "Direction"), &axis, axisNames, 2)) {
     img.compareHorizontal = axis == 1;
   }
+  Anchor("comparedir");
   float split = img.compareSplit * 100.0f;
   ImGui::SetNextItemWidth(-260.0f);
   if (ImGui::SliderFloat(T("Trennlinie", "Divider"), &split, 0.0f, 100.0f, "%.0f %%")) {
     img.compareSplit = Clamp(split / 100.0f, 0.0f, 1.0f);
   }
+  Anchor("comparesplit");
   ResetOnRightClick(img.compareSplit, kImage.compareSplit);
   ImGui::Unindent();
   ImGui::EndDisabled();
@@ -2329,6 +2539,7 @@ void SettingsWindow::DrawImageTab() {
   if (ComboEnum(T("Wertebereich", "Range"), &range, 3, ColorRangeName)) {
     img.range = (ColorRange)range;
   }
+  Anchor("range");
   ImGui::SameLine();
   HelpMarker(T("Falsch gewählt: Schwarz wirkt grau, oder Zeichnung geht verloren. "
                "Automatisch misst den Wertebereich am Bild.",
@@ -2340,6 +2551,7 @@ void SettingsWindow::DrawImageTab() {
   if (ComboEnum(T("Farbmatrix", "Colour matrix"), &matrix, 3, ColorMatrixName)) {
     img.matrix = (ColorMatrix)matrix;
   }
+  Anchor("matrix");
   ImGui::SameLine();
   HelpMarker(T("BT.601 für SD, BT.709 für HD. Falsch gewählt kippen Hauttöne.",
                "BT.601 for SD, BT.709 for HD. Set wrong, skin tones shift."));
@@ -2426,8 +2638,10 @@ void SettingsWindow::DrawAudioTab() {
     }
     ImGui::EndCombo();
   }
+  Anchor("audioout");
 
   ImGui::Checkbox("Exclusive Mode", &audio.exclusive);
+  Anchor("exclusive");
   ImGui::SameLine();
   HelpMarker(T("Umgeht den Windows-Mixer, geringere Latenz. Sperrt das Gerät für andere "
                "Programme.",
@@ -2436,8 +2650,10 @@ void SettingsWindow::DrawAudioTab() {
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Verzögerung", "Delay"));
+  Anchor("delay");
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("Tonpuffer", "Audio buffer"), &audio.bufferMs, 5, 200, "%d ms");
+  Anchor("audiobuffer");
   ResetOnRightClick(audio.bufferMs, kAudio.bufferMs);
   ImGui::SameLine();
   HelpMarker(T("Kleiner = weniger Verzögerung, ab einem Punkt Aussetzer. 20-40 ms üblich.",
@@ -2445,6 +2661,7 @@ void SettingsWindow::DrawAudioTab() {
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("A/V-Versatz", "A/V offset"), &audio.avOffsetMs, -200, 200, "%d ms");
+  Anchor("avoffset");
   ResetOnRightClick(audio.avOffsetMs, kAudio.avOffsetMs);
   ImGui::SameLine();
   HelpMarker(T("Positiv verzögert den Ton, negativ das Bild.",
@@ -2465,7 +2682,9 @@ void SettingsWindow::DrawAudioTab() {
   if (ImGui::SliderFloat(T("Lautstärke", "Volume"), &percent, 0.0f, 100.0f, "%.0f %%")) {
     audio.volume = Clamp(percent / 100.0f, 0.0f, 1.0f);
   }
+  Anchor("volume");
   ImGui::Checkbox(T("Stumm", "Muted"), &audio.mute);
+  Anchor("mute");
 
   ImGui::Spacing();
   ImGui::SetNextItemWidth(-260.0f);
@@ -2485,6 +2704,7 @@ void SettingsWindow::DrawAudioTab() {
   ImGui::Spacing();
 
   ImGui::Checkbox(T("Mikrofon aufnehmen", "Record a microphone"), &audio.micEnabled);
+  Anchor("mic");
 
   ImGui::BeginDisabled(!audio.micEnabled);
   const char* micPreview = audio.micDevice.name.empty()
@@ -2504,12 +2724,14 @@ void SettingsWindow::DrawAudioTab() {
     }
     ImGui::EndCombo();
   }
+  Anchor("micdev");
 
   ImGui::SetNextItemWidth(-260.0f);
   float micDb = 20.0f * std::log10(std::max(audio.micGain, 0.01f));
   if (ImGui::SliderFloat(T("Verstärkung", "Gain"), &micDb, -20.0f, 12.0f, "%+.1f dB")) {
     audio.micGain = std::pow(10.0f, micDb / 20.0f);
   }
+  Anchor("micgain");
   ResetOnRightClick(audio.micGain, kAudio.micGain);
   ImGui::SameLine();
   HelpMarker(T("Zusätzlich zur Windows-Einstellung, wirkt nur auf die Aufnahme.",
@@ -2520,6 +2742,7 @@ void SettingsWindow::DrawAudioTab() {
   if (ComboEnum(T("Spuren", "Tracks"), &trackMode, 3, MicTrackModeName)) {
     audio.micTrackMode = (MicTrackMode)trackMode;
   }
+  Anchor("mictracks");
   ImGui::SameLine();
   HelpMarker(T("Gemischt spielt überall ab. Getrennt lässt sich im Schnitt noch auseinander "
                "nehmen.",
@@ -2581,6 +2804,7 @@ void SettingsWindow::DrawHdrBlock() {
     if (ImGui::Combo(T("Quellkurve", "Source curve"), &input, inputNames, kHdrInputCount)) {
       app.hdrInput = (HdrInput)input;
     }
+    Anchor("hdrin");
     ImGui::SameLine();
     HelpMarker(T("Automatisch glaubt, was der Treiber in den Medientyp schreibt. Die "
                  "meisten Karten schreiben dort nichts -- dann bleibt es bei SDR und muss "
@@ -2602,6 +2826,7 @@ void SettingsWindow::DrawHdrBlock() {
                    kHdrOutputCount)) {
     app.hdrOutput = (HdrOutput)output;
   }
+  Anchor("hdrout");
   ImGui::SameLine();
   HelpMarker(T("Automatisch schaltet nur um, wenn die Anzeige im HDR-Modus läuft UND die "
                "Quelle wirklich HDR ist. Sonst wird das Bild auf die Anzeige "
@@ -2613,6 +2838,7 @@ void SettingsWindow::DrawHdrBlock() {
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Papierweiß", "Paper white"), &app.paperWhiteNits, 80.0f, 400.0f,
                      "%.0f nits");
+  Anchor("paperwhite");
   ResetOnRightClick(app.paperWhiteNits, kApp.paperWhiteNits);
   ImGui::SameLine();
   HelpMarker(T("Wie hell gewöhnliches Weiß herauskommt -- ein Blatt Papier im Bild, nicht "
@@ -2628,6 +2854,7 @@ void SettingsWindow::DrawHdrBlock() {
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Spitze der Quelle", "Source peak"), &app.sourcePeakNits, 200.0f,
                      10000.0f, "%.0f nits", ImGuiSliderFlags_Logarithmic);
+  Anchor("sourcepeak");
   ResetOnRightClick(app.sourcePeakNits, kApp.sourcePeakNits);
   ImGui::SameLine();
   HelpMarker(T("Wie hell die Quelle an ihrer hellsten Stelle wird. DirectShow überträgt "
@@ -2649,6 +2876,7 @@ void SettingsWindow::DrawHdrBlock() {
   ImGui::BeginDisabled(!sourceIsHdr);
 
   ImGui::Checkbox(T("Aufnahme", "Recording"), &app.recordHdr);
+  Anchor("hdrrec");
   ImGui::SameLine();
   HelpMarker(T("Nimmt in zehn Bit auf der PQ-Kurve auf, mit BT.2020 und den Farbangaben, "
                "die eine Datei als HDR lesbar machen. Braucht einen Encoder, der zehn Bit "
@@ -2661,6 +2889,7 @@ void SettingsWindow::DrawHdrBlock() {
                "Without it the tone mapped picture is recorded, which plays anywhere."));
 
   ImGui::Checkbox(T("Screenshots", "Screenshots"), &app.screenshotHdr);
+  Anchor("hdrshot");
   if (app.screenshotHdr) {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(150.0f);
@@ -2683,6 +2912,7 @@ void SettingsWindow::DrawHdrBlock() {
                "it goes through ffmpeg -- which screenshots otherwise never need."));
 
   ImGui::Checkbox(T("Virtuelle Kamera", "Virtual camera"), &app.cameraHdr);
+  Anchor("hdrcam");
   ImGui::SameLine();
   HelpMarker(T("Bietet die Kamera zusätzlich in zehn Bit an; das Programm am anderen Ende "
                "wählt. Aus mit Absicht: kaum ein Programm weiß heute etwas mit einer "
@@ -2722,11 +2952,13 @@ void SettingsWindow::DrawDisplayTab() {
     }
     ImGui::EndCombo();
   }
+  Anchor("language");
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Fenster", "Window"));
   ImGui::Checkbox(T("Einstellungen in eigenem Fenster", "Settings in their own window"),
                   &app.settingsSeparateWindow);
+  Anchor("ownwindow");
   ImGui::SameLine();
   HelpMarker(T("Ein echtes Fenster statt einer Fläche über dem Bild -- verschiebbar auf "
                "einen zweiten Monitor oder neben die Vorschau.",
@@ -2748,10 +2980,12 @@ void SettingsWindow::DrawDisplayTab() {
     }
     ImGui::EndCombo();
   }
+  Anchor("theme");
 
   // Accent presets as a row of swatches, plus a free colour picker. The whole
   // palette including the window background is derived from this.
   ImGui::Text("%s", T("Akzentfarbe", "Accent colour"));
+  Anchor("accent");
   ImGui::SameLine();
   HelpMarker(T("Färbt auch den Fensterhintergrund in einen dunklen Ton davon.",
                "Also tints the window background with a dark shade of it."));
@@ -2783,22 +3017,27 @@ void SettingsWindow::DrawDisplayTab() {
                       ((unsigned)(Clamp(custom[1], 0.0f, 1.0f) * 255.0f + 0.5f) << 8) |
                       (unsigned)(Clamp(custom[2], 0.0f, 1.0f) * 255.0f + 0.5f);
   }
+  Anchor("customcolour");
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Verhalten", "Behaviour"));
   ImGui::Checkbox("VSync", &app.vsync);
+  Anchor("vsync");
   ImGui::SameLine();
   HelpMarker(T("Aus ist der größte Latenzgewinn, kann aber Tearing zeigen.",
                "Off is the biggest latency win, but can show tearing."));
 
   ImGui::Checkbox(T("Immer im Vordergrund", "Always on top"), &app.alwaysOnTop);
+  Anchor("ontop");
   ImGui::Checkbox(T("Mauszeiger im Vollbild ausblenden", "Hide cursor in fullscreen"),
                   &app.hideCursorFullscreen);
+  Anchor("hidecursor");
   ImGui::SameLine();
   HelpMarker(T("Zeiger nach kurzer Ruhe ausblenden.", "Hides the pointer after a short idle."));
 
   ImGui::Checkbox(T("Bildschirmschoner und Standby verhindern", "Prevent screensaver and sleep"),
                   &app.preventSleep);
+  Anchor("nosleep");
   ImGui::SameLine();
   HelpMarker(Format(T("Hält den Bildschirm wach, solange %s läuft -- beim Zusehen drückt "
                       "niemand eine Taste.",
@@ -2811,8 +3050,10 @@ void SettingsWindow::DrawDisplayTab() {
   // right-click menu the only way back. A setting that can be reached from one
   // place and undone from another is a setting people lose.
   ImGui::Checkbox(T("Werkzeugleiste anzeigen", "Show toolbar"), &app.showToolbar);
+  Anchor("toolbar");
 
   ImGui::Checkbox(T("Statistik einblenden", "Show statistics"), &app.showStats);
+  Anchor("stats");
   ImGui::SameLine();
   // Read from the binding rather than written out, so rebinding the key is
   // visible here instead of leaving a stale "(F1)" behind.
@@ -2824,6 +3065,7 @@ void SettingsWindow::DrawDisplayTab() {
   if (ComboEnum(T("Umfang", "Detail"), &detail, 3, StatsDetailName)) {
     app.statsDetail = (StatsDetail)detail;
   }
+  Anchor("statsdetail");
   ImGui::EndDisabled();
   ImGui::SameLine();
   HelpMarker(T("Kompakt: Bildraten und Durchlaufzeit. Normal: zusätzlich Format und Ton. "
@@ -2833,17 +3075,21 @@ void SettingsWindow::DrawDisplayTab() {
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Lautstärke-Anzeige", "Volume readout"));
+  Anchor("volosdsec");
   ImGui::Checkbox(T("Bei Änderung einblenden", "Show on change"), &app.showVolumeOsd);
+  Anchor("volosd");
   ImGui::BeginDisabled(!app.showVolumeOsd);
   int corner = (int)app.osdCorner;
   ImGui::SetNextItemWidth(-260.0f);
   if (ComboEnum(T("Ecke", "Corner"), &corner, 4, OsdCornerName)) {
     app.osdCorner = (OsdCorner)corner;
   }
+  Anchor("osdcorner");
   ImGui::EndDisabled();
   ImGui::Checkbox(T("Mausrad über dem Bild ändert die Lautstärke",
                     "Mouse wheel over the picture changes the volume"),
                   &app.wheelVolume);
+  Anchor("wheelvolume");
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Vollbild", "Fullscreen"));
@@ -2864,7 +3110,9 @@ void SettingsWindow::DrawDisplayTab() {
     }
     ImGui::EndCombo();
   }
+  Anchor("fsmonitor");
   ImGui::Checkbox(T("Beim Start im Vollbild öffnen", "Start in fullscreen"), &app.startFullscreen);
+  Anchor("startfs");
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Sonstiges", "Other"));
@@ -2872,6 +3120,7 @@ void SettingsWindow::DrawDisplayTab() {
       Format(T("Protokoll in %s.log schreiben", "Write a log to %s.log"), AppNameUtf8().c_str())
           .c_str(),
       &app.logToFile);
+      Anchor("log");
   ImGui::SameLine();
   HelpMarker(T("Nur zur Fehlersuche. Alles landet in dieser einen Datei neben dem Programm, "
                "jede Sitzung zwischen einer Start- und einer Endzeile mit Version und Uhrzeit. "
@@ -2888,6 +3137,7 @@ void SettingsWindow::DrawDisplayTab() {
   ImGui::BeginDisabled(!app.logToFile);
   ImGui::Indent();
   ImGui::TextDisabled("%s", T("Beim Start entfernen:", "Remove at start:"));
+  Anchor("logretention");
   ImGui::Checkbox(T("Sitzungen älter als##logAge", "Sessions older than##logAge"), &keep.byAge);
   ImGui::SameLine();
   ImGui::BeginDisabled(!keep.byAge);
@@ -2929,6 +3179,7 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
   if (ImGui::InputTextWithHint(field.c_str(), ToUtf8(defaultFolder).c_str(), buffer, bufferSize)) {
     *value = buffer;
   }
+  Anchor(id);
 
   ImGui::SameLine();
   ImGui::BeginDisabled(picker_.busy());
@@ -2964,6 +3215,7 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
   const bool busy = downloader_.busy();
 
   ImGui::SeparatorText("ffmpeg");
+  Anchor("ffmpeg");
   if (ffmpeg && ffmpeg->found) {
     ImGui::TextWrapped("%s", ffmpeg->version.c_str());
     ImGui::TextDisabled("%s", ffmpeg->path.c_str());
@@ -3012,6 +3264,7 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
     rec.ffmpegPath = ffmpegPathBuffer_;
     if (ffmpeg) *ffmpeg = LocateFfmpeg(rec.ffmpegPath);
   }
+  Anchor("ffmpegpath");
   ImGui::SameLine();
   ImGui::BeginDisabled(picker_.busy());
   if (ImGui::Button(T("Durchsuchen##ffmpeg", "Browse##ffmpeg"))) {
@@ -3071,6 +3324,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   if (ComboEnum(T("Container", "Container"), &container, 2, RecordContainerName)) {
     rec.container = (RecordContainer)container;
   }
+  Anchor("container");
   ImGui::SameLine();
   HelpMarker(T("MKV übersteht einen Absturz. Eine nicht sauber geschlossene MP4 lässt sich nicht "
                "öffnen.",
@@ -3093,6 +3347,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
                        fps == 0 ? T("wie die Quelle", "same as source") : "%d fps")) {
     rec.fps = (double)fps;
   }
+  Anchor("recfps");
   ResetOnRightClick(rec.fps, kRecord.fps);
   ImGui::SameLine();
   HelpMarker(sourceFps_ > 1.0
@@ -3123,6 +3378,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   }
 
   ImGui::Checkbox(T("Bei Größe aufteilen", "Split at size"), &rec.splitFiles);
+  Anchor("split");
   ImGui::SameLine();
   HelpMarker(T("Nur für FAT32 nötig. NTFS und exFAT haben kein 4-GB-Limit. Beim Teilen entsteht "
                "eine kurze Lücke.",
@@ -3131,6 +3387,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::BeginDisabled(!rec.splitFiles);
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("Teilgröße", "Split size"), &rec.splitSizeMb, 100, 20000, "%d MB");
+  Anchor("splitsize");
   ResetOnRightClick(rec.splitSizeMb, kRecord.splitSizeMb);
   ImGui::EndDisabled();
 
@@ -3141,6 +3398,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   // imaging stack and have nothing to do with ffmpeg.
   ImGui::Spacing();
   ImGui::SeparatorText(T("Screenshots", "Screenshots"));
+  Anchor("shots");
   ImGui::TextWrapped(T("Einzelbild aus der Quelle, ohne die Bedienoberfläche. Benötigt kein ffmpeg.",
                        "Single frame from the source, without the interface. Does not need "
                        "ffmpeg."));
@@ -3148,6 +3406,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
 
   ImGui::Checkbox(T("Bedienoberfläche mit aufnehmen", "Include the interface"),
                   &rec.screenshotIncludeUi);
+  Anchor("shotui");
   HelpMarker(T("Speichert das fertige Fenster statt des Bildes: mit Leiste, Meldungen und "
                "allem, was gerade darauf liegt, und in der Größe des Fensters. Immer SDR -- "
                "bei HDR-Ausgabe wird das reine Bild gespeichert.",
@@ -3161,12 +3420,14 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   if (ComboEnum(T("Format", "Format"), &shot, 2, ScreenshotFormatName)) {
     rec.screenshotFormat = (ScreenshotFormat)shot;
   }
+  Anchor("shotformat");
   ImGui::SameLine();
   HelpMarker(T("PNG verlustfrei, JPEG kleiner.", "PNG lossless, JPEG smaller."));
 
   ImGui::BeginDisabled(rec.screenshotFormat != ScreenshotFormat::Jpeg);
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("JPEG-Qualität", "JPEG quality"), &rec.jpegQuality, 1, 100, "%d %%");
+  Anchor("jpegq");
   ResetOnRightClick(rec.jpegQuality, kRecord.jpegQuality);
   ImGui::EndDisabled();
 
@@ -3176,6 +3437,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   DrawVirtualCameraBlock();
   ImGui::Spacing();
   ImGui::SeparatorText(T("Nach MP4 umpacken", "Rewrap to MP4"));
+  Anchor("remux");
 
   ImGui::TextWrapped(T("Legt MKV-Dateien ohne Neukodierung in eine MP4 um. Dauert Sekunden und "
                        "kostet keine Qualität. Das Original bleibt erhalten.",
@@ -3272,6 +3534,7 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
     }
     ImGui::EndCombo();
   }
+  Anchor("encoder");
   ImGui::EndDisabled();
   ImGui::SameLine();
   HelpMarker(T("Automatisch: der verträglichste, der hier läuft — H.264 vor H.265 vor AV1, Hardware vor CPU.",
@@ -3313,6 +3576,7 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                           : tested   ? T("Erneut testen", "Test again")
                                      : T("Encoder testen", "Test encoders");
   if (ImGui::Button(testLabel)) probeRequested_ = true;
+  Anchor("encodertest");
   ImGui::EndDisabled();
   ImGui::SameLine();
   HelpMarker(T("Kodiert je zwei Testbilder. Die Encoder-Liste des Builds nennt nur, was "
@@ -3354,6 +3618,7 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
   if (ComboEnum(T("Geschwindigkeit", "Speed"), &speed, 5, RecordSpeedName)) {
     rec.speed = (RecordSpeed)speed;
   }
+  Anchor("speed");
   ImGui::EndDisabled();
   ImGui::SameLine();
   HelpMarker(T("Nur für CPU-Encoder, und nur solange die Voreinstellung unten auf "
@@ -3371,6 +3636,7 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
 void SettingsWindow::DrawVirtualCameraBlock() {
   ImGui::Spacing();
   ImGui::SeparatorText(T("Virtuelle Kamera", "Virtual camera"));
+  Anchor("vcam");
 
   // The registration is a registry read; caching it keeps this off the disk on
   // every frame, and the two buttons below refresh it when they change it.
@@ -3418,6 +3684,7 @@ void SettingsWindow::DrawVirtualCameraBlock() {
       virtualCameraRequest_ = 1;
       vcamStatusChecked_ = 0.0;
     }
+    Anchor("vcaminstall");
     return;
   }
 
@@ -3425,6 +3692,7 @@ void SettingsWindow::DrawVirtualCameraBlock() {
   if (ImGui::Checkbox(T("Virtuelle Kamera einschalten", "Turn the virtual camera on"), &on)) {
     cfg().app.virtualCamera = on;
   }
+  Anchor("vcamon");
 
   if (vcamRunning_) {
     if (vcamConsumers_.empty()) {
@@ -3482,6 +3750,7 @@ void SettingsWindow::DrawVirtualCameraBlock() {
     virtualCameraRequest_ = 2;
     vcamStatusChecked_ = 0.0;
   }
+  Anchor("vcamuninstall");
   ImGui::SameLine();
   ImGui::TextDisabled("%s", T("(fragt wieder nach Administratorrechten)",
                               "(asks for administrator rights again)"));
@@ -3491,6 +3760,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   RecordSettings& rec = cfg().record;
   ImGui::Spacing();
   ImGui::SeparatorText(T("Encoder-Einstellungen", "Encoder settings"));
+  Anchor("encsettings");
 
   // Which of these mean anything depends on the encoder. Showing the rest
   // greyed out says more than hiding them: it is the difference between "your
@@ -3509,6 +3779,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   if (ImGui::Combo(T("Ratensteuerung", "Rate control"), &rate, rateNames, kRateControlCount)) {
     rec.rateControl = (RateControl)rate;
   }
+  Anchor("ratecontrol");
   ImGui::SameLine();
   HelpMarker(T("Konstant hält die Datenrate stabil -- das will man beim Streamen. Variabel "
                "gibt bewegten Stellen mehr und darf bis auf das Anderthalbfache "
@@ -3538,6 +3809,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   ImGui::SetNextItemWidth(-360.0f);
   ImGui::SliderInt("##bitrate", &rec.bitrateKbps, 1000, 100000, "%d kbit/s",
                    ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+  Anchor("bitrate");
   ResetOnRightClick(rec.bitrateKbps, kRecord.bitrateKbps);
   ImGui::SameLine();
   // Und ein Feld daneben, weil ein Regler eine Zahl nur ungefaehr trifft und
@@ -3565,6 +3837,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   ImGui::SliderInt(T("Qualität", "Quality"), &rec.qualityLevel, 1, 51,
                    T("%d (kleiner = besser)", "%d (lower is better)"),
                    ImGuiSliderFlags_AlwaysClamp);
+  Anchor("quality");
   ResetOnRightClick(rec.qualityLevel, kRecord.qualityLevel);
   ImGui::SameLine();
   HelpMarker(byQuality
@@ -3590,6 +3863,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   if (ImGui::Combo(T("Voreinstellung", "Preset"), &preset, presetNames, kEncoderPresetCount)) {
     rec.preset = (EncoderPreset)preset;
   }
+  Anchor("preset");
   ImGui::SameLine();
   HelpMarker(amf ? T("AMF kennt nur drei Stufen; die sieben hier fallen darauf zusammen.",
                      "AMF has three steps; these seven fold onto them.")
@@ -3606,6 +3880,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   if (ImGui::Combo(T("Abstimmung", "Tuning"), &tune, tuneNames, kEncoderTuneCount)) {
     rec.tune = (EncoderTune)tune;
   }
+  Anchor("tune");
   ImGui::EndDisabled();
 
   ImGui::BeginDisabled(!nvenc);
@@ -3617,6 +3892,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   if (ImGui::Combo(T("Durchläufe", "Multipass"), &pass, passNames, kMultipassCount)) {
     rec.multipass = (Multipass)pass;
   }
+  Anchor("multipass");
   ImGui::SameLine();
   HelpMarker(T("Ein zweiter Durchlauf trifft die Datenrate genauer, vor allem nah am Limit. "
                "Nur NVENC kann das.",
@@ -3626,12 +3902,14 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
 
   ImGui::BeginDisabled(!nvenc && !amf && !qsv);
   ImGui::Checkbox(T("Vorausschau", "Look-ahead"), &rec.lookAhead);
+  Anchor("lookahead");
   ImGui::SameLine();
   HelpMarker(T("Der Encoder sieht ein Stück in die Zukunft und verteilt die Bits besser. "
                "Kostet etwas Verzögerung -- beim Aufnehmen egal, beim Streamen nicht.",
                "The encoder looks a little way ahead and spreads its bits better. Costs some "
                "delay -- which does not matter for recording and does for streaming."));
   ImGui::Checkbox(T("Adaptive Quantisierung", "Adaptive quantisation"), &rec.adaptiveQuant);
+  Anchor("aq");
   ImGui::SameLine();
   HelpMarker(T("Gibt den Stellen mehr Bits, an denen das Auge hinsieht -- Flächen und "
                "Verläufe -- und nimmt sie dort weg, wo ohnehin Unruhe ist.",
@@ -3704,6 +3982,7 @@ void SettingsWindow::DrawHotkeysTab() {
     cfg().hotkeys = Hotkeys();
     captureAction_ = -1;
   }
+  Anchor("keysreset");
 
   ImGui::Spacing();
   TextDisabledWrapped(T("Fest belegt: Esc verlässt das Vollbild und schließt Dialoge, "
@@ -3777,6 +4056,7 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
     c.profiles.push_back(p);
     c.activeProfile = (int)c.profiles.size() - 1;
   }
+  Anchor("profnew");
   ImGui::SameLine();
   // Der uebliche Weg, und deshalb steht er hier statt eines "Duplizieren".
   //
@@ -3790,6 +4070,7 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
     namePopupFocus_ = true;
     ImGui::OpenPopup("rename_profile");
   }
+  Anchor("profsave");
   WrappedTooltip(T("Legt ein neues Profil mit allem an, was gerade eingestellt ist -- Gerät, "
                    "Eingang, Format, Bild und Ton. Danach gleich den Namen eintippen, am "
                    "besten den der Konsole.\n\n"
@@ -3805,12 +4086,14 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
     namePopupFocus_ = true;
     ImGui::OpenPopup("rename_profile");
   }
+  Anchor("profrename");
   ImGui::SameLine();
   ImGui::BeginDisabled(c.profiles.size() <= 1);
   if (ImGui::Button(T("Löschen", "Delete"))) {
     c.profiles.erase(c.profiles.begin() + c.activeProfile);
     c.activeProfile = Clamp(c.activeProfile, 0, (int)c.profiles.size() - 1);
   }
+  Anchor("profdelete");
   ImGui::EndDisabled();
 
   // Welche erkannte Videonorm dieses Profil holt.
@@ -3847,6 +4130,7 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
       }
       ImGui::EndCombo();
     }
+    Anchor("autoselect");
     ImGui::EndDisabled();
 
     if (pinned) {

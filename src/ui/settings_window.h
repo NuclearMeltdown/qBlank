@@ -20,6 +20,7 @@ struct ImGuiContext;
 #include "record/ffmpeg_locator.h"
 #include "record/remuxer.h"
 #include "ui/file_dialog.h"
+#include "ui/settings_search.h"
 #include "vcam/virtual_camera.h"
 
 namespace cap {
@@ -240,6 +241,15 @@ class SettingsWindow {
   void DrawProfilesTab(const DeviceProbeResult& caps);
   void EnsureValidFormat(const DeviceProbeResult& caps);
 
+  // Search. The field sits above the tabs; while it holds text the results take
+  // the tabs' place, and picking one opens its tab and scrolls to it.
+  void DrawSearchField();
+  bool DrawSearchResults(float footer);  // false when the query is empty
+  void PickSearchHit(int entry);
+  // Placed right after a control the search can find. Scrolls to it and
+  // flashes it when it is the one that was picked.
+  void Anchor(const char* key);
+
   Config& cfg() { return *live_; }
 
   bool open_ = false;
@@ -340,6 +350,19 @@ class SettingsWindow {
   int activeTab_ = 0;
   bool tabRestored_ = false;
   int wantTab_ = -1;
+  char searchBuf_[96] = {};
+  std::string searchQuery_;  // what searchRows_ was computed for
+  std::vector<int> searchRows_;  // entries in the order they are listed
+  int searchDirectRows_ = 0;     // how many of them matched the label itself
+  int searchSel_ = 0;
+  bool focusSearch_ = false;
+  const char* jumpKey_ = nullptr;  // waiting to be drawn
+  const char* jumpLabel_ = nullptr;
+  int jumpWait_ = 0;
+  const char* flashKey_ = nullptr;  // drawn and being flashed
+  double flashStart_ = 0.0;
+  std::string searchNote_;
+  double searchNoteTime_ = -10.0;
   // What the app knows about the screen and the source; the settings cannot
   // ask DXGI themselves.
   bool hdrDisplayCapable_ = false;

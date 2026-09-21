@@ -85,6 +85,7 @@ add_executable(qBlank WIN32
   src/update/updater.cpp
   src/vcam/virtual_camera.cpp
   src/ui/settings_host.cpp
+  src/ui/settings_search.cpp
   src/ui/settings_window.cpp
   src/ui/startup_dialog.cpp
   src/ui/overlay.cpp

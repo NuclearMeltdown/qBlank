@@ -242,7 +242,7 @@ void LoadUiFont(float sizePixels) {
   // how "— nothing selected —" ended up looking like an error message.
   static const ImWchar ranges[] = {
       0x0020, 0x00FF,  // Basic Latin + Latin-1 Supplement
-      0x2010, 0x2027,  // dashes, quotation marks, ellipsis
+      0x2010, 0x203A,  // dashes, quotation marks, ellipsis, angle quotes
       0x20AC, 0x20AC,  // euro sign
       0,
   };
