@@ -70,6 +70,34 @@ void TextWarningWrapped(const char* text) {
   ImGui::PopStyleColor();
 }
 
+// Rechtsklick auf den Regler davor stellt ihn auf den Wert, mit dem er
+// ausgeliefert wird. Die Werte kommen aus den Strukturen selbst -- kImage,
+// kAudio und so weiter unten --, damit hier keine zweite Liste veraltet.
+//
+// Der Hinweis darauf kommt nur, wenn der Regler nicht schon dort steht, und erst
+// nach kurzem Stillhalten. Sonst hinge er an jedem Regler, den die Maus auf dem
+// Weg nach unten ueberfaehrt.
+//
+// Die Lautstaerke hat das mit Absicht nicht: ihr Standard ist 100 %, und ein
+// verrutschter Klick soll niemandem die Ohren wegblasen.
+template <typename V>
+void ResetOnRightClick(V& value, V def) {
+  if (value == def) return;
+  if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+    value = def;
+    return;
+  }
+  if (!ImGui::IsItemActive() &&
+      ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_Stationary)) {
+    ImGui::SetTooltip("%s", T("Rechtsklick: Standardwert", "Right click: default"));
+  }
+}
+
+const ImageSettings kImage{};
+const AudioSettings kAudio{};
+const RecordSettings kRecord{};
+const AppSettings kApp{};
+
 // Combo over an enum whose labels come from a lookup function, so the list
 // follows the selected language without any table to keep in sync.
 bool ComboEnum(const char* label, int* value, int count, NameFn name, NameFn help = nullptr) {
@@ -1440,6 +1468,7 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Schärfen", "Sharpen"), &img.sharpen, 0.0f, 1.0f, "%.2f");
+  ResetOnRightClick(img.sharpen, kImage.sharpen);
   ImGui::SameLine();
   HelpMarker(T("Hebt Kanten nach der Skalierung an. 0 schaltet es ab.",
                "Lifts edges after scaling. 0 turns it off."));
@@ -1514,24 +1543,28 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Helligkeit", "Brightness"), &img.brightness, -1.0f, 1.0f, "%+.2f");
+  ResetOnRightClick(img.brightness, kImage.brightness);
   ImGui::SameLine();
   HelpMarker(T("Hebt oder senkt das ganze Bild. 0 ist neutral.",
                "Lifts or lowers the whole picture. 0 is neutral."));
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Kontrast", "Contrast"), &img.contrast, 0.0f, 2.0f, "%.2f");
+  ResetOnRightClick(img.contrast, kImage.contrast);
   ImGui::SameLine();
   HelpMarker(T("Spreizt um das mittlere Grau. 1 ist neutral.",
                "Spreads around mid grey. 1 is neutral."));
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Sättigung", "Saturation"), &img.saturation, 0.0f, 2.0f, "%.2f");
+  ResetOnRightClick(img.saturation, kImage.saturation);
   ImGui::SameLine();
   HelpMarker(T("0 macht das Bild grau, 1 ist neutral, 2 doppelt so bunt.",
                "0 makes the picture grey, 1 is neutral, 2 twice as colourful."));
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Farbton", "Hue"), &img.hue, -180.0f, 180.0f, "%+.0f°");
+  ResetOnRightClick(img.hue, kImage.hue);
   ImGui::SameLine();
   HelpMarker(
       T("Dreht alle Farben um denselben Winkel. 0 ist neutral. Bei NTSC über "
@@ -1643,15 +1676,19 @@ void SettingsWindow::DrawImageTab() {
       (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f;
   ImGui::SetNextItemWidth(quarter);
   ImGui::DragInt("##cropl", &img.cropLeft, 0.5f, 0, 2048, T("links %d", "left %d"));
+  ResetOnRightClick(img.cropLeft, kImage.cropLeft);
   ImGui::SameLine();
   ImGui::SetNextItemWidth(quarter);
   ImGui::DragInt("##cropr", &img.cropRight, 0.5f, 0, 2048, T("rechts %d", "right %d"));
+  ResetOnRightClick(img.cropRight, kImage.cropRight);
   ImGui::SameLine();
   ImGui::SetNextItemWidth(quarter);
   ImGui::DragInt("##cropt", &img.cropTop, 0.5f, 0, 2048, T("oben %d", "top %d"));
+  ResetOnRightClick(img.cropTop, kImage.cropTop);
   ImGui::SameLine();
   ImGui::SetNextItemWidth(quarter);
   ImGui::DragInt("##cropb", &img.cropBottom, 0.5f, 0, 2048, T("unten %d", "bottom %d"));
+  ResetOnRightClick(img.cropBottom, kImage.cropBottom);
   // The crop is measured on the source, before the picture is turned. Dragging
   // an edge on a rotated image would move a different edge than the one under
   // the cursor, so that combination is simply not offered.
@@ -1802,6 +1839,7 @@ void SettingsWindow::DrawImageTab() {
       ImGui::SetNextItemWidth(-260.0f);
       ImGui::SliderInt(T("Farbschimmern", "Colour shimmer"), &img.chromaSoft, 0, 8,
                        img.chromaSoft == 0 ? T("aus", "off") : "%d");
+      ResetOnRightClick(img.chromaSoft, kImage.chromaSoft);
       ImGui::SameLine();
       HelpMarker(T("Regenbogenmuster über feinen Strukturen. Weichzeichnet die Farbe "
                    "seitlich; die Schärfe bleibt, weil Composite ohnehin keine feinen "
@@ -2041,6 +2079,7 @@ void SettingsWindow::DrawImageTab() {
                            label)) {
         img.dotNotch = stepIndex <= 0 ? 0.0f : steps[stepIndex - 1].slider;
       }
+      ResetOnRightClick(img.dotNotch, kImage.dotNotch);
       ImGui::SameLine();
       HelpMarker(T("Rechnet den Farbträger aus der Helligkeit heraus -- das Einzige, was gegen "
                    "Punktkriechen an bewegten Stellen hilft, und es kostet Schärfe. Weiter "
@@ -2076,6 +2115,7 @@ void SettingsWindow::DrawImageTab() {
       ImGui::SetNextItemWidth(-260.0f);
       ImGui::SliderFloat(T("Bandbreite zurückholen", "Restore bandwidth"), &img.bandwidthRestore,
                          0.0f, 1.0f, "%.2f");
+      ResetOnRightClick(img.bandwidthRestore, kImage.bandwidthRestore);
       ImGui::SameLine();
       HelpMarker(T("Composite überträgt Helligkeit nur bis zum Farbträger, und beide Enden "
                    "der Kette laufen schon davor weich aus. Genau dieses Band hebt der "
@@ -2189,6 +2229,7 @@ void SettingsWindow::DrawImageTab() {
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Zeilenlücken", "Scanlines"), &img.scanlines, 0.0f, 0.5f, "%.2f");
+  ResetOnRightClick(img.scanlines, kImage.scanlines);
   ImGui::SameLine();
   HelpMarker(T("Dunkelt die Lücken zwischen den Zeilen der Quelle ab. Unter doppelter Höhe "
                "im Fenster bleibt es aus -- sonst gäbe es Moiré statt Zeilen. Die "
@@ -2221,6 +2262,7 @@ void SettingsWindow::DrawImageTab() {
   if (img.mask != 0) {
     ImGui::SetNextItemWidth(-260.0f);
     ImGui::SliderFloat(T("Maskenstärke", "Mask strength"), &img.maskStrength, 0.0f, 0.5f, "%.2f");
+    ResetOnRightClick(img.maskStrength, kImage.maskStrength);
     ImGui::SameLine();
     HelpMarker(T("Braucht eine hohe Ausgabeauflösung, um als Maske statt als Farbstich zu "
                  "wirken.",
@@ -2276,6 +2318,7 @@ void SettingsWindow::DrawImageTab() {
   if (ImGui::SliderFloat(T("Trennlinie", "Divider"), &split, 0.0f, 100.0f, "%.0f %%")) {
     img.compareSplit = Clamp(split / 100.0f, 0.0f, 1.0f);
   }
+  ResetOnRightClick(img.compareSplit, kImage.compareSplit);
   ImGui::Unindent();
   ImGui::EndDisabled();
 
@@ -2395,12 +2438,14 @@ void SettingsWindow::DrawAudioTab() {
   ImGui::SeparatorText(T("Verzögerung", "Delay"));
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("Tonpuffer", "Audio buffer"), &audio.bufferMs, 5, 200, "%d ms");
+  ResetOnRightClick(audio.bufferMs, kAudio.bufferMs);
   ImGui::SameLine();
   HelpMarker(T("Kleiner = weniger Verzögerung, ab einem Punkt Aussetzer. 20-40 ms üblich.",
                "Smaller = less delay, dropouts below a point. 20-40 ms is typical."));
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("A/V-Versatz", "A/V offset"), &audio.avOffsetMs, -200, 200, "%d ms");
+  ResetOnRightClick(audio.avOffsetMs, kAudio.avOffsetMs);
   ImGui::SameLine();
   HelpMarker(T("Positiv verzögert den Ton, negativ das Bild.",
                "Positive delays the audio, negative delays the picture."));
@@ -2465,6 +2510,7 @@ void SettingsWindow::DrawAudioTab() {
   if (ImGui::SliderFloat(T("Verstärkung", "Gain"), &micDb, -20.0f, 12.0f, "%+.1f dB")) {
     audio.micGain = std::pow(10.0f, micDb / 20.0f);
   }
+  ResetOnRightClick(audio.micGain, kAudio.micGain);
   ImGui::SameLine();
   HelpMarker(T("Zusätzlich zur Windows-Einstellung, wirkt nur auf die Aufnahme.",
                "On top of the Windows setting, affects the recording only."));
@@ -2567,6 +2613,7 @@ void SettingsWindow::DrawHdrBlock() {
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Papierweiß", "Paper white"), &app.paperWhiteNits, 80.0f, 400.0f,
                      "%.0f nits");
+  ResetOnRightClick(app.paperWhiteNits, kApp.paperWhiteNits);
   ImGui::SameLine();
   HelpMarker(T("Wie hell gewöhnliches Weiß herauskommt -- ein Blatt Papier im Bild, nicht "
                "die hellste Stelle. 203 ist der Wert, gegen den HDR-Material üblicherweise "
@@ -2581,6 +2628,7 @@ void SettingsWindow::DrawHdrBlock() {
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Spitze der Quelle", "Source peak"), &app.sourcePeakNits, 200.0f,
                      10000.0f, "%.0f nits", ImGuiSliderFlags_Logarithmic);
+  ResetOnRightClick(app.sourcePeakNits, kApp.sourcePeakNits);
   ImGui::SameLine();
   HelpMarker(T("Wie hell die Quelle an ihrer hellsten Stelle wird. DirectShow überträgt "
                "das nirgends, auslesen lässt es sich also nicht -- und es zählt: nimmt man "
@@ -3045,6 +3093,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
                        fps == 0 ? T("wie die Quelle", "same as source") : "%d fps")) {
     rec.fps = (double)fps;
   }
+  ResetOnRightClick(rec.fps, kRecord.fps);
   ImGui::SameLine();
   HelpMarker(sourceFps_ > 1.0
                  ? T("0 = Bildrate der Quelle. Höher als die Quelle ergibt nur doppelte Bilder.",
@@ -3082,6 +3131,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::BeginDisabled(!rec.splitFiles);
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("Teilgröße", "Split size"), &rec.splitSizeMb, 100, 20000, "%d MB");
+  ResetOnRightClick(rec.splitSizeMb, kRecord.splitSizeMb);
   ImGui::EndDisabled();
 
   ImGui::EndDisabled();
@@ -3117,6 +3167,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::BeginDisabled(rec.screenshotFormat != ScreenshotFormat::Jpeg);
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("JPEG-Qualität", "JPEG quality"), &rec.jpegQuality, 1, 100, "%d %%");
+  ResetOnRightClick(rec.jpegQuality, kRecord.jpegQuality);
   ImGui::EndDisabled();
 
   FolderRow("shotfolder", kPickShotFolder, shotFolderBuffer_, sizeof(shotFolderBuffer_),
@@ -3487,6 +3538,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   ImGui::SetNextItemWidth(-360.0f);
   ImGui::SliderInt("##bitrate", &rec.bitrateKbps, 1000, 100000, "%d kbit/s",
                    ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+  ResetOnRightClick(rec.bitrateKbps, kRecord.bitrateKbps);
   ImGui::SameLine();
   // Und ein Feld daneben, weil ein Regler eine Zahl nur ungefaehr trifft und
   // man hier oft eine bestimmte will. Strg+Klick auf den Regler tut dasselbe,
@@ -3513,6 +3565,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   ImGui::SliderInt(T("Qualität", "Quality"), &rec.qualityLevel, 1, 51,
                    T("%d (kleiner = besser)", "%d (lower is better)"),
                    ImGuiSliderFlags_AlwaysClamp);
+  ResetOnRightClick(rec.qualityLevel, kRecord.qualityLevel);
   ImGui::SameLine();
   HelpMarker(byQuality
                  ? T("Die Skala unterscheidet sich zwischen den Encodern leicht. 18 bis 24 ist "
