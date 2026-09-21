@@ -129,7 +129,26 @@ std::wstring ExePath() {
   if (!g_exe_override.empty()) return g_exe_override;
   wchar_t path[MAX_PATH * 2] = {};
   const DWORD n = ::GetModuleFileNameW(nullptr, path, (DWORD)std::size(path));
-  return std::wstring(path, n);
+  const std::wstring started(path, n);
+
+  // winget starts a portable app through a symlink in its Links folder, and
+  // Windows reports the name the program was started under. Settings, log,
+  // ffmpeg and the updater all belong next to the real file, not the link.
+  const DWORD attr = ::GetFileAttributesW(started.c_str());
+  if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_REPARSE_POINT)) return started;
+  const HANDLE file =
+      ::CreateFileW(started.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return started;
+  wchar_t real[MAX_PATH * 2] = {};
+  const DWORD m = ::GetFinalPathNameByHandleW(file, real, (DWORD)std::size(real),
+                                              FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+  ::CloseHandle(file);
+  if (m == 0 || m >= std::size(real)) return started;
+  const std::wstring resolved(real, m);
+  if (resolved.rfind(L"\\\\?\\UNC\\", 0) == 0) return L"\\\\" + resolved.substr(8);
+  if (resolved.rfind(L"\\\\?\\", 0) == 0) return resolved.substr(4);
+  return resolved;
 }
 
 std::wstring ExeDirectory() {

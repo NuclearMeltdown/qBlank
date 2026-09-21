@@ -41,14 +41,6 @@ std::wstring DllPrefix(const wchar_t* appName) {
 
 const wchar_t kDllSuffix[] = L".dll";
 
-std::wstring ExeFolder() {
-  wchar_t path[MAX_PATH] = {};
-  ::GetModuleFileNameW(nullptr, path, MAX_PATH);
-  std::wstring s = path;
-  const size_t cut = s.find_last_of(L'\\');
-  return cut == std::wstring::npos ? std::wstring() : s.substr(0, cut + 1);
-}
-
 // The filter this executable carries, or nothing when it carries none.
 const uint8_t* FilterBytes(DWORD* size) {
   *size = 0;
@@ -77,7 +69,7 @@ std::wstring DllFileName() {
   return name;
 }
 
-std::wstring DllPath() { return ExeFolder() + DllFileName(); }
+std::wstring DllPath() { return ExeDirectory() + DllFileName(); }
 
 bool FileThere(const std::wstring& path) {
   const DWORD attr = ::GetFileAttributesW(path.c_str());
@@ -354,7 +346,7 @@ void VirtualCamera::CleanUpOldSources() {
     prefixes.push_back(DllPrefix(kFormerAppNames[i]));
   }
 
-  const std::wstring folder = ExeFolder();
+  const std::wstring folder = ExeDirectory();
   const std::wstring keep = DllFileName();
   int removed = 0;
   for (const std::wstring& prefix : prefixes) {
