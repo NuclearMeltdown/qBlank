@@ -138,6 +138,8 @@ compositing and streaming are not. For those, use OBS.
 - Its own window with its own Direct3D device, so it can go on a second monitor.
 - An embedded panel remains, because a window capture in OBS cannot see a second window.
 - Controls that cannot apply to the source are absent rather than disabled, and are not applied.
+- **Ctrl+F** finds any setting, through typos and the names other programs use.
+- Right click on a slider puts it back to its default.
 
 **Updates** · [wiki](../../wiki/Updates)
 - Compares the build against the newest GitHub release.
@@ -157,8 +159,10 @@ compositing and streaming are not. For those, use OBS.
 | F8 | Detect border | | `+` `-` / wheel | Volume |
 | | | | Ctrl+1 … Ctrl+9 | Switch profile |
 
-Right click opens the menu. All except Esc, the profile digits and Alt+F4 are
-reassignable under *Settings → Keys*. [Shortcuts](../../wiki/Shortcuts)
+Right click opens the menu, a double click on the picture toggles fullscreen.
+A click on the notice after a recording or screenshot shows the file in
+Explorer. All except Esc, the profile digits and Alt+F4 are reassignable under
+*Settings → Keys*. [Shortcuts](../../wiki/Shortcuts)
 
 ## ffmpeg
 
