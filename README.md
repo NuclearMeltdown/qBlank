@@ -51,7 +51,7 @@ compositing and streaming are not. For those, use OBS.
 - **Native pixel grid**: one output pixel per console pixel, where the card samples a line 720 times and a SNES drew 256.
 - **Freeze** (**F11**) holds the source, so a slider can be judged on a still picture.
 - **A/B compare** (**F12**) splits the picture, composite filters off on the left.
-- **All filters off** (**Shift+F12**) shows the signal as it arrives, with crop, aspect and range kept.
+- **All filters off** (**Shift+F12**) shows the signal as it arrives, with deinterlacing, crop, aspect and range kept.
 
 **Crop and colour range** · [wiki](../../wiki/Cropping-and-geometry)
 - Dragged on the picture or found by **Detect** (**F8**).

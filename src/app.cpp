@@ -1077,11 +1077,17 @@ void App::ToggleCompare() {
 
 // Das ganze Bild ohne Filter, fuer die Frage, ob ueberhaupt einer etwas taugt.
 //
-// Weg ist alles, was am Signal etwas veraendert: Deinterlacing (also Weave),
-// die Composite-Kette, Schaerfen, die vier Bildregler, das native Raster und
-// die Bildroehre. Stehen bleibt, was das Bild erst richtig hinstellt --
-// Zuschnitt, Seitenverhaeltnis, Drehung, Skalierung, Wertebereich und Matrix.
-// Ohne die waere das Bild nicht ungefiltert, sondern falsch.
+// Weg ist alles, was am Signal etwas veraendert: die Composite-Kette,
+// Schaerfen, die vier Bildregler, das native Raster und die Bildroehre. Stehen
+// bleibt, was das Bild erst richtig hinstellt -- Deinterlacing, Zuschnitt,
+// Seitenverhaeltnis, Drehung, Skalierung, Wertebereich und Matrix. Ohne die
+// waere das Bild nicht ungefiltert, sondern falsch.
+//
+// Das Deinterlacing stand frueher auf der anderen Seite und schaltete auf
+// Weave. Aber Kammlinien sind nicht das Signal, wie es ankommt, sondern zwei
+// Halbbilder, die nie zusammen gezeigt werden sollten; neben ihnen war jeder
+// Filter schlecht zu beurteilen. Der Vergleich (F12) laesst es aus demselben
+// Grund auf beiden Seiten laufen.
 //
 // Aus denselben Gruenden wie das Standbild nicht waehrend einer Aufnahme, und
 // ebenso wenig im Profil: siehe EffectiveImage.
@@ -4591,8 +4597,6 @@ ImageSettings App::EffectiveImage(const Profile& profile) const {
 
   // Zuletzt, damit nichts darueber es wieder einschaltet. Siehe ToggleBypass.
   if (bypass_) {
-    img.deinterlace = Deinterlace::Off;
-    img.deinterlaceAuto = false;
     img.chromaSoft = 0;
     img.adaptiveChroma = false;
     img.temporalDenoise = 0.0f;
@@ -5725,7 +5729,7 @@ void App::DrawUi() {
       stats.scanLabel = T("progressiv", "progressive");
     } else if (renderer_.sourceCoSitedFields()) {
       stats.scanLabel = T("deckungsgleich (240p/288p)", "aligned (240p/288p)");
-    } else if (bypass_ || profile.image.deinterlace == Deinterlace::Off) {
+    } else if (profile.image.deinterlace == Deinterlace::Off) {
       stats.scanLabel = T("interlaced, kein Deinterlacer", "interlaced, no deinterlacer");
     } else {
       stats.scanLabel = std::string(T("interlaced, ", "interlaced, ")) +

@@ -1417,10 +1417,11 @@ void SettingsWindow::DrawImageTab() {
 
   // Ganz oben, weil sonst jeder Regler darunter scheinbar nichts tut.
   if (bypassOn_) {
-    TextWarningWrapped(Format(T("Alle Filter sind aus (%s). Die Einstellungen hier wirken erst "
-                                "danach wieder.",
-                                "All filters are off (%s). The settings here take effect again "
-                                "once they are back on."),
+    TextWarningWrapped(Format(T("Alle Filter sind aus (%s). Schärfen, Bildregler, natives Pixelraster, "
+                                "Composite-Filter und Bildröhre wirken erst danach wieder.",
+                                "All filters are off (%s). Sharpen, picture controls, native "
+                                "pixel grid, composite filter and cathode ray tube take effect "
+                                "again once they are back on."),
                               HotkeyText(cfg().hotkeys[HotkeyAction::BypassFilters]).c_str())
                            .c_str());
     if (ImGui::Button(T("Filter wieder an", "Filters back on"))) bypassToggleRequested_ = true;
