@@ -12,25 +12,6 @@ const GUID CLSID_qBlankFrameSink = {
 
 const wchar_t kPinId[] = L"In";
 
-int64_t QpcNow() {
-  LARGE_INTEGER v;
-  ::QueryPerformanceCounter(&v);
-  return v.QuadPart;
-}
-
-double QpcFrequency() {
-  static const double freq = [] {
-    LARGE_INTEGER f;
-    ::QueryPerformanceFrequency(&f);
-    return (double)f.QuadPart;
-  }();
-  return freq;
-}
-
-double QpcSeconds(int64_t ticks) {
-  return (double)ticks / QpcFrequency();
-}
-
 LPWSTR AllocTaskString(const wchar_t* s) {
   size_t bytes = (wcslen(s) + 1) * sizeof(wchar_t);
   auto* out = (LPWSTR)::CoTaskMemAlloc(bytes);
@@ -329,13 +310,9 @@ HRESULT SinkPin::ReceiveCanBlock() {
 
 // ================================================================= FrameSink
 
-FrameSink::FrameSink() {
-  frameEvent_ = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-}
+FrameSink::FrameSink() = default;
 
-FrameSink::~FrameSink() {
-  if (frameEvent_) ::CloseHandle(frameEvent_);
-}
+FrameSink::~FrameSink() = default;
 
 ComPtr<FrameSink> FrameSink::Create() {
   ComPtr<FrameSink> sink;
@@ -459,22 +436,8 @@ void FrameSink::OnConnected(const AM_MEDIA_TYPE* mt) {
   VideoFormatInfo info;
   if (!ParseVideoMediaType(mt, &info)) return;
 
-  std::lock_guard<std::mutex> lock(mutex_);
-  format_ = info;
+  buffer_.Configure(info);
   subtype_ = mt->subtype;
-  for (int i = 0; i < 3; ++i) {
-    slots_[i].assign(info.imageSize, 0);
-    slotSize_[i] = 0;
-  }
-  readyIdx_ = -1;
-  readIdx_ = -1;
-  sequence_ = 0;
-  readSequence_ = 0;
-  received_ = dropped_ = displayed_ = 0;
-  lastArrivalQpc_ = 0;
-  measuredFps_ = 0.0;
-  fpsWindowStartQpc_ = 0;
-  fpsWindowFrames_ = 0;
 
   // Deliberately not logged here: intelligent connect calls this for every type
   // it tries, so a line per attempt would bury the one that stuck. The graph
@@ -482,11 +445,8 @@ void FrameSink::OnConnected(const AM_MEDIA_TYPE* mt) {
 }
 
 void FrameSink::OnDisconnected() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  format_ = VideoFormatInfo{};
+  buffer_.Clear();
   subtype_ = GUID_NULL;
-  readyIdx_ = -1;
-  readIdx_ = -1;
 }
 
 void FrameSink::OnEndOfStream() {
@@ -495,15 +455,7 @@ void FrameSink::OnEndOfStream() {
 }
 
 void FrameSink::OnFlush() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  readyIdx_ = -1;
-}
-
-int FrameSink::PickWriteSlotLocked() const {
-  for (int i = 0; i < 3; ++i) {
-    if (i != readyIdx_ && i != readIdx_) return i;
-  }
-  return 0;  // unreachable with three slots and two reserved indices
+  buffer_.DropPending();
 }
 
 HRESULT FrameSink::OnSample(IMediaSample* sample) {
@@ -512,19 +464,7 @@ HRESULT FrameSink::OnSample(IMediaSample* sample) {
   if (sample->GetMediaType(&changed) == S_OK && changed) {
     VideoFormatInfo info;
     if (ParseVideoMediaType(changed, &info)) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (info.width != format_.width || info.height != format_.height ||
-          !IsEqualGUID(changed->subtype, subtype_)) {
-        CAP_LOG("Format change mid-stream: %s %dx%d", info.subtypeLabel.c_str(), info.width,
-                info.height);
-        for (int i = 0; i < 3; ++i) {
-          slots_[i].assign(info.imageSize, 0);
-          slotSize_[i] = 0;
-        }
-        readyIdx_ = -1;
-        readIdx_ = -1;
-      }
-      format_ = info;
+      buffer_.Reformat(info, !IsEqualGUID(changed->subtype, subtype_));
       subtype_ = changed->subtype;
     }
     DeleteMediaType(changed);
@@ -535,103 +475,10 @@ HRESULT FrameSink::OnSample(IMediaSample* sample) {
   const long length = sample->GetActualDataLength();
   if (length <= 0) return S_OK;
 
-  int slot;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    slot = PickWriteSlotLocked();
-    if ((size_t)length > slots_[slot].size()) slots_[slot].resize((size_t)length);
-  }
-
-  // Copy outside the lock. The chosen slot is neither the one the reader holds
-  // nor the one waiting to be picked up, so nobody else can touch it. Only the
-  // upstream streaming thread calls Receive, so there is no second writer.
-  memcpy(slots_[slot].data(), src, (size_t)length);
-
-  const int64_t now = QpcNow();
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (readyIdx_ >= 0) ++dropped_;  // previous frame never made it to the screen
-    slotSize_[slot] = (size_t)length;
-    readyIdx_ = slot;
-    ++sequence_;
-    ++received_;
-    lastArrivalQpc_ = now;
-
-    // Arrival rate over a rolling one second window.
-    if (fpsWindowStartQpc_ == 0) {
-      fpsWindowStartQpc_ = now;
-      fpsWindowFrames_ = 0;
-    }
-    ++fpsWindowFrames_;
-    const double elapsed = QpcSeconds(now - fpsWindowStartQpc_);
-    if (elapsed >= 1.0) {
-      measuredFps_ = (double)fpsWindowFrames_ / elapsed;
-      fpsWindowStartQpc_ = now;
-      fpsWindowFrames_ = 0;
-    }
-  }
-  if (frameEvent_) ::SetEvent(frameEvent_);
+  // Only the upstream streaming thread calls Receive, so there is no second
+  // writer.
+  buffer_.Write(src, (size_t)length);
   return S_OK;
-}
-
-// ------------------------------------------------------------- reader side
-
-int64_t FrameSink::lastArrivalQpc() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return lastArrivalQpc_;
-}
-
-bool FrameSink::AcquireFrame(FrameView* out) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  bool isNew = false;
-  if (readyIdx_ >= 0) {
-    readIdx_ = readyIdx_;
-    readyIdx_ = -1;
-    readSequence_ = sequence_;
-    ++displayed_;
-    isNew = true;
-  }
-  if (out) {
-    if (readIdx_ >= 0) {
-      out->data = slots_[readIdx_].data();
-      out->size = slotSize_[readIdx_];
-      out->sequence = readSequence_;
-    } else {
-      *out = FrameView{};
-    }
-  }
-  return isNew;
-}
-
-VideoFormatInfo FrameSink::format() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return format_;
-}
-
-SinkStats FrameSink::stats() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  SinkStats s;
-  s.received = received_;
-  s.dropped = dropped_;
-  s.displayed = displayed_;
-  s.sourceFps = measuredFps_;
-  s.lastArrivalAgeMs =
-      lastArrivalQpc_ ? QpcSeconds(QpcNow() - lastArrivalQpc_) * 1000.0 : -1.0;
-  return s;
-}
-
-void FrameSink::ResetStats() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  received_ = dropped_ = displayed_ = 0;
-  measuredFps_ = 0.0;
-  fpsWindowStartQpc_ = 0;
-  fpsWindowFrames_ = 0;
-}
-
-bool FrameSink::HasRecentFrame(double withinSeconds) const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (lastArrivalQpc_ == 0) return false;
-  return QpcSeconds(QpcNow() - lastArrivalQpc_) <= withinSeconds;
 }
 
 }  // namespace cap

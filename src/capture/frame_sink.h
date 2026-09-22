@@ -4,40 +4,19 @@
 //
 // The stock renderers (VMR9 / EVR) schedule samples against the graph clock and
 // keep a queue, which is exactly the latency we are trying to avoid. This one
-// does the opposite: it copies each incoming sample into a free slot of a
-// triple buffer and returns immediately, and the render thread always picks up
-// the newest slot. Frames that arrive faster than we display are dropped rather
-// than queued, so the picture is always as fresh as the card can make it.
+// does the opposite: it copies each incoming sample into the FrameBuffer and
+// returns immediately, and the render thread picks the newest frame up from
+// there.
 
 #include <dshow.h>
 
 #include <atomic>
-#include <cstdint>
-#include <mutex>
-#include <vector>
 
 #include "capture/dshow_util.h"
+#include "capture/frame_buffer.h"
 #include "common_win32.h"
 
 namespace cap {
-
-// Points at the slot the reader currently holds. Stays valid until the next
-// AcquireFrame call on the same thread.
-struct FrameView {
-  const uint8_t* data = nullptr;
-  size_t size = 0;
-  uint64_t sequence = 0;
-
-  bool valid() const { return data != nullptr && size > 0; }
-};
-
-struct SinkStats {
-  uint64_t received = 0;
-  uint64_t dropped = 0;    // arrived but overwritten before being displayed
-  uint64_t displayed = 0;  // picked up by the render thread
-  double sourceFps = 0.0;  // measured arrival rate
-  double lastArrivalAgeMs = 0.0;
-};
 
 class FrameSink;
 
@@ -100,34 +79,13 @@ class FrameSink final : public IBaseFilter, public IAMFilterMiscFlags {
 
   static ComPtr<FrameSink> Create();
 
-  // ---- reader side (render thread) ----
-
-  // Moves the newest completed frame into the reader's hands. Returns true when
-  // that frame is one the reader has not seen yet. `out` always describes the
-  // currently held frame, even when it is the previous one.
-  bool AcquireFrame(FrameView* out);
-
-  VideoFormatInfo format() const;
-  SinkStats stats() const;
-
-  // When the newest frame was handed over by the driver, on the QPC clock.
-  // Zero before the first one. Scheduling anything from the moment we get round
-  // to drawing instead of from this is how a second field ends up due after the
-  // next frame has already arrived.
-  int64_t lastArrivalQpc() const;
-  void ResetStats();
-
-  // True when a frame arrived within the given window -- used to show the
-  // "no signal" state without tearing the graph down.
-  bool HasRecentFrame(double withinSeconds) const;
+  // Where the frames go, and where the render thread takes them from.
+  FrameBuffer& buffer() { return buffer_; }
+  const FrameBuffer& buffer() const { return buffer_; }
 
   // Set when the upstream filter signalled end of stream (device unplugged,
   // driver gave up).
   bool ended() const { return ended_.load(std::memory_order_relaxed); }
-
-  // Signalled whenever a frame is published, so the render loop can sleep
-  // instead of polling. Auto-reset; owned by the sink.
-  HANDLE frameEvent() const { return frameEvent_; }
 
   // ---- IUnknown ----
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override;
@@ -161,11 +119,9 @@ class FrameSink final : public IBaseFilter, public IAMFilterMiscFlags {
   SinkPin* pin() { return &pin_; }
 
  private:
-  int PickWriteSlotLocked() const;
-
   std::atomic<LONG> ref_{1};
   SinkPin pin_{this};
-  HANDLE frameEvent_ = nullptr;
+  FrameBuffer buffer_;
 
   std::atomic<FILTER_STATE> state_{State_Stopped};
   std::atomic<bool> ended_{false};
@@ -174,24 +130,11 @@ class FrameSink final : public IBaseFilter, public IAMFilterMiscFlags {
   std::wstring name_ = L"qBlank Frame Sink";
   ComPtr<IReferenceClock> clock_;
 
-  mutable std::mutex mutex_;
-  std::vector<uint8_t> slots_[3];
-  size_t slotSize_[3] = {0, 0, 0};
-  int readyIdx_ = -1;  // newest completed frame, not yet taken by the reader
-  int readIdx_ = -1;   // slot the reader currently holds
-  uint64_t sequence_ = 0;
-  uint64_t readSequence_ = 0;
-  VideoFormatInfo format_;
-  GUID subtype_ = GUID_NULL;  // format_'s subtype as DirectShow names it
-
-  // Stats.
-  uint64_t received_ = 0;
-  uint64_t dropped_ = 0;
-  uint64_t displayed_ = 0;
-  int64_t lastArrivalQpc_ = 0;
-  double measuredFps_ = 0.0;
-  int64_t fpsWindowStartQpc_ = 0;
-  uint64_t fpsWindowFrames_ = 0;
+  // The buffer's format by DirectShow's name for it. Only the pin callbacks
+  // touch it, and DirectShow never runs those at the same time: pins connect
+  // and disconnect while the graph is stopped, and samples come only while it
+  // is not.
+  GUID subtype_ = GUID_NULL;
 };
 
 }  // namespace cap

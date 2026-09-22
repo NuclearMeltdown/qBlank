@@ -19,6 +19,7 @@
 #include "resource.h"
 #include "text_win32.h"
 #include "ui/theme.h"
+#include "wake_signal_win32.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
                                                              LPARAM lParam);
@@ -1330,7 +1331,7 @@ void App::StartRecording() {
   // billigere der beiden Fehler: Platz laesst sich nachtraeglich sparen,
   // weggeworfene Halbbilder nicht.
   double recordFps = format.fps;
-  if (const FrameSink* sink = capture_.sink()) {
+  if (const FrameBuffer* sink = capture_.sink()) {
     const double measured = sink->stats().sourceFps;
     if (measured > 1.0) recordFps = measured;
   }
@@ -2204,7 +2205,7 @@ void App::UpdateVideoStandard() {
   // Bild gesehen hat; danach ist ihr Alter die Messung. Vorher -- frischer
   // Graph, noch nichts angekommen -- bleibt nur, ab dem ersten Hinsehen zu
   // zaehlen.
-  const FrameSink* frameSink = capture_.sink();
+  const FrameBuffer* frameSink = capture_.sink();
   const double frameAgeMs = frameSink ? frameSink->stats().lastArrivalAgeMs : -1.0;
   bool starved = false;
   if (frameAgeMs >= 0.0) {
@@ -3780,7 +3781,7 @@ void App::LoadIdleIcon() {
 // standards with nothing connected, which is measured and written down in the
 // wiki.
 bool App::HaveLiveSignal() const {
-  const FrameSink* sink = capture_.sink();
+  const FrameBuffer* sink = capture_.sink();
   if (!sink || !sink->HasRecentFrame(kNoSignalSeconds) || !renderer_.hasFrame()) return false;
 
   // Solange die automatische Normensuche laeuft, sind die Pixel kein Zeuge.
@@ -3916,9 +3917,8 @@ void App::DrawSettingsWindowed() {
       // Entnahme, die die Hauptschleife sonst macht. Sie laeuft in diesem
       // Moment nicht, also nimmt ihr das nichts weg.
       bool newPicture = false;
-      if (FrameSink* sink = capture_.sink()) {
-        HANDLE ev = sink->frameEvent();
-        newPicture = ev && ::WaitForSingleObject(ev, 0) == WAIT_OBJECT_0;
+      if (FrameBuffer* sink = capture_.sink()) {
+        newPicture = sink->frameReady().Wait(0);
       }
       const int64_t nowQpc = QpcNow();
       const double sinceRenderMs =
@@ -5099,7 +5099,7 @@ void App::FeedRecorder() {
     const int liveWidth = renderer_.outputWidth();
     const int liveHeight = renderer_.outputHeight();
     double liveFps = recordSourceFps_;
-    if (const FrameSink* sink = capture_.sink()) {
+    if (const FrameBuffer* sink = capture_.sink()) {
       const double measured = sink->stats().sourceFps;
       if (measured > 1.0) liveFps = measured;
     }
@@ -5408,8 +5408,8 @@ int App::Run() {
     }
     HANDLE waits[1] = {nullptr};
     DWORD waitCount = 0;
-    if (capture_.sink() && capture_.sink()->frameEvent()) {
-      waits[0] = capture_.sink()->frameEvent();
+    if (capture_.sink() && NativeHandle(capture_.sink()->frameReady())) {
+      waits[0] = NativeHandle(capture_.sink()->frameReady());
       waitCount = 1;
     }
     lastWaitHadEvent_ = waitCount > 0;
@@ -5483,7 +5483,7 @@ void App::RenderFrame() {
   const Profile& profile = config_.active();
 
   // ---- pull the newest frame ----
-  FrameSink* sink = capture_.sink();
+  FrameBuffer* sink = capture_.sink();
   bool haveNewFrame = false;
   if (sink) {
     FrameView view;
@@ -5504,11 +5504,11 @@ void App::RenderFrame() {
         // Mit der Ankunftszeit und nicht mit `now`: die Verzoegerungsleitung
         // soll das Bild um die eingestellte Zeit nach seinem Eintreffen
         // herausgeben, nicht nach dem Zeichendurchgang, der es aufgegriffen hat.
-        delayLine_.Push(view, sink->lastArrivalQpc());
+        delayLine_.Push(view, sink->lastArrivalTicks());
       } else {
         renderer_.UploadFrame(view);
         haveNewFrame = true;
-        displayedArrivalQpc_ = sink->lastArrivalQpc();
+        displayedArrivalQpc_ = sink->lastArrivalTicks();
       }
     }
     if (!frozen_ && delayLine_.active()) {
@@ -5557,7 +5557,7 @@ void App::RenderFrame() {
       // *that* falls past the arrival of the next one -- at which point the
       // second field is never shown at all. Half the frames then get both
       // fields and half get one, which is exactly what a juddering picture is.
-      const int64_t arrival = sink && sink->lastArrivalQpc() != 0 ? sink->lastArrivalQpc() : now;
+      const int64_t arrival = sink && sink->lastArrivalTicks() != 0 ? sink->lastArrivalTicks() : now;
       const int64_t period = SecondsToQpc(frameSeconds);
 
       // The card delivers when the driver gets round to it -- the graph runs
@@ -5712,7 +5712,7 @@ void App::RenderFrame() {
 
 void App::DrawUi() {
   const Profile& profile = config_.active();
-  FrameSink* sink = capture_.sink();
+  FrameBuffer* sink = capture_.sink();
 
   // ---- toolbar ----
   // Windowed it is simply there; in fullscreen it follows the pointer, which is
@@ -6049,7 +6049,7 @@ void App::DrawUi() {
   // das Veto genau die Quellen erwischt, vor denen es schuetzen soll. Ohne
   // Messung 0, und 0 heisst "noch nicht gemessen", nicht "steht still".
   double measuredFps = 0.0;
-  if (const FrameSink* sink = capture_.sink()) {
+  if (const FrameBuffer* sink = capture_.sink()) {
     const double measured = sink->stats().sourceFps;
     if (measured > 1.0) measuredFps = measured;
   }

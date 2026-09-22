@@ -361,6 +361,23 @@ HRESULT LogHrFailure(HRESULT hr, const char* expr, const char* file, int line) {
   return hr;
 }
 
+// ----------------------------------------------------------------------- clock
+
+int64_t ClockTicks() {
+  LARGE_INTEGER v;
+  ::QueryPerformanceCounter(&v);
+  return v.QuadPart;
+}
+
+double TicksToSeconds(int64_t ticks) {
+  static const double freq = [] {
+    LARGE_INTEGER f;
+    ::QueryPerformanceFrequency(&f);
+    return (double)f.QuadPart;
+  }();
+  return (double)ticks / freq;
+}
+
 // ------------------------------------------------------------------ misc utils
 
 namespace {

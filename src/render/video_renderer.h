@@ -16,7 +16,7 @@
 #include <vector>
 #include <string>
 
-#include "capture/frame_sink.h"
+#include "capture/frame_buffer.h"
 #include "capture/video_format.h"
 #include "common_win32.h"
 #include "config.h"

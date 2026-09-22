@@ -466,7 +466,7 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
                                             "). Is another program using the card right now?")));
   }
 
-  VideoFormatInfo info = sink_->format();
+  VideoFormatInfo info = sink_->buffer().format();
   CAP_LOG("Capture running: %s %dx%d @ %.3f fps%s", info.subtypeLabel.c_str(), info.width,
           info.height, info.fps, info.interlaced ? " (interlaced)" : "");
   return true;
@@ -496,7 +496,7 @@ void VideoCapture::Teardown() {
 
 VideoFormatInfo VideoCapture::format() const {
   if (!sink_) return VideoFormatInfo{};
-  return sink_->format();
+  return sink_->buffer().format();
 }
 
 bool VideoCapture::PumpEvents(std::string* message) {

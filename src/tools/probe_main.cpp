@@ -1179,7 +1179,7 @@ void TestHistogram(const std::string& subtypeWanted, int framesWanted,
     return;
   }
 
-  FrameSink* sink = capture.sink();
+  FrameBuffer* sink = capture.sink();
   if (!sink) {
     std::printf("  Kein Sink.\n\n");
     return;
@@ -1239,7 +1239,7 @@ void TestHistogram(const std::string& subtypeWanted, int framesWanted,
   const DWORD deadline = ::GetTickCount() + 20000;
 
   while (analysed < framesWanted && ::GetTickCount() < deadline) {
-    ::WaitForSingleObject(sink->frameEvent(), 200);
+    sink->frameReady().Wait(200);
     FrameView view;
     if (!sink->AcquireFrame(&view) || !view.valid()) continue;
     if (view.sequence == lastSequence) continue;

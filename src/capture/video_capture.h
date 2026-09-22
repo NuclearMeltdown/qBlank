@@ -52,8 +52,9 @@ class VideoCapture {
 
   bool running() const { return control_ != nullptr; }
 
-  FrameSink* sink() { return sink_.Get(); }
-  const FrameSink* sink() const { return sink_.Get(); }
+  // Where the frames arrive. Null while stopped.
+  FrameBuffer* sink() { return sink_ ? &sink_->buffer() : nullptr; }
+  const FrameBuffer* sink() const { return sink_ ? &sink_->buffer() : nullptr; }
 
   VideoFormatInfo format() const;
 

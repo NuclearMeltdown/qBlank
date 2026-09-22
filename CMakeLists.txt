@@ -60,6 +60,7 @@ add_executable(qBlank WIN32
   src/common.cpp
   src/common_win32.cpp
   src/text_win32.cpp
+  src/wake_signal_win32.cpp
   src/i18n.cpp
   src/app.cpp
   src/config.cpp
@@ -67,6 +68,7 @@ add_executable(qBlank WIN32
   src/json.cpp
   src/capture/device_config.cpp
   src/capture/dshow_util.cpp
+  src/capture/frame_buffer.cpp
   src/capture/frame_sink.cpp
   src/capture/video_capture.cpp
   src/capture/video_format.cpp
@@ -209,11 +211,13 @@ add_executable(qblank_probe
   src/common.cpp
   src/common_win32.cpp
   src/text_win32.cpp
+  src/wake_signal_win32.cpp
   src/i18n.cpp
   src/config.cpp
   src/hotkeys.cpp
   src/json.cpp
   src/capture/dshow_util.cpp
+  src/capture/frame_buffer.cpp
   src/capture/frame_sink.cpp
   src/capture/video_capture.cpp
   src/capture/video_format.cpp

@@ -83,6 +83,14 @@ void LogWrite(const char* level, const char* fmt, ...);
 // Where a code helps someone searching for it, the sentence carries it.
 bool ReportError(std::string* error, const Said& said);
 
+// ----------------------------------------------------------------------- clock
+
+// A steady high-resolution clock in the platform's own ticks, for stamping
+// frames and measuring the time between two moments. Only the difference of two
+// readings means anything.
+int64_t ClockTicks();
+double TicksToSeconds(int64_t ticks);
+
 // ------------------------------------------------------------------ misc utils
 
 // ExeFolder, OwnFile and the rest live in app_files.h, included above.
