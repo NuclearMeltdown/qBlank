@@ -39,34 +39,51 @@ struct SubtypeInfo {
   int bpp;          // 0 for compressed
   Layout layout;
   bool rendererOk;  // can the D3D renderer upload it directly
+  PixelLayout pixels;  // what the rest of the program calls it
 };
 
 // Order matters only for the reverse lookup; the UI keeps driver order.
 // The 10 and 16 bit entries are listed so that a card offering them gets a
 // readable label and a correct frame size instead of a hex FOURCC -- the
 // renderer cannot draw them yet, so selecting one falls back to a format it can.
+// HDYC is laid out as UYVY -- it differs in the matrix, which ParseVideoMediaType
+// passes on separately -- and I420 and IYUV are two names for the same layout.
 const SubtypeInfo kSubtypes[] = {
-    {"YUY2", FourccGuid(Fourcc('Y', 'U', 'Y', '2')), 16, Layout::Packed, true},
-    {"UYVY", FourccGuid(Fourcc('U', 'Y', 'V', 'Y')), 16, Layout::Packed, true},
-    {"YVYU", FourccGuid(Fourcc('Y', 'V', 'Y', 'U')), 16, Layout::Packed, true},
-    {"HDYC", FourccGuid(Fourcc('H', 'D', 'Y', 'C')), 16, Layout::Packed, true},
-    {"NV12", FourccGuid(Fourcc('N', 'V', '1', '2')), 12, Layout::Planar420, true},
-    {"YV12", FourccGuid(Fourcc('Y', 'V', '1', '2')), 12, Layout::Planar420, true},
-    {"I420", FourccGuid(Fourcc('I', '4', '2', '0')), 12, Layout::Planar420, true},
-    {"IYUV", FourccGuid(Fourcc('I', 'Y', 'U', 'V')), 12, Layout::Planar420, true},
+    {"YUY2", FourccGuid(Fourcc('Y', 'U', 'Y', '2')), 16, Layout::Packed, true, PixelLayout::Yuyv},
+    {"UYVY", FourccGuid(Fourcc('U', 'Y', 'V', 'Y')), 16, Layout::Packed, true, PixelLayout::Uyvy},
+    {"YVYU", FourccGuid(Fourcc('Y', 'V', 'Y', 'U')), 16, Layout::Packed, true, PixelLayout::Yvyu},
+    {"HDYC", FourccGuid(Fourcc('H', 'D', 'Y', 'C')), 16, Layout::Packed, true, PixelLayout::Uyvy},
+    {"NV12", FourccGuid(Fourcc('N', 'V', '1', '2')), 12, Layout::Planar420, true, PixelLayout::Nv12},
+    {"YV12", FourccGuid(Fourcc('Y', 'V', '1', '2')), 12, Layout::Planar420, true, PixelLayout::Yv12},
+    {"I420", FourccGuid(Fourcc('I', '4', '2', '0')), 12, Layout::Planar420, true, PixelLayout::I420},
+    {"IYUV", FourccGuid(Fourcc('I', 'Y', 'U', 'V')), 12, Layout::Planar420, true, PixelLayout::I420},
     // 10 and 16 bit, the formats an HDR capable card delivers.
-    {"P010", FourccGuid(Fourcc('P', '0', '1', '0')), 24, Layout::Planar420, true},
-    {"P016", FourccGuid(Fourcc('P', '0', '1', '6')), 24, Layout::Planar420, true},
-    {"Y210", FourccGuid(Fourcc('Y', '2', '1', '0')), 32, Layout::Packed, false},
-    {"Y216", FourccGuid(Fourcc('Y', '2', '1', '6')), 32, Layout::Packed, false},
-    {"Y410", FourccGuid(Fourcc('Y', '4', '1', '0')), 32, Layout::Packed, false},
-    {"v210", FourccGuid(Fourcc('v', '2', '1', '0')), 0, Layout::Compressed, false},
-    {"r210", FourccGuid(Fourcc('r', '2', '1', '0')), 32, Layout::Packed, false},
-    {"MJPG", FourccGuid(Fourcc('M', 'J', 'P', 'G')), 0, Layout::Compressed, false},
-    {"dvsd", FourccGuid(Fourcc('d', 'v', 's', 'd')), 0, Layout::Compressed, false},
-    {"H264", FourccGuid(Fourcc('H', '2', '6', '4')), 0, Layout::Compressed, false},
-    {"HEVC", FourccGuid(Fourcc('H', 'E', 'V', 'C')), 0, Layout::Compressed, false},
+    {"P010", FourccGuid(Fourcc('P', '0', '1', '0')), 24, Layout::Planar420, true, PixelLayout::P010},
+    {"P016", FourccGuid(Fourcc('P', '0', '1', '6')), 24, Layout::Planar420, true, PixelLayout::P016},
+    {"Y210", FourccGuid(Fourcc('Y', '2', '1', '0')), 32, Layout::Packed, false, PixelLayout::Other},
+    {"Y216", FourccGuid(Fourcc('Y', '2', '1', '6')), 32, Layout::Packed, false, PixelLayout::Other},
+    {"Y410", FourccGuid(Fourcc('Y', '4', '1', '0')), 32, Layout::Packed, false, PixelLayout::Other},
+    {"v210", FourccGuid(Fourcc('v', '2', '1', '0')), 0, Layout::Compressed, false, PixelLayout::Other},
+    {"r210", FourccGuid(Fourcc('r', '2', '1', '0')), 32, Layout::Packed, false, PixelLayout::Other},
+    {"MJPG", FourccGuid(Fourcc('M', 'J', 'P', 'G')), 0, Layout::Compressed, false, PixelLayout::Other},
+    {"dvsd", FourccGuid(Fourcc('d', 'v', 's', 'd')), 0, Layout::Compressed, false, PixelLayout::Other},
+    {"H264", FourccGuid(Fourcc('H', '2', '6', '4')), 0, Layout::Compressed, false, PixelLayout::Other},
+    {"HEVC", FourccGuid(Fourcc('H', 'E', 'V', 'C')), 0, Layout::Compressed, false, PixelLayout::Other},
 };
+
+// Goes by the label rather than the GUID, the way the renderer always has: a
+// GUID the table does not know, but whose first four bytes spell a FOURCC it
+// does, is taken for that format.
+PixelLayout PixelLayoutOf(const std::string& label) {
+  for (const SubtypeInfo& s : kSubtypes) {
+    if (label == s.label) return s.pixels;
+  }
+  // DirectShow's RGB is a Windows bitmap: blue first.
+  if (label == "RGB24") return PixelLayout::Bgr24;
+  if (label == "RGB32") return PixelLayout::Bgrx32;
+  if (label == "ARGB32") return PixelLayout::Bgra32;
+  return PixelLayout::Other;
+}
 
 const SubtypeInfo* FindSubtype(const GUID& g) {
   for (const SubtypeInfo& s : kSubtypes) {
@@ -217,53 +234,59 @@ size_t ImageSizeForSubtype(const GUID& subtype, int width, int height, int* stri
 
 // -------------------------------------------------------- colour description
 
-const char* NominalRangeName(int value) {
+namespace {
+
+// The DXVA numbering the media type uses, into the program's own. Everything
+// without a name here was "unknown" before it got this far, and stays so.
+ColorInfo::Range RangeFromDxva(unsigned value) {
   switch (value) {
-    case 1: return "Full (0-255)";
-    case 2: return "Limited (16-235)";
-    case 3: return "48-208";
-    case 4: return "64-127";
-    default: return "unbekannt";
+    case 1: return ColorInfo::Range::Full;
+    case 2: return ColorInfo::Range::Limited;
+    case 3: return ColorInfo::Range::From48To208;
+    case 4: return ColorInfo::Range::From64To127;
+    default: return ColorInfo::Range::Unknown;
   }
 }
 
-const char* TransferMatrixName(int value) {
+ColorInfo::Matrix MatrixFromDxva(unsigned value) {
   switch (value) {
-    case 1: return "BT.709";
-    case 2: return "BT.601";
-    case 3: return "SMPTE 240M";
-    case 4: return "BT.2020 (10 Bit)";
-    case 5: return "BT.2020 (12 Bit)";
-    default: return "unbekannt";
+    case 1: return ColorInfo::Matrix::BT709;
+    case 2: return ColorInfo::Matrix::BT601;
+    case 3: return ColorInfo::Matrix::SMPTE240M;
+    case 4: return ColorInfo::Matrix::BT2020_10;
+    case 5: return ColorInfo::Matrix::BT2020_12;
+    default: return ColorInfo::Matrix::Unknown;
   }
 }
 
-const char* PrimariesName(int value) {
+ColorInfo::Primaries PrimariesFromDxva(unsigned value) {
   switch (value) {
-    case 2: return "BT.709";
-    case 3: return "BT.470-2 System M";
-    case 4: return "BT.470-2 System B/G";
-    case 5: return "SMPTE 170M";
-    case 6: return "SMPTE 240M";
-    case 9: return "BT.2020";
-    case 11: return "DCI-P3";
-    default: return "unbekannt";
+    case 2: return ColorInfo::Primaries::BT709;
+    case 3: return ColorInfo::Primaries::BT470M;
+    case 4: return ColorInfo::Primaries::BT470BG;
+    case 5: return ColorInfo::Primaries::SMPTE170M;
+    case 6: return ColorInfo::Primaries::SMPTE240M;
+    case 9: return ColorInfo::Primaries::BT2020;
+    case 11: return ColorInfo::Primaries::DCIP3;
+    default: return ColorInfo::Primaries::Unknown;
   }
 }
 
-const char* TransferFunctionName(int value) {
+ColorInfo::Transfer TransferFromDxva(unsigned value) {
   switch (value) {
-    case 1: return "linear";
-    case 4: return "Gamma 2.2";
-    case 5: return "BT.709";
-    case 7: return "sRGB";
-    case 12: return "BT.2020 (konstante Luminanz)";
-    case 13: return "BT.2020";
-    case 15: return "PQ / ST.2084 (HDR10)";
-    case 16: return "HLG (HDR)";
-    default: return "unbekannt";
+    case 1: return ColorInfo::Transfer::Linear;
+    case 4: return ColorInfo::Transfer::Gamma22;
+    case 5: return ColorInfo::Transfer::BT709;
+    case 7: return ColorInfo::Transfer::SRGB;
+    case 12: return ColorInfo::Transfer::BT2020Constant;
+    case 13: return ColorInfo::Transfer::BT2020;
+    case 15: return ColorInfo::Transfer::PQ;
+    case 16: return ColorInfo::Transfer::HLG;
+    default: return ColorInfo::Transfer::Unknown;
   }
 }
+
+}  // namespace
 
 // ---------------------------------------------------------------- media types
 
@@ -339,18 +362,21 @@ bool ParseVideoMediaType(const AM_MEDIA_TYPE* mt, VideoFormatInfo* out) {
     // which DXVA header happens to be reachable.
     if (vih2->dwControlFlags & AMCONTROL_COLORINFO_PRESENT) {
       const DWORD f = vih2->dwControlFlags;
-      out->colorInfoPresent = true;
-      out->nominalRange = (int)((f >> 12) & 0x7);
-      out->transferMatrix = (int)((f >> 15) & 0x7);
-      out->primaries = (int)((f >> 22) & 0x1F);
-      out->transferFunction = (int)((f >> 27) & 0x1F);
+      out->color.present = true;
+      out->color.range = RangeFromDxva((f >> 12) & 0x7);
+      out->color.matrix = MatrixFromDxva((f >> 15) & 0x7);
+      out->color.primaries = PrimariesFromDxva((f >> 22) & 0x1F);
+      out->color.transfer = TransferFromDxva((f >> 27) & 0x1F);
     }
   } else {
     return false;
   }
 
-  out->subtype = mt->subtype;
   out->subtypeLabel = SubtypeLabel(mt->subtype);
+  out->layout = PixelLayoutOf(out->subtypeLabel);
+  // HDYC is UYVY that carries BT.709 by definition.
+  out->formatMatrix =
+      out->subtypeLabel == "HDYC" ? ColorInfo::Matrix::BT709 : ColorInfo::Matrix::Unknown;
   out->width = (int)bih->biWidth;
   out->height = (int)std::abs(bih->biHeight);
   out->bottomUp = IsRgbSubtype(mt->subtype) && bih->biHeight > 0;
@@ -578,7 +604,7 @@ std::vector<CapsEntry> EnumerateCaps(IPin* capturePin) {
     VideoFormatInfo info;
     if (ParseVideoMediaType(mt, &info)) {
       CapsEntry e;
-      e.subtype = info.subtype;
+      e.subtype = mt->subtype;
       e.subtypeLabel = info.subtypeLabel;
       e.width = info.width;
       e.height = info.height;

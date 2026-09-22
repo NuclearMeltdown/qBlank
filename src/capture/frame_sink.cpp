@@ -461,6 +461,7 @@ void FrameSink::OnConnected(const AM_MEDIA_TYPE* mt) {
 
   std::lock_guard<std::mutex> lock(mutex_);
   format_ = info;
+  subtype_ = mt->subtype;
   for (int i = 0; i < 3; ++i) {
     slots_[i].assign(info.imageSize, 0);
     slotSize_[i] = 0;
@@ -483,6 +484,7 @@ void FrameSink::OnConnected(const AM_MEDIA_TYPE* mt) {
 void FrameSink::OnDisconnected() {
   std::lock_guard<std::mutex> lock(mutex_);
   format_ = VideoFormatInfo{};
+  subtype_ = GUID_NULL;
   readyIdx_ = -1;
   readIdx_ = -1;
 }
@@ -512,7 +514,7 @@ HRESULT FrameSink::OnSample(IMediaSample* sample) {
     if (ParseVideoMediaType(changed, &info)) {
       std::lock_guard<std::mutex> lock(mutex_);
       if (info.width != format_.width || info.height != format_.height ||
-          !IsEqualGUID(info.subtype, format_.subtype)) {
+          !IsEqualGUID(changed->subtype, subtype_)) {
         CAP_LOG("Format change mid-stream: %s %dx%d", info.subtypeLabel.c_str(), info.width,
                 info.height);
         for (int i = 0; i < 3; ++i) {
@@ -523,6 +525,7 @@ HRESULT FrameSink::OnSample(IMediaSample* sample) {
         readIdx_ = -1;
       }
       format_ = info;
+      subtype_ = changed->subtype;
     }
     DeleteMediaType(changed);
   }

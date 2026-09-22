@@ -182,6 +182,7 @@ class FrameSink final : public IBaseFilter, public IAMFilterMiscFlags {
   uint64_t sequence_ = 0;
   uint64_t readSequence_ = 0;
   VideoFormatInfo format_;
+  GUID subtype_ = GUID_NULL;  // format_'s subtype as DirectShow names it
 
   // Stats.
   uint64_t received_ = 0;

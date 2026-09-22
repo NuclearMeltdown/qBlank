@@ -4026,11 +4026,12 @@ void App::UpdateHdr() {
       break;
     case HdrInput::Auto:
     default:
-      // 15 and 16 are PQ and HLG in the DXVA numbering the media type uses.
-      if (src.transferFunction == 15) transfer = VideoRenderer::Transfer::Pq;
-      if (src.transferFunction == 16) transfer = VideoRenderer::Transfer::Hlg;
-      // 9 is BT.2020 primaries; the matrix codes say the same thing a second way.
-      wideGamut = src.primaries == 9 || src.transferMatrix == 4 || src.transferMatrix == 5;
+      if (src.color.transfer == ColorInfo::Transfer::PQ) transfer = VideoRenderer::Transfer::Pq;
+      if (src.color.transfer == ColorInfo::Transfer::HLG) transfer = VideoRenderer::Transfer::Hlg;
+      // BT.2020 primaries; the matrix says the same thing a second way.
+      wideGamut = src.color.primaries == ColorInfo::Primaries::BT2020 ||
+                  src.color.matrix == ColorInfo::Matrix::BT2020_10 ||
+                  src.color.matrix == ColorInfo::Matrix::BT2020_12;
       break;
   }
   renderer_.SetHdrInput(transfer, wideGamut);

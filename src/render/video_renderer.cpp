@@ -450,7 +450,7 @@ bool VideoRenderer::SetSourceFormat(const VideoFormatInfo& info, std::string* er
     return false;
   }
   const bool same = source_.width == info.width && source_.height == info.height &&
-                    IsEqualGUID(source_.subtype, info.subtype) && planeCount_ > 0;
+                    source_.subtypeLabel == info.subtypeLabel && planeCount_ > 0;
   source_ = info;
   if (same) return true;
 
@@ -462,25 +462,34 @@ bool VideoRenderer::SetSourceFormat(const VideoFormatInfo& info, std::string* er
 
   ReleaseSourceTextures();
 
-  const std::string& label = info.subtypeLabel;
-  if (label == "YUY2") {
-    kind_ = FormatKind::Yuy2;
-  } else if (label == "UYVY" || label == "HDYC") {
-    kind_ = FormatKind::Uyvy;
-  } else if (label == "YVYU") {
-    kind_ = FormatKind::Yvyu;
-  } else if (label == "NV12") {
-    kind_ = FormatKind::Nv12;
-  } else if (label == "P010" || label == "P016") {
-    kind_ = FormatKind::P010;
-    // P010 parks ten bits at the top of each sixteen, so a full scale sample
-    // reads back as 65472/65535 rather than 1. P016 uses all sixteen.
-    tenBitContainer_ = (label == "P010");
-  } else if (label == "YV12" || label == "I420" || label == "IYUV") {
-    kind_ = FormatKind::Planar420;
-    planarUvSwapped_ = (label == "YV12");  // YV12 stores V first
-  } else {
-    kind_ = FormatKind::Rgb;
+  switch (info.layout) {
+    case PixelLayout::Yuyv:
+      kind_ = FormatKind::Yuy2;
+      break;
+    case PixelLayout::Uyvy:
+      kind_ = FormatKind::Uyvy;
+      break;
+    case PixelLayout::Yvyu:
+      kind_ = FormatKind::Yvyu;
+      break;
+    case PixelLayout::Nv12:
+      kind_ = FormatKind::Nv12;
+      break;
+    case PixelLayout::P010:
+    case PixelLayout::P016:
+      kind_ = FormatKind::P010;
+      // P010 parks ten bits at the top of each sixteen, so a full scale sample
+      // reads back as 65472/65535 rather than 1. P016 uses all sixteen.
+      tenBitContainer_ = (info.layout == PixelLayout::P010);
+      break;
+    case PixelLayout::I420:
+    case PixelLayout::Yv12:
+      kind_ = FormatKind::Planar420;
+      planarUvSwapped_ = (info.layout == PixelLayout::Yv12);  // YV12 stores V first
+      break;
+    default:
+      kind_ = FormatKind::Rgb;
+      break;
   }
 
   return CreateSourceTextures(error);
@@ -554,8 +563,8 @@ bool VideoRenderer::CreateSourceTextures(std::string* error) {
     default:
       // RGB24 is expanded to RGBA on upload; RGB32 goes in as BGRA directly.
       ok = makePlane(0, w, h,
-                     source_.subtypeLabel == "RGB24" ? DXGI_FORMAT_R8G8B8A8_UNORM
-                                                     : DXGI_FORMAT_B8G8R8A8_UNORM);
+                     source_.layout == PixelLayout::Bgr24 ? DXGI_FORMAT_R8G8B8A8_UNORM
+                                                          : DXGI_FORMAT_B8G8R8A8_UNORM);
       planeCount_ = 1;
       break;
   }
@@ -1464,7 +1473,7 @@ void VideoRenderer::AnalyzeChroma(const FrameView& frame) {
     // Dieser Zweig ist nicht der Sonderfall. Die SA7160 liefert am
     // Composite-Eingang RGB32, und ohne ihn haette die Farbpruefung genau dort
     // nie eine Messung zustande gebracht, wo sie gebraucht wird.
-    step = source_.subtypeLabel == "RGB24" ? 3 : 4;
+    step = source_.layout == PixelLayout::Bgr24 ? 3 : 4;
     const size_t pitch = (size_t)w * step;
     if (pitch * (size_t)h > frame.size) return;
     for (int by = y0; by + kChromaBlockH <= y1; by += kChromaBlockStepY) {
@@ -1640,7 +1649,7 @@ bool VideoRenderer::LumaLayout(size_t* offset, size_t* step) const {
       // Green stands in for luma. It carries most of it, and it costs one read
       // instead of three.
       *offset = 1;
-      *step = source_.subtypeLabel == "RGB24" ? 3 : 4;
+      *step = source_.layout == PixelLayout::Bgr24 ? 3 : 4;
       return true;
     default: return false;
   }
@@ -2165,7 +2174,7 @@ bool VideoRenderer::UploadFrame(const FrameView& frame) {
     case FormatKind::Planar420: ok = UploadPlanar(frame); break;
     case FormatKind::Rgb:
     default:
-      ok = source_.subtypeLabel == "RGB24" ? UploadRgb24(frame) : UploadRgb32(frame);
+      ok = source_.layout == PixelLayout::Bgr24 ? UploadRgb24(frame) : UploadRgb32(frame);
       break;
   }
   if (ok) hasFrame_ = true;
@@ -2865,9 +2874,11 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
 
   ColorRange range = image.range;
   if (range == ColorRange::Auto) {
-    if (source_.colorInfoPresent && (source_.nominalRange == 1 || source_.nominalRange == 2)) {
+    const ColorInfo::Range said = source_.color.range;
+    if (source_.color.present &&
+        (said == ColorInfo::Range::Full || said == ColorInfo::Range::Limited)) {
       // The driver said so outright, which beats both measuring and guessing.
-      range = source_.nominalRange == 1 ? ColorRange::Full : ColorRange::Limited;
+      range = said == ColorInfo::Range::Full ? ColorRange::Full : ColorRange::Limited;
     } else if (rangeVerdict_ != RangeVerdict::Pending) {
       // Measured from the picture itself. This is the case that matters on cards
       // that attach no colour description, and unlike the rule below it gives
@@ -2940,11 +2951,12 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   }
   ColorMatrix matrix = image.matrix;
   if (matrix == ColorMatrix::Auto) {
-    if (source_.colorInfoPresent &&
-        (source_.transferMatrix == 1 || source_.transferMatrix == 2)) {
-      matrix = source_.transferMatrix == 1 ? ColorMatrix::BT709 : ColorMatrix::BT601;
-    } else if (source_.subtypeLabel == "HDYC") {
-      // HDYC is UYVY that carries BT.709 by definition.
+    const ColorInfo::Matrix said = source_.color.matrix;
+    if (source_.color.present &&
+        (said == ColorInfo::Matrix::BT709 || said == ColorInfo::Matrix::BT601)) {
+      matrix = said == ColorInfo::Matrix::BT709 ? ColorMatrix::BT709 : ColorMatrix::BT601;
+    } else if (source_.formatMatrix == ColorInfo::Matrix::BT709) {
+      // A format that carries BT.709 by definition, the way HDYC does.
       matrix = ColorMatrix::BT709;
     }
   }

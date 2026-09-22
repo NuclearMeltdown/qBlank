@@ -7,8 +7,8 @@
 #include <string>
 
 #include "audio/audio_engine.h"
-#include "capture/dshow_util.h"
 #include "capture/frame_sink.h"
+#include "capture/video_format.h"
 #include "common.h"
 #include "config.h"
 

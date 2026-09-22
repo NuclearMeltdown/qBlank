@@ -16,8 +16,8 @@
 #include <vector>
 #include <string>
 
-#include "capture/dshow_util.h"
 #include "capture/frame_sink.h"
+#include "capture/video_format.h"
 #include "common_win32.h"
 #include "config.h"
 #include "render/d3d_context.h"

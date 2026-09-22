@@ -545,15 +545,15 @@ void PrintVideoDevices() {
     // Colour description, when the driver bothers to fill it in. This is the
     // only place an HDR source announces itself, so it is worth showing even
     // though most cards leave it empty.
-    const VideoFormatInfo& colour = probed.colorInfo;
-    if (colour.colorInfoPresent) {
+    const ColorInfo& colour = probed.colorInfo.color;
+    if (colour.present) {
       std::printf("    Farbbeschreibung des Treibers:\n");
-      std::printf("        Wertebereich    : %s\n", NominalRangeName(colour.nominalRange));
-      std::printf("        Matrix          : %s\n", TransferMatrixName(colour.transferMatrix));
+      std::printf("        Wertebereich    : %s\n", RangeName(colour.range));
+      std::printf("        Matrix          : %s\n", MatrixName(colour.matrix));
       std::printf("        Primärvalenzen  : %s\n", PrimariesName(colour.primaries));
       std::printf("        Transferfunktion: %s%s\n",
-                  TransferFunctionName(colour.transferFunction),
-                  colour.isHdrTransfer() ? "   <- HDR" : "");
+                  TransferName(colour.transfer),
+                  colour.isHdr() ? "   <- HDR" : "");
     } else {
       std::printf("    Farbbeschreibung: keine (qBlank rät dann anhand der Bildhöhe)\n");
     }
@@ -1206,9 +1206,9 @@ void TestHistogram(const std::string& subtypeWanted, int framesWanted,
   std::printf("  Format: %s %dx%d @ %.3f fps, Zeilenlänge %d Byte%s\n",
               format.subtypeLabel.c_str(), format.width, format.height, format.fps,
               format.stride, format.interlaced ? ", verschränkt" : "");
-  if (format.colorInfoPresent) {
+  if (format.color.present) {
     std::printf("  Der Treiber beschreibt die Farben selbst: Wertebereich %s, Matrix %s\n",
-                NominalRangeName(format.nominalRange), TransferMatrixName(format.transferMatrix));
+                RangeName(format.color.range), MatrixName(format.color.matrix));
   } else {
     std::printf("  Der Treiber legt keine Farbbeschreibung bei.\n");
   }

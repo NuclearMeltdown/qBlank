@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "capture/video_format.h"
 #include "common_win32.h"
 #include "config.h"
 
@@ -39,41 +40,8 @@ void FreeMediaType(AM_MEDIA_TYPE& mt);
 void DeleteMediaType(AM_MEDIA_TYPE* mt);
 AM_MEDIA_TYPE* CreateMediaTypeCopy(const AM_MEDIA_TYPE* src);
 
-// Reads the parts of a video media type the renderer cares about.
-struct VideoFormatInfo {
-  GUID subtype = GUID_NULL;
-  std::string subtypeLabel;
-  int width = 0;
-  int height = 0;       // always positive
-  int stride = 0;       // bytes per row of the top plane
-  bool bottomUp = false;  // RGB DIBs are stored upside down
-  bool interlaced = false;
-  bool fieldOneFirst = true;
-  double fps = 0.0;
-  int aspectX = 0;  // from VIDEOINFOHEADER2, 0 when unknown
-  int aspectY = 0;
-  size_t imageSize = 0;
-
-  // Colour description the driver put in DXVA_ExtendedFormat. Most cards leave
-  // this empty, but when it is there it beats guessing the range and matrix from
-  // the picture height -- and it is where an HDR source announces PQ or HLG.
-  bool colorInfoPresent = false;
-  int nominalRange = 0;      // 1 = full 0-255, 2 = limited 16-235
-  int transferMatrix = 0;    // 1 = BT.709, 2 = BT.601, 4/5 = BT.2020
-  int primaries = 0;         // 2 = BT.709, 9 = BT.2020
-  int transferFunction = 0;  // 5 = BT.709, 15 = PQ (ST.2084), 16 = HLG
-
-  bool isHdrTransfer() const { return transferFunction == 15 || transferFunction == 16; }
-
-  bool valid() const { return width > 0 && height > 0 && imageSize > 0; }
-};
-
-// Human readable names for the DXVA colour fields above, for the diagnostics.
-const char* NominalRangeName(int value);
-const char* TransferMatrixName(int value);
-const char* PrimariesName(int value);
-const char* TransferFunctionName(int value);
-
+// Reads the parts of a video media type the renderer cares about, translating
+// the subtype into a PixelLayout and the DXVA colour codes into a ColorInfo.
 bool ParseVideoMediaType(const AM_MEDIA_TYPE* mt, VideoFormatInfo* out);
 
 // ----------------------------------------------------------------- device enum

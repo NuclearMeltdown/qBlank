@@ -69,6 +69,7 @@ add_executable(qBlank WIN32
   src/capture/dshow_util.cpp
   src/capture/frame_sink.cpp
   src/capture/video_capture.cpp
+  src/capture/video_format.cpp
   src/audio/audio_devices.cpp
   src/audio/audio_engine.cpp
   src/audio/audio_ring.cpp
@@ -215,6 +216,7 @@ add_executable(qblank_probe
   src/capture/dshow_util.cpp
   src/capture/frame_sink.cpp
   src/capture/video_capture.cpp
+  src/capture/video_format.cpp
   src/audio/audio_devices.cpp
 )
 target_include_directories(qblank_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
