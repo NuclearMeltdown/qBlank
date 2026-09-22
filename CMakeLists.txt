@@ -67,11 +67,13 @@ add_executable(qBlank WIN32
   src/hotkeys.cpp
   src/json.cpp
   src/capture/device_config.cpp
+  src/capture/caps_model.cpp
   src/capture/dshow_util.cpp
   src/capture/frame_buffer.cpp
   src/capture/frame_sink.cpp
   src/capture/video_capture.cpp
   src/capture/video_format.cpp
+  src/capture/video_standard.cpp
   src/audio/audio_devices.cpp
   src/audio/audio_engine.cpp
   src/audio/audio_ring.cpp
@@ -216,11 +218,13 @@ add_executable(qblank_probe
   src/config.cpp
   src/hotkeys.cpp
   src/json.cpp
+  src/capture/caps_model.cpp
   src/capture/dshow_util.cpp
   src/capture/frame_buffer.cpp
   src/capture/frame_sink.cpp
   src/capture/video_capture.cpp
   src/capture/video_format.cpp
+  src/capture/video_standard.cpp
   src/audio/audio_devices.cpp
 )
 target_include_directories(qblank_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
