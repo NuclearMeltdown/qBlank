@@ -110,6 +110,7 @@ add_executable(qBlank WIN32
   src/ui/theme.cpp
   src/update/release_source.cpp
   src/update/updater.cpp
+  src/camera_sink_win32.cpp
   src/vcam/virtual_camera.cpp
   src/ui/settings_host.cpp
   src/ui/settings_search.cpp

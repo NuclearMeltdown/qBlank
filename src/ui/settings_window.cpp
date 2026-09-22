@@ -1,7 +1,7 @@
 #include "ui/settings_window.h"
 
 #include "record/recorder.h"
-#include "vcam/virtual_camera.h"
+#include "camera_sink.h"
 #include "vcam/vcam_shared.h"
 
 #include "common_win32.h"
@@ -271,7 +271,7 @@ int SettingsWindow::takeVirtualCameraRequest() {
 }
 
 void SettingsWindow::SetVirtualCameraState(bool running,
-                                           const std::vector<VirtualCamera::Consumer>& consumers) {
+                                           const std::vector<CameraSink::Consumer>& consumers) {
   vcamRunning_ = running;
   vcamConsumers_ = consumers;
 }
@@ -3630,10 +3630,10 @@ void SettingsWindow::DrawVirtualCameraBlock() {
   // every frame, and the two buttons below refresh it when they change it.
   const double now = ImGui::GetTime();
   if (now - vcamStatusChecked_ > 2.0) {
-    vcamStatus_ = (int)VirtualCamera::Status();
+    vcamStatus_ = (int)CameraSink::Status();
     vcamStatusChecked_ = now;
   }
-  const auto status = (VirtualCamera::Install)vcamStatus_;
+  const auto status = (CameraSink::Setup)vcamStatus_;
 
   ImGui::TextWrapped(
       "%s", Format(T("Gibt das Bild als Webcam an andere Programme weiter -- OBS, Discord, "
@@ -3648,10 +3648,10 @@ void SettingsWindow::DrawVirtualCameraBlock() {
                 .c_str());
   ImGui::Spacing();
 
-  if (status != VirtualCamera::Install::Installed) {
+  if (status != CameraSink::Setup::Installed) {
     ImGui::TextWrapped(
         "%s",
-        status == VirtualCamera::Install::Stale
+        status == CameraSink::Setup::Stale
             ? Format(T("Die Kameraquelle ist registriert, zeigt aber ins Leere -- vermutlich "
                        "wurde %s verschoben. Einmal neu installieren setzt das gerade.",
                        "The camera source is registered but points nowhere -- %s was probably "
@@ -3697,11 +3697,11 @@ void SettingsWindow::DrawVirtualCameraBlock() {
         ImGui::TableSetupColumn(T("Format", "Format"), ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn(T("Status", "State"), ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
-        for (const VirtualCamera::Consumer& c : vcamConsumers_) {
+        for (const CameraSink::Consumer& c : vcamConsumers_) {
           ImGui::TableNextRow();
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(c.name.empty() ? "?" : c.name.c_str());
-          if (ImGui::IsItemHovered()) ImGui::SetTooltip("PID %lu", c.pid);
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("PID %u", c.pid);
           ImGui::TableNextColumn();
           if (c.width > 0 && c.height > 0) {
             ImGui::Text("%d x %d @ %.4g%s", c.width, c.height, c.fps, c.wide ? " HDR" : "");

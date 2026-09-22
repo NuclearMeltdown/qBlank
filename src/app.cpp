@@ -210,7 +210,7 @@ bool App::Initialize() {
   // The leftover of a previous update is cleared in wWinMain, before the name
   // is sorted out and the settings are read -- both of which would otherwise
   // work on the wrong file.
-  VirtualCamera::CleanUpOldSources();
+  CameraSink::CleanUpOldInstalls();
   if (config_.app.checkUpdatesOnStart) updater_.CheckAsync(true);
 
   running_ = true;
@@ -5027,8 +5027,8 @@ void App::UpdateVirtualCamera() {
     if (virtualCamera_.running()) virtualCamera_.Stop();
 
     std::string error;
-    const bool ok = request == 1 ? VirtualCamera::InstallSource(&error)
-                                 : VirtualCamera::UninstallSource(&error);
+    const bool ok = request == 1 ? CameraSink::InstallSystemWide(&error)
+                                 : CameraSink::RemoveSystemWide(&error);
     if (ok) {
       Toast(request == 1 ? T("Kamera installiert.", "Camera installed.")
                          : T("Kamera deinstalliert.", "Camera uninstalled."));

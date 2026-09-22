@@ -23,7 +23,7 @@
 #include "ui/overlay.h"
 #include "ui/settings_host.h"
 #include "update/updater.h"
-#include "vcam/virtual_camera.h"
+#include "camera_sink.h"
 #include "ui/settings_window.h"
 #include "ui/toolbar.h"
 #include "window.h"
@@ -450,9 +450,9 @@ class App {
   DevicePropertyPages devicePages_;
   SettingsHost settingsHost_;
   Updater updater_;
-  VirtualCamera virtualCamera_;
+  CameraSink virtualCamera_;
   // Refilled once a frame rather than allocated once a frame.
-  std::vector<VirtualCamera::Consumer> virtualCameraConsumers_;
+  std::vector<CameraSink::Consumer> virtualCameraConsumers_;
   // What woke the main loop last time round, and when it last drew. Together
   // they keep the preview paced by the picture rather than by the message
   // queue -- see the comment at the call to RenderFrame.

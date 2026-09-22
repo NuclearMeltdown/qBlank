@@ -21,7 +21,7 @@ struct ImGuiContext;
 #include "record/remuxer.h"
 #include "ui/file_dialog.h"
 #include "ui/settings_search.h"
-#include "vcam/virtual_camera.h"
+#include "camera_sink.h"
 #include "window.h"
 
 namespace cap {
@@ -183,7 +183,7 @@ class SettingsWindow {
   // per application reading the camera, each with the format it negotiated for
   // itself -- which is the shape of the thing now rather than a detail: there
   // is one filter instance per consumer and they routinely disagree.
-  void SetVirtualCameraState(bool running, const std::vector<VirtualCamera::Consumer>& consumers);
+  void SetVirtualCameraState(bool running, const std::vector<CameraSink::Consumer>& consumers);
   void SetCarrierPeriod(float samples) { carrierPeriod_ = samples > 1.5f ? samples : 3.045f; }
 
   // Platz auf dem Ziellaufwerk, von der App gemessen statt hier: sie sieht
@@ -337,7 +337,7 @@ class SettingsWindow {
   int vcamStatus_ = 0;
   double vcamStatusChecked_ = -10.0;
   bool vcamRunning_ = false;
-  std::vector<VirtualCamera::Consumer> vcamConsumers_;
+  std::vector<CameraSink::Consumer> vcamConsumers_;
   // What the dot crawl slider currently amounts to. Passed in because it
   // depends on the video standard and the captured width, neither of which the
   // settings know.

@@ -1,6 +1,7 @@
 #pragma once
 
-// qBlank's end of the virtual camera.
+// qBlank's end of the virtual camera: the Windows side of camera_sink.h, which
+// is what the rest of the program talks to.
 //
 // Two things live here that are easy to confuse. Installing puts the DirectShow
 // filter's DLL into the registry, needs administrator rights, and is done once.
@@ -25,6 +26,8 @@
 #include <thread>
 #include <vector>
 
+#include "camera_sink.h"
+
 namespace cap {
 
 class VirtualCamera {
@@ -37,15 +40,7 @@ class VirtualCamera {
 
   // One application reading the camera, as its own copy of the filter reports
   // itself. The name comes for free: the filter runs inside that application.
-  struct Consumer {
-    std::string name;
-    unsigned long pid = 0;
-    int width = 0;
-    int height = 0;
-    double fps = 0.0;
-    bool wide = false;
-    bool streaming = false;
-  };
+  using Consumer = CameraSink::Consumer;
 
   ~VirtualCamera();
 
