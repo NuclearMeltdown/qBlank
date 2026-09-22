@@ -10,7 +10,7 @@
 #include <filesystem>
 #include <string>
 
-#include "common.h"
+#include "common_win32.h"
 #include "config.h"
 
 namespace cap {

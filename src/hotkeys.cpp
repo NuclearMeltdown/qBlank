@@ -1,5 +1,6 @@
 #include "hotkeys.h"
 
+#include "common_win32.h"
 #include "i18n.h"
 #include "text_win32.h"
 

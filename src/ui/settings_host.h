@@ -16,7 +16,7 @@
 #include <functional>
 #include <string>
 
-#include "common.h"
+#include "common_win32.h"
 
 struct ImGuiContext;
 struct ImFontAtlas;

@@ -15,7 +15,7 @@ struct ImGuiContext;
 #include "audio/audio_devices.h"
 #include "capture/video_capture.h"
 #include "update/updater.h"
-#include "common.h"
+#include "common_win32.h"
 #include "config.h"
 #include "record/ffmpeg_download.h"
 #include "record/ffmpeg_locator.h"

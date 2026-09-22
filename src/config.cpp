@@ -4,7 +4,7 @@
 #include <cmath>
 
 #include "app_identity.h"
-#include "common.h"
+#include "common_win32.h"
 #include "json.h"
 #include "text_win32.h"
 

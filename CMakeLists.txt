@@ -58,6 +58,7 @@ add_executable(qBlank WIN32
   src/app_files_win32.cpp
   src/app_identity.cpp
   src/common.cpp
+  src/common_win32.cpp
   src/text_win32.cpp
   src/i18n.cpp
   src/app.cpp
@@ -205,6 +206,7 @@ add_executable(qblank_probe
   src/app_files_win32.cpp
   src/app_identity.cpp
   src/common.cpp
+  src/common_win32.cpp
   src/text_win32.cpp
   src/i18n.cpp
   src/config.cpp

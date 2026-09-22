@@ -18,7 +18,7 @@
 
 #include "capture/dshow_util.h"
 #include "capture/frame_sink.h"
-#include "common.h"
+#include "common_win32.h"
 #include "config.h"
 #include "render/d3d_context.h"
 

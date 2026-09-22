@@ -17,7 +17,7 @@
 #include "audio/mic_capture.h"
 #include "capture/device_config.h"
 #include "capture/video_capture.h"
-#include "common.h"
+#include "common_win32.h"
 #include "config.h"
 #include "record/recorder.h"
 #include "render/d3d_context.h"

@@ -184,10 +184,10 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
   firstRun_ = !config_.Load(&configError) && configError.empty();
   unfinishedSession_ = LogInit(config_.app.logToFile, config_.app.logRetention);
   if (unfinishedSession_.found) {
-    const SYSTEMTIME& s = unfinishedSession_.started;
-    CAP_WARN("Previous session (%s, started %04u-%02u-%02u %02u:%02u:%02u) has no end line",
-             unfinishedSession_.version.c_str(), s.wYear, s.wMonth, s.wDay, s.wHour, s.wMinute,
-             s.wSecond);
+    const LocalTime& s = unfinishedSession_.started;
+    CAP_WARN("Previous session (%s, started %04d-%02d-%02d %02d:%02d:%02d) has no end line",
+             unfinishedSession_.version.c_str(), s.year, s.month, s.day, s.hour, s.minute,
+             s.second);
     crashNoticeQueued_ = true;
   }
   if (!configError.empty()) CAP_WARN("%s", configError.c_str());
@@ -4174,8 +4174,15 @@ void App::DrawCrashNotice() {
 
   // Date and time the way Windows is set to show them.
   std::string when;
-  const SYSTEMTIME& s = unfinishedSession_.started;
-  if (s.wYear != 0) {
+  const LocalTime& started = unfinishedSession_.started;
+  if (started.year != 0) {
+    SYSTEMTIME s = {};
+    s.wYear = (WORD)started.year;
+    s.wMonth = (WORD)started.month;
+    s.wDay = (WORD)started.day;
+    s.wHour = (WORD)started.hour;
+    s.wMinute = (WORD)started.minute;
+    s.wSecond = (WORD)started.second;
     wchar_t date[64] = {};
     wchar_t time[64] = {};
     ::GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &s, nullptr, date, 64, nullptr);

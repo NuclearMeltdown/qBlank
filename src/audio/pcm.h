@@ -4,7 +4,7 @@
 // float that everything between capture and playback works in.
 
 // common.h pulls in windows.h, which mmreg.h needs to have seen first.
-#include "common.h"
+#include "common_win32.h"
 
 #include <mmreg.h>
 

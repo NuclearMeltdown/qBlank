@@ -1,5 +1,6 @@
 #include "record/ffmpeg_download.h"
 
+#include <windows.h>
 #include <bcrypt.h>
 #include <winhttp.h>
 

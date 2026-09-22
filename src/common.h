@@ -1,8 +1,5 @@
 #pragma once
 
-#include <windows.h>
-#include <wrl/client.h>
-
 #include <algorithm>
 #include <cstdarg>
 #include <cstdint>
@@ -15,10 +12,6 @@
 // spells out a name gets it from there -- see src/app_files.h.
 #include "app_files.h"
 #include "i18n.h"
-
-// Short alias -- ComPtr shows up on almost every line of the DirectShow / D3D code.
-template <typename T>
-using ComPtr = Microsoft::WRL::ComPtr<T>;
 
 namespace cap {
 
@@ -52,12 +45,22 @@ struct LogRetention {
   bool olderVersions = false;
 };
 
+// A date and time on the local clock, the way the log writes it down.
+struct LocalTime {
+  int year = 0;
+  int month = 0;
+  int day = 0;
+  int hour = 0;
+  int minute = 0;
+  int second = 0;
+};
+
 // The session before this one, if its end line is missing: the program went
 // down without reaching LogEnd -- a crash, the task manager, the power.
 struct UnfinishedSession {
   bool found = false;
   std::string version;
-  SYSTEMTIME started = {};  // local time, all zero when the start line had none
+  LocalTime started;  // all zero when the start line had none
 };
 
 // Writes to the debugger and, if enabled, to qBlank.log next to the exe. The
@@ -72,23 +75,12 @@ void LogWrite(const char* level, const char* fmt, ...);
 #define CAP_WARN(...) ::cap::LogWrite("WARN", __VA_ARGS__)
 #define CAP_ERR(...)  ::cap::LogWrite("ERR ", __VA_ARGS__)
 
-// Logs the call site and returns hr, so it can be used inline in a condition.
-HRESULT LogHrFailure(HRESULT hr, const char* expr, const char* file, int line);
-
-#define CAP_HR(expr) ::cap::LogHrFailure((expr), #expr, __FILE__, __LINE__)
-
-// Human readable HRESULT, e.g. "0x80070002 (The system cannot find the file
-// specified)". The text comes from Windows: in English where T() speaks English
-// and Windows has the English text, otherwise in the language of the system.
-std::string HrToString(HRESULT hr);
-
-// The same, always asking for English first -- for log lines written directly
-// rather than through CAP_SAID.
-std::string HrToEnglish(HRESULT hr);
-
 // Hands a failure message to the caller in the interface language and writes
 // it to the log in English, at the place it arises. `error` may be null. False,
 // so `return ReportError(error, CAP_SAID(...));` works.
+//
+// This is how a failure travels: as a sentence, not as a platform's error code.
+// Where a code helps someone searching for it, the sentence carries it.
 bool ReportError(std::string* error, const Said& said);
 
 // ------------------------------------------------------------------ misc utils
@@ -129,18 +121,5 @@ template <typename T>
 T Clamp(T v, T lo, T hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
-
-// RAII wrapper for CoInitializeEx on the calling thread.
-class ComScope {
- public:
-  explicit ComScope(DWORD model = COINIT_APARTMENTTHREADED);
-  ~ComScope();
-  ComScope(const ComScope&) = delete;
-  ComScope& operator=(const ComScope&) = delete;
-  bool ok() const { return initialized_; }
-
- private:
-  bool initialized_ = false;
-};
 
 }  // namespace cap

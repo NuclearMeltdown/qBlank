@@ -1,9 +1,10 @@
 #include "update/updater.h"
 
-// common.h pulls in windows.h, and both of the headers below need it to have
-// been seen first -- shellapi.h in particular is a wall of errors without it.
 #include "common.h"
 
+// Both of the headers below need windows.h to have been seen first --
+// shellapi.h in particular is a wall of errors without it.
+#include <windows.h>
 #include <shellapi.h>
 #include <winhttp.h>
 

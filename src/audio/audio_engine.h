@@ -26,7 +26,7 @@
 #include "audio/audio_ring.h"
 #include "audio/dshow_audio_capture.h"
 #include "audio/pcm.h"
-#include "common.h"
+#include "common_win32.h"
 #include "config.h"
 
 namespace cap {

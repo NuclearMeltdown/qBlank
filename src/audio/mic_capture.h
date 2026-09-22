@@ -22,7 +22,7 @@
 
 #include "audio/audio_devices.h"
 #include "audio/audio_ring.h"
-#include "common.h"
+#include "common_win32.h"
 #include "config.h"
 
 namespace cap {
