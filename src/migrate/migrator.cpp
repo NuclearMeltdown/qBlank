@@ -32,7 +32,6 @@
 #include <objbase.h>
 #include <shellapi.h>
 #include <uxtheme.h>
-#include <winhttp.h>
 
 #include <cstdarg>
 #include <cstdio>
@@ -632,27 +631,10 @@ void Install() {
 
   SetStatus(Format(T("%s wird geladen", "Downloading %s"), Narrow(newStem).c_str()));
 
-  std::wstring host, path;
-  {
-    URL_COMPONENTS parts = {};
-    const std::wstring wide = Widen(url);
-    parts.dwStructSize = sizeof(parts);
-    parts.dwHostNameLength = (DWORD)-1;
-    parts.dwUrlPathLength = (DWORD)-1;
-    parts.dwExtraInfoLength = (DWORD)-1;
-    if (!::WinHttpCrackUrl(wide.c_str(), (DWORD)wide.size(), 0, &parts)) {
-      Fail(T("Die Download-Adresse war nicht lesbar.", "The download address made no sense."));
-      return;
-    }
-    host.assign(parts.lpszHostName, parts.dwHostNameLength);
-    path.assign(parts.lpszUrlPath, parts.dwUrlPathLength);
-    if (parts.dwExtraInfoLength > 0) path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
-  }
-
   std::string data;
   FetchError error = FetchError::None;
   int status = 0;
-  if (!HttpGet(host, path, false, &data, &error, &status)) {
+  if (!FetchUrl(url, false, &data, &error, &status)) {
     Fail(WhyFetchFailed(error, status));
     return;
   }

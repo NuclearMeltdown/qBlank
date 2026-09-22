@@ -2,13 +2,13 @@
 
 #include <windows.h>
 #include <bcrypt.h>
-#include <winhttp.h>
 
 #include <cstdio>
 #include <vector>
 
-#include "app_identity.h"
+#include "app_files.h"
 #include "child_process.h"
+#include "http.h"
 #include "i18n.h"
 #include "text_win32.h"
 
@@ -19,68 +19,27 @@ namespace {
 // redirects to whatever the current release is. Measured against the BtbN build
 // at 106 vs 163 MB with the same set of encoders, so this is the smaller of two
 // equals.
-const wchar_t kHost[] = L"www.gyan.dev";
-const wchar_t kPath[] = L"/ffmpeg/builds/ffmpeg-release-essentials.zip";
-const wchar_t kHashPath[] = L"/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256";
+const char kArchiveUrl[] = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+const char kHashUrl[] =
+    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256";
 
-struct WinHttpHandles {
-  HINTERNET session = nullptr;
-  HINTERNET connect = nullptr;
-  HINTERNET request = nullptr;
-  ~WinHttpHandles() {
-    if (request) ::WinHttpCloseHandle(request);
-    if (connect) ::WinHttpCloseHandle(connect);
-    if (session) ::WinHttpCloseHandle(session);
-  }
-};
-
-bool OpenRequest(WinHttpHandles* h, const wchar_t* path, bool followRedirects) {
-  h->session = ::WinHttpOpen(kAppName, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-  if (!h->session) return false;
-
-  DWORD timeout = 30000;
-  ::WinHttpSetTimeouts(h->session, timeout, timeout, timeout, timeout);
-
-  h->connect = ::WinHttpConnect(h->session, kHost, INTERNET_DEFAULT_HTTPS_PORT, 0);
-  if (!h->connect) return false;
-
-  h->request = ::WinHttpOpenRequest(h->connect, L"GET", path, nullptr, WINHTTP_NO_REFERER,
-                                    WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
-  if (!h->request) return false;
-
-  if (!followRedirects) {
-    DWORD policy = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
-    ::WinHttpSetOption(h->request, WINHTTP_OPTION_REDIRECT_POLICY, &policy, sizeof(policy));
-  }
-  if (!::WinHttpSendRequest(h->request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA,
-                            0, 0, 0)) {
-    return false;
-  }
-  return ::WinHttpReceiveResponse(h->request, nullptr) != FALSE;
-}
-
-std::wstring ReadHeader(HINTERNET request, DWORD header) {
-  DWORD size = 0;
-  ::WinHttpQueryHeaders(request, header, WINHTTP_HEADER_NAME_BY_INDEX, nullptr, &size,
-                        WINHTTP_NO_HEADER_INDEX);
-  if (::GetLastError() != ERROR_INSUFFICIENT_BUFFER || size == 0) return {};
-  std::wstring value(size / sizeof(wchar_t), L'\0');
-  if (!::WinHttpQueryHeaders(request, header, WINHTTP_HEADER_NAME_BY_INDEX, value.data(), &size,
-                             WINHTTP_NO_HEADER_INDEX)) {
-    return {};
-  }
-  value.resize(wcslen(value.c_str()));
-  return value;
+// A download of this size needs longer than the default to get going.
+HttpRequest Ask(const char* url) {
+  HttpRequest request;
+  request.url = url;
+  request.userAgent = AppNameUtf8();
+  request.timeoutMs = 30000;
+  return request;
 }
 
 // The stable URL answers with a redirect whose target carries the version:
 // .../packages/ffmpeg-9.0.1-essentials_build.zip
 std::string VersionFromRedirect() {
-  WinHttpHandles h;
-  if (!OpenRequest(&h, kPath, false)) return {};
-  const std::wstring location = ReadHeader(h.request, WINHTTP_QUERY_LOCATION);
-  const std::string text = ToUtf8(location);
+  HttpRequest request = Ask(kArchiveUrl);
+  request.followRedirects = false;  // the redirect is the answer
+  HttpResponse response;
+  if (!HttpGet(request, &response, nullptr, nullptr)) return {};
+  const std::string& text = response.location;
 
   const size_t start = text.find("ffmpeg-");
   if (start == std::string::npos) return {};
@@ -93,18 +52,9 @@ std::string VersionFromRedirect() {
   return version;
 }
 
-std::string DownloadText(const wchar_t* path) {
-  WinHttpHandles h;
-  if (!OpenRequest(&h, path, true)) return {};
+std::string DownloadText(const char* url) {
   std::string out;
-  DWORD available = 0;
-  while (::WinHttpQueryDataAvailable(h.request, &available) && available > 0) {
-    std::vector<char> buffer(available);
-    DWORD read = 0;
-    if (!::WinHttpReadData(h.request, buffer.data(), available, &read) || read == 0) break;
-    out.append(buffer.data(), read);
-    if (out.size() > 4096) break;
-  }
+  if (!HttpGetString(Ask(url), &out, nullptr, nullptr, 4096)) return {};
   return out;
 }
 
@@ -257,7 +207,7 @@ void FfmpegDownloader::Run(std::filesystem::path targetFolder, bool versionOnly)
 
   // --- the checksum first, so a mismatch is detectable at all ---
   SetMessage(T("Hole Prüfsumme ...", "Fetching the checksum ..."));
-  std::string expected = Trim(DownloadText(kHashPath));
+  std::string expected = Trim(DownloadText(kHashUrl));
   const size_t space = expected.find_first_of(" \t");
   if (space != std::string::npos) expected = expected.substr(0, space);
   expected = ToUpper(expected);
@@ -270,14 +220,6 @@ void FfmpegDownloader::Run(std::filesystem::path targetFolder, bool versionOnly)
   const std::wstring archive = std::wstring(tempDir) + L"qblank_ffmpeg.zip";
 
   {
-    WinHttpHandles h;
-    if (!OpenRequest(&h, kPath, true)) {
-      finish(false, CAP_SAID(T("Verbindung fehlgeschlagen.", "The connection failed.")));
-      return;
-    }
-    const std::wstring lengthText = ReadHeader(h.request, WINHTTP_QUERY_CONTENT_LENGTH);
-    const uint64_t total = lengthText.empty() ? 0 : _wcstoui64(lengthText.c_str(), nullptr, 10);
-
     HANDLE out = ::CreateFileW(archive.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                FILE_ATTRIBUTE_NORMAL, nullptr);
     if (out == INVALID_HANDLE_VALUE) {
@@ -287,26 +229,28 @@ void FfmpegDownloader::Run(std::filesystem::path targetFolder, bool versionOnly)
     }
 
     uint64_t received = 0;
-    DWORD available = 0;
-    bool ok = true;
-    while (::WinHttpQueryDataAvailable(h.request, &available) && available > 0) {
-      if (cancel_.load(std::memory_order_relaxed)) {
-        ok = false;
-        break;
-      }
-      std::vector<char> buffer(available);
-      DWORD read = 0;
-      if (!::WinHttpReadData(h.request, buffer.data(), available, &read) || read == 0) break;
-      DWORD written = 0;
-      if (!::WriteFile(out, buffer.data(), read, &written, nullptr) || written != read) {
-        ok = false;
-        break;
-      }
-      received += read;
-      if (total > 0) progress_.store((float)((double)received / (double)total));
-      SetMessage(Format(T("Lade ffmpeg ... %.1f MB", "Downloading ffmpeg ... %.1f MB"),
-                        (double)received / (1024.0 * 1024.0)));
-    }
+    HttpResponse response;
+    // Straight to the file as it arrives: a hundred megabytes has no business
+    // sitting in memory first. Answering false is how Cancel gets out of here.
+    const bool ok = HttpGet(Ask(kArchiveUrl), &response,
+                            [&](const void* data, size_t size) {
+                              if (cancel_.load(std::memory_order_relaxed)) return false;
+                              DWORD written = 0;
+                              if (!::WriteFile(out, data, (DWORD)size, &written, nullptr) ||
+                                  written != size) {
+                                return false;
+                              }
+                              received += size;
+                              if (response.contentLength > 0) {
+                                progress_.store(
+                                    (float)((double)received / (double)response.contentLength));
+                              }
+                              SetMessage(
+                                  Format(T("Lade ffmpeg ... %.1f MB", "Downloading ffmpeg ... %.1f MB"),
+                                         (double)received / (1024.0 * 1024.0)));
+                              return true;
+                            },
+                            nullptr);
     ::CloseHandle(out);
 
     if (!ok || received == 0) {

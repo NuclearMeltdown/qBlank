@@ -61,6 +61,7 @@ add_executable(qBlank WIN32
   src/common_win32.cpp
   src/platform_win32.cpp
   src/child_process_win32.cpp
+  src/http_win32.cpp
   src/text_win32.cpp
   src/wake_signal_win32.cpp
   src/i18n.cpp
@@ -193,6 +194,7 @@ add_executable(CapViewMigrator WIN32
   src/i18n.cpp
   src/json.cpp
   src/update/release_source.cpp
+  src/http_win32.cpp
   "${CMAKE_BINARY_DIR}/migrator.rc"
 )
 target_include_directories(CapViewMigrator PRIVATE

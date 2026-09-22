@@ -1,13 +1,10 @@
 #include "update/release_source.h"
 
-#include <windows.h>
-
-#include <winhttp.h>
-
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
 
+#include "http.h"
 #include "json.h"
 
 namespace cap {
@@ -18,16 +15,16 @@ namespace {
 // including after being handed to a different account. Asking GitHub for a
 // repository that has moved answers with a redirect to exactly this form.
 const ReleaseSource kSource = {
-    L"api.github.com",
-    L"/repositories/1340564357/releases/latest",
-    L"/repos/NuclearMeltdown/qBlank/releases/latest",
+    "api.github.com",
+    "/repositories/1340564357/releases/latest",
+    "/repos/NuclearMeltdown/qBlank/releases/latest",
     "https://github.com/NuclearMeltdown/qBlank/releases",
     "https://nuclearmeltdown.github.io/qBlank/",
 };
 
 // Named after the account rather than the program, because the account is the
 // part of this that has never changed. GitHub only insists that there is one.
-const wchar_t kAgent[] = L"NuclearMeltdown-Updater";
+const char kAgent[] = "NuclearMeltdown-Updater";
 
 #if defined(_M_ARM64)
 const char kArchLabel[] = "app-arm64";
@@ -36,27 +33,6 @@ const char kArchLabel[] = "app-x64";
 #else
 const char kArchLabel[] = "app-x86";
 #endif
-
-// Kept local rather than taken from common.h: the migrator compiles this file
-// too, and it has no business pulling in the rest of the program.
-std::wstring Widen(const std::string& s) {
-  if (s.empty()) return std::wstring();
-  const int n = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
-  std::wstring out((size_t)n, L'\0');
-  ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), out.data(), n);
-  return out;
-}
-
-struct Handles {
-  HINTERNET session = nullptr;
-  HINTERNET connect = nullptr;
-  HINTERNET request = nullptr;
-  ~Handles() {
-    if (request) ::WinHttpCloseHandle(request);
-    if (connect) ::WinHttpCloseHandle(connect);
-    if (session) ::WinHttpCloseHandle(session);
-  }
-};
 
 bool EndsWith(const std::string& text, const char* tail) {
   const size_t n = std::char_traits<char>::length(tail);
@@ -153,9 +129,24 @@ void ReadAssets(const json::Value& root, Release* out) {
   }
 }
 
-bool FetchFrom(const wchar_t* path, Release* out, FetchError* error, int* httpStatus) {
+FetchError Reason(HttpError error) {
+  switch (error) {
+    case HttpError::NoNetwork: return FetchError::NoNetwork;
+    case HttpError::NoServer: return FetchError::NoServer;
+    case HttpError::NoRequest: return FetchError::NoRequest;
+    case HttpError::NoAnswer: return FetchError::NoAnswer;
+    case HttpError::Status: return FetchError::HttpStatus;
+    case HttpError::Transfer: return FetchError::Transfer;
+    case HttpError::None: break;
+  }
+  return FetchError::None;
+}
+
+bool FetchFrom(const char* path, Release* out, FetchError* error, int* httpStatus) {
   std::string body;
-  if (!HttpGet(kSource.host, path, true, &body, error, httpStatus)) return false;
+  if (!FetchUrl(std::string("https://") + kSource.host + path, true, &body, error, httpStatus)) {
+    return false;
+  }
 
   std::string parseError;
   const json::Value root = json::Parse(body, &parseError);
@@ -178,61 +169,19 @@ const ReleaseSource& Releases() { return kSource; }
 
 // GitHub refuses requests without a user agent, and the API wants to be told
 // which version of itself to speak.
-bool HttpGet(const std::wstring& host, const std::wstring& path, bool api, std::string* out,
-             FetchError* error, int* httpStatus) {
-  Handles h;
-  h.session = ::WinHttpOpen(kAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-                            WINHTTP_NO_PROXY_BYPASS, 0);
-  if (!h.session) {
-    if (error) *error = FetchError::NoNetwork;
-    return false;
-  }
-  const DWORD timeout = 20000;
-  ::WinHttpSetTimeouts(h.session, timeout, timeout, timeout, timeout);
+bool FetchUrl(const std::string& url, bool api, std::string* out, FetchError* error,
+              int* httpStatus) {
+  HttpRequest request;
+  request.url = url;
+  request.userAgent = kAgent;
+  request.accept = api ? "application/vnd.github+json" : "application/octet-stream";
 
-  h.connect = ::WinHttpConnect(h.session, host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
-  if (!h.connect) {
-    if (error) *error = FetchError::NoServer;
-    return false;
-  }
-  h.request = ::WinHttpOpenRequest(h.connect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
-                                   WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
-  if (!h.request) {
-    if (error) *error = FetchError::NoRequest;
-    return false;
-  }
-  const wchar_t* headers = api ? L"Accept: application/vnd.github+json\r\n"
-                               : L"Accept: application/octet-stream\r\n";
-  if (!::WinHttpSendRequest(h.request, headers, (DWORD)-1, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-      !::WinHttpReceiveResponse(h.request, nullptr)) {
-    if (error) *error = FetchError::NoAnswer;
-    return false;
-  }
-
-  DWORD status = 0, size = sizeof(status);
-  ::WinHttpQueryHeaders(h.request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX);
-  if (status != 200) {
-    if (error) *error = FetchError::HttpStatus;
-    if (httpStatus) *httpStatus = (int)status;
-    return false;
-  }
-
-  out->clear();
-  for (;;) {
-    DWORD available = 0;
-    if (!::WinHttpQueryDataAvailable(h.request, &available) || available == 0) break;
-    const size_t offset = out->size();
-    out->resize(offset + available);
-    DWORD read = 0;
-    if (!::WinHttpReadData(h.request, out->data() + offset, available, &read)) {
-      if (error) *error = FetchError::Transfer;
-      return false;
-    }
-    out->resize(offset + read);
-    if (read == 0) break;
-  }
-  return true;
+  HttpResponse response;
+  HttpError why = HttpError::None;
+  if (HttpGetString(request, out, &response, &why)) return true;
+  if (error) *error = Reason(why);
+  if (httpStatus) *httpStatus = response.status;
+  return false;
 }
 
 bool FetchLatestRelease(Release* out, FetchError* error, int* httpStatus) {

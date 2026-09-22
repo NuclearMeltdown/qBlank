@@ -2,18 +2,15 @@
 
 #include "common.h"
 
-// Both of the headers below need windows.h to have been seen first --
-// shellapi.h in particular is a wall of errors without it.
+// shellapi.h is a wall of errors without windows.h having been seen first.
 #include <windows.h>
 #include <shellapi.h>
-#include <winhttp.h>
 
 #include <vector>
 
 #include "app_identity.h"
 #include "i18n.h"
 #include "update/release_source.h"
-#include "text_win32.h"
 
 namespace cap {
 namespace {
@@ -41,22 +38,6 @@ UpdateError Translate(FetchError error) {
     default:
       return UpdateError::None;
   }
-}
-
-bool SplitUrl(const std::string& url, std::wstring* host, std::wstring* path) {
-  const std::wstring wide = ToWide(url);
-  URL_COMPONENTS parts = {};
-  parts.dwStructSize = sizeof(parts);
-  parts.dwHostNameLength = (DWORD)-1;
-  parts.dwUrlPathLength = (DWORD)-1;
-  parts.dwExtraInfoLength = (DWORD)-1;
-  if (!::WinHttpCrackUrl(wide.c_str(), (DWORD)wide.size(), 0, &parts)) return false;
-  *host = std::wstring(parts.lpszHostName, parts.dwHostNameLength);
-  *path = std::wstring(parts.lpszUrlPath, parts.dwUrlPathLength);
-  if (parts.dwExtraInfoLength > 0) {
-    path->append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
-  }
-  return true;
 }
 
 }  // namespace
@@ -198,8 +179,7 @@ void Updater::Run(bool install) {
   s.error = UpdateError::None;
   SetStatus(s);
 
-  std::wstring host, path;
-  if (downloadUrl_.empty() || !SplitUrl(downloadUrl_, &host, &path)) {
+  if (downloadUrl_.empty()) {
     s.state = UpdateStatus::State::Failed;
     s.error = UpdateError::NoUrl;
     SetStatus(s);
@@ -209,7 +189,7 @@ void Updater::Run(bool install) {
 
   std::string data;
   FetchError error = FetchError::None;
-  if (!HttpGet(host, path, false, &data, &error, &s.httpStatus)) {
+  if (!FetchUrl(downloadUrl_, false, &data, &error, &s.httpStatus)) {
     s.state = UpdateStatus::State::Failed;
     s.error = Translate(error);
     SetStatus(s);

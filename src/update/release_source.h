@@ -21,8 +21,9 @@
 // see AdoptOwnName in app_identity.h. That is the whole reason a rename after
 // this one needs no migrator.
 //
-// This file deliberately depends on nothing but Windows and the JSON reader:
-// the migrator shipped for the old name compiles it too, and must stay small.
+// This file deliberately depends on nothing but the HTTP interface and the JSON
+// reader: the migrator shipped for the old name compiles it too, and must stay
+// small.
 
 #include <string>
 #include <vector>
@@ -61,17 +62,19 @@ struct Release {
 // thing in two ways; the fallbacks are for when there is no answer at all and
 // somebody has to be told where to look by hand.
 struct ReleaseSource {
-  const wchar_t* host;
-  const wchar_t* byNumber;
-  const wchar_t* byName;
+  const char* host;
+  const char* byNumber;
+  const char* byName;
   const char* releasePage;
   const char* website;
 };
 const ReleaseSource& Releases();
 
-// A plain GET. `api` only picks the Accept header.
-bool HttpGet(const std::wstring& host, const std::wstring& path, bool api, std::string* out,
-             FetchError* error, int* httpStatus);
+// A plain GET, with this program's user agent and the answer in memory. `api`
+// only picks the Accept header. Anything that went wrong is one of the reasons
+// above, which is what the windows in front of this can put into words.
+bool FetchUrl(const std::string& url, bool api, std::string* out, FetchError* error,
+              int* httpStatus);
 
 // The newest release: by number first, by name if that fails.
 bool FetchLatestRelease(Release* out, FetchError* error, int* httpStatus);
