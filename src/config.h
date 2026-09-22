@@ -8,6 +8,7 @@
 // source -- device, crossbar input, capture format, image and audio settings --
 // so "SNES 4:3 nearest" and "PS2 Component 480i" are one hotkey apart.
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -745,7 +746,7 @@ struct Config {
   void SetActiveProfile(int index);
 
   // qBlank.json next to the executable -- portable, no registry.
-  static std::wstring FilePath();
+  static std::filesystem::path FilePath();
 
   // Returns false when the file is missing or unreadable; defaults are kept in
   // that case and `error` describes the problem (empty if simply absent).
@@ -761,9 +762,9 @@ struct Config {
 // A settings file lying next to the program under a name this build does not
 // use -- the leftovers of a rename, or of a copy someone kept.
 struct ForeignSettings {
-  std::wstring path;    // the full path
-  std::wstring stem;    // the file name without ".json"
-  std::string program;  // the name the file gives the program; older files say nothing
+  std::filesystem::path path;  // the full path
+  std::string stem;            // the file name without ".json"
+  std::string program;         // the name the file gives the program; older files say nothing
 
   // The language those settings are in, as the Language enum, -1 when the file
   // does not say. The question about this file has to be asked in it: whoever
@@ -785,7 +786,7 @@ std::vector<ForeignSettings> FindForeignSettings();
 // The language stored in one settings file, as the Language enum, -1 when the
 // file cannot be read or does not say. For the one moment before the settings
 // are loaded, when something already has to be said in the right language.
-int SettingsLanguage(const std::wstring& path);
+int SettingsLanguage(const std::filesystem::path& path);
 
 // Asked once per foreign file: take those settings over, or start fresh?
 // `haveOwn` says whether there are settings under the current name as well --
@@ -805,6 +806,6 @@ using SettingsChoice = SettingsAnswer (*)(const ForeignSettings& found, bool hav
 //
 // Returns the name the adopted settings were written under, empty when nothing
 // was adopted. Whatever loses is set aside as ".bak", never deleted.
-std::wstring AdoptSettings(SettingsChoice ask);
+std::string AdoptSettings(SettingsChoice ask);
 
 }  // namespace cap

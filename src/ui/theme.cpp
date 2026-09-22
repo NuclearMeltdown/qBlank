@@ -7,6 +7,7 @@
 
 #include "common.h"
 #include "imgui.h"
+#include "text_win32.h"
 
 namespace cap {
 namespace {

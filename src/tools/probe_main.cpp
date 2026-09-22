@@ -25,6 +25,7 @@
 #include "capture/video_capture.h"
 #include "common.h"
 #include "record/ffmpeg_locator.h"
+#include "text_win32.h"
 #include "tools/mf_probe.h"
 
 using namespace cap;

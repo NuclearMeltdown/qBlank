@@ -5,6 +5,8 @@
 #include <cstring>
 #include <mutex>
 
+#include "text_win32.h"
+
 namespace cap {
 
 namespace {
@@ -16,24 +18,6 @@ ULONGLONG g_log_opened = 0;
 }  // namespace
 
 // ---------------------------------------------------------------- string utils
-
-std::string ToUtf8(const std::wstring& w) {
-  if (w.empty()) return {};
-  int n = ::WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
-  if (n <= 0) return {};
-  std::string out((size_t)n, '\0');
-  ::WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), out.data(), n, nullptr, nullptr);
-  return out;
-}
-
-std::wstring ToWide(const std::string& s) {
-  if (s.empty()) return {};
-  int n = ::MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
-  if (n <= 0) return {};
-  std::wstring out((size_t)n, L'\0');
-  ::MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), out.data(), n);
-  return out;
-}
 
 std::string ToUpper(std::string s) {
   for (char& c : s) {
@@ -286,7 +270,7 @@ UnfinishedSession LogInit(bool toFile, const LogRetention& keep) {
     g_log_file = nullptr;
   }
   if (!toFile) return unfinished;
-  const std::wstring path = AppFile(L"log");
+  const std::wstring path = OwnFile("log").native();
   std::string text = ReadLog(path);
 
   // Before the clean-up, which may well be about to take that very session out.
@@ -417,7 +401,9 @@ HRESULT LogHrFailure(HRESULT hr, const char* expr, const char* file, int line) {
 
 // ------------------------------------------------------------------ misc utils
 
-bool EnsureFolder(const std::wstring& path) {
+namespace {
+
+bool EnsureFolderW(const std::wstring& path) {
   if (path.empty()) return false;
   if (::CreateDirectoryW(path.c_str(), nullptr)) return true;
   const DWORD err = ::GetLastError();
@@ -426,15 +412,19 @@ bool EnsureFolder(const std::wstring& path) {
 
   const size_t slash = path.find_last_of(L"\\/");
   if (slash == std::wstring::npos) return false;
-  if (!EnsureFolder(path.substr(0, slash))) return false;
+  if (!EnsureFolderW(path.substr(0, slash))) return false;
   return ::CreateDirectoryW(path.c_str(), nullptr) || ::GetLastError() == ERROR_ALREADY_EXISTS;
 }
 
-bool DiskFreeBytes(const std::wstring& path, uint64_t* freeBytes) {
+}  // namespace
+
+bool EnsureFolder(const std::filesystem::path& path) { return EnsureFolderW(path.native()); }
+
+bool DiskFreeBytes(const std::filesystem::path& path, uint64_t* freeBytes) {
   if (freeBytes) *freeBytes = 0;
   if (path.empty()) return false;
 
-  std::wstring probe = path;
+  std::wstring probe = path.native();
   while (!probe.empty()) {
     ULARGE_INTEGER avail = {};
     // Der erste der drei Werte und nicht der zweite: er ist das, was diesem

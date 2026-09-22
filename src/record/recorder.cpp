@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstring>
 
+#include "app_identity.h"
 #include "i18n.h"
 #include "render/video_renderer.h"  // for the readback pixel format
+#include "text_win32.h"
 
 namespace cap {
 namespace {
@@ -344,7 +346,7 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
   pullAudio_ = main.pull;
   pullMic_ = mic.pull;
 
-  std::wstring folder = settings.outputFolder.empty() ? DefaultRecordFolder()
+  std::wstring folder = settings.outputFolder.empty() ? DefaultRecordFolder().native()
                                                       : ToWide(settings.outputFolder);
   if (!folder.empty() && (folder.back() == L'\\' || folder.back() == L'/')) folder.pop_back();
   if (!EnsureFolder(folder)) {

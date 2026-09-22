@@ -5,7 +5,9 @@
 #include <algorithm>
 
 #include "common.h"
+#include "app_identity.h"
 #include "i18n.h"
+#include "text_win32.h"
 #include "vcam/vcam_shared.h"
 
 #pragma comment(lib, "shell32.lib")

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "app_identity.h"
 #include "backends/imgui_impl_dx11.h"
 #include "backends/imgui_impl_win32.h"
 #include "i18n.h"
@@ -16,6 +17,7 @@
 #include "render/d3d_context.h"
 #include "record/screenshot.h"
 #include "resource.h"
+#include "text_win32.h"
 #include "ui/theme.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
@@ -200,16 +202,16 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
   // place. Anyone who wants the new folder can pick it; nobody has to go looking
   // for files that moved on their own.
   if (!AdoptedFrom().empty()) {
-    const wchar_t* was = AdoptedFrom().c_str();
+    const std::string& was = AdoptedFrom();
     if (config_.record.outputFolder.empty()) {
-      config_.record.outputFolder = ToUtf8(DefaultRecordFolder(was));
+      config_.record.outputFolder = PathToUtf8(DefaultRecordFolder(was));
     }
     if (config_.record.screenshotFolder.empty()) {
-      config_.record.screenshotFolder = ToUtf8(DefaultScreenshotFolder(was));
+      config_.record.screenshotFolder = PathToUtf8(DefaultScreenshotFolder(was));
     }
     config_.Save();
     CAP_LOG("Settings adopted from %s; folders pinned",
-            ToUtf8(AdoptedFrom()).c_str());
+            AdoptedFrom().c_str());
   }
 
   SetLanguage(config_.app.language);
@@ -954,7 +956,7 @@ void ShowFileInExplorer(const std::wstring& file) {
 
 }  // namespace
 
-void App::Toast(const std::string& text, const std::wstring& file) {
+void App::Toast(const std::string& text, const std::filesystem::path& file) {
   toastText_ = text;
   toastFile_ = file;
   toastTouched_ = false;
@@ -998,7 +1000,7 @@ void App::DrawToastStrip() {
       Toast(T("Die Datei ist nicht mehr da.", "The file is no longer there."));
       return;
     }
-    ShowFileInExplorer(toastFile_);
+    ShowFileInExplorer(toastFile_.native());
     toastText_.clear();
     toastFile_.clear();
   }
@@ -1243,7 +1245,7 @@ void App::StartRecording() {
   // Resolve the folder before handing it over, so a deleted directory is
   // recreated -- or answered with the default -- instead of failing the start.
   RecordSettings settings = config_.record;
-  const std::wstring folder =
+  const std::filesystem::path folder =
       ResolveOutputFolder(&config_.record.outputFolder, DefaultRecordFolder());
   if (folder.empty()) {
     renderer_.SetReadbackEnabled(false);
@@ -1251,7 +1253,7 @@ void App::StartRecording() {
     Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
     return;
   }
-  settings.outputFolder = ToUtf8(folder);
+  settings.outputFolder = PathToUtf8(folder);
 
   // Gar nicht erst anfangen, wenn der Platz schon jetzt nicht reicht: ffmpeg
   // wuerde starten, seinen Kopf schreiben und sterben, und liegen bliebe eine
@@ -1375,12 +1377,14 @@ void App::StopRecording() {
   renderer_.SetReadbackEnabled(false);
   audio_.SetTapEnabled(false);
   Toast(Format(T("Aufnahme gespeichert (%.0f s)", "Recording saved (%.0f s)"), stats.seconds),
-        ToWide(stats.file));
+        Utf8ToPath(stats.file));
 }
 
-std::wstring App::ResolveOutputFolder(std::string* configured, const std::wstring& fallback) {
-  std::wstring folder = configured->empty() ? fallback : ToWide(*configured);
-  while (!folder.empty() && (folder.back() == L'\\' || folder.back() == L'/')) folder.pop_back();
+std::filesystem::path App::ResolveOutputFolder(std::string* configured,
+                                               const std::filesystem::path& fallback) {
+  std::filesystem::path::string_type folder =
+      configured->empty() ? fallback.native() : Utf8ToPath(*configured).native();
+  while (!folder.empty() && (folder.back() == '\\' || folder.back() == '/')) folder.pop_back();
 
   // Deleting the folder between two recordings is normal housekeeping, so the
   // first answer is simply to make it again.
@@ -1389,7 +1393,7 @@ std::wstring App::ResolveOutputFolder(std::string* configured, const std::wstrin
   // It cannot be created either -- an unplugged drive, a path that is no longer
   // writable. Rather than refuse, fall back to the default and clear the custom
   // path so the settings show where the files are actually going now.
-  CAP_WARN("Folder not available: %s", ToUtf8(folder).c_str());
+  CAP_WARN("Folder not available: %s", PathToUtf8(folder).c_str());
   if (!configured->empty() && EnsureFolder(fallback)) {
     Toast(T("Ordner nicht verfügbar, Standardordner wird benutzt.",
             "Folder not available, using the default folder."));
@@ -1426,9 +1430,9 @@ void App::UpdateDiskSpace() {
     // sich mit Einblendungen, und beides hat eine Abfrage im Sekundentakt nicht
     // zu tun. DiskFreeBytes geht selbst bis zum naechsten vorhandenen Elternteil
     // hoch, der Ordner muss also noch gar nicht existieren.
-    const std::wstring folder = config_.record.outputFolder.empty()
-                                    ? DefaultRecordFolder()
-                                    : ToWide(config_.record.outputFolder);
+    const std::filesystem::path folder = config_.record.outputFolder.empty()
+                                             ? DefaultRecordFolder()
+                                             : Utf8ToPath(config_.record.outputFolder);
     diskFreeKnown_ = DiskFreeBytes(folder, &diskFreeBytes_);
   }
   settings_.SetDiskFree(diskFreeBytes_, diskFreeKnown_, diskBytesPerSecond_);
@@ -1469,8 +1473,8 @@ void App::SyncMicrophone(bool aboutToRecord) {
   mic_.SetGain(a.micGain);
 }
 
-void App::OpenFolderInExplorer(std::string* configured, const std::wstring& fallback) {
-  const std::wstring folder = ResolveOutputFolder(configured, fallback);
+void App::OpenFolderInExplorer(std::string* configured, const std::filesystem::path& fallback) {
+  const std::filesystem::path folder = ResolveOutputFolder(configured, fallback);
   if (folder.empty()) {
     Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
     return;
@@ -1561,15 +1565,15 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
     return;
   }
 
-  const std::wstring folder =
+  const std::filesystem::path folder =
       ResolveOutputFolder(&rec.screenshotFolder, DefaultScreenshotFolder());
-  const std::wstring path =
-      folder.empty() ? std::wstring()
+  const std::filesystem::path path =
+      folder.empty() ? std::filesystem::path()
       : wide          ? MakeHdrScreenshotPath(folder, config_.app.hdrShotFormat)
                       : MakeScreenshotPath(folder, rec.screenshotFormat);
   if (path.empty()) {
     Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
-    CAP_ERR("Screenshot: folder not available: %s", ToUtf8(folder).c_str());
+    CAP_ERR("Screenshot: folder not available: %s", PathToUtf8(folder).c_str());
     return;
   }
 
@@ -1578,7 +1582,7 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
       !wide ? SaveScreenshot(path, pixels.data(), width, height, rec.screenshotFormat,
                              rec.jpegQuality, &error)
       : config_.app.hdrShotFormat == HdrShotFormat::Avif
-          ? SaveScreenshotAvif(path, ToWide(ffmpeg_.path), halfPixels.data(), width, height,
+          ? SaveScreenshotAvif(path, Utf8ToPath(ffmpeg_.path), halfPixels.data(), width, height,
                                halfStride, config_.app.paperWhiteNits, &error)
           : SaveScreenshotHdr(path, halfPixels.data(), width, height, halfStride,
                               config_.app.paperWhiteNits, &error);
@@ -1589,11 +1593,8 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
 
   // The file name, not the whole path: the path is long, and the point of the
   // message is "it worked and it is called this".
-  const size_t slash = path.find_last_of(L'\\');
-  Toast(T("Screenshot: ", "Screenshot: ") +
-            ToUtf8(slash == std::wstring::npos ? path : path.substr(slash + 1)) + note,
-        path);
-  CAP_LOG("Screenshot saved: %s (%dx%d)", ToUtf8(path).c_str(), width, height);
+  Toast(T("Screenshot: ", "Screenshot: ") + PathToUtf8(path.filename()) + note, path);
+  CAP_LOG("Screenshot saved: %s (%dx%d)", PathToUtf8(path).c_str(), width, height);
 }
 
 // ------------------------------------------------------------- crop picker
@@ -3965,8 +3966,7 @@ void App::DrawSettingsWindowed() {
 
   if (settings_.isOpen() != settingsHost_.visible()) {
     if (settings_.isOpen()) {
-      settingsHost_.Show(std::wstring(kAppName) +
-                         ToWide(T(" – Einstellungen", " – Settings")));
+      settingsHost_.Show(AppNameUtf8() + T(" – Einstellungen", " – Settings"));
     } else {
       settingsHost_.Hide();
     }
@@ -4203,7 +4203,7 @@ void App::DrawCrashNotice() {
 
   const float buttonWidth = 130.0f * uiScale_;
   if (ImGui::Button(T("Protokoll öffnen", "Open log"), ImVec2(buttonWidth, 0))) {
-    ::ShellExecuteW(nullptr, L"open", AppFile(L"log").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    ::ShellExecuteW(nullptr, L"open", OwnFile("log").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();

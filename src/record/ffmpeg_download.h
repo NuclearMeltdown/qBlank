@@ -15,6 +15,7 @@
 // child process is not linking, so the two stay separate programs.
 
 #include <atomic>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -35,7 +36,7 @@ class FfmpegDownloader {
 
   // Downloads, verifies, extracts, cleans up. Returns false when one is already
   // running. `targetFolder` receives ffmpeg.exe directly.
-  bool Start(const std::wstring& targetFolder);
+  bool Start(const std::filesystem::path& targetFolder);
 
   // Asks the server which version it would deliver, without downloading. Runs on
   // the same worker, so it is also asynchronous.
@@ -56,7 +57,7 @@ class FfmpegDownloader {
   std::string resultPath() const;
 
  private:
-  void Run(std::wstring targetFolder, bool versionOnly);
+  void Run(std::filesystem::path targetFolder, bool versionOnly);
   void SetMessage(const std::string& text);
 
   std::thread thread_;

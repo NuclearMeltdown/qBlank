@@ -1,12 +1,13 @@
 #pragma once
 
-// What this program is called -- and what it used to be called.
+// What this program is called -- and what it used to be called -- on the
+// Windows side: the wide name the Windows API takes, the window class, and
+// correcting the executable's own name after a rename. The rest of the program
+// gets the name and its own files from app_files.h.
 //
-// Every name the program wears is derived from one string: the executable, the
-// settings file, the log, the window class, the folders it suggests for
-// recordings. Renaming the program is therefore two edits in this file: change
-// kAppName, append the old one to kFormerAppNames. Nothing else in the source
-// spells the name out.
+// Every name the program wears is derived from one string, in app_name.h.
+// Renaming the program is therefore two edits: change that one, append the old
+// one to kFormerAppNames here. Nothing else in the source spells the name out.
 //
 // The list of former names is the part that matters after a rename has already
 // happened. A build that finds CapView.json next to itself knows that file was
@@ -18,12 +19,15 @@
 #include <string>
 #include <vector>
 
+#include "app_name.h"
+
 namespace cap {
 
 // The literal, for the handful of places that have to paste the name together
 // before there is a program to ask: a resource script, the camera's name in the
-// device list. Everywhere else uses kAppName.
-#define CAP_APP_NAME L"qBlank"
+// device list. Everywhere else uses kAppName. An empty wide literal in front
+// makes the whole concatenation wide.
+#define CAP_APP_NAME L"" CAP_APP_NAME_UTF8
 
 inline const wchar_t kAppName[] = CAP_APP_NAME;
 
@@ -31,10 +35,6 @@ inline const wchar_t kAppName[] = CAP_APP_NAME;
 // 3.7; 4.0 is that same program under the name it keeps.
 inline const wchar_t* const kFormerAppNames[] = {L"CapView"};
 inline constexpr size_t kFormerAppNameCount = 1;
-
-// The same name for the places that speak UTF-8 -- window titles drawn by the
-// interface, log lines, message text.
-const std::string& AppNameUtf8();
 
 // The window class this program registers. Carries the name so two programs
 // never collide over it.
@@ -64,16 +64,6 @@ bool SetAside(const std::wstring& path);
 // Only the log. Which settings file belongs to this program is not decided by
 // its name but by what is in it -- see FindForeignSettings in config.h.
 void AdoptFormerLog();
-
-// Which name the settings now in use were written under, empty when they were
-// always under the current one. Set by whoever adopts them, read by anything
-// that runs later in startup.
-//
-// It matters because settings can mean different things under different names:
-// an empty folder setting means "next to the videos, in a folder called after
-// the program", and that folder does not rename itself.
-const std::wstring& AdoptedFrom();
-void SetAdoptedFrom(const std::wstring& name);
 
 // If the running image carries a name this build no longer answers to, renames
 // it and points shortcuts at the new path. Windows allows renaming a running

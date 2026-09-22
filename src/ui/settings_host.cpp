@@ -9,6 +9,8 @@
 #include "imgui.h"
 #include "ui/theme.h"
 #include "i18n.h"
+#include "app_identity.h"
+#include "text_win32.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
                                                              LPARAM lParam);
@@ -363,9 +365,9 @@ void SettingsHost::Resize() {
   CreateRenderTarget();
 }
 
-void SettingsHost::Show(const std::wstring& title) {
+void SettingsHost::Show(const std::string& title) {
   if (!hwnd_) return;
-  ::SetWindowTextW(hwnd_, title.c_str());
+  ::SetWindowTextW(hwnd_, ToWide(title).c_str());
   // SW_SHOW displays a minimised window *still minimised*, and BeginFrame then
   // refuses to draw it -- so reopening the settings after minimising them did
   // nothing at all. Only reachable since this window gained a taskbar button

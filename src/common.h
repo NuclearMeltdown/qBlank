@@ -7,12 +7,13 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 // What the program is called, and where its own files are. Everything that
-// spells out a name gets it from there -- see src/app_identity.h.
-#include "app_identity.h"
+// spells out a name gets it from there -- see src/app_files.h.
+#include "app_files.h"
 #include "i18n.h"
 
 // Short alias -- ComPtr shows up on almost every line of the DirectShow / D3D code.
@@ -23,8 +24,12 @@ namespace cap {
 
 // ---------------------------------------------------------------- string utils
 
-std::string ToUtf8(const std::wstring& w);
-std::wstring ToWide(const std::string& s);
+// A path as UTF-8, for the log, the interface and the settings file -- and
+// back. Text is UTF-8 everywhere in the program; a path stays a path until it
+// has to be shown or stored. Neither direction throws: what does not convert
+// cleanly comes out as U+FFFD.
+std::string PathToUtf8(const std::filesystem::path& path);
+std::filesystem::path Utf8ToPath(const std::string& text);
 
 // Uppercase ASCII copy, used for case-insensitive id/name matching.
 std::string ToUpper(std::string s);
@@ -88,7 +93,7 @@ bool ReportError(std::string* error, const Said& said);
 
 // ------------------------------------------------------------------ misc utils
 
-// ExeDirectory, AppFile and the rest live in app_identity.h, included above.
+// ExeFolder, OwnFile and the rest live in app_files.h, included above.
 
 // What this build calls itself. Compared against the newest release tag on
 // GitHub, so it has to line up with how those are named -- "v1.1" there against
@@ -104,13 +109,13 @@ bool ReportError(std::string* error, const Said& said);
 inline const char* kAppVersion = QBLANK_VERSION;
 
 // Creates a directory and every missing parent. True when it exists afterwards.
-bool EnsureFolder(const std::wstring& path);
+bool EnsureFolder(const std::filesystem::path& path);
 
 // Bytes still free on the volume `path` lies on, for the user the program runs
 // as -- a quota counts, which is what a recording actually runs into. False
 // when the path cannot be reached at all; the folder itself need not exist yet,
 // the nearest existing parent answers for it.
-bool DiskFreeBytes(const std::wstring& path, uint64_t* freeBytes);
+bool DiskFreeBytes(const std::filesystem::path& path, uint64_t* freeBytes);
 
 // "412 GB", "3,7 TB". Binary prefixes, because that is what Explorer shows and
 // two different numbers for the same disk is worse than either convention.

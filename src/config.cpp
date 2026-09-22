@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <cmath>
 
+#include "app_identity.h"
 #include "common.h"
 #include "json.h"
+#include "text_win32.h"
 
 namespace cap {
 
@@ -740,7 +742,7 @@ Profile ReadProfile(const json::Value& v) {
   return p;
 }
 
-bool ReadWholeFile(const std::wstring& path, std::string& out) {
+bool ReadWholeFile(const std::filesystem::path& path, std::string& out) {
   HANDLE h = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
   if (h == INVALID_HANDLE_VALUE) return false;
@@ -764,8 +766,8 @@ bool ReadWholeFile(const std::wstring& path, std::string& out) {
 
 // Writes to a sibling temp file and swaps it in, so an interrupted save cannot
 // leave a truncated config behind.
-bool WriteWholeFileAtomic(const std::wstring& path, const std::string& data) {
-  std::wstring tmp = path + L".tmp";
+bool WriteWholeFileAtomic(const std::filesystem::path& path, const std::string& data) {
+  std::wstring tmp = path.native() + L".tmp";
   HANDLE h = ::CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
   if (h == INVALID_HANDLE_VALUE) return false;
@@ -857,13 +859,13 @@ void Config::SetActiveProfile(int index) {
   if (index >= 0 && index < (int)profiles.size()) activeProfile = index;
 }
 
-std::wstring Config::FilePath() {
-  return AppFile(L"json");
+std::filesystem::path Config::FilePath() {
+  return OwnFile("json");
 }
 
 std::vector<ForeignSettings> FindForeignSettings() {
   const std::wstring folder = ExeDirectory();
-  const std::wstring mine = FileStem(Config::FilePath());
+  const std::wstring mine = FileStem(Config::FilePath().native());
 
   WIN32_FIND_DATAW found = {};
   const HANDLE search = ::FindFirstFileW((folder + L"*.json").c_str(), &found);
@@ -875,9 +877,10 @@ std::vector<ForeignSettings> FindForeignSettings() {
   std::vector<std::pair<unsigned long long, ForeignSettings>> dated;
   do {
     if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+    const std::wstring stem = FileStem(found.cFileName);
+    if (_wcsicmp(stem.c_str(), mine.c_str()) == 0) continue;
     ForeignSettings entry;
-    entry.stem = FileStem(found.cFileName);
-    if (_wcsicmp(entry.stem.c_str(), mine.c_str()) == 0) continue;
+    entry.stem = ToUtf8(stem);
     entry.path = folder + found.cFileName;
 
     std::string text;
@@ -900,7 +903,7 @@ std::vector<ForeignSettings> FindForeignSettings() {
   return out;
 }
 
-int SettingsLanguage(const std::wstring& path) {
+int SettingsLanguage(const std::filesystem::path& path) {
   std::string text;
   if (!ReadWholeFile(path, text)) return -1;
   ForeignSettings probe;
@@ -908,31 +911,31 @@ int SettingsLanguage(const std::wstring& path) {
   return probe.language;
 }
 
-std::wstring AdoptSettings(SettingsChoice ask) {
+std::string AdoptSettings(SettingsChoice ask) {
   const std::vector<ForeignSettings> others = FindForeignSettings();
-  if (others.empty()) return std::wstring();
+  if (others.empty()) return std::string();
 
   const ForeignSettings& other = others.front();
-  const std::wstring mine = Config::FilePath();
+  const std::filesystem::path mine = Config::FilePath();
   const bool haveOwn = ::GetFileAttributesW(mine.c_str()) != INVALID_FILE_ATTRIBUTES;
 
   // Nobody but the user knows which of the two files has the evening's work in
   // it, so nobody but the user answers this. The loser is set aside rather than
   // removed, which makes the wrong answer survivable.
   const SettingsAnswer answer = ask ? ask(other, haveOwn) : SettingsAnswer::Discard;
-  if (answer == SettingsAnswer::Postpone) return std::wstring();
+  if (answer == SettingsAnswer::Postpone) return std::string();
   if (answer == SettingsAnswer::Discard) {
-    SetAside(other.path);
-    return std::wstring();
+    SetFileAside(other.path);
+    return std::string();
   }
-  if (haveOwn) SetAside(mine);
+  if (haveOwn) SetFileAside(mine);
   if (!::MoveFileExW(other.path.c_str(), mine.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-    return std::wstring();
+    return std::string();
   }
 
   // What the file calls the program if it says so, otherwise what it is called
   // -- either way the name those settings were written under.
-  const std::wstring from = other.program.empty() ? other.stem : ToWide(other.program);
+  const std::string from = other.program.empty() ? other.stem : other.program;
   SetAdoptedFrom(from);
   return from;
 }

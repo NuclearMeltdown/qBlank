@@ -4,6 +4,7 @@
 
 #include "i18n.h"
 #include "record/ffmpeg_locator.h"
+#include "text_win32.h"
 
 namespace cap {
 namespace {
@@ -75,14 +76,15 @@ Remuxer::~Remuxer() {
   if (thread_.joinable()) thread_.join();
 }
 
-bool Remuxer::Start(const std::wstring& ffmpegPath, const std::vector<std::wstring>& inputs) {
+bool Remuxer::Start(const std::filesystem::path& ffmpegPath,
+                    const std::vector<std::filesystem::path>& inputs) {
   if (busy() || inputs.empty() || ffmpegPath.empty()) return false;
   if (thread_.joinable()) thread_.join();
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
     items_.clear();
-    for (const std::wstring& input : inputs) {
+    for (const std::filesystem::path& input : inputs) {
       Item item;
       item.input = input;
       items_.push_back(std::move(item));
@@ -116,7 +118,7 @@ void Remuxer::SetMessage(const std::string& text) {
   message_ = text;
 }
 
-void Remuxer::Run(std::wstring ffmpegPath) {
+void Remuxer::Run(std::filesystem::path ffmpegPath) {
   size_t count = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -133,7 +135,7 @@ void Remuxer::Run(std::wstring ffmpegPath) {
     std::wstring input;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      input = items_[i].input;
+      input = items_[i].input.native();
     }
     const std::wstring output = MakeOutputName(input);
 
@@ -149,7 +151,7 @@ void Remuxer::Run(std::wstring ffmpegPath) {
     std::string captured;
     DWORD exitCode = 0;
     const bool started =
-        RunFfmpeg(ToUtf8(ffmpegPath), args, &captured, &exitCode, 30 * 60 * 1000);
+        RunFfmpeg(PathToUtf8(ffmpegPath), ToUtf8(args), &captured, &exitCode, 30 * 60 * 1000);
 
     const bool good = started && exitCode == 0 && FileExists(output);
     Said failure;

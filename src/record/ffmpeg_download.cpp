@@ -6,7 +6,9 @@
 #include <cstdio>
 #include <vector>
 
+#include "app_identity.h"
 #include "i18n.h"
+#include "text_win32.h"
 
 namespace cap {
 namespace {
@@ -216,7 +218,7 @@ void FfmpegDownloader::SetMessage(const std::string& text) {
   message_ = text;
 }
 
-bool FfmpegDownloader::Start(const std::wstring& targetFolder) {
+bool FfmpegDownloader::Start(const std::filesystem::path& targetFolder) {
   if (busy()) return false;
   if (thread_.joinable()) thread_.join();
   cancel_.store(false, std::memory_order_relaxed);
@@ -231,11 +233,11 @@ bool FfmpegDownloader::StartVersionCheck() {
   if (thread_.joinable()) thread_.join();
   cancel_.store(false, std::memory_order_relaxed);
   state_.store(State::Running, std::memory_order_relaxed);
-  thread_ = std::thread(&FfmpegDownloader::Run, this, std::wstring(), true);
+  thread_ = std::thread(&FfmpegDownloader::Run, this, std::filesystem::path(), true);
   return true;
 }
 
-void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
+void FfmpegDownloader::Run(std::filesystem::path targetFolder, bool versionOnly) {
   auto finish = [&](bool ok, const Said& said) {
     if (!ok && !said.logged.empty()) CAP_ERR("ffmpeg download: %s", said.logged.c_str());
     SetMessage(said.shown);
@@ -338,14 +340,14 @@ void FfmpegDownloader::Run(std::wstring targetFolder, bool versionOnly) {
   SetMessage(T("Entpacke ...", "Extracting ..."));
   ::CreateDirectoryW(targetFolder.c_str(), nullptr);
   std::string extractError;
-  if (!ExtractWithTar(archive, targetFolder, &extractError)) {
+  if (!ExtractWithTar(archive, targetFolder.native(), &extractError)) {
     ::DeleteFileW(archive.c_str());
     finish(false, Relayed(extractError));
     return;
   }
   ::DeleteFileW(archive.c_str());
 
-  const std::wstring exe = targetFolder + L"\\ffmpeg.exe";
+  const std::wstring exe = targetFolder.native() + L"\\ffmpeg.exe";
   if (::GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
     finish(false, CAP_SAID(T("ffmpeg.exe war nicht im Archiv.", "ffmpeg.exe was not in the archive.")));
     return;

@@ -13,7 +13,6 @@ namespace {
 // out the name the module was loaded under, which by then is a file that no
 // longer exists -- and the updater would try to move it aside.
 std::wstring g_exe_override;
-std::wstring g_adopted_from;
 
 bool SameText(const std::wstring& a, const std::wstring& b) {
   return ::CompareStringOrdinal(a.c_str(), (int)a.size(), b.c_str(), (int)b.size(), TRUE) ==
@@ -111,16 +110,6 @@ int RepointIn(const std::wstring& folder, const std::wstring& from, const std::w
 
 }  // namespace
 
-const std::string& AppNameUtf8() {
-  static const std::string name = [] {
-    const int n = ::WideCharToMultiByte(CP_UTF8, 0, kAppName, -1, nullptr, 0, nullptr, nullptr);
-    std::string out((size_t)(n > 0 ? n - 1 : 0), '\0');
-    if (n > 1) ::WideCharToMultiByte(CP_UTF8, 0, kAppName, -1, out.data(), n, nullptr, nullptr);
-    return out;
-  }();
-  return name;
-}
-
 std::wstring WindowClassName(const wchar_t* suffix) {
   return std::wstring(kAppName) + suffix;
 }
@@ -174,14 +163,10 @@ std::wstring FormerAppFile(size_t index, const wchar_t* extension) {
   return ExeDirectory() + kFormerAppNames[index] + L"." + extension;
 }
 
-const std::wstring& AdoptedFrom() { return g_adopted_from; }
-
 bool SetAside(const std::wstring& path) {
   if (!Exists(path)) return true;
   return ::MoveFileExW(path.c_str(), (path + L".bak").c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE;
 }
-
-void SetAdoptedFrom(const std::wstring& name) { g_adopted_from = name; }
 
 void AdoptFormerLog() {
   // Newest predecessor first, and only into a gap: a log is a record of what

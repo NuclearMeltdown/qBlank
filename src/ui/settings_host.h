@@ -71,7 +71,7 @@ class SettingsHost {
     onKey_ = std::move(callback);
   }
 
-  void Show(const std::wstring& title);
+  void Show(const std::string& title);
   void Hide();
   // Brings the window back in front of everything, from minimised as well.
   void Raise();

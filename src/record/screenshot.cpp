@@ -8,7 +8,9 @@
 #include <cmath>
 #include <vector>
 
+#include "app_identity.h"
 #include "i18n.h"
+#include "text_win32.h"
 
 namespace cap {
 namespace {
@@ -19,7 +21,7 @@ bool FileExists(const std::wstring& path) {
 
 }  // namespace
 
-bool SaveScreenshot(const std::wstring& path, const uint8_t* pixels, int width, int height,
+bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, int width, int height,
                     ScreenshotFormat format, int jpegQuality, std::string* error) {
   auto fail = [&](const Said& said) {
     CAP_ERR("Screenshot: %s", said.logged.c_str());
@@ -173,8 +175,8 @@ bool CopyScreenshotToClipboard(HWND owner, const uint8_t* pixels, int width, int
   return true;
 }
 
-bool SaveScreenshotHdr(const std::wstring& path, const uint16_t* halfRgba, int width, int height,
-                       int stride, float paperWhiteNits, std::string* error) {
+bool SaveScreenshotHdr(const std::filesystem::path& path, const uint16_t* halfRgba, int width,
+                       int height, int stride, float paperWhiteNits, std::string* error) {
   auto fail = [&](const Said& said) {
     CAP_ERR("HDR screenshot: %s", said.logged.c_str());
     if (error) *error = said.shown;
@@ -286,7 +288,7 @@ void HalfToPq10(const uint16_t* halfRgba, int width, int height, int stride,
 
 }  // namespace
 
-bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath,
+bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem::path& ffmpegPath,
                         const uint16_t* halfRgba, int width, int height, int stride,
                         float paperWhiteNits, std::string* error) {
   auto fail = [&](const Said& said) {
@@ -310,7 +312,7 @@ bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath
   // Without these it is a dark picture rather than an HDR one; nothing else in
   // the file says the samples are on the PQ curve.
   args += L" -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc";
-  args += L" -f avif \"" + path + L"\"";
+  args += L" -f avif \"" + path.native() + L"\"";
 
   // Through a file rather than a pipe. One still is not worth the plumbing, and
   // a temporary file cannot deadlock against a process that stops reading.
@@ -342,7 +344,7 @@ bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath
   args = args.substr(0, args.find(L"-i pipe:0")) + L"-i \"" + raw + L"\" " +
          args.substr(args.find(L"-i pipe:0") + 9);
 
-  std::wstring command = L"\"" + ffmpegPath + L"\" " + args;
+  std::wstring command = L"\"" + ffmpegPath.native() + L"\" " + args;
   STARTUPINFOW si = {};
   si.cb = sizeof(si);
   si.dwFlags = STARTF_USESHOWWINDOW;
@@ -367,7 +369,7 @@ bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath
   return true;
 }
 
-std::wstring DefaultScreenshotFolder(const wchar_t* name) {
+std::filesystem::path DefaultScreenshotFolder(const std::string& name) {
   PWSTR pictures = nullptr;
   std::wstring folder;
   if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &pictures)) && pictures) {
@@ -376,17 +378,19 @@ std::wstring DefaultScreenshotFolder(const wchar_t* name) {
   }
   if (folder.empty()) folder = ExeDirectory();
   if (!folder.empty() && folder.back() != L'\\') folder += L'\\';
-  return folder + (name ? name : kAppName);
+  return std::filesystem::path(folder + ToWide(name));
 }
 
-std::wstring MakeHdrScreenshotPath(const std::wstring& folder, HdrShotFormat format) {
-  const std::wstring base = MakeScreenshotPath(folder, ScreenshotFormat::Png);
+std::filesystem::path MakeHdrScreenshotPath(const std::filesystem::path& folder,
+                                            HdrShotFormat format) {
+  const std::wstring base = MakeScreenshotPath(folder, ScreenshotFormat::Png).native();
   if (base.empty()) return base;
   return base.substr(0, base.size() - 4) + (format == HdrShotFormat::Avif ? L".avif" : L".jxr");
 }
 
-std::wstring MakeScreenshotPath(const std::wstring& folder, ScreenshotFormat format) {
-  std::wstring dir = folder;
+std::filesystem::path MakeScreenshotPath(const std::filesystem::path& folder,
+                                         ScreenshotFormat format) {
+  std::wstring dir = folder.native();
   if (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
   if (!EnsureFolder(dir)) return {};
 

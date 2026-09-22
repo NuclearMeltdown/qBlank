@@ -5,11 +5,13 @@
 #include <string>
 
 #include "app.h"
+#include "app_identity.h"
 #include "common.h"
 #include "config.h"
 #include "i18n.h"
 #include "record/ffmpeg_download.h"
 #include "record/ffmpeg_locator.h"
+#include "text_win32.h"
 #include "ui/startup_dialog.h"
 #include "update/updater.h"
 
@@ -49,7 +51,7 @@ std::string WhenWritten(unsigned long long fileTime) {
   return cap::ToUtf8(std::wstring(date) + L" " + time);
 }
 
-unsigned long long LastWritten(const std::wstring& path) {
+unsigned long long LastWritten(const std::filesystem::path& path) {
   WIN32_FILE_ATTRIBUTE_DATA info = {};
   if (!::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info)) return 0;
   ULARGE_INTEGER when = {};
@@ -64,7 +66,7 @@ unsigned long long LastWritten(const std::wstring& path) {
 // whichever file loses ends up as ".bak" and is not offered a second time.
 cap::SettingsAnswer AskAboutSettings(const cap::ForeignSettings& found, bool haveOwn) {
   SpeakLanguageOf(found);
-  const std::string file = cap::ToUtf8(found.stem);
+  const std::string file = found.stem;
   const std::string label = found.program.empty() ? file : found.program;
   const std::string mine = cap::AppNameUtf8();
 
@@ -144,7 +146,7 @@ int FetchFfmpeg() {
   std::printf("\nqBlank: fetching ffmpeg ...\n");
 
   cap::FfmpegDownloader downloader;
-  if (!downloader.Start(cap::ExeDirectory() + L"ffmpeg")) {
+  if (!downloader.Start(cap::ExeFolder() / "ffmpeg")) {
     std::printf("Could not start the download.\n");
     return 1;
   }

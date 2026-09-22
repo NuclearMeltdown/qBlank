@@ -54,8 +54,11 @@ set_target_properties(qblank_vcam PROPERTIES
 
 add_executable(qBlank WIN32
   src/main.cpp
+  src/app_files.cpp
+  src/app_files_win32.cpp
   src/app_identity.cpp
   src/common.cpp
+  src/text_win32.cpp
   src/i18n.cpp
   src/app.cpp
   src/config.cpp
@@ -198,8 +201,11 @@ add_executable(qblank_probe
   src/tools/probe_main.cpp
   src/tools/mf_probe.cpp
   src/record/ffmpeg_locator.cpp
+  src/app_files.cpp
+  src/app_files_win32.cpp
   src/app_identity.cpp
   src/common.cpp
+  src/text_win32.cpp
   src/i18n.cpp
   src/config.cpp
   src/hotkeys.cpp

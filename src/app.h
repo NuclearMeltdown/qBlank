@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -170,7 +171,7 @@ class App {
   // daran.
   void UpdateDiskSpace();
   void DrawToolbarStrip();
-  void OpenFolderInExplorer(std::string* configured, const std::wstring& fallback);
+  void OpenFolderInExplorer(std::string* configured, const std::filesystem::path& fallback);
   // Starts or stops the microphone to match the settings and what is going on.
   // `aboutToRecord` starts it for a recording that has not begun yet -- the
   // sample rate has to be known before ffmpeg is given its command line.
@@ -277,7 +278,8 @@ class App {
  private:
   // Makes sure an output folder exists. Recreates it when it was deleted, and
   // falls back to the default when even that fails.
-  std::wstring ResolveOutputFolder(std::string* configured, const std::wstring& fallback);
+  std::filesystem::path ResolveOutputFolder(std::string* configured,
+                                            const std::filesystem::path& fallback);
   void StartRecording();
   void StopRecording();
   // Hands the readback frame to the recorder, if one is running.
@@ -300,7 +302,7 @@ class App {
 
   // `file`, if given, makes the toast clickable: a click shows that file in
   // Explorer.
-  void Toast(const std::string& text, const std::wstring& file = {});
+  void Toast(const std::string& text, const std::filesystem::path& file = {});
   void DrawToastStrip();
   void UpdatePowerRequest();
   void SaveWindowPlacement();
@@ -604,7 +606,7 @@ class App {
   std::atomic<uint32_t> signalSeq_{0};
   uint32_t standardSeqAtSet_ = 0;
   std::string toastText_;
-  std::wstring toastFile_;  // what a click on the toast shows, empty if nothing
+  std::filesystem::path toastFile_;  // what a click on the toast shows, empty if nothing
   bool toastHint_ = false;     // this one says that it can be clicked
   bool toastTouched_ = false;  // the mouse has moved over it since it appeared
   double toastStart_ = 0.0;

@@ -18,6 +18,7 @@
 // polls for the result. The picture keeps running while someone browses.
 
 #include <atomic>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -32,13 +33,13 @@ struct FileDialogRequest {
   enum class Mode { Folder, OpenFile, OpenFiles };
 
   Mode mode = Mode::Folder;
-  std::wstring title;
-  std::wstring startPath;  // folder to open in, or a file whose folder is used
-  // Label and pattern, e.g. {L"Recordings", L"*.mkv;*.mp4"}. Ignored for
+  std::string title;
+  std::filesystem::path startPath;  // folder to open in, or a file whose folder is used
+  // Label and pattern, e.g. {"Recordings", "*.mkv;*.mp4"}. Ignored for
   // Mode::Folder. Kept as separate strings on purpose: the Win32 filter format
   // is a single buffer with embedded nulls, and building that by concatenating
   // strings silently truncates at the first one.
-  std::vector<std::pair<std::wstring, std::wstring>> filters;
+  std::vector<std::pair<std::string, std::string>> filters;
 };
 
 class AsyncFileDialog {
@@ -58,7 +59,7 @@ class AsyncFileDialog {
 
   // True exactly once, after the dialog closed. `out` is empty when the user
   // cancelled. `tag` receives what was passed to Start.
-  bool TakeResult(std::vector<std::wstring>* out, int* tag);
+  bool TakeResult(std::vector<std::filesystem::path>* out, int* tag);
 
  private:
   void Run(FileDialogRequest request, HWND owner);
@@ -69,7 +70,7 @@ class AsyncFileDialog {
   int tag_ = 0;
 
   mutable std::mutex mutex_;
-  std::vector<std::wstring> results_;
+  std::vector<std::filesystem::path> results_;
 };
 
 }  // namespace cap

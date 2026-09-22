@@ -6,6 +6,7 @@
 // spot -- there is no Apply button and nothing to confirm. A snapshot is taken
 // when the dialog opens, which is what "Discard" restores.
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -232,7 +233,7 @@ class SettingsWindow {
   void DrawUpdatesTab();
   // Text field plus Browse / Default / Open, shared by both output folders.
   void FolderRow(const char* id, int pickTag, char* buffer, size_t bufferSize,
-                 std::string* value, const std::wstring& defaultFolder);
+                 std::string* value, const std::filesystem::path& defaultFolder);
   // Applies a finished file dialog to whichever field opened it.
   void PollFileDialog(FfmpegInfo* ffmpeg);
  public:

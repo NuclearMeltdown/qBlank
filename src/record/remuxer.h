@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -25,8 +26,8 @@ class Remuxer {
   enum class State { Idle, Running, Done, Failed };
 
   struct Item {
-    std::wstring input;
-    std::wstring output;  // filled in once known
+    std::filesystem::path input;
+    std::filesystem::path output;  // filled in once known
     bool done = false;
     bool ok = false;
     std::string error;
@@ -41,7 +42,8 @@ class Remuxer {
   // Rewraps every file into `.mp4` beside itself. Returns false if one is
   // already running or the list is empty. Existing files are never overwritten;
   // a numbered suffix is used instead.
-  bool Start(const std::wstring& ffmpegPath, const std::vector<std::wstring>& inputs);
+  bool Start(const std::filesystem::path& ffmpegPath,
+             const std::vector<std::filesystem::path>& inputs);
 
   void Cancel();
 
@@ -58,7 +60,7 @@ class Remuxer {
   int okCount() const { return ok_.load(std::memory_order_relaxed); }
 
  private:
-  void Run(std::wstring ffmpegPath);
+  void Run(std::filesystem::path ffmpegPath);
   void SetMessage(const std::string& text);
 
   std::thread thread_;

@@ -1,6 +1,7 @@
 #include "capture/dshow_util.h"
 
 #include "i18n.h"
+#include "text_win32.h"
 
 #include <dvdmedia.h>  // VIDEOINFOHEADER2
 #include <ks.h>        // KSPROPERTY_SUPPORT_GET / _SET

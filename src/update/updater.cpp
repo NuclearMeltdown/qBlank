@@ -12,6 +12,7 @@
 #include "app_identity.h"
 #include "i18n.h"
 #include "update/release_source.h"
+#include "text_win32.h"
 
 namespace cap {
 namespace {

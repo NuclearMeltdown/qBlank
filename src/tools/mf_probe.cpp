@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "common.h"
+#include "text_win32.h"
 
 namespace cap {
 namespace {

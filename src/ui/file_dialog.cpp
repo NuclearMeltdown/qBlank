@@ -2,6 +2,8 @@
 
 #include <shobjidl.h>
 
+#include "text_win32.h"
+
 namespace cap {
 
 AsyncFileDialog::~AsyncFileDialog() {
@@ -25,7 +27,7 @@ bool AsyncFileDialog::Start(const FileDialogRequest& request, HWND owner, int ta
   return true;
 }
 
-bool AsyncFileDialog::TakeResult(std::vector<std::wstring>* out, int* tag) {
+bool AsyncFileDialog::TakeResult(std::vector<std::filesystem::path>* out, int* tag) {
   if (!ready_.load(std::memory_order_acquire)) return false;
   ready_.store(false, std::memory_order_relaxed);
   if (thread_.joinable()) thread_.join();
@@ -38,7 +40,7 @@ bool AsyncFileDialog::TakeResult(std::vector<std::wstring>* out, int* tag) {
 }
 
 void AsyncFileDialog::Run(FileDialogRequest request, HWND owner) {
-  std::vector<std::wstring> picked;
+  std::vector<std::filesystem::path> picked;
 
   // Apartment threaded, which is what the common item dialogs require.
   const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -57,12 +59,16 @@ void AsyncFileDialog::Run(FileDialogRequest request, HWND owner) {
       }
       dialog->SetOptions(options);
 
-      if (!request.title.empty()) dialog->SetTitle(request.title.c_str());
+      if (!request.title.empty()) dialog->SetTitle(ToWide(request.title).c_str());
 
       if (!request.filters.empty()) {
+        // The spec only points into these, so they have to outlive the call.
+        std::vector<std::pair<std::wstring, std::wstring>> wide;
+        wide.reserve(request.filters.size());
+        for (const auto& f : request.filters) wide.emplace_back(ToWide(f.first), ToWide(f.second));
         std::vector<COMDLG_FILTERSPEC> specs;
-        specs.reserve(request.filters.size());
-        for (const auto& f : request.filters) {
+        specs.reserve(wide.size());
+        for (const auto& f : wide) {
           specs.push_back(COMDLG_FILTERSPEC{f.first.c_str(), f.second.c_str()});
         }
         dialog->SetFileTypes((UINT)specs.size(), specs.data());

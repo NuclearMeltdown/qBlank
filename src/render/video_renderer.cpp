@@ -8,6 +8,7 @@
 
 #include "render/shaders.h"
 #include "i18n.h"
+#include "app_identity.h"
 
 namespace cap {
 namespace {

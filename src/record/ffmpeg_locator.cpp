@@ -4,7 +4,9 @@
 
 #include <algorithm>
 
+#include "app_identity.h"
 #include "i18n.h"
+#include "text_win32.h"
 
 namespace cap {
 namespace {
@@ -65,7 +67,7 @@ std::string FirstLine(const std::string& text) {
 
 // --------------------------------------------------------------- running it
 
-bool RunFfmpeg(const std::string& exe, const std::wstring& args, std::string* output,
+bool RunFfmpeg(const std::string& exe, const std::string& args, std::string* output,
                DWORD* exitCode, DWORD timeoutMs) {
   if (output) output->clear();
   if (exitCode) *exitCode = (DWORD)-1;
@@ -89,7 +91,7 @@ bool RunFfmpeg(const std::string& exe, const std::wstring& args, std::string* ou
   si.hStdError = writePipe;
   si.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
 
-  std::wstring commandLine = L"\"" + ToWide(exe) + L"\" " + args;
+  std::wstring commandLine = L"\"" + ToWide(exe) + L"\" " + ToWide(args);
   std::vector<wchar_t> mutableCmd(commandLine.begin(), commandLine.end());
   mutableCmd.push_back(L'\0');
 
@@ -127,7 +129,7 @@ bool RunFfmpeg(const std::string& exe, const std::wstring& args, std::string* ou
 
 // ------------------------------------------------------------------ locating
 
-std::wstring DefaultRecordFolder(const wchar_t* name) {
+std::filesystem::path DefaultRecordFolder(const std::string& name) {
   PWSTR videos = nullptr;
   std::wstring folder;
   if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Videos, 0, nullptr, &videos)) && videos) {
@@ -136,7 +138,7 @@ std::wstring DefaultRecordFolder(const wchar_t* name) {
   }
   if (folder.empty()) folder = ExeDirectory();
   if (!folder.empty() && folder.back() != L'\\') folder += L'\\';
-  return folder + (name ? name : kAppName);
+  return std::filesystem::path(folder + ToWide(name));
 }
 
 FfmpegInfo LocateFfmpeg(const std::string& configuredPath) {
@@ -163,7 +165,7 @@ FfmpegInfo LocateFfmpeg(const std::string& configuredPath) {
   // Confirm it actually runs before believing the file name.
   std::string output;
   DWORD exitCode = 0;
-  if (!RunFfmpeg(ToUtf8(found), L"-hide_banner -version", &output, &exitCode, 8000)) {
+  if (!RunFfmpeg(ToUtf8(found), "-hide_banner -version", &output, &exitCode, 8000)) {
     return info;
   }
   if (output.find("ffmpeg version") == std::string::npos) return info;
@@ -204,9 +206,9 @@ namespace {
 // One test encode, result cached on the entry.
 bool TestOne(const std::string& exe, EncoderInfo* e) {
   if (e->tested) return e->available;
-  const std::wstring args =
-      L"-hide_banner -loglevel error -f lavfi -i testsrc=size=320x240:rate=30 "
-      L"-frames:v 2 -pix_fmt nv12 -c:v " + ToWide(e->ffmpegName) + L" -f null -";
+  const std::string args =
+      "-hide_banner -loglevel error -f lavfi -i testsrc=size=320x240:rate=30 "
+      "-frames:v 2 -pix_fmt nv12 -c:v " + e->ffmpegName + " -f null -";
 
   std::string output;
   DWORD exitCode = 0;

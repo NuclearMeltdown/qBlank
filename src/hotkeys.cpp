@@ -1,6 +1,7 @@
 #include "hotkeys.h"
 
 #include "i18n.h"
+#include "text_win32.h"
 
 namespace cap {
 

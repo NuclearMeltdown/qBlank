@@ -7,6 +7,7 @@
 // nobody has pressed the download button yet.
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 #include "common.h"
@@ -24,14 +25,14 @@ namespace cap {
 // The same picture as AVIF, by way of ffmpeg. Ten bit PQ in BT.2020, with the
 // colour description that makes it an HDR image rather than a dark one. Needs
 // ffmpeg present -- unlike everything else about screenshots.
-bool SaveScreenshotAvif(const std::wstring& path, const std::wstring& ffmpegPath,
+bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem::path& ffmpegPath,
                         const uint16_t* halfRgba, int width, int height, int stride,
                         float paperWhiteNits, std::string* error);
 
-bool SaveScreenshotHdr(const std::wstring& path, const uint16_t* halfRgba, int width, int height,
-                       int stride, float paperWhiteNits, std::string* error);
+bool SaveScreenshotHdr(const std::filesystem::path& path, const uint16_t* halfRgba, int width,
+                       int height, int stride, float paperWhiteNits, std::string* error);
 
-bool SaveScreenshot(const std::wstring& path, const uint8_t* pixels, int width, int height,
+bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, int width, int height,
                     ScreenshotFormat format, int jpegQuality, std::string* error);
 
 // The same picture, but onto the clipboard instead of into a file: paste it
@@ -48,12 +49,14 @@ bool CopyScreenshotToClipboard(HWND owner, const uint8_t* pixels, int width, int
 
 // Timestamped name in `folder`, with a counter when the same second is hit
 // twice. Creates the folder. Returns empty when the folder cannot be made.
-std::wstring MakeScreenshotPath(const std::wstring& folder, ScreenshotFormat format);
+std::filesystem::path MakeScreenshotPath(const std::filesystem::path& folder,
+                                         ScreenshotFormat format);
 // The same, for the two formats an HDR screenshot can take.
-std::wstring MakeHdrScreenshotPath(const std::wstring& folder, HdrShotFormat format);
+std::filesystem::path MakeHdrScreenshotPath(const std::filesystem::path& folder,
+                                            HdrShotFormat format);
 
 // Pictures\<program name>; see DefaultRecordFolder on why the name is an
 // argument.
-std::wstring DefaultScreenshotFolder(const wchar_t* name = kAppName);
+std::filesystem::path DefaultScreenshotFolder(const std::string& name = AppNameUtf8());
 
 }  // namespace cap

@@ -1,5 +1,6 @@
 #include "render/d3d_context.h"
 #include "i18n.h"
+#include "text_win32.h"
 
 #include <algorithm>
 #include <vector>

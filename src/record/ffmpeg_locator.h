@@ -8,6 +8,7 @@
 // candidate gets a one frame test encode to /dev/null, which takes a moment and
 // tells the truth.
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -74,15 +75,16 @@ std::vector<EncoderInfo> KnownEncoders();
 // actually do.
 void ApplyCachedProbe(FfmpegInfo* info, const std::vector<int>& available);
 
-// Runs ffmpeg with the given arguments and captures stdout+stderr.
+// Runs ffmpeg with the given arguments and captures stdout+stderr. `args` is
+// one UTF-8 string, quoted the way a command line is.
 // Returns false when the process could not be started at all.
-bool RunFfmpeg(const std::string& exe, const std::wstring& args, std::string* output,
+bool RunFfmpeg(const std::string& exe, const std::string& args, std::string* output,
                DWORD* exitCode, DWORD timeoutMs);
 
 // Default recording folder: Videos\<program name>. The name can be given, which
 // is what a build does after taking over the settings of an earlier name: the
 // recordings stay in the folder they have always been in rather than quietly
 // moving to a folder named after the new one.
-std::wstring DefaultRecordFolder(const wchar_t* name = kAppName);
+std::filesystem::path DefaultRecordFolder(const std::string& name = AppNameUtf8());
 
 }  // namespace cap

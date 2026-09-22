@@ -11,8 +11,10 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app_identity.h"
 #include "i18n.h"
 #include "record/screenshot.h"
+#include "text_win32.h"
 #include "ui/file_dialog.h"
 #include "imgui.h"
 
@@ -361,7 +363,7 @@ void SettingsWindow::EnsureValidFormat(const DeviceProbeResult& caps) {
 // ----------------------------------------------------------------------- draw
 
 void SettingsWindow::PollFileDialog(FfmpegInfo* ffmpeg) {
-  std::vector<std::wstring> picked;
+  std::vector<std::filesystem::path> picked;
   int tag = kPickNone;
   if (!picker_.TakeResult(&picked, &tag)) return;
   if (picked.empty()) return;  // cancelled
@@ -369,21 +371,21 @@ void SettingsWindow::PollFileDialog(FfmpegInfo* ffmpeg) {
   RecordSettings& rec = cfg().record;
   switch (tag) {
     case kPickRecordFolder:
-      rec.outputFolder = ToUtf8(picked.front());
+      rec.outputFolder = PathToUtf8(picked.front());
       std::snprintf(folderBuffer_, sizeof(folderBuffer_), "%s", rec.outputFolder.c_str());
       break;
     case kPickShotFolder:
-      rec.screenshotFolder = ToUtf8(picked.front());
+      rec.screenshotFolder = PathToUtf8(picked.front());
       std::snprintf(shotFolderBuffer_, sizeof(shotFolderBuffer_), "%s",
                     rec.screenshotFolder.c_str());
       break;
     case kPickFfmpeg:
-      rec.ffmpegPath = ToUtf8(picked.front());
+      rec.ffmpegPath = PathToUtf8(picked.front());
       std::snprintf(ffmpegPathBuffer_, sizeof(ffmpegPathBuffer_), "%s", rec.ffmpegPath.c_str());
       if (ffmpeg) *ffmpeg = LocateFfmpeg(rec.ffmpegPath);
       break;
     case kPickRemux:
-      if (ffmpeg && ffmpeg->found) remuxer_.Start(ToWide(ffmpeg->path), picked);
+      if (ffmpeg && ffmpeg->found) remuxer_.Start(Utf8ToPath(ffmpeg->path), picked);
       break;
     default:
       break;
@@ -3168,7 +3170,7 @@ void SettingsWindow::DrawDisplayTab() {
 // --------------------------------------------------------------- record tab
 
 void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t bufferSize,
-                              std::string* value, const std::wstring& defaultFolder) {
+                              std::string* value, const std::filesystem::path& defaultFolder) {
   const ImGuiStyle& style = ImGui::GetStyle();
   const float browse = ImGui::CalcTextSize(T("Durchsuchen", "Browse")).x + style.FramePadding.x * 2;
   const float reset = ImGui::CalcTextSize(T("Standard", "Default")).x + style.FramePadding.x * 2;
@@ -3176,7 +3178,8 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
 
   ImGui::SetNextItemWidth(-(browse + reset + open + style.ItemSpacing.x * 3.0f));
   const std::string field = std::string("##") + id;
-  if (ImGui::InputTextWithHint(field.c_str(), ToUtf8(defaultFolder).c_str(), buffer, bufferSize)) {
+  if (ImGui::InputTextWithHint(field.c_str(), PathToUtf8(defaultFolder).c_str(), buffer,
+                               bufferSize)) {
     *value = buffer;
   }
   Anchor(id);
@@ -3186,7 +3189,7 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
   if (ImGui::Button((std::string(T("Durchsuchen", "Browse")) + "##" + id).c_str())) {
     FileDialogRequest request;
     request.mode = FileDialogRequest::Mode::Folder;
-    request.startPath = value->empty() ? defaultFolder : ToWide(*value);
+    request.startPath = value->empty() ? defaultFolder : Utf8ToPath(*value);
     picker_.Start(request, (HWND)ImGui::GetMainViewport()->PlatformHandleRaw, pickTag);
   }
   ImGui::EndDisabled();
@@ -3204,7 +3207,7 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
 
   ImGui::SameLine();
   if (ImGui::Button((std::string(T("Öffnen", "Open")) + "##" + id).c_str())) {
-    std::wstring folder = value->empty() ? defaultFolder : ToWide(*value);
+    const std::filesystem::path folder = value->empty() ? defaultFolder : Utf8ToPath(*value);
     EnsureFolder(folder);
     ::ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
   }
@@ -3228,7 +3231,7 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
   ImGui::BeginDisabled(busy);
   if (ImGui::Button(ffmpeg && ffmpeg->found ? T("Neu herunterladen", "Download again")
                                             : T("ffmpeg herunterladen", "Download ffmpeg"))) {
-    downloader_.Start(ExeDirectory() + L"ffmpeg");
+    downloader_.Start(ExeFolder() / "ffmpeg");
   }
   ImGui::SetItemTooltip(T("Statisches Build von gyan.dev, rund 106 MB, SHA-256 wird geprüft.",
                           "Static build from gyan.dev, about 106 MB, SHA-256 is verified."));
@@ -3270,10 +3273,9 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
   if (ImGui::Button(T("Durchsuchen##ffmpeg", "Browse##ffmpeg"))) {
     FileDialogRequest request;
     request.mode = FileDialogRequest::Mode::OpenFile;
-    request.title = ToWide(T("ffmpeg.exe auswählen", "Select ffmpeg.exe"));
-    request.startPath = rec.ffmpegPath.empty() ? ExeDirectory() : ToWide(rec.ffmpegPath);
-    request.filters = {{L"ffmpeg.exe", L"ffmpeg.exe"},
-                       {ToWide(T("Programme", "Programs")), L"*.exe"}};
+    request.title = T("ffmpeg.exe auswählen", "Select ffmpeg.exe");
+    request.startPath = rec.ffmpegPath.empty() ? ExeFolder() : Utf8ToPath(rec.ffmpegPath);
+    request.filters = {{"ffmpeg.exe", "ffmpeg.exe"}, {T("Programme", "Programs"), "*.exe"}};
     picker_.Start(request, (HWND)ImGui::GetMainViewport()->PlatformHandleRaw, kPickFfmpeg);
   }
   ImGui::EndDisabled();
@@ -3450,11 +3452,11 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   if (ImGui::Button(T("Dateien wählen ...", "Choose files ..."))) {
     FileDialogRequest request;
     request.mode = FileDialogRequest::Mode::OpenFiles;
-    request.title = ToWide(T("Aufnahmen auswählen", "Select recordings"));
+    request.title = T("Aufnahmen auswählen", "Select recordings");
     request.startPath =
-        rec.outputFolder.empty() ? DefaultRecordFolder() : ToWide(rec.outputFolder);
-    request.filters = {{ToWide(T("Aufnahmen", "Recordings")), L"*.mkv;*.mp4;*.mov;*.avi;*.ts"},
-                       {ToWide(T("Alle Dateien", "All files")), L"*.*"}};
+        rec.outputFolder.empty() ? DefaultRecordFolder() : Utf8ToPath(rec.outputFolder);
+    request.filters = {{T("Aufnahmen", "Recordings"), "*.mkv;*.mp4;*.mov;*.avi;*.ts"},
+                       {T("Alle Dateien", "All files"), "*.*"}};
     picker_.Start(request, (HWND)ImGui::GetMainViewport()->PlatformHandleRaw, kPickRemux);
   }
   ImGui::EndDisabled();
