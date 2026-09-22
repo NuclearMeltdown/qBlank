@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "app_identity.h"
+#include "child_process.h"
 #include "i18n.h"
 #include "text_win32.h"
 
@@ -160,27 +161,21 @@ bool ExtractWithTar(const std::wstring& archive, const std::wstring& intoFolder,
     return false;
   }
 
-  // Pull out only the one member, dropping its folders.
-  std::wstring cmd = L"\"" + tar + L"\" -xf \"" + archive + L"\" -C \"" + intoFolder +
-                     L"\" --strip-components=2 \"*/bin/ffmpeg.exe\"";
-  std::vector<wchar_t> mutableCmd(cmd.begin(), cmd.end());
-  mutableCmd.push_back(L'\0');
+  // Pull out only the one member, dropping its folders. The pattern is quoted in
+  // a shell to keep the shell from expanding it; as one argument among others it
+  // reaches tar unchanged either way.
+  ProcessSpec spec;
+  spec.program = ToUtf8(tar);
+  spec.Add("-xf", ToUtf8(archive));
+  spec.Add("-C", ToUtf8(intoFolder));
+  spec.Add("--strip-components=2");
+  spec.Add("*/bin/ffmpeg.exe");
 
-  STARTUPINFOW si = {};
-  si.cb = sizeof(si);
-  si.dwFlags = STARTF_USESHOWWINDOW;
-  si.wShowWindow = SW_HIDE;
-  PROCESS_INFORMATION pi = {};
-  if (!::CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                        nullptr, nullptr, &si, &pi)) {
+  int code = 1;
+  if (!RunAndWait(spec, &code, 120000)) {
     ReportError(error, CAP_SAID(T("tar.exe ließ sich nicht starten.", "Could not start tar.exe.")));
     return false;
   }
-  ::WaitForSingleObject(pi.hProcess, 120000);
-  DWORD code = 1;
-  ::GetExitCodeProcess(pi.hProcess, &code);
-  ::CloseHandle(pi.hThread);
-  ::CloseHandle(pi.hProcess);
   if (code != 0) {
     return ReportError(error, CAP_SAID(Format(T("Entpacken fehlgeschlagen (tar %lu).", "Extracting failed (tar %lu)."),
                                               (unsigned long)code)));

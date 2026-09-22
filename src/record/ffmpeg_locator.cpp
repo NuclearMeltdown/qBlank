@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "app_identity.h"
+#include "child_process.h"
 #include "i18n.h"
 #include "text_win32.h"
 
@@ -65,67 +66,6 @@ std::string FirstLine(const std::string& text) {
 
 }  // namespace
 
-// --------------------------------------------------------------- running it
-
-bool RunFfmpeg(const std::string& exe, const std::string& args, std::string* output,
-               DWORD* exitCode, DWORD timeoutMs) {
-  if (output) output->clear();
-  if (exitCode) *exitCode = (DWORD)-1;
-  if (exe.empty()) return false;
-
-  SECURITY_ATTRIBUTES sa = {};
-  sa.nLength = sizeof(sa);
-  sa.bInheritHandle = TRUE;
-
-  HANDLE readPipe = nullptr, writePipe = nullptr;
-  if (!::CreatePipe(&readPipe, &writePipe, &sa, 1 << 16)) return false;
-  // Only the child may inherit the write end.
-  ::SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
-
-  // ffmpeg writes everything interesting to stderr, so both go into one pipe.
-  STARTUPINFOW si = {};
-  si.cb = sizeof(si);
-  si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-  si.wShowWindow = SW_HIDE;
-  si.hStdOutput = writePipe;
-  si.hStdError = writePipe;
-  si.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
-
-  std::wstring commandLine = L"\"" + ToWide(exe) + L"\" " + ToWide(args);
-  std::vector<wchar_t> mutableCmd(commandLine.begin(), commandLine.end());
-  mutableCmd.push_back(L'\0');
-
-  PROCESS_INFORMATION pi = {};
-  const BOOL ok = ::CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, TRUE,
-                                   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
-  ::CloseHandle(writePipe);  // the child owns it now
-  if (!ok) {
-    ::CloseHandle(readPipe);
-    return false;
-  }
-
-  std::string captured;
-  char buffer[4096];
-  DWORD read = 0;
-  while (::ReadFile(readPipe, buffer, sizeof(buffer), &read, nullptr) && read > 0) {
-    captured.append(buffer, read);
-    if (captured.size() > 1 << 20) break;  // a stuck ffmpeg must not eat memory
-  }
-  ::CloseHandle(readPipe);
-
-  ::WaitForSingleObject(pi.hProcess, timeoutMs);
-  DWORD code = 0;
-  if (::GetExitCodeProcess(pi.hProcess, &code) && code == STILL_ACTIVE) {
-    ::TerminateProcess(pi.hProcess, 1);
-    code = (DWORD)-1;
-  }
-  ::CloseHandle(pi.hThread);
-  ::CloseHandle(pi.hProcess);
-
-  if (output) *output = std::move(captured);
-  if (exitCode) *exitCode = code;
-  return true;
-}
 
 // ------------------------------------------------------------------ locating
 
@@ -163,11 +103,12 @@ FfmpegInfo LocateFfmpeg(const std::string& configuredPath) {
   if (found.empty()) return info;
 
   // Confirm it actually runs before believing the file name.
+  ProcessSpec spec;
+  spec.program = ToUtf8(found);
+  spec.Add("-hide_banner", "-version");
+
   std::string output;
-  DWORD exitCode = 0;
-  if (!RunFfmpeg(ToUtf8(found), "-hide_banner -version", &output, &exitCode, 8000)) {
-    return info;
-  }
+  if (!RunAndCollect(spec, &output, nullptr, 8000)) return info;
   if (output.find("ffmpeg version") == std::string::npos) return info;
 
   info.found = true;
@@ -206,14 +147,22 @@ namespace {
 // One test encode, result cached on the entry.
 bool TestOne(const std::string& exe, EncoderInfo* e) {
   if (e->tested) return e->available;
-  const std::string args =
-      "-hide_banner -loglevel error -f lavfi -i testsrc=size=320x240:rate=30 "
-      "-frames:v 2 -pix_fmt nv12 -c:v " + e->ffmpegName + " -f null -";
+  ProcessSpec spec;
+  spec.program = exe;
+  spec.Add("-hide_banner");
+  spec.Add("-loglevel", "error");
+  spec.Add("-f", "lavfi");
+  spec.Add("-i", "testsrc=size=320x240:rate=30");
+  spec.Add("-frames:v", "2");
+  spec.Add("-pix_fmt", "nv12");
+  spec.Add("-c:v", e->ffmpegName);
+  spec.Add("-f", "null");
+  spec.Add("-");
 
   std::string output;
-  DWORD exitCode = 0;
+  int exitCode = 0;
   std::string logged;
-  if (!RunFfmpeg(exe, args, &output, &exitCode, 20000)) {
+  if (!RunAndCollect(spec, &output, &exitCode, 20000)) {
     const Said said = CAP_SAID(T("ffmpeg konnte nicht gestartet werden", "ffmpeg could not be started"));
     e->available = false;
     e->error = said.shown;

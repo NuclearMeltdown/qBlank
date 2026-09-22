@@ -17,13 +17,15 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include "common_win32.h"
+#include "child_process.h"
 #include "config.h"
 #include "record/ffmpeg_locator.h"
 
@@ -87,7 +89,8 @@ class Recorder {
 
  private:
   // Everything the settings say, in the words this particular encoder uses.
-  std::wstring EncoderOptions(const RecordSettings& settings, const EncoderInfo& encoder) const;
+  std::vector<std::string> EncoderOptions(const RecordSettings& settings,
+                                          const EncoderInfo& encoder) const;
 
  public:
 
@@ -125,15 +128,23 @@ class Recorder {
   void VideoThread();
   // `countsAsClock` is true only for the main track, whose written frame count
   // drives the video timeline.
-  void AudioThread(HANDLE pipe, AudioPullFn pull, bool countsAsClock);
-  void StderrThread();
+  void AudioThread(ChildStream* stream, AudioPullFn pull, bool countsAsClock);
+  // One line of whatever ffmpeg wrote to its error stream, from the reader
+  // thread inside ChildProcess.
+  void OnFfmpegSaid(const std::string& line);
   void Fail(const Said& said);
-  bool WriteAll(HANDLE pipe, const uint8_t* data, size_t size);
+  bool WriteAll(ChildStream* stream, const uint8_t* data, size_t size);
   int PickWriteSlotLocked() const;
 
-  std::wstring BuildCommandLine(const RecordSettings& settings, const EncoderInfo& encoder,
-                                const std::wstring& audioPipe, const std::wstring& micPipe,
-                                const std::wstring& outFile, int audioRate, int micRate) const;
+  // The whole encode, one argument per entry. Nothing here is quoted: the
+  // quoting belongs to whoever starts the process, and a file name with a space
+  // in it is one argument either way.
+  std::vector<std::string> BuildArguments(const RecordSettings& settings,
+                                          const EncoderInfo& encoder,
+                                          const std::string& audioPipe,
+                                          const std::string& micPipe,
+                                          const std::filesystem::path& outFile, int audioRate,
+                                          int micRate) const;
 
   // Overwritten by SetPixelFormat before every start; the literal is only what
   // an unconfigured recorder would fall back to.
@@ -142,18 +153,14 @@ class Recorder {
   std::atomic<bool> running_{false};
   std::atomic<bool> failed_{false};
 
-  HANDLE process_ = nullptr;
-  HANDLE videoPipe_ = nullptr;  // our write end of the child's stdin
-  HANDLE audioPipe_ = nullptr;  // named pipe, our end
-  std::wstring audioPipeName_;
-  HANDLE micPipe_ = nullptr;
-  std::wstring micPipeName_;
+  ChildProcess process_;
+  std::unique_ptr<ChildStream> videoStream_;  // ffmpeg's standard input
+  std::unique_ptr<ChildStream> audioStream_;  // opened by name, one per track
+  std::unique_ptr<ChildStream> micStream_;
 
   std::thread videoThread_;
   std::thread audioThread_;
   std::thread micThread_;
-  std::thread stderrThread_;
-  HANDLE stderrPipe_ = nullptr;  // our read end of the child's stderr
   AudioPullFn pullAudio_;
   AudioPullFn pullMic_;
   int micRate_ = 0;
@@ -176,12 +183,12 @@ class Recorder {
   std::atomic<uint64_t> duplicated_{0};
   std::atomic<uint64_t> dropped_{0};
   std::atomic<uint64_t> bytesWritten_{0};
-  int64_t startQpc_ = 0;
+  int64_t startTicks_ = 0;
 
   // Video thread only: notices when the audio stops advancing so the frame
   // timeline can fall back to the system clock instead of freezing.
   uint64_t lastAudioSeen_ = 0;
-  int64_t lastAudioProgressQpc_ = 0;
+  int64_t lastAudioProgressTicks_ = 0;
   bool audioStallLogged_ = false;
 
   mutable std::mutex infoMutex_;

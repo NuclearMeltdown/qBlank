@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "app_identity.h"
+#include "child_process.h"
 #include "common_win32.h"
 #include "i18n.h"
 #include "text_win32.h"
@@ -307,15 +308,6 @@ bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem
   std::vector<uint32_t> packed;
   HalfToPq10(halfRgba, width, height, stride, paperWhiteNits, &packed);
 
-  std::wstring args = L"-hide_banner -loglevel error -y -f rawvideo -pix_fmt x2bgr10le";
-  args += L" -s " + std::to_wstring(width) + L"x" + std::to_wstring(height);
-  args += L" -i pipe:0 -frames:v 1 -c:v libaom-av1 -still-picture 1 -crf 18";
-  args += L" -pix_fmt yuv420p10le";
-  // Without these it is a dark picture rather than an HDR one; nothing else in
-  // the file says the samples are on the PQ curve.
-  args += L" -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc";
-  args += L" -f avif \"" + path.native() + L"\"";
-
   // Through a file rather than a pipe. One still is not worth the plumbing, and
   // a temporary file cannot deadlock against a process that stops reading.
   wchar_t tempDir[MAX_PATH] = {};
@@ -343,25 +335,30 @@ bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem
     }
   }
 
-  args = args.substr(0, args.find(L"-i pipe:0")) + L"-i \"" + raw + L"\" " +
-         args.substr(args.find(L"-i pipe:0") + 9);
+  ProcessSpec spec;
+  spec.program = PathToUtf8(ffmpegPath);
+  spec.Add("-hide_banner");
+  spec.Add("-loglevel", "error");
+  spec.Add("-y");
+  spec.Add("-f", "rawvideo");
+  spec.Add("-pix_fmt", "x2bgr10le");
+  spec.Add("-s", std::to_string(width) + "x" + std::to_string(height));
+  spec.Add("-i", ToUtf8(raw));
+  spec.Add("-frames:v", "1");
+  spec.Add("-c:v", "libaom-av1");
+  spec.Add("-still-picture", "1");
+  spec.Add("-crf", "18");
+  spec.Add("-pix_fmt", "yuv420p10le");
+  // Without these it is a dark picture rather than an HDR one; nothing else in
+  // the file says the samples are on the PQ curve.
+  spec.Add("-color_primaries", "bt2020");
+  spec.Add("-color_trc", "smpte2084");
+  spec.Add("-colorspace", "bt2020nc");
+  spec.Add("-f", "avif");
+  spec.Add(PathToUtf8(path));
 
-  std::wstring command = L"\"" + ffmpegPath.native() + L"\" " + args;
-  STARTUPINFOW si = {};
-  si.cb = sizeof(si);
-  si.dwFlags = STARTF_USESHOWWINDOW;
-  si.wShowWindow = SW_HIDE;
-  PROCESS_INFORMATION pi = {};
-  std::vector<wchar_t> line(command.begin(), command.end());
-  line.push_back(0);
-  DWORD code = 1;
-  if (::CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
-                       nullptr, &si, &pi)) {
-    ::WaitForSingleObject(pi.hProcess, 60000);
-    ::GetExitCodeProcess(pi.hProcess, &code);
-    ::CloseHandle(pi.hThread);
-    ::CloseHandle(pi.hProcess);
-  }
+  int code = 1;
+  if (!RunAndWait(spec, &code, 60000)) code = 1;
   ::DeleteFileW(raw.c_str());
 
   if (code != 0) {

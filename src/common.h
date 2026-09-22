@@ -100,6 +100,11 @@ uint32_t TickMilliseconds();
 // loops that would otherwise spin while waiting for something else.
 void SleepMilliseconds(uint32_t ms);
 
+// What the wall clock says, in whatever time zone the system is set to. For the
+// places a moment is written down for people to read: the log, and the names of
+// the files a recording or a screenshot lands in.
+LocalTime NowLocal();
+
 // ------------------------------------------------------------------ misc utils
 
 // ExeFolder, OwnFile and the rest live in app_files.h, included above.

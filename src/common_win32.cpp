@@ -386,6 +386,19 @@ void SleepMilliseconds(uint32_t ms) {
   ::Sleep((DWORD)ms);
 }
 
+LocalTime NowLocal() {
+  SYSTEMTIME st;
+  ::GetLocalTime(&st);
+  LocalTime out;
+  out.year = st.wYear;
+  out.month = st.wMonth;
+  out.day = st.wDay;
+  out.hour = st.wHour;
+  out.minute = st.wMinute;
+  out.second = st.wSecond;
+  return out;
+}
+
 // ------------------------------------------------------------------ misc utils
 
 namespace {

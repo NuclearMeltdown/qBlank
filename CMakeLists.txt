@@ -60,6 +60,7 @@ add_executable(qBlank WIN32
   src/common.cpp
   src/common_win32.cpp
   src/platform_win32.cpp
+  src/child_process_win32.cpp
   src/text_win32.cpp
   src/wake_signal_win32.cpp
   src/i18n.cpp
@@ -223,6 +224,7 @@ add_executable(qblank_probe
   src/app_identity.cpp
   src/common.cpp
   src/common_win32.cpp
+  src/child_process_win32.cpp
   src/text_win32.cpp
   src/wake_signal_win32.cpp
   src/i18n.cpp

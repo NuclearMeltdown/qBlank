@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "child_process.h"
 #include "i18n.h"
 #include "record/ffmpeg_locator.h"
 #include "text_win32.h"
@@ -37,7 +38,7 @@ std::wstring MakeOutputName(const std::wstring& input) {
 // Digs the useful line out of ffmpeg's stderr. The interesting failure is a
 // codec MP4 cannot carry, and ffmpeg says so in a sentence worth passing on
 // rather than burying under an exit code.
-std::string ExplainFailure(const std::string& stderrText, DWORD exitCode) {
+std::string ExplainFailure(const std::string& stderrText, int exitCode) {
   if (stderrText.find("Could not find tag for codec") != std::string::npos ||
       stderrText.find("codec not currently supported in container") != std::string::npos) {
     return T("Dieses Format passt nicht in eine MP4. Nur Umpacken geht hier nicht, das müsste "
@@ -145,13 +146,20 @@ void Remuxer::Run(std::filesystem::path ffmpegPath) {
     // -c copy is the whole point: the streams are moved, not re read. faststart
     // then pulls the index to the front of the file, which is what a player
     // needs to seek before the download finished.
-    const std::wstring args = L"-hide_banner -loglevel error -y -i \"" + input +
-                              L"\" -map 0 -c copy -movflags +faststart \"" + output + L"\"";
+    ProcessSpec spec;
+    spec.program = PathToUtf8(ffmpegPath);
+    spec.Add("-hide_banner");
+    spec.Add("-loglevel", "error");
+    spec.Add("-y");
+    spec.Add("-i", ToUtf8(input));
+    spec.Add("-map", "0");
+    spec.Add("-c", "copy");
+    spec.Add("-movflags", "+faststart");
+    spec.Add(ToUtf8(output));
 
     std::string captured;
-    DWORD exitCode = 0;
-    const bool started =
-        RunFfmpeg(PathToUtf8(ffmpegPath), ToUtf8(args), &captured, &exitCode, 30 * 60 * 1000);
+    int exitCode = 0;
+    const bool started = RunAndCollect(spec, &captured, &exitCode, 30 * 60 * 1000);
 
     const bool good = started && exitCode == 0 && FileExists(output);
     Said failure;
