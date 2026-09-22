@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "capture/caps_model.h"
+#include "capture/capture_device.h"
 #include "capture/video_format.h"
 #include "capture/video_standard.h"
 #include "common_win32.h"
@@ -48,18 +49,19 @@ bool ParseVideoMediaType(const AM_MEDIA_TYPE* mt, VideoFormatInfo* out);
 
 // ----------------------------------------------------------------- device enum
 
-struct VideoDeviceInfo {
-  std::string name;         // friendly name shown in the UI
-  std::string id;           // DevicePath -- stable across restarts
+// A device as DirectShow lists it. The id is the DevicePath.
+struct DShowDeviceInfo : VideoDeviceInfo {
   std::string monikerName;  // display name, used to re-bind quickly
 };
 
-std::vector<VideoDeviceInfo> EnumerateVideoDevices();
+// CLSID_VideoInputDeviceCategory, the list every capture program shows.
+// EnumerateVideoDevices is this list without the monikers.
+std::vector<DShowDeviceInfo> EnumerateVideoCaptureDShowDevices();
 
 // DirectShow's own audio input category. Some capture cards expose their
 // embedded audio here even when Windows hides the matching sound endpoint, so
 // this is worth looking at when the audio pairing comes up empty.
-std::vector<VideoDeviceInfo> EnumerateAudioCaptureDShowDevices();
+std::vector<DShowDeviceInfo> EnumerateAudioCaptureDShowDevices();
 
 // Resolves a saved reference to a live filter. Matching order: exact id, then
 // moniker display name, then friendly name. `resolved` receives what was
@@ -68,7 +70,7 @@ ComPtr<IBaseFilter> CreateVideoFilter(const DeviceRef& ref, VideoDeviceInfo* res
 
 // Instantiates any enumerated device from its moniker display name. Works for
 // every category, unlike CreateVideoFilter which searches the video category.
-ComPtr<IBaseFilter> CreateFilterFromMoniker(const VideoDeviceInfo& info);
+ComPtr<IBaseFilter> CreateFilterFromMoniker(const DShowDeviceInfo& info);
 
 ComPtr<IPin> FindPinByDirection(IBaseFilter* filter, PIN_DIRECTION dir, int skip = 0);
 
@@ -87,23 +89,8 @@ HRESULT ApplyFormat(IPin* capturePin, const FormatSel& fmt, VideoFormatInfo* app
 
 // -------------------------------------------------------------------- crossbar
 
-struct CrossbarInput {
-  // Whatever identifies this input to the card: the index of the input pin on
-  // the crossbar, or, on a card whose inputs are switched through a private
-  // property set instead, the vendor's own number for the connector.
-  int pinIndex = -1;
-  long physicalType = 0;
-  std::string name;  // "HDMI", "Component (YPbPr)", "Composite", ...
-};
-
-// True for the connectors whose raster the analogue video standard settles
-// completely: 625 lines carry 576 visible ones, 525 carry 480, and there is no
-// third possibility on a composite or S-Video cable.
-//
-// Component and VGA are analogue as well and are deliberately not among them.
-// They carry whatever the source feels like -- 480p, 720p, 1080i -- and no
-// video standard describes any of it, so the line count says nothing there.
-bool ConnectorFollowsVideoStandard(long physicalType);
+// A PhysConn_* value in the terms the rest of the program asks about.
+ConnectorKind ConnectorKindOf(long physicalType);
 
 // Enumerates the video inputs of the crossbar upstream of `captureFilter`, and
 // where there is no crossbar, the inputs of a vendor selector the card is known
@@ -128,13 +115,13 @@ int CurrentCrossbarInput(ICaptureGraphBuilder2* builder, IBaseFilter* captureFil
 // right, in its own category, and a driver is free to register one without the
 // graph builder ever finding it from the capture filter. Diagnostic only --
 // nothing in qBlank routes through this yet.
-std::vector<VideoDeviceInfo> EnumerateCrossbarDevices();
+std::vector<DShowDeviceInfo> EnumerateCrossbarDevices();
 
 // Everything registered in one device category, by its GUID. EnumerateVideoDevices
 // asks for CLSID_VideoInputDeviceCategory, which is what every capture program
 // shows; a driver may register KS filters that the category does not surface.
 // Diagnostic only -- the device list still comes from EnumerateVideoDevices.
-std::vector<VideoDeviceInfo> EnumerateDeviceCategory(const GUID& category);
+std::vector<DShowDeviceInfo> EnumerateDeviceCategory(const GUID& category);
 
 std::string PhysicalConnectorName(long physicalType);
 

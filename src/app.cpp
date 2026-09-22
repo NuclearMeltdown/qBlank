@@ -1798,24 +1798,21 @@ static const int kSignalPollNaps = 10;
 
 void App::StartSignalWatch() {
   StopSignalWatch();
-  IBaseFilter* filter = capture_.filter();
-  if (!filter) return;
+  // The thread keeps its own handle, so tearing the capture down does not pull
+  // the card out from under it; the worst that happens is that it asks a card
+  // that is no longer running, and gets told so.
+  std::shared_ptr<SignalProbe> probe = capture_.signalProbe();
+  if (!probe) return;
 
-  // The thread keeps its own reference, so tearing the graph down does not pull
-  // the object out from under it; the worst that happens is that it asks a
-  // filter that is no longer running, and gets told so.
-  ComPtr<IBaseFilter> held = filter;
   signalWatchRun_.store(true, std::memory_order_relaxed);
-  signalWatch_ = std::thread([this, held]() {
-    // The same apartment the graph lives in, so the pointer is usable as it is.
-    ComScope com(COINIT_MULTITHREADED);
+  signalWatch_ = StartCaptureThread([this, probe]() {
     while (signalWatchRun_.load(std::memory_order_relaxed)) {
       // Beides aus demselben Durchgang: was eingestellt ist und ob es haelt.
       // Getrennt gefragt koennten die zwei aus verschiedenen Momenten stammen,
       // und genau daraus entsteht die Anzeige, die eine Norm als eingerastet
       // meldet, waehrend laengst eine andere auf der Karte steht.
-      signalStandard_.store(CurrentVideoStandard(held.Get()), std::memory_order_relaxed);
-      signalLocked_.store(VideoStandardLocked(held.Get()), std::memory_order_relaxed);
+      signalStandard_.store(probe->CurrentStandard(), std::memory_order_relaxed);
+      signalLocked_.store(probe->Locked(), std::memory_order_relaxed);
       signalSeq_.fetch_add(1, std::memory_order_release);
       // Split into short naps so shutdown does not have to wait for the interval.
       for (int i = 0; i < kSignalPollNaps && signalWatchRun_.load(std::memory_order_relaxed);
@@ -4224,9 +4221,9 @@ void App::OpenDeviceConfig() {
     Toast(T("Die Karte läuft nicht.", "The card is not running."));
     return;
   }
-  const std::wstring title = ToWide(config_.active().capture.video.name);
+  const std::string& title = config_.active().capture.video.name;
   std::string error;
-  if (!devicePages_.Open(capture_.filter(), title, &error)) {
+  if (!devicePages_.Open(capture_, title, &error)) {
     Toast(error.empty() ? T("Der Konfigurationsdialog ließ sich nicht öffnen.",
                             "The configuration dialog could not be opened.")
                         : error);
@@ -4561,11 +4558,11 @@ AnalogConnector App::ResolvedConnector() const {
   int index = config_.active().capture.crossbarInput;
   if (index < 0) index = capture_.capabilities().currentInput;
   if (index >= 0 && index < (int)inputs.size()) {
-    switch (inputs[(size_t)index].physicalType) {
-      case PhysConn_Video_SVideo:
+    switch (inputs[(size_t)index].kind) {
+      case ConnectorKind::SVideo:
         return AnalogConnector::SVideo;
-      case PhysConn_Video_YRYBY:
-      case PhysConn_Video_RGB:
+      case ConnectorKind::Component:
+      case ConnectorKind::Rgb:
         // RGB kommt wie Component ohne Farbtraeger an -- drei Leitungen, jede
         // ihr eigenes Signal. Fuer alles, was hier davon abhaengt, ist das
         // derselbe Fall.

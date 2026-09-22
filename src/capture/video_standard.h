@@ -134,4 +134,17 @@ VideoColourSystem VideoStandardColourSystem(long standard);
 // measuring the picture agrees with them to within two parts in a thousand.
 double VideoStandardSubcarrierSamples(long standard);
 
+// What kind of socket an input is, as far as anything here needs to know. The
+// capture backend translates its own connector codes into this.
+enum class ConnectorKind { Other, Tuner, Composite, SVideo, Rgb, Component, Scart, Aux, Digital };
+
+// True for the connectors whose raster the analogue video standard settles
+// completely: 625 lines carry 576 visible ones, 525 carry 480, and there is no
+// third possibility on a composite or S-Video cable.
+//
+// Component and VGA are analogue as well and are deliberately not among them.
+// They carry whatever the source feels like -- 480p, 720p, 1080i -- and no
+// video standard describes any of it, so the line count says nothing there.
+bool ConnectorFollowsVideoStandard(ConnectorKind kind);
+
 }  // namespace cap

@@ -71,4 +71,10 @@ inline Said Relayed(std::string shown) {
   return said;
 }
 
+// The half of `said` in the language T() answers in right now. Inside CAP_SAID
+// that puts a message from further down into a longer one, in both languages.
+inline const std::string& Spoken(const Said& said) {
+  return SpeakingEnglish() ? said.logged : said.shown;
+}
+
 }  // namespace cap

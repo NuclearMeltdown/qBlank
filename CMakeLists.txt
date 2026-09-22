@@ -68,6 +68,7 @@ add_executable(qBlank WIN32
   src/json.cpp
   src/capture/device_config.cpp
   src/capture/caps_model.cpp
+  src/capture/capture_device_win32.cpp
   src/capture/dshow_util.cpp
   src/capture/frame_buffer.cpp
   src/capture/frame_sink.cpp
@@ -219,6 +220,7 @@ add_executable(qblank_probe
   src/hotkeys.cpp
   src/json.cpp
   src/capture/caps_model.cpp
+  src/capture/capture_device_win32.cpp
   src/capture/dshow_util.cpp
   src/capture/frame_buffer.cpp
   src/capture/frame_sink.cpp

@@ -1,17 +1,19 @@
 #pragma once
 
-// Owns the DirectShow graph: capture filter -> FrameSink. Nothing else is in
-// the graph, and the graph runs without a reference clock so samples are
-// delivered the moment the driver produces them instead of being scheduled.
+// Opens the configured capture device and keeps it streaming. Which format to
+// ask for, what to fall back to and what the input says about the video
+// standard is decided here, once; talking to the device is the backend's, in
+// capture_device.h.
 
-#include <dshow.h>
-
+#include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "capture/dshow_util.h"
-#include "capture/frame_sink.h"
-#include "common_win32.h"
+#include "capture/caps_model.h"
+#include "capture/capture_device.h"
+#include "capture/frame_buffer.h"
+#include "capture/video_format.h"
 #include "config.h"
 
 namespace cap {
@@ -45,16 +47,16 @@ class VideoCapture {
   VideoCapture(const VideoCapture&) = delete;
   VideoCapture& operator=(const VideoCapture&) = delete;
 
-  // Builds and runs the graph. On failure `error` holds a message meant for the
-  // user and the object stays stopped.
+  // Opens the device and starts it. On failure `error` holds a message meant for
+  // the user and the object stays stopped.
   bool Start(const CaptureSettings& settings, std::string* error);
   void Stop();
 
-  bool running() const { return control_ != nullptr; }
+  bool running() const { return device_ && device_->running(); }
 
   // Where the frames arrive. Null while stopped.
-  FrameBuffer* sink() { return sink_ ? &sink_->buffer() : nullptr; }
-  const FrameBuffer* sink() const { return sink_ ? &sink_->buffer() : nullptr; }
+  FrameBuffer* sink() { return device_ ? device_->frames() : nullptr; }
+  const FrameBuffer* sink() const { return device_ ? device_->frames() : nullptr; }
 
   VideoFormatInfo format() const;
 
@@ -76,34 +78,36 @@ class VideoCapture {
   // device that is currently running -- use capabilities() instead.
   static DeviceProbeResult Probe(const DeviceRef& device);
 
-  // Drains the graph event queue. Returns true when the graph reported a fatal
+  // Drains the device's event queue. Returns true when it reported a fatal
   // condition (device lost, abort); `message` then describes it.
   bool PumpEvents(std::string* message);
 
-  // Switches the crossbar input on a running graph, no restart needed.
+  // Switches the crossbar input on a running device, no restart needed.
   bool SetCrossbarInput(int index);
-
-  // The live filter and its capture pin, for the driver's own property pages.
-  // Null while stopped.
-  IBaseFilter* filter() const { return captureFilter_.Get(); }
-  IPin* capturePin() const { return capturePin_.Get(); }
 
   // 1 locked, 0 not, -1 when the card cannot say. Polled by the automatic
   // standard selection; cheap enough to ask a few times a second.
-  int signalLocked() const { return VideoStandardLocked(captureFilter_.Get()); }
-  long currentStandard() const { return CurrentVideoStandard(captureFilter_.Get()); }
-  bool SetStandard(long standard) { return SetVideoStandard(captureFilter_.Get(), standard); }
+  int signalLocked() const { return device_ ? device_->SignalLocked() : -1; }
+  long currentStandard() const { return device_ ? device_->CurrentStandard() : 0; }
+  bool SetStandard(long standard) { return device_ ? device_->SetStandard(standard) : false; }
+
+  // The same two questions on a handle of their own, for a watcher thread. Null
+  // while stopped.
+  std::shared_ptr<SignalProbe> signalProbe() const {
+    return device_ ? device_->OpenSignalProbe() : nullptr;
+  }
+
+  // The driver's own settings dialog, see CaptureDevice::OwnDialog. False and
+  // empty while stopped.
+  bool hasOwnDialog() const { return device_ && device_->HasOwnDialog(); }
+  std::function<void()> ownDialog(const std::string& title) const {
+    return device_ ? device_->OwnDialog(title) : std::function<void()>();
+  }
 
  private:
   void Teardown();
 
-  ComPtr<IGraphBuilder> graph_;
-  ComPtr<ICaptureGraphBuilder2> builder_;
-  ComPtr<IMediaControl> control_;
-  ComPtr<IMediaEventEx> events_;
-  ComPtr<IBaseFilter> captureFilter_;
-  ComPtr<IPin> capturePin_;
-  ComPtr<FrameSink> sink_;
+  std::unique_ptr<CaptureDevice> device_;
 
   DeviceProbeResult capabilities_;
   FormatSel connectedFormat_;

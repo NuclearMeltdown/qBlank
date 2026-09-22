@@ -414,4 +414,23 @@ std::vector<long> VideoStandardColourCandidates(long standard, long available,
   return out;
 }
 
+bool ConnectorFollowsVideoStandard(ConnectorKind kind) {
+  switch (kind) {
+    case ConnectorKind::Composite:
+    case ConnectorKind::SVideo:
+    case ConnectorKind::Tuner:
+    case ConnectorKind::Scart:
+    case ConnectorKind::Aux:
+      // SCART fuehrt je nach Kabel Composite oder RGB, aber beide in einem
+      // Sendersaster: es gibt kein SCART, das 720p traegt.
+      return true;
+    default:
+      // Composite und S-Video sind die einzigen, bei denen die Norm die
+      // Zeilenzahl wirklich festlegt. Component und VGA sind analog und tragen
+      // trotzdem, was die Quelle will; HDMI, DVI und SDI beantworten die Frage
+      // gar nicht erst.
+      return false;
+  }
+}
+
 }  // namespace cap

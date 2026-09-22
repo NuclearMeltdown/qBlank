@@ -35,7 +35,7 @@ namespace {
 // What the driver offers as its own settings dialog, and on which object. Cards
 // differ: some hang everything off the filter, some off the capture pin, some
 // off neither and expect you to use their own tool.
-void PrintPropertyPages(const VideoDeviceInfo& info) {
+void PrintPropertyPages(const DShowDeviceInfo& info) {
   ComPtr<IBaseFilter> filter = CreateFilterFromMoniker(info);
   if (!filter) {
     std::printf("    Konfigurationsseiten: Filter konnte nicht erzeugt werden\n");
@@ -94,7 +94,7 @@ void PrintPropertyPages(const VideoDeviceInfo& info) {
 // Run with: qblank_probe pages
 void TestPropertyPages() {
   std::printf("========== Konfigurationsseiten im Detail ==========\n");
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     ComPtr<IBaseFilter> filter = CreateFilterFromMoniker(d);
     if (!filter) continue;
     ComPtr<ISpecifyPropertyPages> spec;
@@ -205,7 +205,7 @@ void TestPropertyFrame(bool useOle, bool includePin) {
               useOle ? "OleInitialize" : "CoInitializeEx",
               includePin ? "dabei" : "nicht dabei");
 
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     if (d.name.find("SA7160") == std::string::npos) continue;
     ComPtr<IBaseFilter> filter = CreateFilterFromMoniker(d);
     if (!filter) {
@@ -280,7 +280,7 @@ void TestAnalogDecoder() {
       {AnalogVideo_SECAM_L1, "SECAM_L1"},     {AnalogVideo_PAL_N_COMBO, "PAL_N_COMBO"},
   };
 
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     ComPtr<IBaseFilter> filter = CreateFilterFromMoniker(d);
     if (!filter) continue;
     ComPtr<IAMAnalogVideoDecoder> dec;
@@ -329,7 +329,7 @@ void TestAnalogDecoder() {
 //
 // Run with: qblank_probe lines
 void TestLineReporting() {
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     ComPtr<IBaseFilter> filter = CreateFilterFromMoniker(d);
     if (!filter) continue;
     ComPtr<IAMAnalogVideoDecoder> dec;
@@ -371,7 +371,7 @@ void TestLineReporting() {
 //
 // Run with: qblank_probe inputs
 void TestInputSelection() {
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     ComPtr<IBaseFilter> filter = CreateFilterFromMoniker(d);
     if (!filter) continue;
     std::printf("\n%s\n", d.name.c_str());
@@ -426,11 +426,11 @@ void TestInputSelection() {
   // anzeigt, an der qBlank "keine umschaltbaren Eingaenge" meldet, muss ihn
   // irgendwo herhaben.
   std::printf("\n================ Crossbar-Kategorie ================\n");
-  const std::vector<VideoDeviceInfo> crossbars = EnumerateCrossbarDevices();
+  const std::vector<DShowDeviceInfo> crossbars = EnumerateCrossbarDevices();
   if (crossbars.empty()) {
     std::printf("  (kein Crossbar registriert)\n");
   }
-  for (const VideoDeviceInfo& d : crossbars) {
+  for (const DShowDeviceInfo& d : crossbars) {
     std::printf("\n%s\n    %s\n", d.name.c_str(), d.id.c_str());
     ComPtr<IBaseFilter> filter = CreateFilterFromMoniker(d);
     if (!filter) {
@@ -470,23 +470,23 @@ void TestInputSelection() {
   };
   std::printf("\n================ Geräte je Kategorie ================\n");
   for (const auto& cat : kCategories) {
-    const std::vector<VideoDeviceInfo> found = EnumerateDeviceCategory(cat.id);
+    const std::vector<DShowDeviceInfo> found = EnumerateDeviceCategory(cat.id);
     std::printf("\n%s -- %zu Gerät(e)\n", cat.label, found.size());
-    for (const VideoDeviceInfo& d : found) std::printf("    %s\n", d.name.c_str());
+    for (const DShowDeviceInfo& d : found) std::printf("    %s\n", d.name.c_str());
   }
   std::printf("\n");
 }
 
 void PrintVideoDevices() {
   std::printf("================ Videogeräte ================\n");
-  std::vector<VideoDeviceInfo> devices = EnumerateVideoDevices();
+  std::vector<DShowDeviceInfo> devices = EnumerateVideoCaptureDShowDevices();
   if (devices.empty()) {
     std::printf("  (keine gefunden)\n\n");
     return;
   }
 
   for (size_t i = 0; i < devices.size(); ++i) {
-    const VideoDeviceInfo& d = devices[i];
+    const DShowDeviceInfo& d = devices[i];
     std::printf("\n[%zu] %s\n", i, d.name.c_str());
     std::printf("    DevicePath : %s\n", d.id.c_str());
 
@@ -507,7 +507,7 @@ void PrintVideoDevices() {
         std::printf("        [%zu]%s %s  (Pin %d, Typ %ld)\n", k,
                     (int)k == probed.currentInput ? " <-" : "   ",
                     probed.crossbarInputs[k].name.c_str(), probed.crossbarInputs[k].pinIndex,
-                    probed.crossbarInputs[k].physicalType);
+                    probed.crossbarInputs[k].backendType);
       }
       if (probed.currentInput < 0) {
         std::printf("        (auf welchem die Karte steht, sagt sie nicht)\n");
@@ -572,7 +572,7 @@ void PrintVideoDevices() {
 
 void PrintDShowAudioDevices() {
   std::printf("================ DirectShow-Audioeingänge ================\n");
-  std::vector<VideoDeviceInfo> devices = EnumerateAudioCaptureDShowDevices();
+  std::vector<DShowDeviceInfo> devices = EnumerateAudioCaptureDShowDevices();
   if (devices.empty()) {
     std::printf("  (keine gefunden)\n\n");
     return;
@@ -795,7 +795,7 @@ void FindPrivatePropertySets(const std::string& path, const std::string& deviceM
 
   ComPtr<IBaseFilter> filter;
   std::string chosen;
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     if (d.name.find(deviceMatch) == std::string::npos) continue;
     filter = CreateFilterFromMoniker(d);
     if (filter) {
@@ -905,7 +905,7 @@ void WatchPropertySet(const std::string& guidText, const std::string& deviceMatc
 
   ComPtr<IBaseFilter> filter;
   std::string chosen;
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     if (d.name.find(deviceMatch) == std::string::npos) continue;
     filter = CreateFilterFromMoniker(d);
     if (filter) {
@@ -980,7 +980,7 @@ void SetOneProperty(const std::string& guidText, DWORD id, DWORD value,
 
   ComPtr<IBaseFilter> filter;
   std::string chosen;
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     if (d.name.find(deviceMatch) == std::string::npos) continue;
     filter = CreateFilterFromMoniker(d);
     if (filter) {
@@ -1043,7 +1043,7 @@ void DumpPropertySet(const std::string& guidText, const std::string& deviceMatch
 
   ComPtr<IBaseFilter> filter;
   std::string chosen;
-  for (const VideoDeviceInfo& d : EnumerateVideoDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateVideoCaptureDShowDevices()) {
     if (d.name.find(deviceMatch) == std::string::npos) continue;
     filter = CreateFilterFromMoniker(d);
     if (filter) {

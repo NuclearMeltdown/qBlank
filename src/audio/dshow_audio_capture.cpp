@@ -513,7 +513,7 @@ bool DShowAudioCapture::Start(const DeviceRef& device, AudioSinkFn sink, std::st
   // The device reference points at a DirectShow audio input; look it up by the
   // same rules as a video device.
   ComPtr<IBaseFilter> source;
-  for (const VideoDeviceInfo& d : EnumerateAudioCaptureDShowDevices()) {
+  for (const DShowDeviceInfo& d : EnumerateAudioCaptureDShowDevices()) {
     if (d.id == device.id || (!device.name.empty() && d.name == device.name)) {
       source = CreateFilterFromMoniker(d);
       if (source) break;

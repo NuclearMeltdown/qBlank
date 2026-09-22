@@ -375,8 +375,8 @@ bool ParseVideoMediaType(const AM_MEDIA_TYPE* mt, VideoFormatInfo* out) {
 
 namespace {
 
-std::vector<VideoDeviceInfo> EnumerateDShowCategory(const GUID& category) {
-  std::vector<VideoDeviceInfo> devices;
+std::vector<DShowDeviceInfo> EnumerateDShowCategory(const GUID& category) {
+  std::vector<DShowDeviceInfo> devices;
 
   ComPtr<ICreateDevEnum> devEnum;
   if (FAILED(CAP_HR(::CoCreateInstance(CLSID_SystemDeviceEnum, nullptr, CLSCTX_INPROC_SERVER,
@@ -390,7 +390,7 @@ std::vector<VideoDeviceInfo> EnumerateDShowCategory(const GUID& category) {
 
   ComPtr<IMoniker> moniker;
   while (enumMoniker->Next(1, &moniker, nullptr) == S_OK) {
-    VideoDeviceInfo info;
+    DShowDeviceInfo info;
 
     ComPtr<IPropertyBag> bag;
     if (SUCCEEDED(moniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&bag)))) {
@@ -415,19 +415,19 @@ std::vector<VideoDeviceInfo> EnumerateDShowCategory(const GUID& category) {
 
 }  // namespace
 
-std::vector<VideoDeviceInfo> EnumerateVideoDevices() {
+std::vector<DShowDeviceInfo> EnumerateVideoCaptureDShowDevices() {
   return EnumerateDShowCategory(CLSID_VideoInputDeviceCategory);
 }
 
-std::vector<VideoDeviceInfo> EnumerateAudioCaptureDShowDevices() {
+std::vector<DShowDeviceInfo> EnumerateAudioCaptureDShowDevices() {
   return EnumerateDShowCategory(CLSID_AudioInputDeviceCategory);
 }
 
-std::vector<VideoDeviceInfo> EnumerateCrossbarDevices() {
+std::vector<DShowDeviceInfo> EnumerateCrossbarDevices() {
   return EnumerateDShowCategory(AM_KSCATEGORY_CROSSBAR);
 }
 
-std::vector<VideoDeviceInfo> EnumerateDeviceCategory(const GUID& category) {
+std::vector<DShowDeviceInfo> EnumerateDeviceCategory(const GUID& category) {
   return EnumerateDShowCategory(category);
 }
 
@@ -445,7 +445,7 @@ ComPtr<IBaseFilter> CreateVideoFilter(const DeviceRef& ref, VideoDeviceInfo* res
   // Three passes so an exact id match always wins over a name match.
   struct Candidate {
     ComPtr<IMoniker> moniker;
-    VideoDeviceInfo info;
+    DShowDeviceInfo info;
   };
   std::vector<Candidate> candidates;
 
@@ -494,7 +494,7 @@ ComPtr<IBaseFilter> CreateVideoFilter(const DeviceRef& ref, VideoDeviceInfo* res
   return filter;
 }
 
-ComPtr<IBaseFilter> CreateFilterFromMoniker(const VideoDeviceInfo& info) {
+ComPtr<IBaseFilter> CreateFilterFromMoniker(const DShowDeviceInfo& info) {
   if (info.monikerName.empty()) return nullptr;
 
   ComPtr<IBindCtx> bindCtx;
@@ -902,7 +902,8 @@ std::vector<CrossbarInput> VendorCrossbarInputs(IBaseFilter* captureFilter) {
   for (size_t i = 0; i < v.sel->count; ++i) {
     CrossbarInput in;
     in.pinIndex = (int)v.sel->inputs[i].value;
-    in.physicalType = v.sel->inputs[i].physicalType;
+    in.kind = ConnectorKindOf(v.sel->inputs[i].physicalType);
+    in.backendType = v.sel->inputs[i].physicalType;
     in.name = v.sel->inputs[i].name;
     inputs.push_back(std::move(in));
   }
@@ -969,7 +970,8 @@ std::vector<CrossbarInput> EnumerateCrossbarInputs(ICaptureGraphBuilder2* builde
 
     CrossbarInput in;
     in.pinIndex = (int)i;
-    in.physicalType = physType;
+    in.kind = ConnectorKindOf(physType);
+    in.backendType = physType;
     in.name = PhysicalConnectorName(physType);
     if (ordinal > 0) in.name += Format(" %d", ordinal + 1);
     inputs.push_back(std::move(in));
@@ -1040,22 +1042,18 @@ int CurrentCrossbarInput(ICaptureGraphBuilder2* builder, IBaseFilter* captureFil
   return -1;
 }
 
-bool ConnectorFollowsVideoStandard(long physicalType) {
+ConnectorKind ConnectorKindOf(long physicalType) {
   switch (physicalType) {
-    case PhysConn_Video_Composite:
-    case PhysConn_Video_SVideo:
-    case PhysConn_Video_Tuner:
-    case PhysConn_Video_SCART:
-    case PhysConn_Video_AUX:
-      // SCART fuehrt je nach Kabel Composite oder RGB, aber beide in einem
-      // Sendersaster: es gibt kein SCART, das 720p traegt.
-      return true;
-    default:
-      // Composite und S-Video sind die einzigen, bei denen die Norm die
-      // Zeilenzahl wirklich festlegt. Component und VGA sind analog und tragen
-      // trotzdem, was die Quelle will; HDMI, DVI und SDI beantworten die Frage
-      // gar nicht erst.
-      return false;
+    case PhysConn_Video_Tuner: return ConnectorKind::Tuner;
+    case PhysConn_Video_Composite: return ConnectorKind::Composite;
+    case PhysConn_Video_SVideo: return ConnectorKind::SVideo;
+    case PhysConn_Video_RGB: return ConnectorKind::Rgb;
+    case PhysConn_Video_YRYBY: return ConnectorKind::Component;
+    case PhysConn_Video_SCART: return ConnectorKind::Scart;
+    case PhysConn_Video_AUX: return ConnectorKind::Aux;
+    case PhysConn_Video_SerialDigital:
+    case PhysConn_Video_ParallelDigital: return ConnectorKind::Digital;
+    default: return ConnectorKind::Other;
   }
 }
 
