@@ -9,11 +9,10 @@
 #include "files.h"
 #include "i18n.h"
 #include "imgui.h"
+#include "platform.h"
 #include "record/ffmpeg_locator.h"
 #include "render/display.h"
 #include "record/screenshot.h"
-#include "resource.h"
-#include "text_win32.h"
 #include "ui/theme.h"
 
 namespace cap {
@@ -51,29 +50,6 @@ const double kCursorIdleSeconds = 2.0;
 const double kVolumeOsdSeconds = 1.6;
 // One wheel notch.
 const float kVolumeStep = 0.05f;
-
-int64_t QpcNow() {
-  LARGE_INTEGER v;
-  ::QueryPerformanceCounter(&v);
-  return v.QuadPart;
-}
-
-double QpcFreq() {
-  static const double f = [] {
-    LARGE_INTEGER v;
-    ::QueryPerformanceFrequency(&v);
-    return (double)v.QuadPart;
-  }();
-  return f;
-}
-
-int64_t SecondsToQpc(double seconds) {
-  return (int64_t)(seconds * QpcFreq());
-}
-
-double QpcToSeconds(int64_t ticks) {
-  return (double)ticks / QpcFreq();
-}
 
 // Wie SetItemTooltip, aber mit Umbruch -- dieselbe Breite wie im
 // Einstellungsfenster, damit beide gleich aussehen. Der eingebaute bricht nicht
@@ -127,7 +103,7 @@ void FrameDelayLine::Push(const FrameView& frame, int64_t qpc) {
 
 bool FrameDelayLine::Pop(FrameView* out, int64_t qpc) {
   if (!active()) return false;
-  const int64_t threshold = qpc - SecondsToQpc(delayMs_ / 1000.0);
+  const int64_t threshold = qpc - SecondsToTicks(delayMs_ / 1000.0);
   bool got = false;
   while (!queue_.empty() && queue_.front().qpc <= threshold) {
     if (!current_.data.empty()) pool_.push_back(std::move(current_));
@@ -256,7 +232,7 @@ void App::Shutdown() {
   ShutdownImGui();
   display_.Shutdown();
   window_.Destroy();
-  ::SetThreadExecutionState(ES_CONTINUOUS);
+  KeepDisplayAwake(false);
 }
 
 // -------------------------------------------------------------------- window
@@ -419,7 +395,7 @@ bool App::StartCapture(std::string* error) {
   if (!capture_.Start(p.capture, &err)) {
     captureState_ = CaptureState::Reconnecting;
     captureError_ = err;
-    nextRetryQpc_ = QpcNow() + SecondsToQpc(kRetrySeconds);
+    nextRetryQpc_ = ClockTicks() + SecondsToTicks(kRetrySeconds);
     if (error) *error = err;
     return false;
   }
@@ -481,7 +457,7 @@ bool App::StartCapture(std::string* error) {
   // Sonst misst der erste Durchgang nach einem Neustart gegen die Ankunft von
   // vor dem Neustart und meldet Sekunden.
   displayedArrivalQpc_ = 0;
-  captureStartQpc_ = QpcNow();
+  captureStartQpc_ = ClockTicks();
 
   // The dot crawl filter works on the colour subcarrier, so it has to be told
   // which one this signal carries. The card knows, when it has an analogue
@@ -900,14 +876,10 @@ void App::DrawToastStrip() {
 }
 
 void App::UpdatePowerRequest() {
-  const DWORD now = ::GetTickCount();
+  const uint32_t now = TickMilliseconds();
   if (now - lastPowerPokeTick_ < 30000) return;
   lastPowerPokeTick_ = now;
-  if (config_.app.preventSleep && captureState_ == CaptureState::Running) {
-    ::SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
-  } else {
-    ::SetThreadExecutionState(ES_CONTINUOUS);
-  }
+  KeepDisplayAwake(config_.app.preventSleep && captureState_ == CaptureState::Running);
 }
 
 void App::AdjustVolume(float delta) {
@@ -940,7 +912,7 @@ void App::StartEncoderProbe(bool full) {
   // thread never sees a half filled structure.
   FfmpegInfo copy = ffmpeg_;
   probeThread_ = std::thread([this, copy, full]() mutable {
-    ComScope com(COINIT_MULTITHREADED);
+    SystemThreadScope onThisThread;
     if (full) {
       ProbeEncoders(&copy);
     } else {
@@ -1708,7 +1680,7 @@ void App::StartSignalWatch() {
       // Split into short naps so shutdown does not have to wait for the interval.
       for (int i = 0; i < kSignalPollNaps && signalWatchRun_.load(std::memory_order_relaxed);
            ++i) {
-        ::Sleep(10);
+        SleepMilliseconds(10);
       }
     }
   });
@@ -1942,7 +1914,7 @@ void App::RescanVideoStandard() {
   // ueberspringt. Die Frist ist grosszuegig: auf einem gerade schwarzen Bild
   // wartet der Rundgang, und dieses Warten soll er noch tun duerfen.
   ResetStandardColourCheck();
-  standardForceColourUntilQpc_ = QpcNow() + SecondsToQpc(30.0);
+  standardForceColourUntilQpc_ = ClockTicks() + SecondsToTicks(30.0);
   // Ab hier schuldet die Suche eine Antwort, und ein Ergebnis von vorhin ist
   // keine: wer ein zweites Mal drueckt, fragt ein zweites Mal.
   standardManualSearch_ = true;
@@ -1969,7 +1941,7 @@ void App::FinishManualStandardSearch(long standard, const std::string& detail) {
   standardResultHeadline_ = Format(T("Videonorm: %s", "Video standard: %s"),
                                    idx >= 0 ? VideoStandardName(idx) : "?");
   standardResultDetail_ = detail;
-  standardResultUntilQpc_ = QpcNow() + SecondsToQpc(kStandardResultSeconds);
+  standardResultUntilQpc_ = ClockTicks() + SecondsToTicks(kStandardResultSeconds);
   CAP_LOG("Video standard: manual search finished -- %s",
           idx >= 0 ? VideoStandardName(idx) : "?");
 }
@@ -1981,7 +1953,7 @@ void App::FinishManualStandardSearch(long standard, const std::string& detail) {
 // mehr wahr, und es tritt hinter die laufende Suche zurueck, statt sie zu
 // verdecken.
 bool App::ShowingStandardResult() const {
-  return standardResultUntilQpc_ != 0 && QpcNow() < standardResultUntilQpc_ &&
+  return standardResultUntilQpc_ != 0 && ClockTicks() < standardResultUntilQpc_ &&
          colourCandidates_.empty() && standardCandidate_ < 0;
 }
 
@@ -2062,7 +2034,7 @@ void App::UpdateVideoStandard() {
     }
   }
 
-  const int64_t now = QpcNow();
+  const int64_t now = ClockTicks();
 
   // Kommt ueberhaupt noch ein Bild an? Vor allen Ausstiegen weiter unten, damit
   // diese Uhr auch dann laeuft, wenn die Funktion an anderer Stelle umkehrt.
@@ -2101,7 +2073,7 @@ void App::UpdateVideoStandard() {
     starved = frameAgeMs >= kStandardStarvedSeconds * 1000.0;
   } else {
     if (standardStarvedSinceQpc_ == 0) standardStarvedSinceQpc_ = now;
-    starved = QpcToSeconds(now - standardStarvedSinceQpc_) >= kStandardStarvedSeconds;
+    starved = TicksToSeconds(now - standardStarvedSinceQpc_) >= kStandardStarvedSeconds;
   }
   if (!starved) standardStarvedLogged_ = false;
 
@@ -2139,7 +2111,7 @@ void App::UpdateVideoStandard() {
       // die Zeilenfrequenz wirklich neu einfangen musste.
       CAP_LOG("Video standard found automatically: %s (lock after %.2f s)",
               VideoStandardName(VideoStandardIndexOf(settled)),
-              standardSetQpc_ != 0 ? QpcToSeconds(now - standardSetQpc_) : 0.0);
+              standardSetQpc_ != 0 ? TicksToSeconds(now - standardSetQpc_) : 0.0);
       standardSetQpc_ = 0;
       // Die Zeilenzahl kann sich mit der Norm geaendert haben, und dann passt
       // die gemerkte Groesse nicht mehr. Vor dem Neubau, der sie sonst wieder
@@ -2174,7 +2146,7 @@ void App::UpdateVideoStandard() {
       // Grund da: sie setzt die Messung an ihrem Ende noch einmal zurueck, so
       // dass das Fenster sicher hinter dem Umbau beginnt und nicht davor.
       ResetStandardColourCheck();
-      colourSettleUntilQpc_ = now + SecondsToQpc(kColourSettleSeconds);
+      colourSettleUntilQpc_ = now + SecondsToTicks(kColourSettleSeconds);
     }
     VerifyStandardColour(now);
     return;
@@ -2196,7 +2168,7 @@ void App::UpdateVideoStandard() {
     }
     return;
   }
-  if (QpcToSeconds(now - standardLostQpc_) < kStandardLostSeconds) return;
+  if (TicksToSeconds(now - standardLostQpc_) < kStandardLostSeconds) return;
 
   // Eine Frist, die auf ein Bild wartet, das nicht kommt, ist kein Zuhoeren.
   //
@@ -2219,7 +2191,7 @@ void App::UpdateVideoStandard() {
   // Die ist fuer eine Konsole gedacht, die noch hochfaehrt, und die liefert
   // dabei Bilder -- nur noch keine stabilen.
   if (starved && standardCandidate_ >= 0 && standardSetQpc_ != 0) {
-    const int64_t shortened = standardSetQpc_ + SecondsToQpc(kStandardSettleSeconds);
+    const int64_t shortened = standardSetQpc_ + SecondsToTicks(kStandardSettleSeconds);
     if (shortened < standardNextTryQpc_) standardNextTryQpc_ = shortened;
   }
   if (now < standardNextTryQpc_) return;
@@ -2251,7 +2223,7 @@ void App::UpdateVideoStandard() {
     CAP_LOG("Video standard: no frame for %.1f s -- %s does not match the incoming signal, the "
             "search goes on",
             frameAgeMs >= 0.0 ? frameAgeMs / 1000.0
-                              : QpcToSeconds(now - standardStarvedSinceQpc_),
+                              : TicksToSeconds(now - standardStarvedSinceQpc_),
             VideoStandardName(VideoStandardIndexOf(capture_.currentStandard())));
   }
   if (!starved && renderer_.detectedSignal() == VideoRenderer::SignalVerdict::Flat) {
@@ -2292,7 +2264,7 @@ void App::UpdateVideoStandard() {
     // Die Frist des laufenden Kandidaten immer wieder von vorn, damit sie erst
     // zu laufen beginnt, wenn es etwas zu messen gibt.
     standardSetQpc_ = now;
-    standardNextTryQpc_ = now + SecondsToQpc(kStandardSettleSeconds);
+    standardNextTryQpc_ = now + SecondsToTicks(kStandardSettleSeconds);
     return;
   }
 
@@ -2334,7 +2306,7 @@ void App::UpdateVideoStandard() {
     }
 
     standardPatientPass_ = false;
-    standardNextTryQpc_ = now + SecondsToQpc(kStandardBackoffSeconds);
+    standardNextTryQpc_ = now + SecondsToTicks(kStandardBackoffSeconds);
     // Und dabei nicht stehen lassen, was zuletzt probiert wurde.
     //
     // Waehrend der Pause steht irgendeine Norm auf der Karte, und wenn in
@@ -2388,7 +2360,7 @@ void App::UpdateVideoStandard() {
   if (standardSweeps_ <= 1 && standardCandidate_ >= 0 && standardSetQpc_ != 0) {
     CAP_LOG("Video standard: %s dropped after %.2f s without a lock (%s pass)",
             VideoStandardName(VideoStandardIndexOf(candidates[(size_t)standardCandidate_])),
-            QpcToSeconds(now - standardSetQpc_),
+            TicksToSeconds(now - standardSetQpc_),
             standardPatientPass_ ? "patient" : "fast");
   }
 
@@ -2430,7 +2402,7 @@ void App::UpdateVideoStandard() {
   // schnelle Durchgang ohnehin nicht, sie gehoert dem zweiten. Wer hier
   // vorgezogen wird, wird es dadurch, dass er als erster drankommt.
   standardNextTryQpc_ =
-      now + SecondsToQpc(!standardPatientPass_ ? kStandardFastSeconds
+      now + SecondsToTicks(!standardPatientPass_ ? kStandardFastSeconds
                          : !starved && standardCandidate_ < preferred
                              ? kStandardPreferredSeconds
                              : kStandardSettleSeconds);
@@ -2904,7 +2876,7 @@ void App::VerifyStandardColour(int64_t now) {
 
   const float energy = renderer_.chromaEnergy();
   if (energy < 0.0f) {
-    if (QpcToSeconds(now - colourStartedQpc_) <= kColourGiveUpSeconds) return;
+    if (TicksToSeconds(now - colourStartedQpc_) <= kColourGiveUpSeconds) return;
     // Keine Messung zustande gekommen. Ohne laufenden Rundgang ist die Sache
     // damit erledigt -- es gibt nichts zu vergleichen. Im Rundgang zaehlt es
     // als "weiss nicht", wird als solches eingetragen und der naechste
@@ -2949,7 +2921,7 @@ void App::VerifyStandardColour(int64_t now) {
     const bool rising = colourWindowEnergy_ < 0.0f ||
                         ColourStillRising(colourWindowEnergy_, energy) ||
                         ColourStillRising(colourWindowDark_, dark);
-    const double waited = QpcToSeconds(now - colourStartedQpc_);
+    const double waited = TicksToSeconds(now - colourStartedQpc_);
     if (rising && waited < kColourStableGiveUpSeconds) {
       colourWindowEnergy_ = energy;
       colourWindowDark_ = dark;
@@ -3141,7 +3113,7 @@ void App::VerifyStandardColour(int64_t now) {
   if (colourIndex_ < (int)colourCandidates_.size()) {
     capture_.SetStandard(colourCandidates_[(size_t)colourIndex_]);
     standardSeqAtSet_ = signalSeq_.load(std::memory_order_acquire);
-    colourSettleUntilQpc_ = now + SecondsToQpc(kColourSettleSeconds);
+    colourSettleUntilQpc_ = now + SecondsToTicks(kColourSettleSeconds);
     colourStartedQpc_ = 0;
     renderer_.ResetChroma();
     return;
@@ -3531,7 +3503,7 @@ void App::VerifyStandardColour(int64_t now) {
           sceneChanged ? "discarded, the picture changed meanwhile"
                        : "undecided, the scene has too little colour",
           wait, VideoStandardName(VideoStandardIndexOf(origin)));
-  colourRetryQpc_ = now + SecondsToQpc(wait);
+  colourRetryQpc_ = now + SecondsToTicks(wait);
   // Auch das ist eine Antwort, und zwar die letzte, die der Tastendruck noch
   // bekommt. Der Wiederholer laeuft weiter -- aber er laeuft in wachsenden
   // Abstaenden bis zu gut einer Minute, und so lange auf eine Einblendung zu
@@ -3573,70 +3545,22 @@ void App::ResetStandardColourCheck() {
   renderer_.ResetChroma();
 }
 
-// The window icon, as a texture for the empty state.
-//
-// Not through WIC, although WIC is already linked: the resource compiler splits
-// an .ico into RT_GROUP_ICON plus one RT_ICON per size, so there is no .ico file
-// in the binary for WIC to decode. LoadImage understands that split and picks
-// the size asked for, which is the whole reason to go the GDI way here.
+// The program's own icon, as a texture for the empty state.
 void App::LoadIdleIcon() {
   if (idleIcon_ || !display_.initialized()) return;
 
-  const int want = 256;
-  HICON icon = (HICON)::LoadImageW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_QBLANK),
-                                   IMAGE_ICON, want, want, LR_DEFAULTCOLOR);
-  if (!icon) return;
-
-  ICONINFO info = {};
-  BITMAP bm = {};
-  std::vector<uint8_t> pixels;
   int w = 0, h = 0;
-  if (::GetIconInfo(icon, &info) && info.hbmColor &&
-      ::GetObjectW(info.hbmColor, sizeof(bm), &bm) && bm.bmWidth > 0 && bm.bmHeight > 0) {
-    w = bm.bmWidth;
-    h = bm.bmHeight;
-
-    BITMAPINFO bi = {};
-    bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
-    bi.bmiHeader.biWidth = w;
-    bi.bmiHeader.biHeight = -h;  // negative: top down, so no row flip afterwards
-    bi.bmiHeader.biPlanes = 1;
-    bi.bmiHeader.biBitCount = 32;
-    bi.bmiHeader.biCompression = BI_RGB;
-
-    pixels.resize((size_t)w * (size_t)h * 4);
-    HDC screen = ::GetDC(nullptr);
-    if (!::GetDIBits(screen, info.hbmColor, 0, (UINT)h, pixels.data(), &bi, DIB_RGB_COLORS)) {
-      pixels.clear();
-    }
-    ::ReleaseDC(nullptr, screen);
-  }
-  if (info.hbmColor) ::DeleteObject(info.hbmColor);
-  if (info.hbmMask) ::DeleteObject(info.hbmMask);
-  ::DestroyIcon(icon);
+  std::vector<uint8_t> pixels = AppIconRgba(256, &w, &h);
   if (pixels.empty()) return;
 
-  // GetDIBits hands back BGRA. Two things have to happen on the way to a
-  // texture: the channel swap, and premultiplying by alpha -- ImGui's blend
-  // state is premultiplied, and handing it straight alpha draws a dark halo
-  // around every edge of the icon.
-  //
-  // An icon with no alpha at all is an old-style one whose transparency lives
-  // in the mask instead. Rather than decode the mask, such an icon is drawn
-  // opaque: the rectangle is square and the background behind it is flat, so
-  // the result is plain rather than wrong.
-  bool anyAlpha = false;
-  for (size_t i = 3; i < pixels.size(); i += 4) {
-    if (pixels[i] != 0) { anyAlpha = true; break; }
-  }
+  // Premultiplying by alpha is the one thing still to do here, and it belongs
+  // here: ImGui's blend state is premultiplied, and handing it straight alpha
+  // draws a dark halo around every edge of the icon.
   for (size_t i = 0; i + 3 < pixels.size(); i += 4) {
-    const uint8_t b = pixels[i];
-    const uint8_t r = pixels[i + 2];
-    const unsigned a = anyAlpha ? pixels[i + 3] : 255u;
-    pixels[i + 0] = (uint8_t)(r * a / 255u);
+    const unsigned a = pixels[i + 3];
+    pixels[i + 0] = (uint8_t)(pixels[i + 0] * a / 255u);
     pixels[i + 1] = (uint8_t)(pixels[i + 1] * a / 255u);
-    pixels[i + 2] = (uint8_t)(b * a / 255u);
-    pixels[i + 3] = (uint8_t)a;
+    pixels[i + 2] = (uint8_t)(pixels[i + 2] * a / 255u);
   }
 
   UiImage image = display_.CreateUiImage(pixels.data(), w, h);
@@ -3791,9 +3715,9 @@ void App::DrawSettingsWindowed() {
       if (FrameBuffer* sink = capture_.sink()) {
         newPicture = sink->frameReady().Wait(0);
       }
-      const int64_t nowQpc = QpcNow();
+      const int64_t nowQpc = ClockTicks();
       const double sinceRenderMs =
-          lastRenderQpc_ == 0 ? 1e9 : QpcToSeconds(nowQpc - lastRenderQpc_) * 1000.0;
+          lastRenderQpc_ == 0 ? 1e9 : TicksToSeconds(nowQpc - lastRenderQpc_) * 1000.0;
       const bool fieldDue = secondFieldPending_ && nowQpc >= secondFieldQpc_;
       if (newPicture || fieldDue || sinceRenderMs >= 200.0) {
         lastRenderQpc_ = nowQpc;
@@ -4035,23 +3959,7 @@ void App::DrawCrashNotice() {
                           ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
   if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
-  // Date and time the way Windows is set to show them.
-  std::string when;
-  const LocalTime& started = unfinishedSession_.started;
-  if (started.year != 0) {
-    SYSTEMTIME s = {};
-    s.wYear = (WORD)started.year;
-    s.wMonth = (WORD)started.month;
-    s.wDay = (WORD)started.day;
-    s.wHour = (WORD)started.hour;
-    s.wMinute = (WORD)started.minute;
-    s.wSecond = (WORD)started.second;
-    wchar_t date[64] = {};
-    wchar_t time[64] = {};
-    ::GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &s, nullptr, date, 64, nullptr);
-    ::GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &s, nullptr, time, 64);
-    when = ToUtf8(std::wstring(date) + L" " + time);
-  }
+  const std::string when = ShortDateAndTime(unfinishedSession_.started);
 
   ImGui::Text(T("%s wurde beim letzten Mal nicht normal beendet.",
                 "%s did not close normally last time."),
@@ -5203,9 +5111,9 @@ int App::Run() {
     // So: the frame event, a second field falling due, and a slow floor that
     // only matters when no pictures are arriving at all -- with a source
     // running, everything on screen animates at the source's rate anyway.
-    const int64_t nowQpc = QpcNow();
+    const int64_t nowQpc = ClockTicks();
     const double sinceRenderMs =
-        lastRenderQpc_ == 0 ? 1e9 : QpcToSeconds(nowQpc - lastRenderQpc_) * 1000.0;
+        lastRenderQpc_ == 0 ? 1e9 : TicksToSeconds(nowQpc - lastRenderQpc_) * 1000.0;
     const bool wokeOnPicture = lastWake_ == WaitResult::Signal;
     // Due by the clock, not by *how* the wait ended.
     //
@@ -5257,7 +5165,7 @@ int App::Run() {
       // not due yet, redraws the same field for nothing and then spins on a zero
       // timeout until it is. Waiting the extra millisecond costs a millisecond
       // and saves all of that.
-      const double waitMs = QpcToSeconds(secondFieldQpc_ - QpcNow()) * 1000.0;
+      const double waitMs = TicksToSeconds(secondFieldQpc_ - ClockTicks()) * 1000.0;
       timeout = Clamp((int)std::ceil(waitMs), 0, timeout);
     }
     FrameBuffer* sink = capture_.sink();
@@ -5285,7 +5193,7 @@ void App::Tick() {
       captureState_ = CaptureState::Reconnecting;
       capture_.Stop();
       audio_.Stop();
-      nextRetryQpc_ = QpcNow() + SecondsToQpc(kRetrySeconds);
+      nextRetryQpc_ = ClockTicks() + SecondsToTicks(kRetrySeconds);
       retryCount_ = 0;
     }
   }
@@ -5294,7 +5202,7 @@ void App::Tick() {
   // this, so retrying behind their back only produces noise and blocks the
   // device they are about to pick.
   if (captureState_ == CaptureState::Reconnecting && !settings_.isOpen() &&
-      QpcNow() >= nextRetryQpc_) {
+      ClockTicks() >= nextRetryQpc_) {
     ++retryCount_;
     std::string error;
     if (StartCapture(&error)) {
@@ -5304,7 +5212,7 @@ void App::Tick() {
       captureError_ = error;
       // Back off once it is clear this is not a brief hiccup.
       const double wait = retryCount_ >= kRetryBackoffAfter ? kRetrySlowSeconds : kRetrySeconds;
-      nextRetryQpc_ = QpcNow() + SecondsToQpc(wait);
+      nextRetryQpc_ = ClockTicks() + SecondsToTicks(wait);
     }
   }
 
@@ -5316,7 +5224,7 @@ void App::Tick() {
   // Hide the pointer once it has been still for a while in fullscreen.
   if (fullscreen_ && config_.app.hideCursorFullscreen && !settings_.isOpen()) {
     if (!window_.cursorHidden() &&
-        QpcToSeconds(QpcNow() - lastMouseMoveQpc_) > kCursorIdleSeconds) {
+        TicksToSeconds(ClockTicks() - lastMouseMoveQpc_) > kCursorIdleSeconds) {
       window_.SetCursorHidden(true);
     }
   } else if (window_.cursorHidden()) {
@@ -5325,7 +5233,7 @@ void App::Tick() {
 }
 
 void App::RenderFrame() {
-  const int64_t now = QpcNow();
+  const int64_t now = ClockTicks();
   const Profile& profile = config_.active();
 
   // ---- pull the newest frame ----
@@ -5337,7 +5245,7 @@ void App::RenderFrame() {
       if (!sawFirstFrame_) {
         sawFirstFrame_ = true;
         CAP_LOG("First frame after %.0f ms (%zu bytes)",
-                QpcToSeconds(now - captureStartQpc_) * 1000.0, view.size);
+                TicksToSeconds(now - captureStartQpc_) * 1000.0, view.size);
       }
       renderer_.SetSourceFormat(sink->format(), nullptr);
       // Das Standbild haelt hier an und nirgends sonst: die Bilder werden
@@ -5404,7 +5312,7 @@ void App::RenderFrame() {
       // second field is never shown at all. Half the frames then get both
       // fields and half get one, which is exactly what a juddering picture is.
       const int64_t arrival = sink && sink->lastArrivalTicks() != 0 ? sink->lastArrivalTicks() : now;
-      const int64_t period = SecondsToQpc(frameSeconds);
+      const int64_t period = SecondsToTicks(frameSeconds);
 
       // The card delivers when the driver gets round to it -- the graph runs
       // without a reference clock on purpose -- and measured here the arrivals
@@ -5485,7 +5393,7 @@ void App::RenderFrame() {
   // geschlossenen Anzeige ist genau der, den man spaeter sucht.
   if (captureState_ == CaptureState::Running) {
     const AudioStats audioNow = audio_.stats();
-    if (audioNow.running) audioBufferMeter_.Sample(audioNow.bufferMs, QpcToSeconds(now));
+    if (audioNow.running) audioBufferMeter_.Sample(audioNow.bufferMs, TicksToSeconds(now));
   }
   SyncMicrophone();
   FeedRecorder();
@@ -5512,15 +5420,15 @@ void App::RenderFrame() {
   // Millisekunde -- eine Zahl, die nur sagte, dass der Renderthread wach
   // geworden ist.
   if (captureState_ == CaptureState::Running && displayedArrivalQpc_ != 0) {
-    const int64_t leaving = QpcNow();
-    const double ageMs = QpcToSeconds(leaving - displayedArrivalQpc_) * 1000.0;
-    if (ageMs >= 0.0) frameAgeMeter_.Sample(ageMs, QpcToSeconds(leaving));
+    const int64_t leaving = ClockTicks();
+    const double ageMs = TicksToSeconds(leaving - displayedArrivalQpc_) * 1000.0;
+    if (ageMs >= 0.0) frameAgeMeter_.Sample(ageMs, TicksToSeconds(leaving));
   }
 
   // ---- present rate ----
   ++presentCount_;
   if (fpsWindowQpc_ == 0) fpsWindowQpc_ = now;
-  const double elapsed = QpcToSeconds(now - fpsWindowQpc_);
+  const double elapsed = TicksToSeconds(now - fpsWindowQpc_);
   if (elapsed >= 1.0) {
     presentFps_ = presentCount_ / elapsed;
     presentCount_ = 0;
@@ -5642,7 +5550,7 @@ void App::DrawUi() {
       case SettingsWindow::StandardSearch::Result: {
         std::string headline, detail;
         StandardSearchText(&headline, &detail);
-        const double left = QpcToSeconds(standardResultUntilQpc_ - QpcNow());
+        const double left = TicksToSeconds(standardResultUntilQpc_ - ClockTicks());
         DrawSearchResult(headline, detail, kStandardResultSeconds - left, kStandardResultSeconds);
         break;
       }
@@ -6327,7 +6235,7 @@ bool App::OnWindowEvent(const WindowEvent& e) {
     case WindowEvent::Kind::MouseMoved:
       if (e.mouse.x != lastMousePos_.x || e.mouse.y != lastMousePos_.y) {
         lastMousePos_ = e.mouse;
-        lastMouseMoveQpc_ = QpcNow();
+        lastMouseMoveQpc_ = ClockTicks();
         window_.SetCursorHidden(false);
       }
       return true;

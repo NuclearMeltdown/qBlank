@@ -4,9 +4,9 @@
 #include <cmath>
 
 #include "app_files.h"
-#include "common_win32.h"
 #include "files.h"
 #include "json.h"
+#include "platform.h"
 
 namespace cap {
 
@@ -205,43 +205,19 @@ const char* VideoRegionName(int i) {
 VideoRegion ResolveVideoRegion(VideoRegion region) {
   if (region != VideoRegion::Auto) return region;
 
-  // Windows kennt das Land des Nutzers, und es ist dieselbe Angabe, nach der
+  // Das System kennt das Land des Nutzers, und es ist dieselbe Angabe, nach der
   // hier sonst gefragt wuerde. Danach zu fragen, was das System schon weiss,
   // ist eine Frage zu viel -- die Auswahl bleibt daneben stehen, fuer alle, bei
   // denen die Annahme nicht stimmt.
   //
-  // Gefragt wird nach dem *Wohnort*, nicht nach der Sprache. Unter Windows sind
-  // das zwei Einstellungen, und sie gehen auseinander, sobald jemand sein
-  // System auf Englisch stellt und in Deutschland wohnen bleibt. Den Wohnort
-  // gibt GetUserDefaultGeoName -- erst ab Windows 10 1709, deshalb spaet
-  // gebunden. Faellt es aus, bleibt die Locale, die schlechtere Auskunft (sie
-  // beschreibt Zahlen- und Datumsformate), aber besser als gar keine.
-  wchar_t country[16] = {};
-  bool have = false;
-
-  typedef int(WINAPI * GeoNameFn)(PWSTR, int);
-  static const GeoNameFn geoName = [] {
-    HMODULE kernel = ::GetModuleHandleW(L"kernel32.dll");
-    return kernel ? (GeoNameFn)::GetProcAddress(kernel, "GetUserDefaultGeoName") : nullptr;
-  }();
-  if (geoName && geoName(country, 16) > 0) have = true;
-
-  if (!have) {
-    // Nicht LOCALE_NAME_USER_DEFAULT (also NULL) durchreichen: das wird je nach
-    // Wirt anders aufgeloest und liefert dann die invariante Locale ("IV"), die
-    // in keiner Tabelle steht und still im PAL-Zweig landet. Am 29.08.2026 auf
-    // diesem Rechner nachgemessen: mit NULL kam "IV", mit dem ausgeschriebenen
-    // Namen "DE". Also erst den Namen holen, dann damit fragen.
-    wchar_t locale[LOCALE_NAME_MAX_LENGTH] = {};
-    if (::GetUserDefaultLocaleName(locale, LOCALE_NAME_MAX_LENGTH) > 0 &&
-        ::GetLocaleInfoEx(locale, LOCALE_SISO3166CTRYNAME, country, 16) > 0) {
-      have = true;
-    }
-  }
-  if (!have) return VideoRegion::PalEurope;
+  // Gefragt wird nach dem *Wohnort*, nicht nach der Sprache: zwei
+  // Einstellungen, die auseinandergehen, sobald jemand sein System auf Englisch
+  // stellt und in Deutschland wohnen bleibt.
+  const std::string country = UserCountryCode();
+  if (country.empty()) return VideoRegion::PalEurope;
 
   struct Entry {
-    const wchar_t* code;
+    const char* code;
     VideoRegion region;
   };
   // Nur die Ausnahmen, alles andere ist PAL. Das ist keine Nachlaessigkeit,
@@ -254,38 +230,38 @@ VideoRegion ResolveVideoRegion(VideoRegion region) {
   // genau der Zeit.
   static const Entry kByCountry[] = {
       // NTSC M, 525/60 mit 3,58 MHz.
-      {L"US", VideoRegion::NtscAmerica}, {L"CA", VideoRegion::NtscAmerica},
-      {L"MX", VideoRegion::NtscAmerica}, {L"GT", VideoRegion::NtscAmerica},
-      {L"BZ", VideoRegion::NtscAmerica}, {L"SV", VideoRegion::NtscAmerica},
-      {L"HN", VideoRegion::NtscAmerica}, {L"NI", VideoRegion::NtscAmerica},
-      {L"CR", VideoRegion::NtscAmerica}, {L"PA", VideoRegion::NtscAmerica},
-      {L"CU", VideoRegion::NtscAmerica}, {L"DO", VideoRegion::NtscAmerica},
-      {L"PR", VideoRegion::NtscAmerica}, {L"JM", VideoRegion::NtscAmerica},
-      {L"HT", VideoRegion::NtscAmerica}, {L"TT", VideoRegion::NtscAmerica},
-      {L"BS", VideoRegion::NtscAmerica}, {L"BB", VideoRegion::NtscAmerica},
-      {L"CO", VideoRegion::NtscAmerica}, {L"VE", VideoRegion::NtscAmerica},
-      {L"EC", VideoRegion::NtscAmerica}, {L"PE", VideoRegion::NtscAmerica},
-      {L"BO", VideoRegion::NtscAmerica}, {L"CL", VideoRegion::NtscAmerica},
-      {L"SR", VideoRegion::NtscAmerica}, {L"PH", VideoRegion::NtscAmerica},
-      {L"KR", VideoRegion::NtscAmerica}, {L"TW", VideoRegion::NtscAmerica},
-      {L"MM", VideoRegion::NtscAmerica},
+      {"US", VideoRegion::NtscAmerica}, {"CA", VideoRegion::NtscAmerica},
+      {"MX", VideoRegion::NtscAmerica}, {"GT", VideoRegion::NtscAmerica},
+      {"BZ", VideoRegion::NtscAmerica}, {"SV", VideoRegion::NtscAmerica},
+      {"HN", VideoRegion::NtscAmerica}, {"NI", VideoRegion::NtscAmerica},
+      {"CR", VideoRegion::NtscAmerica}, {"PA", VideoRegion::NtscAmerica},
+      {"CU", VideoRegion::NtscAmerica}, {"DO", VideoRegion::NtscAmerica},
+      {"PR", VideoRegion::NtscAmerica}, {"JM", VideoRegion::NtscAmerica},
+      {"HT", VideoRegion::NtscAmerica}, {"TT", VideoRegion::NtscAmerica},
+      {"BS", VideoRegion::NtscAmerica}, {"BB", VideoRegion::NtscAmerica},
+      {"CO", VideoRegion::NtscAmerica}, {"VE", VideoRegion::NtscAmerica},
+      {"EC", VideoRegion::NtscAmerica}, {"PE", VideoRegion::NtscAmerica},
+      {"BO", VideoRegion::NtscAmerica}, {"CL", VideoRegion::NtscAmerica},
+      {"SR", VideoRegion::NtscAmerica}, {"PH", VideoRegion::NtscAmerica},
+      {"KR", VideoRegion::NtscAmerica}, {"TW", VideoRegion::NtscAmerica},
+      {"MM", VideoRegion::NtscAmerica},
       // Dasselbe, aber ohne den 7,5-IRE-Sockel unter Schwarz.
-      {L"JP", VideoRegion::NtscJapan},
+      {"JP", VideoRegion::NtscJapan},
       // PAL M und PAL N -- 525/60 und 625/50, beide mit dem NTSC-Farbtraeger.
-      {L"BR", VideoRegion::PalBrazil},
-      {L"AR", VideoRegion::PalArgentina}, {L"UY", VideoRegion::PalArgentina},
-      {L"PY", VideoRegion::PalArgentina},
+      {"BR", VideoRegion::PalBrazil},
+      {"AR", VideoRegion::PalArgentina}, {"UY", VideoRegion::PalArgentina},
+      {"PY", VideoRegion::PalArgentina},
       // SECAM. Osteuropa sendet laengst in PAL oder digital, aber die
       // Videorecorder und Konsolen aus der SECAM-Zeit stehen noch da.
-      {L"FR", VideoRegion::Secam},       {L"RU", VideoRegion::Secam},
-      {L"UA", VideoRegion::Secam},       {L"BY", VideoRegion::Secam},
-      {L"KZ", VideoRegion::Secam},       {L"MD", VideoRegion::Secam},
-      {L"AM", VideoRegion::Secam},       {L"AZ", VideoRegion::Secam},
-      {L"GE", VideoRegion::Secam},       {L"MN", VideoRegion::Secam},
+      {"FR", VideoRegion::Secam},       {"RU", VideoRegion::Secam},
+      {"UA", VideoRegion::Secam},       {"BY", VideoRegion::Secam},
+      {"KZ", VideoRegion::Secam},       {"MD", VideoRegion::Secam},
+      {"AM", VideoRegion::Secam},       {"AZ", VideoRegion::Secam},
+      {"GE", VideoRegion::Secam},       {"MN", VideoRegion::Secam},
   };
 
   for (const Entry& e : kByCountry) {
-    if (::CompareStringOrdinal(country, -1, e.code, -1, TRUE) == CSTR_EQUAL) return e.region;
+    if (country == e.code) return e.region;
   }
   return VideoRegion::PalEurope;
 }

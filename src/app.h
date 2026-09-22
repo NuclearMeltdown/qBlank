@@ -15,7 +15,7 @@
 #include "audio/mic_capture.h"
 #include "capture/device_config.h"
 #include "capture/video_capture.h"
-#include "common_win32.h"
+#include "common.h"
 #include "config.h"
 #include "record/recorder.h"
 #include "render/display.h"
@@ -634,7 +634,7 @@ class App {
   // Meldung je Sekunde waere keine Warnung mehr, sondern ein Dauerzustand.
   bool diskWarned_ = false;
 
-  DWORD lastPowerPokeTick_ = 0;
+  uint32_t lastPowerPokeTick_ = 0;
   // Es gab noch keine Konfigurationsdatei, als dieser Lauf begann. Entscheidet
   // ueber die Begruessung statt der Einstellungen.
   bool firstRun_ = false;

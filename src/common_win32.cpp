@@ -378,6 +378,15 @@ double TicksToSeconds(int64_t ticks) {
   return (double)ticks / freq;
 }
 
+int64_t SecondsToTicks(double seconds) {
+  static const double freq = [] {
+    LARGE_INTEGER f;
+    ::QueryPerformanceFrequency(&f);
+    return (double)f.QuadPart;
+  }();
+  return (int64_t)(seconds * freq);
+}
+
 uint32_t TickMilliseconds() {
   return (uint32_t)::GetTickCount();
 }
@@ -390,6 +399,26 @@ LocalTime NowLocal() {
   SYSTEMTIME st;
   ::GetLocalTime(&st);
   LocalTime out;
+  out.year = st.wYear;
+  out.month = st.wMonth;
+  out.day = st.wDay;
+  out.hour = st.wHour;
+  out.minute = st.wMinute;
+  out.second = st.wSecond;
+  return out;
+}
+
+LocalTime LocalTimeFrom(int64_t unixSeconds) {
+  LocalTime out;
+  if (unixSeconds <= 0) return out;
+  // Seconds since 1970 into the count since 1601 that the two conversions below
+  // take, and into the local zone before it is read off.
+  ULARGE_INTEGER raw;
+  raw.QuadPart = (unsigned long long)(unixSeconds + 11644473600LL) * 10000000ULL;
+  FILETIME utc = {raw.LowPart, raw.HighPart};
+  FILETIME local = {};
+  SYSTEMTIME st = {};
+  if (!::FileTimeToLocalFileTime(&utc, &local) || !::FileTimeToSystemTime(&local, &st)) return out;
   out.year = st.wYear;
   out.month = st.wMonth;
   out.day = st.wDay;

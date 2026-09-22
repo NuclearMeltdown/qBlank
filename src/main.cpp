@@ -1,7 +1,4 @@
 #include <windows.h>
-// timeBeginPeriod. Came along with the audio headers once; they no longer
-// bring in anything of Windows.
-#include <timeapi.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -10,9 +7,11 @@
 #include "app.h"
 #include "app_identity.h"
 #include "common.h"
+#include "common_win32.h"
 #include "config.h"
 #include "files.h"
 #include "i18n.h"
+#include "platform.h"
 #include "record/ffmpeg_download.h"
 #include "record/ffmpeg_locator.h"
 #include "text_win32.h"
@@ -31,27 +30,6 @@ void SpeakLanguageOf(const cap::ForeignSettings& found) {
   if (language < 0) language = cap::SettingsLanguage(cap::Config::FilePath());
   if (language < 0) return;
   cap::SetLanguage(language == 1 ? cap::Language::English : cap::Language::German);
-}
-
-// "08.09.2026 21:14" in whatever order and separators Windows is set to.
-//
-// The timestamp arrives as plain seconds now, so it has to go back into a file
-// time: the two formatters below are the reason, they take nothing else.
-std::string WhenWritten(int64_t unixSeconds) {
-  if (unixSeconds <= 0) return std::string();
-  ULARGE_INTEGER raw;
-  raw.QuadPart = (unsigned long long)(unixSeconds + 11644473600LL) * 10000000ULL;
-  FILETIME utc = {raw.LowPart, raw.HighPart};
-  FILETIME local = {};
-  SYSTEMTIME when = {};
-  if (!::FileTimeToLocalFileTime(&utc, &local) || !::FileTimeToSystemTime(&local, &when)) {
-    return std::string();
-  }
-  wchar_t date[64] = {};
-  wchar_t time[64] = {};
-  ::GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &when, nullptr, date, 64, nullptr);
-  ::GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &when, nullptr, time, 64);
-  return cap::ToUtf8(std::wstring(date) + L" " + time);
 }
 
 // Settings under a name this build does not use: leftovers of the rename, or a
@@ -85,14 +63,16 @@ cap::SettingsAnswer AskAboutSettings(const cap::ForeignSettings& found, bool hav
 
   cap::StartupQuestion::Row other;
   other.label = file + ".json";
-  other.detail = label + "  ·  " + WhenWritten(found.modified);
+  other.detail =
+      label + "  ·  " + cap::ShortDateAndTime(cap::LocalTimeFrom(found.modified));
   other.highlight = true;
   q.rows.push_back(other);
   if (haveOwn) {
     cap::StartupQuestion::Row own;
     own.label = mine + ".json";
     own.detail = cap::Format(cap::T("%s, diese Version", "%s, this build"), mine.c_str()) + "  ·  " +
-                 WhenWritten(cap::FileWriteTime(cap::Config::FilePath()));
+                 cap::ShortDateAndTime(
+                     cap::LocalTimeFrom(cap::FileWriteTime(cap::Config::FilePath())));
     q.rows.push_back(own);
   }
 
@@ -116,20 +96,11 @@ cap::SettingsAnswer AskAboutSettings(const cap::ForeignSettings& found, bool hav
   }
 }
 
-// Attaches to the parent console if there is one, so a command line run can
-// report progress. A windowed program has no console of its own.
-void AttachConsoleIfAny() {
-  if (!::AttachConsole(ATTACH_PARENT_PROCESS)) return;
-  FILE* dummy = nullptr;
-  freopen_s(&dummy, "CONOUT$", "w", stdout);
-  freopen_s(&dummy, "CONOUT$", "w", stderr);
-}
-
 // Runs the same download the settings button does, without the window. Useful
 // for provisioning a machine from a script -- and the only way to exercise this
 // code path without a human clicking.
 int FetchFfmpeg() {
-  AttachConsoleIfAny();
+  cap::UseParentConsole();
   // A windowed program handed a console it did not create cannot rely on stdout
   // surviving, so the log file is the dependable record of what happened.
   // Same file as the program's, so the same rules decide what stays in it.
@@ -152,7 +123,7 @@ int FetchFfmpeg() {
       last = message;
       std::printf("  %s\n", message.c_str());
     }
-    ::Sleep(200);
+    cap::SleepMilliseconds(200);
   }
   std::printf("  %s\n", downloader.message().c_str());
 
@@ -169,7 +140,7 @@ int FetchFfmpeg() {
 // Prints what the encoder probe finds, so a recording problem can be diagnosed
 // without opening the settings.
 int ListEncoders() {
-  AttachConsoleIfAny();
+  cap::UseParentConsole();
   cap::FfmpegInfo info = cap::LocateFfmpeg({});
   if (!info.found) {
     std::printf("\nffmpeg not found.\n");
@@ -189,9 +160,7 @@ int ListEncoders() {
 int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR commandLine, int showCmd) {
   cap::SetStartupShowCommand(showCmd);
 
-  // Per monitor DPI so the picture is not stretched by the compositor on a
-  // scaled display.
-  ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  cap::MakeProcessDpiAware();
 
   // Multi threaded apartment: DirectShow filters and WASAPI both push from
   // their own threads, and MTA keeps those calls free of apartment marshalling.
@@ -219,9 +188,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR commandLine, int showCmd) {
   if (args.find(L"--fetch-ffmpeg") != std::wstring::npos) return FetchFfmpeg();
   if (args.find(L"--list-encoders") != std::wstring::npos) return ListEncoders();
 
-  // 1 ms timer resolution: the wait in the render loop and the second field of
-  // a bob deinterlaced frame both need better than the default 15.6 ms.
-  ::timeBeginPeriod(1);
+  cap::BeginPreciseTiming();
 
   int result = 1;
   {
@@ -232,7 +199,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR commandLine, int showCmd) {
     app.Shutdown();
   }
 
-  ::timeEndPeriod(1);
+  cap::EndPreciseTiming();
   cap::LogEnd();
   return result;
 }

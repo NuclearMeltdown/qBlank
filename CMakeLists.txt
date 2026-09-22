@@ -230,6 +230,7 @@ add_executable(qblank_probe
   src/app_identity.cpp
   src/common.cpp
   src/common_win32.cpp
+  src/platform_win32.cpp
   src/child_process_win32.cpp
   src/files.cpp
   src/files_win32.cpp
@@ -252,12 +253,13 @@ add_executable(qblank_probe
   src/audio/audio_devices.cpp
   src/audio/audio_devices_win32.cpp
 )
-target_include_directories(qblank_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(qblank_probe PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/res")
 target_compile_definitions(qblank_probe PRIVATE
   UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(qblank_probe PRIVATE
   strmiids ole32 oleaut32 uuid dxguid user32 advapi32 shlwapi propsys avrt
-  mfplat mf mfuuid mfreadwrite)
+  winmm mfplat mf mfuuid mfreadwrite)
 if(MSVC)
   target_compile_options(qblank_probe PRIVATE /W3 /permissive- /Zc:__cplusplus /utf-8)
   set_property(TARGET qblank_probe PROPERTY MSVC_RUNTIME_LIBRARY

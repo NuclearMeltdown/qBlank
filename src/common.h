@@ -90,6 +90,7 @@ bool ReportError(std::string* error, const Said& said);
 // readings means anything.
 int64_t ClockTicks();
 double TicksToSeconds(int64_t ticks);
+int64_t SecondsToTicks(double seconds);
 
 // A coarse milliseconds counter, for the places that only want to know whether
 // something happened recently. Wraps around after about fifty days, so the
@@ -104,6 +105,11 @@ void SleepMilliseconds(uint32_t ms);
 // places a moment is written down for people to read: the log, and the names of
 // the files a recording or a screenshot lands in.
 LocalTime NowLocal();
+
+// The same reading for a moment that was written down earlier, as seconds since
+// 1970-01-01 UTC -- the way a file system says when a file was last touched.
+// All zero for anything the local calendar cannot express.
+LocalTime LocalTimeFrom(int64_t unixSeconds);
 
 // ------------------------------------------------------------------ misc utils
 
