@@ -15,7 +15,6 @@ struct ImGuiContext;
 #include "audio/audio_devices.h"
 #include "capture/video_capture.h"
 #include "update/updater.h"
-#include "common_win32.h"
 #include "config.h"
 #include "record/ffmpeg_download.h"
 #include "record/ffmpeg_locator.h"
@@ -23,13 +22,14 @@ struct ImGuiContext;
 #include "ui/file_dialog.h"
 #include "ui/settings_search.h"
 #include "vcam/virtual_camera.h"
+#include "window.h"
 
 namespace cap {
 
 struct MonitorInfoEntry {
   int index = 0;
   std::string name;
-  RECT rect = {};
+  Rect rect;
   bool primary = false;
 };
 
@@ -207,7 +207,7 @@ class SettingsWindow {
   // True while the binding editor is waiting for a key press. The app routes
   // key messages here instead of acting on them.
   bool waitingForKey() const { return captureAction_ >= 0; }
-  void OfferKey(int vk, bool ctrl, bool shift, bool alt);
+  void OfferKey(Key key, bool ctrl, bool shift, bool alt);
 
   // Forces the device and format lists to be read again on the next frame.
   void InvalidateDeviceLists();

@@ -17,6 +17,7 @@
 #include <string>
 
 #include "common_win32.h"
+#include "window.h"
 
 struct ImGuiContext;
 struct ImFontAtlas;
@@ -45,14 +46,13 @@ class SettingsHost {
   };
   Placement placement() const;
 
-  bool Create(HINSTANCE instance, ID3D11Device* device, ID3D11DeviceContext* context,
-              ImFontAtlas* atlas, float uiScale, bool allowTearing, const Placement& where,
-              std::string* error);
+  bool Create(ID3D11Device* device, ID3D11DeviceContext* context, ImFontAtlas* atlas,
+              float uiScale, bool allowTearing, const Placement& where, std::string* error);
   void Destroy();
 
-  bool created() const { return hwnd_ != nullptr; }
+  bool created() const { return window_.created(); }
   bool visible() const { return visible_; }
-  HWND hwnd() const { return hwnd_; }
+  const Window& window() const { return window_; }
 
   ImGuiContext* context() const { return imgui_; }
 
@@ -67,7 +67,8 @@ class SettingsHost {
   // the settings in front as well. `busy` says this window's ImGui wants the key
   // for itself -- a text field is being typed into, or a list is open. True
   // from the callback means the key was used and goes no further.
-  void SetKeyCallback(std::function<bool(WPARAM key, LPARAM lparam, bool busy)> callback) {
+  void SetKeyCallback(
+      std::function<bool(Key key, bool ctrl, bool shift, bool alt, bool busy)> callback) {
     onKey_ = std::move(callback);
   }
 
@@ -78,7 +79,7 @@ class SettingsHost {
   // Raise, but only if `other` covers part of it or it is minimised -- the
   // settings shortcut fetches a window that was lost behind the preview instead
   // of closing it. False when nothing was in the way.
-  bool RaiseIfCoveredBy(HWND other);
+  bool RaiseIfCoveredBy(const Window& other);
   // Mirrors the preview's "always on top". Without an owner nothing else keeps
   // the settings above a topmost preview.
   void SetTopmost(bool top);
@@ -100,12 +101,12 @@ class SettingsHost {
   void ApplyTheme(bool darkMode, unsigned accentColor);
 
  private:
-  static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+  bool OnWindowEvent(const WindowEvent& e);
   bool CreateRenderTarget();
   void ReleaseRenderTarget();
   void Resize();
 
-  HWND hwnd_ = nullptr;
+  Window window_;
   ImGuiContext* imgui_ = nullptr;
   ImGuiContext* previous_ = nullptr;  // restored by EndFrame
   ComPtr<ID3D11Device> device_;
@@ -130,7 +131,7 @@ class SettingsHost {
   bool inFrameCallback_ = false;
   unsigned long lastDrawTick_ = 0;
   std::function<void()> onFrame_;
-  std::function<bool(WPARAM, LPARAM, bool)> onKey_;
+  std::function<bool(Key, bool, bool, bool, bool)> onKey_;
   float uiScale_ = 1.0f;
 };
 

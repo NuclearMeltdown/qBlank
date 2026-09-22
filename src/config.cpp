@@ -1047,11 +1047,25 @@ bool Config::Load(std::string* error) {
   record.screenshotIncludeUi = r["screenshotIncludeUi"].AsBool(false);
 
   const json::Value& hk = root["hotkeys"];
+  std::string dropped;
   for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
     const json::Value& entry = hk[HotkeyActionKey((HotkeyAction)i)];
     if (!entry.IsObject()) continue;  // missing entry keeps the factory default
     HotkeyBinding& b = hotkeys.items[i];
-    b.vk = Clamp(entry["vk"].AsInt(b.vk), 0, 255);
+    // The key goes by name since 4.5. Older files carry only the number qBlank
+    // used to store, and that is still honoured: a user who updates keeps
+    // every binding.
+    Key named;
+    if (KeyFromName(entry["key"].AsString(), &named)) {
+      b.key = named;
+    } else if (entry["vk"].IsNumber()) {
+      const int code = Clamp(entry["vk"].AsInt(0), 0, 255);
+      b.key = KeyFromLegacyCode(code);
+      if (code != 0 && b.key == Key::None) {
+        if (!dropped.empty()) dropped += ", ";
+        dropped += Format("%s (0x%02X)", HotkeyActionKey((HotkeyAction)i), code);
+      }
+    }
     b.ctrl = entry["ctrl"].AsBool(false);
     b.shift = entry["shift"].AsBool(false);
     b.alt = entry["alt"].AsBool(false);
@@ -1065,6 +1079,10 @@ bool Config::Load(std::string* error) {
   if (profiles.empty()) profiles.emplace_back();
 
   activeProfile = Clamp(root["activeProfile"].AsInt(0), 0, (int)profiles.size() - 1);
+  // Before the log is open as well, like the parse error above: handed back.
+  if (error && !dropped.empty()) {
+    *error = "Hotkeys with a code that is no keyboard key, left unbound: " + dropped;
+  }
   return true;
 }
 
@@ -1168,7 +1186,9 @@ std::string Config::Serialize() const {
   for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
     const HotkeyBinding& b = hotkeys.items[i];
     json::Value entry = json::Value::Object();
-    entry["vk"] = b.vk;
+    entry["key"] = KeyName(b.key);
+    // For an older qBlank reading the same file after a downgrade.
+    entry["vk"] = LegacyCode(b.key);
     entry["ctrl"] = b.ctrl;
     entry["shift"] = b.shift;
     entry["alt"] = b.alt;

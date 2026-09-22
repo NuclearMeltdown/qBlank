@@ -3,8 +3,6 @@
 // Ties everything together: window, message loop, capture graph, audio engine,
 // renderer and UI.
 
-#include <windows.h>
-
 #include <atomic>
 #include <cstdint>
 #include <deque>
@@ -28,6 +26,7 @@
 #include "vcam/virtual_camera.h"
 #include "ui/settings_window.h"
 #include "ui/toolbar.h"
+#include "window.h"
 
 namespace cap {
 
@@ -66,16 +65,15 @@ class App {
   App() = default;
   ~App();
 
-  bool Initialize(HINSTANCE instance, int showCmd);
+  bool Initialize();
   int Run();
   void Shutdown();
-
-  LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
  private:
   enum class CaptureState { Idle, Running, Reconnecting, NeedsSetup };
 
-  bool CreateMainWindow(HINSTANCE instance, int showCmd);
+  bool CreateMainWindow();
+  bool OnWindowEvent(const WindowEvent& e);
   bool InitImGui();
   void ShutdownImGui();
 
@@ -308,17 +306,15 @@ class App {
   void SaveWindowPlacement();
   void SaveConfig();
 
-  bool HandleKeyDown(WPARAM key);
+  bool HandleKeyDown(Key key, bool ctrl, bool shift, bool alt);
   // Every key press from either window comes through here. `busy` is true when
   // the ImGui context of the window it arrived at wants the key for itself.
-  bool OnKey(WPARAM key, LPARAM lparam, bool busy);
+  bool OnKey(Key key, bool ctrl, bool shift, bool alt, bool busy);
 
-  HINSTANCE instance_ = nullptr;
-  HWND hwnd_ = nullptr;
+  Window window_;
   bool running_ = false;
   bool minimized_ = false;
   bool fullscreen_ = false;
-  WINDOWPLACEMENT windowedPlacement_ = {};
   bool imguiReady_ = false;
   bool darkMode_ = true;
   float uiScale_ = 1.0f;
@@ -460,8 +456,7 @@ class App {
   // What woke the main loop last time round, and when it last drew. Together
   // they keep the preview paced by the picture rather than by the message
   // queue -- see the comment at the call to RenderFrame.
-  unsigned long lastWait_ = 0x00000102ul;  // WAIT_TIMEOUT
-  bool lastWaitHadEvent_ = false;
+  WaitResult lastWake_ = WaitResult::Timeout;
   int64_t lastRenderQpc_ = 0;
   int hdrDisplayPoll_ = 0;
   bool updatePromptQueued_ = false;   // waiting to be opened
@@ -638,17 +633,13 @@ class App {
   // Ob vor dem knappen Platz schon gewarnt wurde. Je Aufnahme einmal -- eine
   // Meldung je Sekunde waere keine Warnung mehr, sondern ein Dauerzustand.
   bool diskWarned_ = false;
-  // lParam of the key message being handled, for telling a real key press apart
-  // from a synthesised one in the log.
-  uint64_t lastKeyLParam_ = 0;
 
   DWORD lastPowerPokeTick_ = 0;
-  bool cursorHidden_ = false;
   // Es gab noch keine Konfigurationsdatei, als dieser Lauf begann. Entscheidet
   // ueber die Begruessung statt der Einstellungen.
   bool firstRun_ = false;
   int64_t lastMouseMoveQpc_ = 0;
-  POINT lastMousePos_ = {};
+  Point lastMousePos_;
 };
 
 }  // namespace cap

@@ -14,6 +14,8 @@
 
 namespace cap {
 
+class Window;
+
 // Names of the installed graphics adapters, joined. Used to notice that the
 // machine's hardware changed since the encoder test was cached -- a saved
 // result from someone's old card is worse than no result at all.
@@ -27,7 +29,7 @@ class D3DContext {
   D3DContext(const D3DContext&) = delete;
   D3DContext& operator=(const D3DContext&) = delete;
 
-  bool Initialize(HWND hwnd, std::string* error);
+  bool Initialize(const Window& window, std::string* error);
   void Shutdown();
 
   // Recreates the back buffer for the window's current client size. Safe to

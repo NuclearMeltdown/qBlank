@@ -1,10 +1,18 @@
 #include "ui/file_dialog.h"
 
+#include "common_win32.h"
+
 #include <shobjidl.h>
 
 #include "text_win32.h"
+#include "window_win32.h"
 
 namespace cap {
+namespace {
+
+std::vector<std::filesystem::path> PickPaths(const FileDialogRequest& request, HWND owner);
+
+}  // namespace
 
 AsyncFileDialog::~AsyncFileDialog() {
   // The dialog is modal to the user, not to us: there is no way to cancel it
@@ -12,7 +20,7 @@ AsyncFileDialog::~AsyncFileDialog() {
   if (thread_.joinable()) thread_.join();
 }
 
-bool AsyncFileDialog::Start(const FileDialogRequest& request, HWND owner, int tag) {
+bool AsyncFileDialog::Start(const FileDialogRequest& request, const Window* owner, int tag) {
   if (running_.load(std::memory_order_relaxed)) return false;
   if (thread_.joinable()) thread_.join();  // reap the previous one
 
@@ -23,7 +31,8 @@ bool AsyncFileDialog::Start(const FileDialogRequest& request, HWND owner, int ta
   tag_ = tag;
   ready_.store(false, std::memory_order_relaxed);
   running_.store(true, std::memory_order_relaxed);
-  thread_ = std::thread(&AsyncFileDialog::Run, this, request, owner);
+  const HWND hwnd = owner ? NativeWindow(*owner) : nullptr;
+  thread_ = std::thread([this, request, hwnd] { Deliver(PickPaths(request, hwnd)); });
   return true;
 }
 
@@ -39,7 +48,18 @@ bool AsyncFileDialog::TakeResult(std::vector<std::filesystem::path>* out, int* t
   return true;
 }
 
-void AsyncFileDialog::Run(FileDialogRequest request, HWND owner) {
+void AsyncFileDialog::Deliver(std::vector<std::filesystem::path> picked) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    results_ = std::move(picked);
+  }
+  running_.store(false, std::memory_order_relaxed);
+  ready_.store(true, std::memory_order_release);
+}
+
+namespace {
+
+std::vector<std::filesystem::path> PickPaths(const FileDialogRequest& request, HWND owner) {
   std::vector<std::filesystem::path> picked;
 
   // Apartment threaded, which is what the common item dialogs require.
@@ -102,13 +122,8 @@ void AsyncFileDialog::Run(FileDialogRequest request, HWND owner) {
     }
     ::CoUninitialize();
   }
-
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    results_ = std::move(picked);
-  }
-  running_.store(false, std::memory_order_relaxed);
-  ready_.store(true, std::memory_order_release);
+  return picked;
 }
 
+}  // namespace
 }  // namespace cap

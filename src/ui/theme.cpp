@@ -1,20 +1,15 @@
 #include "ui/theme.h"
 
-#include <dwmapi.h>
-
 #include <algorithm>
 #include <cmath>
 
 #include "common.h"
+#include "common_win32.h"
 #include "imgui.h"
 #include "text_win32.h"
 
 namespace cap {
 namespace {
-
-// Windows 10 1809 used 19 for this attribute, 20 from 20H1 onwards.
-constexpr DWORD kDwmUseImmersiveDarkModeOld = 19;
-constexpr DWORD kDwmUseImmersiveDarkMode = 20;
 
 struct Hsv {
   float h;  // 0..1
@@ -214,14 +209,6 @@ void ApplyImGuiTheme(bool dark, unsigned accentRgb) {
   c[ImGuiCol_TableHeaderBg] = headerBg;
   c[ImGuiCol_TableBorderStrong] = border;
   c[ImGuiCol_TableBorderLight] = WithAlpha(border, 0.5f);
-}
-
-void ApplyWindowDarkMode(HWND hwnd, bool dark) {
-  if (!hwnd) return;
-  BOOL value = dark ? TRUE : FALSE;
-  if (FAILED(::DwmSetWindowAttribute(hwnd, kDwmUseImmersiveDarkMode, &value, sizeof(value)))) {
-    ::DwmSetWindowAttribute(hwnd, kDwmUseImmersiveDarkModeOld, &value, sizeof(value));
-  }
 }
 
 void LoadUiFont(float sizePixels) {

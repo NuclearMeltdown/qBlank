@@ -4,6 +4,8 @@
 #include "vcam/virtual_camera.h"
 #include "vcam/vcam_shared.h"
 
+#include "common_win32.h"
+
 #include <shellapi.h>
 
 #include <algorithm>
@@ -178,29 +180,20 @@ std::string FpsLabel(double fps) {
   return s + " Hz";
 }
 
-BOOL CALLBACK MonitorProc(HMONITOR monitor, HDC, LPRECT, LPARAM data) {
-  auto* list = (std::vector<MonitorInfoEntry>*)data;
-  MONITORINFOEXW info = {};
-  info.cbSize = sizeof(info);
-  if (!::GetMonitorInfoW(monitor, &info)) return TRUE;
-
-  MonitorInfoEntry entry;
-  entry.index = (int)list->size();
-  entry.rect = info.rcMonitor;
-  entry.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
-  entry.name = Format(T("Monitor %d  (%ldx%ld)%s", "Monitor %d  (%ldx%ld)%s"), entry.index + 1,
-                      info.rcMonitor.right - info.rcMonitor.left,
-                      info.rcMonitor.bottom - info.rcMonitor.top,
-                      entry.primary ? T("  [Hauptmonitor]", "  [primary]") : "");
-  list->push_back(std::move(entry));
-  return TRUE;
-}
-
 }  // namespace
 
 std::vector<MonitorInfoEntry> EnumerateMonitors() {
   std::vector<MonitorInfoEntry> list;
-  ::EnumDisplayMonitors(nullptr, nullptr, MonitorProc, (LPARAM)&list);
+  for (const DisplayInfo& display : EnumerateDisplays()) {
+    MonitorInfoEntry entry;
+    entry.index = (int)list.size();
+    entry.rect = display.rect;
+    entry.primary = display.primary;
+    entry.name = Format(T("Monitor %d  (%ldx%ld)%s", "Monitor %d  (%ldx%ld)%s"), entry.index + 1,
+                        (long)display.rect.width(), (long)display.rect.height(),
+                        entry.primary ? T("  [Hauptmonitor]", "  [primary]") : "");
+    list.push_back(std::move(entry));
+  }
   return list;
 }
 
@@ -3190,7 +3183,7 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
     FileDialogRequest request;
     request.mode = FileDialogRequest::Mode::Folder;
     request.startPath = value->empty() ? defaultFolder : Utf8ToPath(*value);
-    picker_.Start(request, (HWND)ImGui::GetMainViewport()->PlatformHandleRaw, pickTag);
+    picker_.Start(request, UiWindow(), pickTag);
   }
   ImGui::EndDisabled();
 
@@ -3276,7 +3269,7 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
     request.title = T("ffmpeg.exe auswählen", "Select ffmpeg.exe");
     request.startPath = rec.ffmpegPath.empty() ? ExeFolder() : Utf8ToPath(rec.ffmpegPath);
     request.filters = {{"ffmpeg.exe", "ffmpeg.exe"}, {T("Programme", "Programs"), "*.exe"}};
-    picker_.Start(request, (HWND)ImGui::GetMainViewport()->PlatformHandleRaw, kPickFfmpeg);
+    picker_.Start(request, UiWindow(), kPickFfmpeg);
   }
   ImGui::EndDisabled();
 }
@@ -3457,7 +3450,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
         rec.outputFolder.empty() ? DefaultRecordFolder() : Utf8ToPath(rec.outputFolder);
     request.filters = {{T("Aufnahmen", "Recordings"), "*.mkv;*.mp4;*.mov;*.avi;*.ts"},
                        {T("Alle Dateien", "All files"), "*.*"}};
-    picker_.Start(request, (HWND)ImGui::GetMainViewport()->PlatformHandleRaw, kPickRemux);
+    picker_.Start(request, UiWindow(), kPickRemux);
   }
   ImGui::EndDisabled();
 
@@ -3993,24 +3986,26 @@ void SettingsWindow::DrawHotkeysTab() {
                         "a profile, Alt+F4 quits."));
 }
 
-void SettingsWindow::OfferKey(int vk, bool ctrl, bool shift, bool alt) {
+void SettingsWindow::OfferKey(Key key, bool ctrl, bool shift, bool alt) {
   if (captureAction_ < 0 || captureAction_ >= (int)HotkeyAction::Count) return;
 
-  if (vk == VK_ESCAPE) {  // cancel, change nothing
+  if (key == Key::Escape) {  // cancel, change nothing
     captureAction_ = -1;
     return;
   }
-  if (vk == VK_DELETE || vk == VK_BACK) {  // unbind
+  if (key == Key::Delete || key == Key::Backspace) {  // unbind
     cfg().hotkeys.items[captureAction_] = HotkeyBinding{};
     captureAction_ = -1;
     return;
   }
   // A modifier on its own is not a shortcut yet -- keep waiting so the user can
   // hold Ctrl and then reach for the actual key.
-  if (IsReservedKey(vk)) return;
+  if (IsReservedKey(key)) return;
+  // Nor is a key that has no name to be stored under.
+  if (key == Key::None) return;
 
   HotkeyBinding binding;
-  binding.vk = vk;
+  binding.key = key;
   binding.ctrl = ctrl;
   binding.shift = shift;
   binding.alt = alt;

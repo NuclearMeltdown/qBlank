@@ -10,10 +10,12 @@
 #include <filesystem>
 #include <string>
 
-#include "common_win32.h"
+#include "common.h"
 #include "config.h"
 
 namespace cap {
+
+class Window;
 
 // Saves tightly packed pixels in VideoRenderer::kReadbackPixelFormat order.
 // Returns false and fills `error` on failure.
@@ -44,7 +46,7 @@ bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, in
 // transparency and the other half ignore, and video has no alpha to carry.
 // There is no HDR form of this: the clipboard has no way to say what the
 // numbers on it mean, so the tone mapped picture is what gets copied.
-bool CopyScreenshotToClipboard(HWND owner, const uint8_t* pixels, int width, int height,
+bool CopyScreenshotToClipboard(const Window* owner, const uint8_t* pixels, int width, int height,
                                std::string* error);
 
 // Timestamped name in `folder`, with a counter when the same second is hit

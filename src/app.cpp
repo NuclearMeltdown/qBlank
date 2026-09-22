@@ -2,7 +2,6 @@
 
 #include <shellapi.h>   // ShellExecuteW
 #include <shlobj.h>     // SHOpenFolderAndSelectItems
-#include <windowsx.h>  // GET_X_LPARAM
 
 #include <algorithm>
 #include <cmath>
@@ -10,7 +9,6 @@
 
 #include "app_identity.h"
 #include "backends/imgui_impl_dx11.h"
-#include "backends/imgui_impl_win32.h"
 #include "i18n.h"
 #include "imgui.h"
 #include "record/ffmpeg_locator.h"
@@ -19,18 +17,9 @@
 #include "resource.h"
 #include "text_win32.h"
 #include "ui/theme.h"
-#include "wake_signal_win32.h"
-
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
-                                                             LPARAM lParam);
 
 namespace cap {
 namespace {
-
-// Both from the one name in app_identity.h, so a rename does not leave a window
-// class behind that still says what the program used to be called.
-const std::wstring kWindowClass = WindowClassName(L"MainWindow");
-const wchar_t* const kWindowTitle = kAppName;
 
 // How long without a frame before we call it "no signal".
 const double kNoSignalSeconds = 1.5;
@@ -102,19 +91,6 @@ void WrappedTooltip(const char* text) {
   }
 }
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-  App* app = nullptr;
-  if (msg == WM_NCCREATE) {
-    auto* cs = (CREATESTRUCTW*)lparam;
-    app = (App*)cs->lpCreateParams;
-    ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)app);
-  } else {
-    app = (App*)::GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-  }
-  if (app) return app->HandleMessage(hwnd, msg, wparam, lparam);
-  return ::DefWindowProcW(hwnd, msg, wparam, lparam);
-}
-
 }  // namespace
 
 // ------------------------------------------------------------ FrameDelayLine
@@ -176,9 +152,7 @@ App::~App() {
   Shutdown();
 }
 
-bool App::Initialize(HINSTANCE instance, int showCmd) {
-  instance_ = instance;
-
+bool App::Initialize() {
   std::string configError;
   // Load meldet dasselbe False fuer "keine Datei" und fuer "Datei kaputt". Der
   // Unterschied steht in error: beim allerersten Start ist es leer.
@@ -219,16 +193,16 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
   darkMode_ = ResolveDark(config_.app.theme);
   lastSerialized_ = config_.Serialize();
 
-  if (!CreateMainWindow(instance, showCmd)) return false;
+  if (!CreateMainWindow()) return false;
 
   std::string error;
-  if (!d3d_.Initialize(hwnd_, &error)) {
-    ::MessageBoxW(nullptr, ToWide(error).c_str(), kAppName, MB_ICONERROR | MB_OK);
+  if (!d3d_.Initialize(window_, &error)) {
+    ShowErrorMessage(error);
     return false;
   }
   if (!InitImGui()) return false;
   if (!renderer_.Initialize(&d3d_, &error)) {
-    ::MessageBoxW(nullptr, ToWide(error).c_str(), kAppName, MB_ICONERROR | MB_OK);
+    ShowErrorMessage(error);
     return false;
   }
 
@@ -270,7 +244,7 @@ bool App::Initialize(HINSTANCE instance, int showCmd) {
 }
 
 void App::Shutdown() {
-  if (hwnd_) SaveWindowPlacement();
+  if (window_.created()) SaveWindowPlacement();
   // Before anything else: closing the pipes is what makes ffmpeg finalise the
   // container, and that has to happen while the app is still alive.
   StopRecording();
@@ -283,126 +257,81 @@ void App::Shutdown() {
   renderer_.Shutdown();
   ShutdownImGui();
   d3d_.Shutdown();
-  if (hwnd_) {
-    ::DestroyWindow(hwnd_);
-    hwnd_ = nullptr;
-  }
+  window_.Destroy();
   ::SetThreadExecutionState(ES_CONTINUOUS);
 }
 
 // -------------------------------------------------------------------- window
 
-bool App::CreateMainWindow(HINSTANCE instance, int showCmd) {
-  WNDCLASSEXW wc = {};
-  wc.cbSize = sizeof(wc);
-  wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-  wc.lpfnWndProc = WindowProc;
-  wc.hInstance = instance;
-  wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-  wc.hbrBackground = nullptr;  // we paint every pixel ourselves
-  wc.lpszClassName = kWindowClass.c_str();
-  // Large icon for Alt+Tab, small one for the title bar and taskbar.
-  wc.hIcon = (HICON)::LoadImageW(instance, MAKEINTRESOURCEW(IDI_QBLANK), IMAGE_ICON,
-                                 ::GetSystemMetrics(SM_CXICON),
-                                 ::GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
-  wc.hIconSm = (HICON)::LoadImageW(instance, MAKEINTRESOURCEW(IDI_QBLANK), IMAGE_ICON,
-                                   ::GetSystemMetrics(SM_CXSMICON),
-                                   ::GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
-  if (!wc.hIcon) wc.hIcon = ::LoadIconW(nullptr, IDI_APPLICATION);
-  if (!::RegisterClassExW(&wc)) {
-    ::MessageBoxW(nullptr,
-                  ToWide(T("Fensterklasse konnte nicht registriert werden.",
-                           "The window class could not be registered."))
-                      .c_str(),
-                  kAppName, MB_ICONERROR);
-    return false;
-  }
+bool App::CreateMainWindow() {
+  // First, so nothing the window reports while it is being created goes unheard.
+  window_.SetListener([this](const WindowEvent& e) { return OnWindowEvent(e); });
 
-  RECT rc = {0, 0, config_.app.windowW, config_.app.windowH};
-  ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-  const int width = rc.right - rc.left;
-  const int height = rc.bottom - rc.top;
+  WindowSpec spec;
+  spec.role = WindowRole::Main;
+  spec.id = "MainWindow";
+  spec.title = AppNameUtf8();
+  spec.width = config_.app.windowW;
+  spec.height = config_.app.windowH;
   // Zwei Gruende, die Stelle nicht zu benutzen, und beide sind echte Fragen.
-  // Erstens: es wurde noch nie eine gespeichert. Zweitens: die gespeicherte
-  // liegt heute auf keinem Bildschirm mehr -- ein Monitor kann abgezogen worden
-  // sein, oder die Anordnung hat sich geaendert, und ein Fenster ausserhalb
-  // jeder Arbeitsflaeche waere unerreichbar. Alles andere wird uebernommen,
-  // ausdruecklich auch negative Werte: ein Bildschirm links vom Hauptbildschirm
-  // hat gar keine anderen.
-  int x = CW_USEDEFAULT;
-  int y = CW_USEDEFAULT;
-  if (config_.app.windowX != AppSettings::kWindowPosUnset &&
-      config_.app.windowY != AppSettings::kWindowPosUnset) {
-    const RECT want = {config_.app.windowX, config_.app.windowY,
-                       config_.app.windowX + width, config_.app.windowY + height};
-    if (::MonitorFromRect(&want, MONITOR_DEFAULTTONULL) != nullptr) {
-      x = config_.app.windowX;
-      y = config_.app.windowY;
-    }
+  // Erstens: es wurde noch nie eine gespeichert -- das ist diese Abfrage.
+  // Zweitens: die gespeicherte liegt heute auf keinem Bildschirm mehr; das
+  // prueft das Fenster selbst.
+  spec.hasPosition = config_.app.windowX != AppSettings::kWindowPosUnset &&
+                     config_.app.windowY != AppSettings::kWindowPosUnset;
+  spec.x = config_.app.windowX;
+  spec.y = config_.app.windowY;
+
+  switch (window_.Create(spec)) {
+    case CreateResult::Ok:
+      break;
+    case CreateResult::RegistrationFailed:
+      ShowErrorMessage(T("Fensterklasse konnte nicht registriert werden.",
+                         "The window class could not be registered."));
+      return false;
+    case CreateResult::WindowFailed:
+      ShowErrorMessage(
+          T("Fenster konnte nicht erstellt werden.", "The window could not be created."));
+      return false;
   }
 
-  hwnd_ = ::CreateWindowExW(0, kWindowClass.c_str(), kWindowTitle, WS_OVERLAPPEDWINDOW, x, y, width,
-                            height, nullptr, nullptr, instance, this);
-  if (!hwnd_) {
-    ::MessageBoxW(
-        nullptr,
-        ToWide(T("Fenster konnte nicht erstellt werden.", "The window could not be created."))
-            .c_str(),
-        kAppName, MB_ICONERROR);
-    return false;
-  }
-
-  ApplyWindowDarkMode(hwnd_, darkMode_);
-  ::ShowWindow(hwnd_, config_.app.maximized ? SW_SHOWMAXIMIZED : showCmd);
-  ::UpdateWindow(hwnd_);
+  window_.SetDarkFrame(darkMode_);
+  window_.ShowFirstTime(config_.app.maximized);
   ApplyWindowFlags();
   return true;
 }
 
 void App::SaveWindowPlacement() {
-  if (!hwnd_ || fullscreen_) return;
-  WINDOWPLACEMENT wp = {};
-  wp.length = sizeof(wp);
-  if (!::GetWindowPlacement(hwnd_, &wp)) return;
-  config_.app.maximized = (wp.showCmd == SW_SHOWMAXIMIZED);
+  if (!window_.created() || fullscreen_) return;
+  Window::Placement placement;
+  if (!window_.GetPlacement(&placement)) return;
+  config_.app.maximized = placement.maximized;
 
-  RECT rc = wp.rcNormalPosition;
-  RECT frame = {0, 0, 0, 0};
-  ::AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
-  config_.app.windowX = rc.left;
-  config_.app.windowY = rc.top;
-  config_.app.windowW = std::max(160L, (rc.right - rc.left) - (frame.right - frame.left));
-  config_.app.windowH = std::max(120L, (rc.bottom - rc.top) - (frame.bottom - frame.top));
+  config_.app.windowX = placement.x;
+  config_.app.windowY = placement.y;
+  config_.app.windowW = std::max(160, placement.clientWidth);
+  config_.app.windowH = std::max(120, placement.clientHeight);
 }
 
 void App::ApplyWindowFlags() {
-  if (!hwnd_) return;
+  if (!window_.created()) return;
   // The driver's dialog is a top-level window of its own with no owner, which is
   // what keeps it out of our message loop -- and also means nothing lifts it
   // above a window that insists on staying on top. So while it is up, we do not.
   const bool top = config_.app.alwaysOnTop && !devicePages_.busy();
-  // Only when it changes. Asserting HWND_TOPMOST again also brings the window to
-  // the front, and leaving fullscreen from a shortcut pressed in the settings
-  // window would then bury that window under the preview.
-  const bool now = (::GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-  if (now != top) {
-    ::SetWindowPos(hwnd_, top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-  }
+  window_.SetTopmost(top);
   // Second, so that it ends up in front of the preview rather than behind it.
   settingsHost_.SetTopmost(top);
 }
 
 void App::SetFullscreen(bool on) {
-  if (!hwnd_ || on == fullscreen_) return;
+  if (!window_.created() || on == fullscreen_) return;
 
   if (on) {
-    windowedPlacement_.length = sizeof(windowedPlacement_);
-    ::GetWindowPlacement(hwnd_, &windowedPlacement_);
     SaveWindowPlacement();
 
     // Which monitor: the configured one, otherwise the one the window is on.
-    RECT target = {};
+    Rect target;
     bool haveTarget = false;
     if (config_.app.fullscreenMonitor >= 0) {
       std::vector<MonitorInfoEntry> monitors = EnumerateMonitors();
@@ -411,38 +340,22 @@ void App::SetFullscreen(bool on) {
         haveTarget = true;
       }
     }
-    if (!haveTarget) {
-      HMONITOR mon = ::MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
-      MONITORINFO mi = {};
-      mi.cbSize = sizeof(mi);
-      if (::GetMonitorInfoW(mon, &mi)) {
-        target = mi.rcMonitor;
-        haveTarget = true;
-      }
-    }
+    if (!haveTarget) haveTarget = window_.CurrentDisplayRect(&target);
     if (!haveTarget) return;
 
-    ::SetWindowLongPtrW(hwnd_, GWL_STYLE, WS_POPUP | WS_VISIBLE);
     // Straight under the settings window if that is where the keyboard is --
     // the shortcut was pressed there, and the window it was pressed in should
     // not vanish behind the picture it just made bigger.
-    HWND after = config_.app.alwaysOnTop ? HWND_TOPMOST : HWND_TOP;
-    if (settingsHost_.visible() && ::GetForegroundWindow() == settingsHost_.hwnd()) {
-      after = settingsHost_.hwnd();
+    const Window* under = nullptr;
+    if (settingsHost_.visible() && settingsHost_.window().IsForeground()) {
+      under = &settingsHost_.window();
     }
-    ::SetWindowPos(hwnd_, after, target.left, target.top, target.right - target.left,
-                   target.bottom - target.top, SWP_FRAMECHANGED | SWP_NOACTIVATE);
+    window_.EnterFullscreen(target, under, config_.app.alwaysOnTop);
     fullscreen_ = true;
   } else {
-    ::SetWindowLongPtrW(hwnd_, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
-    ::SetWindowPlacement(hwnd_, &windowedPlacement_);
-    ::SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
-                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+    window_.LeaveFullscreen();
     fullscreen_ = false;
-    if (cursorHidden_) {
-      ::ShowCursor(TRUE);
-      cursorHidden_ = false;
-    }
+    window_.SetCursorHidden(false);
     ApplyWindowFlags();
   }
   d3d_.Resize();
@@ -462,15 +375,19 @@ bool App::InitImGui() {
   io.IniFilename = nullptr;  // no imgui.ini next to the exe
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-  const UINT dpi = ::GetDpiForWindow(hwnd_);
-  const float scale = dpi > 0 ? (float)dpi / 96.0f : 1.0f;
+  const float scale = window_.DpiScale();
   LoadUiFont(17.0f * scale);
   ApplyImGuiTheme(darkMode_, config_.app.accentColor);
   ImGui::GetStyle().ScaleAllSizes(scale);
   uiScale_ = scale;
 
-  if (!ImGui_ImplWin32_Init(hwnd_)) return false;
-  if (!ImGui_ImplDX11_Init(d3d_.device(), d3d_.context())) return false;
+  if (!window_.AttachUi(nullptr)) return false;
+  if (!ImGui_ImplDX11_Init(d3d_.device(), d3d_.context())) {
+    // Messages went to ImGui only once both halves were up; the window must not
+    // go on feeding them to half of it.
+    window_.DetachUi();
+    return false;
+  }
   imguiReady_ = true;
   return true;
 }
@@ -478,7 +395,7 @@ bool App::InitImGui() {
 void App::ShutdownImGui() {
   if (!imguiReady_) return;
   ImGui_ImplDX11_Shutdown();
-  ImGui_ImplWin32_Shutdown();
+  window_.DetachUi();
   ImGui::DestroyContext();
   imguiReady_ = false;
 }
@@ -490,7 +407,7 @@ void App::ApplyTheme() {
   // reapplied on top of it every time.
   ApplyImGuiTheme(dark, config_.app.accentColor);
   ImGui::GetStyle().ScaleAllSizes(uiScale_);
-  ApplyWindowDarkMode(hwnd_, dark);
+  window_.SetDarkFrame(dark);
   if (settingsHost_.created()) settingsHost_.ApplyTheme(dark, config_.app.accentColor);
 }
 
@@ -1556,7 +1473,7 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
 
   if (toClipboard) {
     std::string clipError;
-    if (!CopyScreenshotToClipboard(hwnd_, pixels.data(), width, height, &clipError)) {
+    if (!CopyScreenshotToClipboard(&window_, pixels.data(), width, height, &clipError)) {
       Toast(T("Kopieren fehlgeschlagen: ", "Copy failed: ") + clipError);
       return;
     }
@@ -3692,8 +3609,8 @@ void App::LoadIdleIcon() {
   if (idleIcon_ || !d3d_.device()) return;
 
   const int want = 256;
-  HICON icon = (HICON)::LoadImageW(instance_, MAKEINTRESOURCEW(IDI_QBLANK), IMAGE_ICON, want,
-                                   want, LR_DEFAULTCOLOR);
+  HICON icon = (HICON)::LoadImageW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_QBLANK),
+                                   IMAGE_ICON, want, want, LR_DEFAULTCOLOR);
   if (!icon) return;
 
   ICONINFO info = {};
@@ -3870,23 +3787,24 @@ void App::DrawSettingsWindowed() {
     where.width = config_.app.settingsWindowW;
     where.height = config_.app.settingsWindowH;
     if (config_.app.settingsPanelW > 200 && config_.app.settingsPanelH > 200) {
-      POINT topLeft = {config_.app.settingsPanelX, config_.app.settingsPanelY};
-      ::ClientToScreen(hwnd_, &topLeft);
+      const Point topLeft =
+          window_.ClientToScreen({config_.app.settingsPanelX, config_.app.settingsPanelY});
       where.x = topLeft.x;
       where.y = topLeft.y;
       where.width = config_.app.settingsPanelW;
       where.height = config_.app.settingsPanelH;
     }
-    if (!settingsHost_.Create(instance_, d3d_.device(), d3d_.context(), ImGui::GetIO().Fonts,
-                              uiScale_, d3d_.tearingSupported(), where, &error)) {
+    if (!settingsHost_.Create(d3d_.device(), d3d_.context(), ImGui::GetIO().Fonts, uiScale_,
+                              d3d_.tearingSupported(), where, &error)) {
       config_.app.settingsSeparateWindow = false;
       Toast(error);
       return;
     }
     settingsHost_.ApplyTheme(darkMode_, config_.app.accentColor);
     ApplyWindowFlags();
-    settingsHost_.SetKeyCallback(
-        [this](WPARAM key, LPARAM lparam, bool busy) { return OnKey(key, lparam, busy); });
+    settingsHost_.SetKeyCallback([this](Key key, bool ctrl, bool shift, bool alt, bool busy) {
+      return OnKey(key, ctrl, shift, alt, busy);
+    });
     // While its window is being dragged, Windows keeps the loop to itself. The
     // timer inside that loop is what still lets the picture run.
     // Dragging a window puts Windows into a modal loop of its own that does not
@@ -3942,16 +3860,13 @@ void App::DrawSettingsWindowed() {
     // Liegt das Fenster ganz oder ueberwiegend neben dem Hauptfenster, kommt
     // dabei eine Lage heraus, die das Feld unerreichbar machen wuerde. Das faengt
     // die Wiederherstellung selbst ab und setzt in die Mitte.
-    if (HWND host = settingsHost_.hwnd()) {
-      RECT outer = {};
-      if (::GetWindowRect(host, &outer)) {
-        POINT inMain = {outer.left, outer.top};
-        ::ScreenToClient(hwnd_, &inMain);
-        config_.app.settingsPanelX = inMain.x;
-        config_.app.settingsPanelY = inMain.y;
-        config_.app.settingsPanelW = outer.right - outer.left;
-        config_.app.settingsPanelH = outer.bottom - outer.top;
-      }
+    Rect outer;
+    if (settingsHost_.window().FrameRect(&outer)) {
+      const Point inMain = window_.ScreenToClient({outer.left, outer.top});
+      config_.app.settingsPanelX = inMain.x;
+      config_.app.settingsPanelY = inMain.y;
+      config_.app.settingsPanelW = outer.width();
+      config_.app.settingsPanelH = outer.height();
     }
     settings_.RestorePosition();
     settingsHost_.Destroy();
@@ -5312,23 +5227,15 @@ void App::ShowVolumeOsd() {
 // ------------------------------------------------------------------ main loop
 
 int App::Run() {
-  MSG msg = {};
   while (running_) {
-    while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-      if (msg.message == WM_QUIT) {
-        running_ = false;
-        break;
-      }
-      ::TranslateMessage(&msg);
-      ::DispatchMessageW(&msg);
-    }
+    if (!PumpEvents()) running_ = false;
     if (!running_) break;
 
     Tick();
 
     if (minimized_) {
       // Nothing to draw; block on messages so we use no CPU at all.
-      ::WaitMessage();
+      WaitForEvents();
       continue;
     }
 
@@ -5349,7 +5256,7 @@ int App::Run() {
     const int64_t nowQpc = QpcNow();
     const double sinceRenderMs =
         lastRenderQpc_ == 0 ? 1e9 : QpcToSeconds(nowQpc - lastRenderQpc_) * 1000.0;
-    const bool wokeOnPicture = lastWait_ == WAIT_OBJECT_0 && lastWaitHadEvent_;
+    const bool wokeOnPicture = lastWake_ == WaitResult::Signal;
     // Due by the clock, not by *how* the wait ended.
     //
     // This used to read `lastWait_ == WAIT_TIMEOUT`, which is only ever true
@@ -5393,7 +5300,7 @@ int App::Run() {
     // ist. Solange die Einstellungen offen sind kurz, weil das freigestellte
     // Fenster jede Runde gezeichnet wird; sonst so kurz, wie der Boden es
     // verlangt, und hoechstens 100 ms.
-    DWORD timeout = settings_.isOpen() ? 16 : (DWORD)Clamp((int)idleFloor, 16, 100);
+    int timeout = settings_.isOpen() ? 16 : Clamp((int)idleFloor, 16, 100);
     if (secondFieldPending_) {
       // Rounded up, not truncated. Truncating asks to be woken a fraction of a
       // millisecond before the field is due, at which point the loop finds it is
@@ -5401,17 +5308,10 @@ int App::Run() {
       // timeout until it is. Waiting the extra millisecond costs a millisecond
       // and saves all of that.
       const double waitMs = QpcToSeconds(secondFieldQpc_ - QpcNow()) * 1000.0;
-      timeout = (DWORD)Clamp((int)std::ceil(waitMs), 0, (int)timeout);
+      timeout = Clamp((int)std::ceil(waitMs), 0, timeout);
     }
-    HANDLE waits[1] = {nullptr};
-    DWORD waitCount = 0;
-    if (capture_.sink() && NativeHandle(capture_.sink()->frameReady())) {
-      waits[0] = NativeHandle(capture_.sink()->frameReady());
-      waitCount = 1;
-    }
-    lastWaitHadEvent_ = waitCount > 0;
-    lastWait_ = ::MsgWaitForMultipleObjectsEx(waitCount, waitCount ? waits : nullptr, timeout,
-                                              QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    FrameBuffer* sink = capture_.sink();
+    lastWake_ = WaitForEventsOr(sink ? &sink->frameReady() : nullptr, timeout);
   }
   return 0;
 }
@@ -5465,13 +5365,12 @@ void App::Tick() {
 
   // Hide the pointer once it has been still for a while in fullscreen.
   if (fullscreen_ && config_.app.hideCursorFullscreen && !settings_.isOpen()) {
-    if (!cursorHidden_ && QpcToSeconds(QpcNow() - lastMouseMoveQpc_) > kCursorIdleSeconds) {
-      ::ShowCursor(FALSE);
-      cursorHidden_ = true;
+    if (!window_.cursorHidden() &&
+        QpcToSeconds(QpcNow() - lastMouseMoveQpc_) > kCursorIdleSeconds) {
+      window_.SetCursorHidden(true);
     }
-  } else if (cursorHidden_) {
-    ::ShowCursor(TRUE);
-    cursorHidden_ = false;
+  } else if (window_.cursorHidden()) {
+    window_.SetCursorHidden(false);
   }
 }
 
@@ -5612,7 +5511,7 @@ void App::RenderFrame() {
   }
 
   ImGui_ImplDX11_NewFrame();
-  ImGui_ImplWin32_NewFrame();
+  window_.BeginUiFrame();
   ImGui::NewFrame();
   DrawUi();
   ImGui::Render();
@@ -5715,7 +5614,7 @@ void App::DrawUi() {
   // Windowed it is simply there; in fullscreen it follows the pointer, which is
   // already hidden after a couple of seconds of play.
   toolbarVisible_ = config_.app.showToolbar && !cropPick_.active &&
-                    (!fullscreen_ || !cursorHidden_);
+                    (!fullscreen_ || !window_.cursorHidden());
   if (toolbarVisible_) {
     DrawToolbarStrip();
     // Everything else positions itself against the viewport work area, which is
@@ -6333,37 +6232,33 @@ void App::DrawContextMenu() {
 
   if (ImGui::MenuItem(T("Aufnahme neu starten", "Restart capture"), sc(HotkeyAction::RestartCapture))) RestartAll(true);
   if (ImGui::MenuItem(T("Karte neu einlesen", "Reinitialise card"), sc(HotkeyAction::ReinitCard))) ReinitialiseCard();
-  if (ImGui::MenuItem(T("Beenden", "Quit"), "Alt+F4")) ::PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+  if (ImGui::MenuItem(T("Beenden", "Quit"), "Alt+F4")) window_.RequestClose();
 
   ImGui::EndPopup();
 }
 
 // ------------------------------------------------------------------ messages
 
-bool App::HandleKeyDown(WPARAM key) {
-  const bool ctrl = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
-  const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-  const bool alt = (::GetKeyState(VK_MENU) & 0x8000) != 0;
-
+bool App::HandleKeyDown(Key key, bool ctrl, bool shift, bool alt) {
   // Fixed on purpose, see hotkeys.h: a rebindable Escape is a way to lock
   // yourself into fullscreen, and the profile digits are a block, not a key.
-  if (ctrl && key >= '1' && key <= '9') {
-    SwitchProfile((int)(key - '1'));
+  if (ctrl && key >= Key::Digit1 && key <= Key::Digit9) {
+    SwitchProfile((int)key - (int)Key::Digit1);
     return true;
   }
   if (cropPick_.active) {
-    if (key == VK_ESCAPE) {
+    if (key == Key::Escape) {
       EndCropPick(false);
       return true;
     }
-    if (key == VK_RETURN) {
+    if (key == Key::Enter) {
       EndCropPick(true);
       return true;
     }
     return true;  // swallow everything else: one job at a time
   }
 
-  if (key == VK_ESCAPE) {
+  if (key == Key::Escape) {
     if (settings_.isOpen()) {
       settings_.Close();
     } else if (fullscreen_) {
@@ -6372,7 +6267,7 @@ bool App::HandleKeyDown(WPARAM key) {
     return true;
   }
 
-  switch (config_.hotkeys.Find((int)key, ctrl, shift, alt)) {
+  switch (config_.hotkeys.Find(key, ctrl, shift, alt)) {
     case HotkeyAction::Fullscreen:
       ToggleFullscreen();
       return true;
@@ -6382,7 +6277,7 @@ bool App::HandleKeyDown(WPARAM key) {
       // thing that cannot be what was meant.
       if (!settings_.isOpen()) {
         OpenSettings({});
-      } else if (!settingsHost_.RaiseIfCoveredBy(hwnd_)) {
+      } else if (!settingsHost_.RaiseIfCoveredBy(window_)) {
         settings_.Close();
       }
       return true;
@@ -6437,157 +6332,114 @@ bool App::HandleKeyDown(WPARAM key) {
 
   // The numeric keypad follows the main volume keys without needing its own
   // binding -- nobody expects to have to bind both.
-  if (key == VK_ADD && config_.hotkeys[HotkeyAction::VolumeUp].bound()) {
+  if (key == Key::NumAdd && config_.hotkeys[HotkeyAction::VolumeUp].bound()) {
     AdjustVolume(kVolumeStep);
     return true;
   }
-  if (key == VK_SUBTRACT && config_.hotkeys[HotkeyAction::VolumeDown].bound()) {
+  if (key == Key::NumSubtract && config_.hotkeys[HotkeyAction::VolumeDown].bound()) {
     AdjustVolume(-kVolumeStep);
     return true;
   }
   return false;
 }
 
-bool App::OnKey(WPARAM key, LPARAM lparam, bool busy) {
+bool App::OnKey(Key key, bool ctrl, bool shift, bool alt, bool busy) {
   // The binding editor wants the raw key, before anyone acts on it -- that is
   // the whole point of it being open. From either window: in the separate one
   // it used to wait for a key that never reached it.
   if (settings_.waitingForKey()) {
-    settings_.OfferKey((int)key, (::GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                       (::GetKeyState(VK_SHIFT) & 0x8000) != 0,
-                       (::GetKeyState(VK_MENU) & 0x8000) != 0);
+    settings_.OfferKey(key, ctrl, shift, alt);
     return true;
   }
   // Typing, or a list is open: the key is ImGui's, Esc included -- it cancels
   // the edit or closes the list before it closes anything bigger.
   if (busy) return false;
-  lastKeyLParam_ = (uint64_t)lparam;
-  return HandleKeyDown(key);
+  return HandleKeyDown(key, ctrl, shift, alt);
 }
 
-LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-  if (imguiReady_ && ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) return 1;
-
-  switch (msg) {
-    case WM_ENTERSIZEMOVE:
-      // Same as for the settings window: Windows takes the loop away while a
-      // window is being dragged, and only a timer still gets through.
-      ::SetTimer(hwnd, 1, 8, nullptr);
-      return 0;
-    case WM_EXITSIZEMOVE:
-      ::KillTimer(hwnd, 1);
-      return 0;
-    case WM_TIMER:
-      if (wparam == 1 && !inModalFrame_) {
+bool App::OnWindowEvent(const WindowEvent& e) {
+  switch (e.kind) {
+    case WindowEvent::Kind::ModalFrame:
+      // Same as for the settings window: the platform takes the loop away while
+      // a window is being dragged, and this is what still gets through.
+      if (!inModalFrame_) {
         inModalFrame_ = true;
         Tick();
         RenderFrame();
         inModalFrame_ = false;
       }
-      return 0;
-    case WM_SIZE:
-      minimized_ = (wparam == SIZE_MINIMIZED);
+      return true;
+    case WindowEvent::Kind::Resized:
+      minimized_ = e.minimized;
       if (!minimized_) d3d_.Resize();
-      return 0;
+      return true;
 
-    case WM_GETMINMAXINFO: {
-      auto* info = (MINMAXINFO*)lparam;
-      info->ptMinTrackSize.x = 320;
-      info->ptMinTrackSize.y = 240;
-      return 0;
-    }
-
-    case WM_MOUSEMOVE: {
-      POINT p = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-      if (p.x != lastMousePos_.x || p.y != lastMousePos_.y) {
-        lastMousePos_ = p;
+    case WindowEvent::Kind::MouseMoved:
+      if (e.mouse.x != lastMousePos_.x || e.mouse.y != lastMousePos_.y) {
+        lastMousePos_ = e.mouse;
         lastMouseMoveQpc_ = QpcNow();
-        if (cursorHidden_) {
-          ::ShowCursor(TRUE);
-          cursorHidden_ = false;
-        }
+        window_.SetCursorHidden(false);
       }
-      return 0;
-    }
+      return true;
 
-    case WM_SETCURSOR:
-      if (cursorHidden_ && LOWORD(lparam) == HTCLIENT) {
-        ::SetCursor(nullptr);
-        return 1;
-      }
-      break;
-
-    case WM_MOUSEWHEEL:
+    case WindowEvent::Kind::MouseWheel:
       // Only over the picture: inside the settings window the wheel scrolls.
       if (config_.app.wheelVolume && imguiReady_ && !ImGui::GetIO().WantCaptureMouse) {
-        const int notches = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
-        if (notches != 0) {
-          AdjustVolume(kVolumeStep * (float)notches);
-          return 0;
+        if (e.wheelNotches != 0) {
+          AdjustVolume(kVolumeStep * (float)e.wheelNotches);
+          return true;
         }
       }
-      break;
+      return false;
 
-    case WM_KEYDOWN:
-    case WM_SYSKEYDOWN: {
+    case WindowEvent::Kind::KeyDown: {
       // Not WantCaptureKeyboard, which keyboard navigation holds true whenever
-      // the embedded panel has focus -- see SettingsHost::WndProc.
+      // the embedded panel has focus -- see SettingsHost::OnWindowEvent.
       const bool busy = imguiReady_ &&
                         (ImGui::GetIO().WantTextInput ||
                          ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId |
                                                     ImGuiPopupFlags_AnyPopupLevel));
-      if (OnKey(wparam, lparam, busy)) return 0;
-      break;
+      return OnKey(e.key, e.ctrl, e.shift, e.alt, busy);
     }
 
-    case WM_SYSCOMMAND:
+    case WindowEvent::Kind::ScreenSaverStarting:
       // Block the screensaver from starting over our window.
-      if ((wparam & 0xFFF0) == SC_SCREENSAVE || (wparam & 0xFFF0) == SC_MONITORPOWER) {
-        if (config_.app.preventSleep) return 0;
-      }
-      break;
+      return config_.app.preventSleep;
 
-    case WM_DISPLAYCHANGE:
-    case WM_DEVICECHANGE:
+    case WindowEvent::Kind::DisplaysChanged:
+    case WindowEvent::Kind::DevicesChanged:
       settings_.InvalidateDeviceLists();
-      break;
+      return false;
 
-    case WM_SETTINGCHANGE:
+    case WindowEvent::Kind::ThemeChanged:
       if (config_.app.theme == Theme::System) ApplyTheme();
-      break;
+      return false;
 
-    case WM_DPICHANGED: {
-      auto* rc = (RECT*)lparam;
-      ::SetWindowPos(hwnd, nullptr, rc->left, rc->top, rc->right - rc->left,
-                     rc->bottom - rc->top, SWP_NOZORDER | SWP_NOACTIVATE);
-      return 0;
-    }
-
-    case WM_CLOSE:
+    case WindowEvent::Kind::CloseRequested:
       SaveConfig();
       running_ = false;
-      ::PostQuitMessage(0);
-      return 0;
+      RequestQuit();
+      return true;
 
     // Windows shutting down or logging off ends the process as soon as this
     // returns, without the way out through main -- the log would take that for
     // a crash at the next start.
-    case WM_ENDSESSION:
-      if (wparam) {
+    case WindowEvent::Kind::SessionEnd:
+      if (e.ending) {
         SaveConfig();
         CAP_LOG("Windows session ending");
         LogEnd();
       }
-      return 0;
+      return true;
 
-    case WM_DESTROY:
+    case WindowEvent::Kind::Destroyed:
       running_ = false;
-      ::PostQuitMessage(0);
-      return 0;
+      RequestQuit();
+      return true;
 
-    default: break;
+    default:
+      return false;
   }
-  return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 }  // namespace cap

@@ -10,6 +10,7 @@
 #include <string>
 
 #include "common.h"
+#include "keys.h"
 
 namespace cap {
 
@@ -35,17 +36,17 @@ enum class HotkeyAction {
 };
 
 struct HotkeyBinding {
-  int vk = 0;  // 0 = unbound
+  Key key = Key::None;  // None = unbound
   bool ctrl = false;
   bool shift = false;
   bool alt = false;
 
-  bool bound() const { return vk != 0; }
-  bool Matches(int key, bool ctrlDown, bool shiftDown, bool altDown) const {
-    return bound() && vk == key && ctrl == ctrlDown && shift == shiftDown && alt == altDown;
+  bool bound() const { return key != Key::None; }
+  bool Matches(Key pressed, bool ctrlDown, bool shiftDown, bool altDown) const {
+    return bound() && key == pressed && ctrl == ctrlDown && shift == shiftDown && alt == altDown;
   }
   bool operator==(const HotkeyBinding& o) const {
-    return vk == o.vk && ctrl == o.ctrl && shift == o.shift && alt == o.alt;
+    return key == o.key && ctrl == o.ctrl && shift == o.shift && alt == o.alt;
   }
 };
 
@@ -58,7 +59,7 @@ struct Hotkeys {
   const HotkeyBinding& operator[](HotkeyAction a) const { return items[(int)a]; }
 
   // The action bound to this combination, or Count when there is none.
-  HotkeyAction Find(int vk, bool ctrl, bool shift, bool alt) const;
+  HotkeyAction Find(Key key, bool ctrl, bool shift, bool alt) const;
 };
 
 // Label shown in the settings and the context menu, in the current language.
@@ -71,6 +72,6 @@ const char* HotkeyActionKey(HotkeyAction action);
 std::string HotkeyText(const HotkeyBinding& binding);
 
 // True for keys that must not be swallowed as a shortcut.
-bool IsReservedKey(int vk);
+bool IsReservedKey(Key key);
 
 }  // namespace cap

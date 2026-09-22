@@ -9,8 +9,10 @@
 #include <vector>
 
 #include "app_identity.h"
+#include "common_win32.h"
 #include "i18n.h"
 #include "text_win32.h"
+#include "window_win32.h"
 
 namespace cap {
 namespace {
@@ -106,7 +108,7 @@ bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, in
   return true;
 }
 
-bool CopyScreenshotToClipboard(HWND owner, const uint8_t* pixels, int width, int height,
+bool CopyScreenshotToClipboard(const Window* owner, const uint8_t* pixels, int width, int height,
                                std::string* error) {
   auto fail = [&](const Said& said) {
     CAP_ERR("Screenshot to the clipboard: %s", said.logged.c_str());
@@ -155,7 +157,7 @@ bool CopyScreenshotToClipboard(HWND owner, const uint8_t* pixels, int width, int
   // report a failure the user cannot act on.
   bool opened = false;
   for (int attempt = 0; attempt < 5 && !opened; ++attempt) {
-    opened = ::OpenClipboard(owner) != FALSE;
+    opened = ::OpenClipboard(owner ? NativeWindow(*owner) : nullptr) != FALSE;
     if (!opened) ::Sleep(20);
   }
   if (!opened) {

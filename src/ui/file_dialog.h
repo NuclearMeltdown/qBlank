@@ -25,9 +25,9 @@
 #include <utility>
 #include <vector>
 
-#include "common_win32.h"
-
 namespace cap {
+
+class Window;
 
 struct FileDialogRequest {
   enum class Mode { Folder, OpenFile, OpenFiles };
@@ -52,7 +52,7 @@ class AsyncFileDialog {
 
   // Returns false when one is already open. `tag` is handed back with the
   // result so the caller knows which field asked.
-  bool Start(const FileDialogRequest& request, HWND owner, int tag);
+  bool Start(const FileDialogRequest& request, const Window* owner, int tag);
 
   bool busy() const { return running_.load(std::memory_order_relaxed); }
   int tag() const { return tag_; }
@@ -62,7 +62,8 @@ class AsyncFileDialog {
   bool TakeResult(std::vector<std::filesystem::path>* out, int* tag);
 
  private:
-  void Run(FileDialogRequest request, HWND owner);
+  // From the dialog's thread, when it closed.
+  void Deliver(std::vector<std::filesystem::path> picked);
 
   std::thread thread_;
   std::atomic<bool> running_{false};

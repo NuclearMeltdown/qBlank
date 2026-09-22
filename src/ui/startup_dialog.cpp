@@ -1,18 +1,13 @@
 #include "ui/startup_dialog.h"
 
-#include "app_identity.h"
 #include "common.h"
 #include "config.h"
 #include "render/d3d_context.h"
-#include "resource.h"
 #include "ui/theme.h"
+#include "window.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_dx11.h"
-#include "backends/imgui_impl_win32.h"
-
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
-                                                             LPARAM lParam);
 
 namespace cap {
 namespace {
@@ -31,28 +26,28 @@ bool g_done = false;
 // a hole under the buttons or a scrollbar.
 float g_contentHeight = 0.0f;
 
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-  if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) return 1;
-  switch (msg) {
-    case WM_SIZE:
-      if (g_d3d && wparam != SIZE_MINIMIZED) g_d3d->Resize();
-      return 0;
-    case WM_CLOSE:
+bool OnEvent(const WindowEvent& e) {
+  switch (e.kind) {
+    case WindowEvent::Kind::Resized:
+      if (g_d3d && !e.minimized) g_d3d->Resize();
+      return true;
+    case WindowEvent::Kind::CloseRequested:
       // Closing decides nothing. Both files stay where they are and the
       // question comes back at the next start, which is the only answer that
       // cannot be given by accident.
       g_answer = StartupAnswer::Postpone;
       g_done = true;
-      return 0;
-    // No WM_DESTROY handler, and deliberately none. The usual PostQuitMessage
+      return true;
+    // Nothing for Destroyed, and deliberately nothing. The usual quit request
     // belongs to a window that *is* the program; this one is asked before the
     // program exists and hands control back to a caller that still has work to
-    // do. A WM_QUIT posted here outlives the window -- the message queue is the
+    // do. A quit requested here outlives the window -- the event queue is the
     // thread's, not the window's -- and the main loop would find it waiting on
     // its very first pass and shut down without ever drawing a frame. The loop
-    // below ends on g_done, which is what the buttons and WM_CLOSE set.
+    // below ends on g_done, which is what the buttons and closing set.
+    default:
+      return false;
   }
-  return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 void Draw(const StartupQuestion& q, float scale) {
@@ -119,67 +114,34 @@ void Draw(const StartupQuestion& q, float scale) {
   (void)scale;
 }
 
-// Trims the window to the height the content actually needed and puts it back
-// in the middle of the screen.
-void FitToContent(HWND hwnd, int clientHeight) {
-  RECT window = {}, client = {};
-  ::GetWindowRect(hwnd, &window);
-  ::GetClientRect(hwnd, &client);
-  const int chrome = (window.bottom - window.top) - (client.bottom - client.top);
-  const int height = clientHeight + chrome;
-  const int width = window.right - window.left;
-
-  RECT work = {0, 0, 0, 0};
-  ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-  const int x = work.left + ((work.right - work.left) - width) / 2;
-  const int y = work.top + ((work.bottom - work.top) - height) / 2;
-  ::SetWindowPos(hwnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
-}
-
 }  // namespace
 
-StartupAnswer AskAtStartup(HINSTANCE instance, const StartupQuestion& question) {
+StartupAnswer AskAtStartup(const StartupQuestion& question) {
   g_answer = StartupAnswer::Postpone;
   g_done = false;
 
-  const std::wstring className = WindowClassName(L"StartupDialog");
-  WNDCLASSEXW wc = {sizeof(wc)};
-  wc.lpfnWndProc = WndProc;
-  wc.hInstance = instance;
-  wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-  wc.lpszClassName = className.c_str();
-  wc.hIcon = ::LoadIconW(instance, MAKEINTRESOURCEW(IDI_QBLANK));
-  wc.hIconSm = wc.hIcon;
-  if (!::RegisterClassExW(&wc)) return StartupAnswer::Postpone;
-
   // Centred on the primary screen's work area, at that screen's scaling. There
   // is no saved position to restore -- this window is seen once.
-  const UINT dpi = ::GetDpiForSystem();
-  const float scale = dpi > 0 ? (float)dpi / 96.0f : 1.0f;
+  const float scale = SystemUiScale();
   // Created generously tall and hidden; the first frame measures the content and
-  // FitToContent trims it before it is shown.
-  const int width = (int)(620 * scale);
-  const int height = (int)(760 * scale);
-  RECT work = {0, 0, 0, 0};
-  ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-  const int x = work.left + ((work.right - work.left) - width) / 2;
-  const int y = work.top + ((work.bottom - work.top) - height) / 2;
+  // the window is trimmed to it before it is shown.
+  WindowSpec spec;
+  spec.role = WindowRole::Dialog;
+  spec.id = "StartupDialog";
+  spec.title = AppNameUtf8();
+  spec.width = (int)(620 * scale);
+  spec.height = (int)(760 * scale);
 
-  const HWND hwnd = ::CreateWindowExW(0, className.c_str(), kAppName,
-                                      WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, x, y, width, height,
-                                      nullptr, nullptr, instance, nullptr);
-  if (!hwnd) {
-    ::UnregisterClassW(className.c_str(), instance);
-    return StartupAnswer::Postpone;
-  }
+  Window window;
+  window.SetListener(OnEvent);
+  if (window.Create(spec) != CreateResult::Ok) return StartupAnswer::Postpone;
 
   D3DContext d3d;
   std::string error;
-  if (!d3d.Initialize(hwnd, &error)) {
+  if (!d3d.Initialize(window, &error)) {
     // No device, no window worth showing. The caller falls back to deciding
     // nothing, which leaves both files untouched.
-    ::DestroyWindow(hwnd);
-    ::UnregisterClassW(className.c_str(), instance);
+    window.Destroy();
     return StartupAnswer::Postpone;
   }
   g_d3d = &d3d;
@@ -195,9 +157,9 @@ StartupAnswer AskAtStartup(HINSTANCE instance, const StartupQuestion& question) 
   ApplyImGuiTheme(dark, kDefaultAccent);
   ImGui::GetStyle().ScaleAllSizes(scale);
 
-  bool ready = ImGui_ImplWin32_Init(hwnd) && ImGui_ImplDX11_Init(d3d.device(), d3d.context());
+  bool ready = window.AttachUi(nullptr) && ImGui_ImplDX11_Init(d3d.device(), d3d.context());
   if (ready) {
-    ApplyWindowDarkMode(hwnd, dark);
+    window.SetDarkFrame(dark);
 
     float clear[4];
     GetBackgroundColor(dark, kDefaultAccent, clear);
@@ -205,17 +167,10 @@ StartupAnswer AskAtStartup(HINSTANCE instance, const StartupQuestion& question) 
     // spin a core while somebody reads it.
     bool shown = false;
     while (!g_done) {
-      MSG msg;
-      bool quit = false;
-      while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-        if (msg.message == WM_QUIT) quit = true;
-        ::TranslateMessage(&msg);
-        ::DispatchMessageW(&msg);
-      }
-      if (quit) break;
+      if (!PumpEvents()) break;
 
       ImGui_ImplDX11_NewFrame();
-      ImGui_ImplWin32_NewFrame();
+      window.BeginUiFrame();
       ImGui::NewFrame();
       Draw(question, scale);
       ImGui::Render();
@@ -224,9 +179,10 @@ StartupAnswer AskAtStartup(HINSTANCE instance, const StartupQuestion& question) 
       // tall the window has to be.
       if (!shown) {
         shown = true;
-        FitToContent(hwnd, (int)(g_contentHeight + 0.5f));
-        ::ShowWindow(hwnd, SW_SHOW);
-        ::SetForegroundWindow(hwnd);
+        // Trimmed to the height the content actually needed and put back in the
+        // middle of the screen.
+        window.ResizeClientHeightCentred((int)(g_contentHeight + 0.5f));
+        window.Show();
         continue;
       }
 
@@ -239,23 +195,20 @@ StartupAnswer AskAtStartup(HINSTANCE instance, const StartupQuestion& question) 
     }
 
     ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
+    window.DetachUi();
   }
 
   ImGui::DestroyContext();
   ImGui::SetCurrentContext(previous);
   g_d3d = nullptr;
   d3d.Shutdown();
-  ::DestroyWindow(hwnd);
-  ::UnregisterClassW(className.c_str(), instance);
+  window.Destroy();
 
   // Nothing of this window may be left in the queue when the program starts.
-  // The handler above no longer posts a quit, but ImGui's backend and the
+  // The handler above no longer asks to quit, but ImGui's backend and the
   // shutdown of a swap chain both dispatch through the same queue, and the
-  // caller's loop treats any WM_QUIT it finds as its own.
-  MSG stray;
-  while (::PeekMessageW(&stray, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {
-  }
+  // caller's loop treats any quit request it finds as its own.
+  DiscardPendingQuit();
   return ready ? g_answer : StartupAnswer::Postpone;
 }
 

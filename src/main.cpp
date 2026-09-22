@@ -14,13 +14,9 @@
 #include "text_win32.h"
 #include "ui/startup_dialog.h"
 #include "update/updater.h"
+#include "window_win32.h"
 
 namespace {
-
-// The question about the settings is asked before there is a window, so it is
-// asked before there is an instance handle to hand around. Every caller of the
-// callback below is inside this process anyway.
-HINSTANCE g_instance = nullptr;
 
 // The language sits in the settings, and the settings are exactly what is being
 // asked about -- so the question is put in the language of the file that has the
@@ -112,7 +108,7 @@ cap::SettingsAnswer AskAboutSettings(const cap::ForeignSettings& found, bool hav
                       "The other file is set aside as .bak, nothing is deleted. Closing this "
                       "window decides nothing – the question comes back at the next start.");
 
-  switch (cap::AskAtStartup(g_instance, q)) {
+  switch (cap::AskAtStartup(q)) {
     case cap::StartupAnswer::Accept:
       return cap::SettingsAnswer::TakeOver;
     case cap::StartupAnswer::Reject:
@@ -192,8 +188,8 @@ int ListEncoders() {
 
 }  // namespace
 
-int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR commandLine, int showCmd) {
-  g_instance = instance;
+int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR commandLine, int showCmd) {
+  cap::SetStartupShowCommand(showCmd);
 
   // Per monitor DPI so the picture is not stretched by the compositor on a
   // scaled display.
@@ -232,7 +228,7 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR commandLine, int sho
   int result = 1;
   {
     cap::App app;
-    if (app.Initialize(instance, showCmd)) {
+    if (app.Initialize()) {
       result = app.Run();
     }
     app.Shutdown();

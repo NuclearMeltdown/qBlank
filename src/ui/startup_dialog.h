@@ -9,8 +9,6 @@
 // also show what the answer depends on -- which files are involved, when each
 // was last written -- which a message box cannot.
 
-#include <windows.h>
-
 #include <string>
 #include <vector>
 
@@ -42,6 +40,6 @@ enum class StartupAnswer {
 
 // Runs its own message loop until the question is answered. Needs COM only for
 // the theme, which is already up by the time this is called.
-StartupAnswer AskAtStartup(HINSTANCE instance, const StartupQuestion& question);
+StartupAnswer AskAtStartup(const StartupQuestion& question);
 
 }  // namespace cap

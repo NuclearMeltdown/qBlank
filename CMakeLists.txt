@@ -65,6 +65,9 @@ add_executable(qBlank WIN32
   src/app.cpp
   src/config.cpp
   src/hotkeys.cpp
+  src/keys.cpp
+  src/keys_win32.cpp
+  src/window_win32.cpp
   src/json.cpp
   src/capture/device_config.cpp
   src/capture/caps_model.cpp
@@ -218,6 +221,8 @@ add_executable(qblank_probe
   src/i18n.cpp
   src/config.cpp
   src/hotkeys.cpp
+  src/keys.cpp
+  src/keys_win32.cpp
   src/json.cpp
   src/capture/caps_model.cpp
   src/capture/capture_device_win32.cpp

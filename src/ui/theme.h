@@ -1,7 +1,5 @@
 #pragma once
 
-#include <windows.h>
-
 #include "config.h"
 
 namespace cap {
@@ -17,9 +15,6 @@ bool ResolveDark(Theme theme);
 // tints of it, so switching the accent tints the window background along with
 // the controls instead of leaving a blue-grey shell around a violet button.
 void ApplyImGuiTheme(bool dark, unsigned accentRgb);
-
-// Dark title bar and border for the given window.
-void ApplyWindowDarkMode(HWND hwnd, bool dark);
 
 // Loads Segoe UI at the given size into the ImGui atlas, falling back to the
 // built-in font. Must run before the backend builds its font texture.

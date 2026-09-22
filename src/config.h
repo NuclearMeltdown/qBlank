@@ -749,7 +749,8 @@ struct Config {
   static std::filesystem::path FilePath();
 
   // Returns false when the file is missing or unreadable; defaults are kept in
-  // that case and `error` describes the problem (empty if simply absent).
+  // that case and `error` describes the problem (empty if simply absent). On
+  // success `error` can still carry a note for the log.
   bool Load(std::string* error = nullptr);
   bool Save(std::string* error = nullptr) const;
 

@@ -1,98 +1,47 @@
 #include "ui/settings_host.h"
 
-#include "resource.h"
-
-#include <dwmapi.h>
-
 #include "backends/imgui_impl_dx11.h"
-#include "backends/imgui_impl_win32.h"
 #include "imgui.h"
 #include "ui/theme.h"
 #include "i18n.h"
-#include "app_identity.h"
-#include "text_win32.h"
-
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
-                                                             LPARAM lParam);
+#include "window_win32.h"
 
 namespace cap {
-namespace {
-
-const std::wstring kClassName = WindowClassName(L"SettingsWindow");
-
-}  // namespace
 
 SettingsHost::~SettingsHost() { Destroy(); }
 
-LRESULT CALLBACK SettingsHost::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-  SettingsHost* self = reinterpret_cast<SettingsHost*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-  if (msg == WM_NCCREATE) {
-    auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
-    ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)cs->lpCreateParams);
-    return ::DefWindowProcW(hwnd, msg, wParam, lParam);
-  }
-  if (!self || !self->imgui_) return ::DefWindowProcW(hwnd, msg, wParam, lParam);
+bool SettingsHost::OnWindowEvent(const WindowEvent& e) {
+  // Nothing of the settings exists yet, or any more: the window is left to
+  // itself.
+  if (!imgui_) return false;
 
-  // Input has to be fed to *this* window's context, not the main one, so the
-  // current context is swapped for the duration of the handler.
-  ImGuiContext* previous = ImGui::GetCurrentContext();
-  ImGui::SetCurrentContext(self->imgui_);
-  const bool handled = ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam) != 0;
-  // Not WantCaptureKeyboard: with keyboard navigation on, that is true whenever
-  // this window has focus at all, which is exactly when the shortcuts should
-  // work. What the dialog really needs the keys for is typing and open lists.
-  const bool busy = ImGui::GetIO().WantTextInput ||
-                    ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId |
-                                               ImGuiPopupFlags_AnyPopupLevel);
-  ImGui::SetCurrentContext(previous);
-  if (handled) return 1;
-
-  switch (msg) {
-    case WM_KEYDOWN:
-    case WM_SYSKEYDOWN:
-      if (self->onKey_ && self->onKey_(wParam, lParam, busy)) return 0;
-      break;
-    case WM_CLOSE:
-      self->closeRequested_ = true;
-      self->Hide();
-      return 0;
-    case WM_SIZE:
-      if (wParam != SIZE_MINIMIZED) self->Resize();
-      return 0;
-    case WM_ENTERSIZEMOVE:
-      // A timer as well, but only as a floor for when the mouse is held still:
-      // WM_TIMER is the lowest priority message there is and Windows only
-      // generates one when the queue is otherwise empty. During a drag the queue
-      // never is. Measured, at an interval of 8 ms it fired seven times in a
-      // second, and the preview stood still for over a second at a stretch.
-      //
-      // 10 ms, weil das die kleinste Zahl ist, die Windows fuer einen Timer
-      // ueberhaupt annimmt (USER_TIMER_MINIMUM). Ein Weckruf ohne neues Bild
-      // kostet seit dem Wegfall der Zeitschranke nichts mehr als die Frage, ob
-      // eines da ist -- also darf oefter gefragt werden, als 60 Hz brauchen.
-      ::SetTimer(hwnd, 1, 10, nullptr);
-      return 0;
-    case WM_EXITSIZEMOVE:
-      ::KillTimer(hwnd, 1);
-      return 0;
-    case WM_MOVING:
-    case WM_SIZING:
-      // This is the hook that actually works. Windows sends these continuously
-      // while the window is being dragged or resized -- once per mouse movement
-      // -- and unlike WM_TIMER they are real messages that cannot be starved by
-      // the flood of mouse input that causes the problem in the first place.
-      self->PumpModalFrame();
-      break;  // and on to DefWindowProc, which does the actual moving
-    case WM_TIMER:
-      if (wParam == 1) self->PumpModalFrame();
-      return 0;
-    case WM_DESTROY:
-      self->hwnd_ = nullptr;
-      return 0;
+  switch (e.kind) {
+    case WindowEvent::Kind::KeyDown: {
+      // Asked in *this* window's context, not the main one.
+      ImGuiContext* previous = ImGui::GetCurrentContext();
+      ImGui::SetCurrentContext(imgui_);
+      // Not WantCaptureKeyboard: with keyboard navigation on, that is true whenever
+      // this window has focus at all, which is exactly when the shortcuts should
+      // work. What the dialog really needs the keys for is typing and open lists.
+      const bool busy = ImGui::GetIO().WantTextInput ||
+                        ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId |
+                                                   ImGuiPopupFlags_AnyPopupLevel);
+      ImGui::SetCurrentContext(previous);
+      return onKey_ && onKey_(e.key, e.ctrl, e.shift, e.alt, busy);
+    }
+    case WindowEvent::Kind::CloseRequested:
+      closeRequested_ = true;
+      Hide();
+      return true;
+    case WindowEvent::Kind::Resized:
+      if (!e.minimized) Resize();
+      return true;
+    case WindowEvent::Kind::ModalFrame:
+      PumpModalFrame();
+      return true;
     default:
-      break;
+      return false;
   }
-  return ::DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 // One frame from inside the modal loop.
@@ -124,10 +73,10 @@ void SettingsHost::PumpModalFrame() {
   inFrameCallback_ = false;
 }
 
-bool SettingsHost::Create(HINSTANCE instance, ID3D11Device* device, ID3D11DeviceContext* context,
-                          ImFontAtlas* atlas, float uiScale, bool allowTearing,
-                          const Placement& where, std::string* error) {
-  if (hwnd_) return true;
+bool SettingsHost::Create(ID3D11Device* device, ID3D11DeviceContext* context, ImFontAtlas* atlas,
+                          float uiScale, bool allowTearing, const Placement& where,
+                          std::string* error) {
+  if (created()) return true;
   // Ein eigenes Direct3D-Geraet, nicht das der Vorschau.
   //
   // Zwei Swapchains auf einem Geraet teilen sich zwangslaeufig zwei Dinge, und
@@ -170,56 +119,19 @@ bool SettingsHost::Create(HINSTANCE instance, ID3D11Device* device, ID3D11Device
   }
   uiScale_ = uiScale > 0.1f ? uiScale : 1.0f;
 
-  WNDCLASSEXW wc = {};
-  wc.cbSize = sizeof(wc);
-  wc.style = CS_HREDRAW | CS_VREDRAW;
-  wc.lpfnWndProc = &SettingsHost::WndProc;
-  wc.hInstance = instance;
-  wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-  // The same icon as the preview. Without it the taskbar button this window now
-  // has -- and its Alt+Tab entry -- would show the generic placeholder.
-  wc.hIcon = (HICON)::LoadImageW(instance, MAKEINTRESOURCEW(IDI_QBLANK), IMAGE_ICON,
-                                 ::GetSystemMetrics(SM_CXICON), ::GetSystemMetrics(SM_CYICON),
-                                 LR_DEFAULTCOLOR);
-  wc.hIconSm = (HICON)::LoadImageW(instance, MAKEINTRESOURCEW(IDI_QBLANK), IMAGE_ICON,
-                                   ::GetSystemMetrics(SM_CXSMICON), ::GetSystemMetrics(SM_CYSMICON),
-                                   LR_DEFAULTCOLOR);
-  wc.lpszClassName = kClassName.c_str();
-  // Registering twice is not an error worth failing over; the second call just
-  // tells us it is already there.
-  ::RegisterClassExW(&wc);
-
-  // What it was last time, or a sensible default the first time. Checked
-  // against the virtual screen, so a window remembered on a monitor that is no
-  // longer there does not come up somewhere nobody can reach it.
-  int w = where.width > 200 ? where.width : (int)(720 * uiScale_);
-  int h = where.height > 200 ? where.height : (int)(640 * uiScale_);
-  int x = CW_USEDEFAULT;
-  int y = CW_USEDEFAULT;
-  if (where.x != -1 || where.y != -1) {
-    RECT desk = {::GetSystemMetrics(SM_XVIRTUALSCREEN), ::GetSystemMetrics(SM_YVIRTUALSCREEN), 0,
-                 0};
-    desk.right = desk.left + ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    desk.bottom = desk.top + ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    // A hundred pixels of title bar has to remain reachable.
-    if (where.x + 100 > desk.left && where.x < desk.right - 100 && where.y >= desk.top &&
-        where.y < desk.bottom - 40) {
-      x = where.x;
-      y = where.y;
-    }
-  }
-  // WS_EX_APPWINDOW, so it has a taskbar button and somewhere to go when
-  // minimised -- without one it lands as a stub in the bottom left corner of the
-  // screen.
-  //
-  // No owner. An owned window is lifted above its owner every time the owner is
-  // activated, so a click into the preview dragged the settings in front of it
-  // as well, from wherever they had been left. Unowned, the two stack like any
-  // other two windows. What the owner did besides -- close with the preview,
-  // stay above it while it is topmost -- App does by hand.
-  hwnd_ = ::CreateWindowExW(WS_EX_APPWINDOW, kClassName.c_str(), kAppName, WS_OVERLAPPEDWINDOW,
-                            x, y, w, h, nullptr, nullptr, instance, this);
-  if (!hwnd_) {
+  // What it was last time, or a sensible default the first time. The window
+  // itself checks that a remembered position is still reachable.
+  WindowSpec spec;
+  spec.role = WindowRole::Tool;
+  spec.id = "SettingsWindow";
+  spec.title = AppNameUtf8();
+  spec.width = where.width > 200 ? where.width : (int)(720 * uiScale_);
+  spec.height = where.height > 200 ? where.height : (int)(640 * uiScale_);
+  spec.hasPosition = where.x != -1 || where.y != -1;
+  spec.x = where.x;
+  spec.y = where.y;
+  window_.SetListener([this](const WindowEvent& e) { return OnWindowEvent(e); });
+  if (window_.Create(spec) != CreateResult::Ok) {
     ReportError(error, CAP_SAID(T("Einstellungsfenster konnte nicht erstellt werden",
                                      "The settings window could not be created")));
     return false;
@@ -264,8 +176,8 @@ bool SettingsHost::Create(HINSTANCE instance, ID3D11Device* device, ID3D11Device
   swapchainFlags_ = allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u;
   presentFlags_ = allowTearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
   desc.Flags = swapchainFlags_;
-  if (FAILED(CAP_HR(factory->CreateSwapChainForHwnd(device_.Get(), hwnd_, &desc, nullptr, nullptr,
-                                                    &swapchain_)))) {
+  if (FAILED(CAP_HR(factory->CreateSwapChainForHwnd(device_.Get(), NativeWindow(window_), &desc,
+                                                    nullptr, nullptr, &swapchain_)))) {
     ReportError(error, CAP_SAID(T("Swapchain für das Einstellungsfenster fehlgeschlagen",
                                      "The settings window swapchain failed")));
     Destroy();
@@ -299,7 +211,7 @@ bool SettingsHost::Create(HINSTANCE instance, ID3D11Device* device, ID3D11Device
   LoadUiFont(17.0f * uiScale_);
 
   const bool ok =
-      ImGui_ImplWin32_Init(hwnd_) && ImGui_ImplDX11_Init(device_.Get(), ctx_.Get());
+      window_.AttachUi(imgui_) && ImGui_ImplDX11_Init(device_.Get(), ctx_.Get());
   ImGui::SetCurrentContext(previous);
   if (!ok) {
     ReportError(error, CAP_SAID(T("ImGui für das Einstellungsfenster fehlgeschlagen",
@@ -325,7 +237,7 @@ void SettingsHost::Destroy() {
     // the failure path comes straight here. Shutting down a backend that was
     // never started walks a null.
     if (ImGui::GetIO().BackendRendererUserData) ImGui_ImplDX11_Shutdown();
-    if (ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_Shutdown();
+    window_.DetachUi();
     ImGui::DestroyContext(imgui_);
     imgui_ = nullptr;
     ImGui::SetCurrentContext(previous == nullptr ? nullptr : previous);
@@ -333,11 +245,7 @@ void SettingsHost::Destroy() {
   }
   ReleaseRenderTarget();
   swapchain_.Reset();
-  if (hwnd_) {
-    HWND h = hwnd_;
-    hwnd_ = nullptr;
-    ::DestroyWindow(h);
-  }
+  window_.Destroy();
   device_.Reset();
   ctx_.Reset();
   visible_ = false;
@@ -366,63 +274,42 @@ void SettingsHost::Resize() {
 }
 
 void SettingsHost::Show(const std::string& title) {
-  if (!hwnd_) return;
-  ::SetWindowTextW(hwnd_, ToWide(title).c_str());
-  // SW_SHOW displays a minimised window *still minimised*, and BeginFrame then
-  // refuses to draw it -- so reopening the settings after minimising them did
-  // nothing at all. Only reachable since this window gained a taskbar button
-  // and could be minimised properly in the first place.
-  ::ShowWindow(hwnd_, ::IsIconic(hwnd_) ? SW_RESTORE : SW_SHOW);
-  ::SetForegroundWindow(hwnd_);
+  if (!created()) return;
+  window_.SetTitle(title);
+  // Restored if it was minimised: BeginFrame refuses to draw a minimised window,
+  // so reopening the settings after minimising them used to do nothing at all.
+  // Only reachable since this window gained a taskbar button and could be
+  // minimised properly in the first place.
+  window_.Show();
   visible_ = true;
   closeRequested_ = false;
 }
 
 void SettingsHost::Hide() {
-  if (!hwnd_) return;
-  ::ShowWindow(hwnd_, SW_HIDE);
+  if (!created()) return;
+  window_.Hide();
   visible_ = false;
 }
 
 void SettingsHost::Raise() {
-  if (!hwnd_ || !visible_) return;
-  if (::IsIconic(hwnd_)) ::ShowWindow(hwnd_, SW_RESTORE);
-  ::SetForegroundWindow(hwnd_);
+  if (!created() || !visible_) return;
+  window_.Raise();
 }
 
-bool SettingsHost::RaiseIfCoveredBy(HWND other) {
-  if (!hwnd_ || !visible_) return false;
-  if (::IsIconic(hwnd_)) {
+bool SettingsHost::RaiseIfCoveredBy(const Window& other) {
+  if (!created() || !visible_) return false;
+  if (window_.minimized() || window_.IsCoveredBy(other)) {
     Raise();
     return true;
-  }
-  RECT mine = {}, theirs = {}, overlap = {};
-  if (!other || !::IsWindowVisible(other) || ::IsIconic(other) ||
-      !::GetWindowRect(hwnd_, &mine) || !::GetWindowRect(other, &theirs) ||
-      !::IntersectRect(&overlap, &mine, &theirs)) {
-    return false;
-  }
-  // Overlapping is not covering: `other` has to be above this window as well.
-  // Everything before this window in the z-order is above it.
-  for (HWND above = ::GetWindow(hwnd_, GW_HWNDPREV); above;
-       above = ::GetWindow(above, GW_HWNDPREV)) {
-    if (above == other) {
-      Raise();
-      return true;
-    }
   }
   return false;
 }
 
 void SettingsHost::SetTopmost(bool top) {
-  if (!hwnd_) return;
-  // Only when it changes. HWND_TOPMOST also moves the window to the front of
-  // the topmost windows, and doing that every time would put the settings back
-  // over a preview that had just been clicked into.
-  const bool now = (::GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-  if (now == top) return;
-  ::SetWindowPos(hwnd_, top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  // Only when it changes, which the window sees to. Moving to the top of the
+  // topmost windows every time would put the settings back over a preview
+  // that had just been clicked into.
+  window_.SetTopmost(top);
 }
 
 bool SettingsHost::takeCloseRequest() {
@@ -438,13 +325,13 @@ void SettingsHost::ApplyTheme(bool darkMode, unsigned accentColor) {
   ApplyImGuiTheme(darkMode, accentColor);
   ImGui::GetStyle().ScaleAllSizes(uiScale_);
   ImGui::SetCurrentContext(previous);
-  ApplyWindowDarkMode(hwnd_, darkMode);
+  window_.SetDarkFrame(darkMode);
   themeApplied_ = true;
 }
 
 bool SettingsHost::BeginFrame(bool darkMode, unsigned accentColor) {
-  if (!hwnd_ || !visible_ || !imgui_ || !rtv_) return false;
-  if (::IsIconic(hwnd_)) return false;
+  if (!created() || !visible_ || !imgui_ || !rtv_) return false;
+  if (window_.minimized()) return false;
   // Covered by something else: stop drawing and ask cheaply whether that is
   // still true, rather than paying for a present nobody can see.
   if (occluded_) {
@@ -468,7 +355,7 @@ bool SettingsHost::BeginFrame(bool darkMode, unsigned accentColor) {
   previous_ = ImGui::GetCurrentContext();
   ImGui::SetCurrentContext(imgui_);
   ImGui_ImplDX11_NewFrame();
-  ImGui_ImplWin32_NewFrame();
+  window_.BeginUiFrame();
   ImGui::NewFrame();
   return true;
 }
@@ -519,16 +406,14 @@ void SettingsHost::EndFrame() {
 
 SettingsHost::Placement SettingsHost::placement() const {
   Placement out;
-  if (!hwnd_) return out;
   // The restored rectangle, not the current one: a window read while it is
   // minimised or maximised would be remembered at the wrong size.
-  WINDOWPLACEMENT wp = {};
-  wp.length = sizeof(wp);
-  if (!::GetWindowPlacement(hwnd_, &wp)) return out;
-  out.x = wp.rcNormalPosition.left;
-  out.y = wp.rcNormalPosition.top;
-  out.width = wp.rcNormalPosition.right - wp.rcNormalPosition.left;
-  out.height = wp.rcNormalPosition.bottom - wp.rcNormalPosition.top;
+  Window::Placement wp;
+  if (!window_.GetPlacement(&wp)) return out;
+  out.x = wp.x;
+  out.y = wp.y;
+  out.width = wp.width;
+  out.height = wp.height;
   return out;
 }
 

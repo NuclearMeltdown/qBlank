@@ -1,6 +1,7 @@
 #include "render/d3d_context.h"
 #include "i18n.h"
 #include "text_win32.h"
+#include "window_win32.h"
 
 #include <algorithm>
 #include <vector>
@@ -61,8 +62,8 @@ D3DContext::~D3DContext() {
   Shutdown();
 }
 
-bool D3DContext::Initialize(HWND hwnd, std::string* error) {
-  hwnd_ = hwnd;
+bool D3DContext::Initialize(const Window& window, std::string* error) {
+  hwnd_ = NativeWindow(window);
 
   UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 #ifdef _DEBUG
