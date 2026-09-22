@@ -1206,4 +1206,77 @@ int VideoStandardLocked(IBaseFilter* filter) {
   return locked ? 1 : 0;
 }
 
+// ------------------------------------------------------------- hardware paths
+
+namespace {
+
+// Splits an instance id on backslashes.
+std::vector<std::string> SplitInstance(const std::string& id) {
+  std::vector<std::string> out;
+  size_t start = 0;
+  while (start <= id.size()) {
+    size_t sep = id.find('\\', start);
+    if (sep == std::string::npos) {
+      out.push_back(id.substr(start));
+      break;
+    }
+    out.push_back(id.substr(start, sep - start));
+    start = sep + 1;
+  }
+  return out;
+}
+
+// Pulls VEN_xxxx&DEV_xxxx out of an instance component, ignoring the rest.
+std::string VendorDeviceKey(const std::string& component) {
+  std::string up = ToUpper(component);
+  size_t ven = up.find("VEN_");
+  size_t dev = up.find("DEV_");
+  if (ven == std::string::npos || dev == std::string::npos) return {};
+  auto take = [&](size_t pos) {
+    size_t end = up.find('&', pos);
+    return up.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+  };
+  return take(ven) + "&" + take(dev);
+}
+
+}  // namespace
+
+std::string NormalizeDevicePath(const std::string& devicePath) {
+  if (devicePath.empty()) return {};
+  std::string s = devicePath;
+  if (s.rfind("\\\\?\\", 0) == 0) s = s.substr(4);
+  if (s.rfind("\\\\.\\", 0) == 0) s = s.substr(4);
+
+  // Everything up to the interface class GUID identifies the hardware; what
+  // follows only says which interface of it we are looking at.
+  std::vector<std::string> parts;
+  size_t start = 0;
+  while (start <= s.size()) {
+    size_t hash = s.find('#', start);
+    if (hash == std::string::npos) {
+      parts.push_back(s.substr(start));
+      break;
+    }
+    parts.push_back(s.substr(start, hash - start));
+    start = hash + 1;
+  }
+  while (!parts.empty() && (parts.back().empty() || parts.back()[0] == '{')) parts.pop_back();
+  if (parts.empty()) return {};
+
+  std::string joined;
+  for (size_t i = 0; i < parts.size(); ++i) {
+    if (i) joined += '\\';
+    joined += parts[i];
+  }
+  return ToUpper(joined);
+}
+
+HardwarePath HardwareFromInstancePath(const std::string& instancePath) {
+  HardwarePath out;
+  if (instancePath.empty()) return out;
+  out.parts = SplitInstance(instancePath);
+  if (out.parts.size() > 1) out.vendorDevice = VendorDeviceKey(out.parts[1]);
+  return out;
+}
+
 }  // namespace cap

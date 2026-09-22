@@ -267,19 +267,17 @@ int AccentPresetCount();
 unsigned AccentPresetColor(int index);
 const char* AccentPresetName(int index);
 
-// Identifies a device across restarts. `id` is the stable one (DirectShow
-// DevicePath / WASAPI endpoint id); `name` is what the user sees and is used
-// as a fallback when the id no longer resolves (e.g. card moved slots).
+// Identifies a device across restarts. `id` is the stable one, whatever the
+// platform uses to name a device for good; `name` is what the user sees and is
+// used as a fallback when the id no longer resolves (e.g. card moved slots).
 struct DeviceRef {
   std::string name;
   std::string id;
-  // Audio inputs only: "wasapi" or "dshow". Not every capture card exposes its
-  // embedded audio as a Windows sound device -- plenty of them, the StarTech
-  // PEXHDCAP60L among them, offer it solely as a DirectShow audio input.
+  // Audio inputs only: which way of reading a device found this one. Opaque
+  // everywhere but in the platform's audio code, which set it and reads it.
   std::string backend;
 
   bool empty() const { return name.empty() && id.empty(); }
-  bool isDirectShow() const { return backend == "dshow"; }
   bool operator==(const DeviceRef& o) const {
     return name == o.name && id == o.id && backend == o.backend;
   }

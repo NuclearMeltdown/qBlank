@@ -11,18 +11,14 @@
 #include <dshow.h>
 
 #include <atomic>
-#include <functional>
 #include <string>
 
+#include "audio/audio_stream.h"
 #include "audio/pcm.h"
 #include "common_win32.h"
 #include "config.h"
 
 namespace cap {
-
-// Called from the graph's streaming thread with interleaved stereo float.
-// Stored once, so the indirection costs nothing per sample.
-using AudioSinkFn = std::function<void(const float* interleaved, size_t frames)>;
 
 class DShowAudioCapture {
  public:

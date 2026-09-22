@@ -42,6 +42,20 @@ struct VideoDeviceInfo {
 // them.
 std::vector<VideoDeviceInfo> EnumerateVideoDevices();
 
+// Where a device sits in the machine, as the platform describes it: the bus,
+// the hardware id, the instance and whatever the platform adds after that, most
+// general first. Two devices that agree in the first two parts are functions of
+// the same kind of card on the same bus; the third tells copies of it apart.
+// The parts are only ever compared, never read.
+struct HardwarePath {
+  std::vector<std::string> parts;  // empty when the platform does not say
+  std::string vendorDevice;        // vendor and device id of the hardware, or empty
+};
+
+// Where a video device sits. Worked out from its id, so it answers for a device
+// that is only remembered as well.
+HardwarePath VideoDeviceHardware(const VideoDeviceInfo& device);
+
 struct CrossbarInput {
   // Whatever identifies this input to the card: the index of the input pin on
   // the crossbar, or, on a card whose inputs are switched through a private

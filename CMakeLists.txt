@@ -79,11 +79,14 @@ add_executable(qBlank WIN32
   src/capture/video_format.cpp
   src/capture/video_standard.cpp
   src/audio/audio_devices.cpp
+  src/audio/audio_devices_win32.cpp
   src/audio/audio_engine.cpp
   src/audio/audio_ring.cpp
+  src/audio/audio_stream_win32.cpp
   src/audio/dshow_audio_capture.cpp
   src/audio/mic_capture.cpp
   src/audio/pcm.cpp
+  src/audio/pcm_win32.cpp
   src/record/ffmpeg_download.cpp
   src/record/ffmpeg_locator.cpp
   src/record/recorder.cpp
@@ -233,6 +236,7 @@ add_executable(qblank_probe
   src/capture/video_format.cpp
   src/capture/video_standard.cpp
   src/audio/audio_devices.cpp
+  src/audio/audio_devices_win32.cpp
 )
 target_include_directories(qblank_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(qblank_probe PRIVATE

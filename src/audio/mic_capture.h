@@ -15,14 +15,16 @@
 // get wrong.
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
+#include <vector>
 
 #include "audio/audio_devices.h"
 #include "audio/audio_ring.h"
-#include "common_win32.h"
+#include "audio/audio_stream.h"
 #include "config.h"
 
 namespace cap {
@@ -62,16 +64,21 @@ class MicCapture {
   size_t Read(float* out, size_t frames);
 
  private:
-  void CaptureThread(AudioDeviceInfo device);
+  void OnAudio(const float* interleaved, size_t frames);
   void Fail(const Said& said);
+  // Lets Start() stop waiting, whether the device came up or gave up.
+  void SignalReady();
 
   AudioRing ring_;
-  std::thread thread_;
-  HANDLE stopEvent_ = nullptr;
-  // Signalled by the capture thread once the device is open and the sample rate
-  // is published, or once it has given up. Start() waits on it, because the
-  // caller needs the rate before it can ask ffmpeg for a second input.
-  HANDLE readyEvent_ = nullptr;
+  std::unique_ptr<AudioInput> input_;
+  std::vector<float> scratch_;  // the input's thread only
+
+  // Set once the device is open and the sample rate is published, or once it
+  // has given up. Start() waits for it, because the caller needs the rate
+  // before it can ask ffmpeg for a second input.
+  std::mutex readyMutex_;
+  std::condition_variable readyChanged_;
+  bool ready_ = false;
   std::atomic<bool> startFailed_{false};
 
   std::atomic<bool> running_{false};

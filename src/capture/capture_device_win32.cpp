@@ -407,6 +407,11 @@ std::vector<VideoDeviceInfo> EnumerateVideoDevices() {
   return out;
 }
 
+HardwarePath VideoDeviceHardware(const VideoDeviceInfo& device) {
+  // The id is the DevicePath.
+  return HardwareFromInstancePath(NormalizeDevicePath(device.id));
+}
+
 std::thread StartCaptureThread(std::function<void()> body) {
   return std::thread([body = std::move(body)]() {
     // The same apartment the graph lives in, so the pointer is usable as it is.

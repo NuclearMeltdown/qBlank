@@ -210,7 +210,7 @@ void DrawStatsPanel(const OverlayStats& s) {
     if (s.audio.running) {
       if (full) {
         Row(T("Ton ein", "Audio in"),
-            s.audio.inputName + (s.audio.directShowInput ? "  [DirectShow]" : "  [WASAPI]"));
+            s.audio.inputName + "  [" + s.audio.inputVia + "]");
         Row(T("Ton aus", "Audio out"),
             s.audio.outputName + (s.audio.exclusive ? "  [Exclusive]" : "  [Shared]"));
       }

@@ -3,6 +3,7 @@
 #include <new>
 #include <vector>
 
+#include "audio/audio_win32.h"
 #include "capture/dshow_util.h"
 #include "i18n.h"
 

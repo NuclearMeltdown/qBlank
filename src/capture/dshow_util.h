@@ -63,6 +63,17 @@ std::vector<DShowDeviceInfo> EnumerateVideoCaptureDShowDevices();
 // this is worth looking at when the audio pairing comes up empty.
 std::vector<DShowDeviceInfo> EnumerateAudioCaptureDShowDevices();
 
+// Strips a DirectShow DevicePath down to the hardware it names, so paths from
+// different device interfaces on the same card compare equal.
+//   \\?\pci#ven_1131&dev_7160&subsys_x&rev_y#6&846d6d9&0&000800e2#{iface}\{...}
+//   ->  PCI\VEN_1131&DEV_7160&SUBSYS_X&REV_Y\6&846D6D9&0&000800E2
+std::string NormalizeDevicePath(const std::string& devicePath);
+
+// A device instance path in upper case -- what NormalizeDevicePath returns, or
+// what a sound device reports as its instance id -- as a HardwarePath: split on
+// the backslashes, with VEN_xxxx&DEV_xxxx taken from the hardware id.
+HardwarePath HardwareFromInstancePath(const std::string& instancePath);
+
 // Resolves a saved reference to a live filter. Matching order: exact id, then
 // moniker display name, then friendly name. `resolved` receives what was
 // actually opened so the caller can write the fresh id back to the config.

@@ -1291,7 +1291,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
       for (const AudioDeviceInfo& d : audioInputs_) {
         const bool selected =
             (p.capture.audioSource == AudioSource::Manual && d.id == p.capture.audio.id);
-        std::string label = d.name + (d.directShow ? "   [DirectShow]" : "");
+        std::string label = d.name + (d.cardAudio ? "   [" + d.via + "]" : "");
         if (ImGui::Selectable(label.c_str(), selected)) {
           p.capture.audioSource = AudioSource::Manual;
           p.capture.audio = d.ToRef();
@@ -2711,8 +2711,8 @@ void SettingsWindow::DrawAudioTab() {
       audio.micDevice = DeviceRef{};
     }
     for (const AudioDeviceInfo& d : audioInputs_) {
-      // DirectShow inputs are capture card audio, not microphones.
-      if (d.directShow) continue;
+      // Capture card audio is no microphone.
+      if (d.cardAudio) continue;
       const bool selected = (d.id == audio.micDevice.id);
       if (ImGui::Selectable(d.name.c_str(), selected)) audio.micDevice = d.ToRef();
       if (selected) ImGui::SetItemDefaultFocus();

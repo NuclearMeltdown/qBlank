@@ -1,4 +1,7 @@
 #include <windows.h>
+// timeBeginPeriod. Came along with the audio headers once; they no longer
+// bring in anything of Windows.
+#include <timeapi.h>
 
 #include <cstdio>
 #include <cstdlib>
