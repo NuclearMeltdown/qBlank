@@ -3,24 +3,21 @@
 // The settings dialog as a window of its own, so it can be moved off the
 // preview -- onto a second monitor, next to the picture, wherever.
 //
-// This is a second Win32 window with its own swap chain and its own Dear ImGui
-// context, sharing the D3D device and the font atlas with the main window. The
-// tidier route would be ImGui's multi-viewport support, which turns any ImGui
-// window into a real one when it is dragged out; that lives on the docking
-// branch, and swapping the vendored library over for this one feature is a
-// larger and riskier change than writing the window.
+// This is a second window with a drawing surface of its own (ui/ui_surface.h)
+// and its own Dear ImGui context. The tidier route would be ImGui's
+// multi-viewport support, which turns any ImGui window into a real one when it
+// is dragged out; that lives on the docking branch, and swapping the vendored
+// library over for this one feature is a larger and riskier change than writing
+// the window.
 
-#include <d3d11.h>
-#include <dxgi1_2.h>
-
+#include <cstdint>
 #include <functional>
 #include <string>
 
-#include "common_win32.h"
+#include "ui/ui_surface.h"
 #include "window.h"
 
 struct ImGuiContext;
-struct ImFontAtlas;
 
 namespace cap {
 
@@ -32,10 +29,8 @@ class SettingsHost {
   SettingsHost& operator=(const SettingsHost&) = delete;
   SettingsHost() = default;
 
-  // Creates the window hidden. `atlas` is the main context's font atlas, shared
-  // rather than rebuilt: the fonts are identical and one copy is enough.
-  // `allowTearing` comes from the main context, which has already asked DXGI
-  // whether the adapter supports it.
+  // Creates the window hidden. `allowTearing` comes from the preview, which
+  // has already asked whether the adapter supports it.
   // Where the window should come up, and where it ended up. Zero or negative
   // means "wherever Windows likes", which is only right the very first time.
   struct Placement {
@@ -46,8 +41,7 @@ class SettingsHost {
   };
   Placement placement() const;
 
-  bool Create(ID3D11Device* device, ID3D11DeviceContext* context, ImFontAtlas* atlas,
-              float uiScale, bool allowTearing, const Placement& where, std::string* error);
+  bool Create(float uiScale, bool allowTearing, const Placement& where, std::string* error);
   void Destroy();
 
   bool created() const { return window_.created(); }
@@ -94,42 +88,29 @@ class SettingsHost {
   void EndFrame();
 
   // Client size in pixels, valid between BeginFrame and EndFrame.
-  int width() const { return width_; }
-  int height() const { return height_; }
+  int width() const { return surface_.width(); }
+  int height() const { return surface_.height(); }
 
   // Re-applies colours after a theme change.
   void ApplyTheme(bool darkMode, unsigned accentColor);
 
  private:
   bool OnWindowEvent(const WindowEvent& e);
-  bool CreateRenderTarget();
-  void ReleaseRenderTarget();
   void Resize();
 
   Window window_;
   ImGuiContext* imgui_ = nullptr;
   ImGuiContext* previous_ = nullptr;  // restored by EndFrame
-  ComPtr<ID3D11Device> device_;
-  ComPtr<ID3D11DeviceContext> ctx_;
-  ComPtr<IDXGISwapChain1> swapchain_;
-  ComPtr<ID3D11RenderTargetView> rtv_;
-  int width_ = 0;
-  int height_ = 0;
+  UiSurface surface_;
   bool visible_ = false;
   bool closeRequested_ = false;
-  bool occluded_ = false;
   // Offers a frame from inside Windows' modal move loop. Whether one is
   // actually drawn is the callback's decision, not this class's -- see the
   // comment on the implementation.
   void PumpModalFrame();
-  // Whether this swapchain may hand a frame straight to the screen instead of
-  // waiting to be composited. Measured to be the difference between a present
-  // that costs 0.2 ms and one that costs 14.
-  UINT swapchainFlags_ = 0;
-  UINT presentFlags_ = 0;
   bool themeApplied_ = false;
   bool inFrameCallback_ = false;
-  unsigned long lastDrawTick_ = 0;
+  uint32_t lastDrawTick_ = 0;
   std::function<void()> onFrame_;
   std::function<bool(Key, bool, bool, bool, bool)> onKey_;
   float uiScale_ = 1.0f;

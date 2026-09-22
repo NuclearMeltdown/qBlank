@@ -378,6 +378,14 @@ double TicksToSeconds(int64_t ticks) {
   return (double)ticks / freq;
 }
 
+uint32_t TickMilliseconds() {
+  return (uint32_t)::GetTickCount();
+}
+
+void SleepMilliseconds(uint32_t ms) {
+  ::Sleep((DWORD)ms);
+}
+
 // ------------------------------------------------------------------ misc utils
 
 namespace {

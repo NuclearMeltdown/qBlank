@@ -18,7 +18,7 @@
 #include "common_win32.h"
 #include "config.h"
 #include "record/recorder.h"
-#include "render/d3d_context.h"
+#include "render/display.h"
 #include "render/video_renderer.h"
 #include "ui/overlay.h"
 #include "ui/settings_host.h"
@@ -320,13 +320,13 @@ class App {
   float uiScale_ = 1.0f;
 
   Config config_;
-  D3DContext d3d_;
+  Display display_;
   VideoRenderer renderer_;
 
-  // The application icon as a texture, for the empty state. Loaded once; zero
+  // The application icon as a texture, for the empty state. Loaded once; empty
   // when the icon could not be read, which costs the idle screen its picture
   // and nothing else.
-  ComPtr<ID3D11ShaderResourceView> idleIcon_;
+  UiImage idleIcon_;
   int idleIconSize_ = 0;
   void LoadIdleIcon();
   // Whether the picture arriving is worth showing. Combines what the pixels say

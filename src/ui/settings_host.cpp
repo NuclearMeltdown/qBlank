@@ -1,10 +1,9 @@
 #include "ui/settings_host.h"
 
-#include "backends/imgui_impl_dx11.h"
+#include "common.h"
 #include "imgui.h"
 #include "ui/theme.h"
 #include "i18n.h"
-#include "window_win32.h"
 
 namespace cap {
 
@@ -57,7 +56,7 @@ bool SettingsHost::OnWindowEvent(const WindowEvent& e) {
 // wurde. Dann stand hier die gemessene Bildrate der Quelle, und das war
 // schlechter: bei PAL sind das 25 Bilder, waehrend die Vorschau nach dem
 // Deinterlacing 50 Halbbilder zeigt -- die Haelfte davon fiel weg. Dazu kommt,
-// dass ::GetTickCount alle 15,6 ms weiterzaehlt, also jede Schranke auf das
+// dass der grobe Millisekundenzaehler alle 15,6 ms weiterzaehlt, also jede Schranke auf das
 // naechste Vielfache davon aufrundet: 40 ms werden zu 46,8 und damit 21 Bilder
 // in der Sekunde. Genau das war zu sehen.
 //
@@ -73,50 +72,23 @@ void SettingsHost::PumpModalFrame() {
   inFrameCallback_ = false;
 }
 
-bool SettingsHost::Create(ID3D11Device* device, ID3D11DeviceContext* context, ImFontAtlas* atlas,
-                          float uiScale, bool allowTearing, const Placement& where,
+bool SettingsHost::Create(float uiScale, bool allowTearing, const Placement& where,
                           std::string* error) {
   if (created()) return true;
-  // Ein eigenes Direct3D-Geraet, nicht das der Vorschau.
+  // Eine eigene Zeichenflaeche mit eigenem Geraet, nicht die der Vorschau.
   //
   // Zwei Swapchains auf einem Geraet teilen sich zwangslaeufig zwei Dinge, und
-  // beide waren teuer. Erstens gilt SetMaximumFrameLatency fuer das *Geraet*:
-  // mit der kurzen Warteschlange, von der die Vorschau lebt, wartete jedes
-  // Present auf das Bild der jeweils anderen. Zweitens teilen sie den Immediate
-  // Context -- jeder Zeichenbefehl des Dialogs laeuft dann durch genau den
-  // Strang, den die Vorschau braucht, und serialisiert sich dagegen.
+  // beide waren teuer. Erstens gilt die Bildwarteschlange fuer das *Geraet*:
+  // mit der kurzen, von der die Vorschau lebt, wartete jedes Present auf das
+  // Bild der jeweils anderen. Zweitens teilen sie den Befehlsstrang -- jeder
+  // Zeichenbefehl des Dialogs laeuft dann durch genau den Strang, den die
+  // Vorschau braucht, und serialisiert sich dagegen.
   //
   // Ein zweites Geraet loest beides an der Wurzel statt es auszubalancieren.
   // Es kostet eine eigene Schriftatlas-Textur und etwas Speicher; dafuer darf
   // die Vorschau ihre Warteschlange dauerhaft auf eins lassen, was der groesste
   // einzelne Hebel auf ihre Verzoegerung ist.
-  (void)device;
-  (void)context;
-  {
-    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-    const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
-                                        D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0};
-    D3D_FEATURE_LEVEL got = D3D_FEATURE_LEVEL_11_0;
-    HRESULT hr = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, levels,
-                                     (UINT)(sizeof(levels) / sizeof(levels[0])), D3D11_SDK_VERSION,
-                                     &device_, &got, &ctx_);
-    if (FAILED(hr)) {
-      // Ohne BGRA nochmal: aeltere Treiber melden das Flag nicht, brauchen es
-      // hier aber auch nicht.
-      hr = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, levels,
-                               (UINT)(sizeof(levels) / sizeof(levels[0])), D3D11_SDK_VERSION,
-                               &device_, &got, &ctx_);
-    }
-    if (FAILED(CAP_HR(hr)) || !device_ || !ctx_) {
-      ReportError(error, CAP_SAID(T("Eigenes Grafikgerät für das Einstellungsfenster fehlgeschlagen",
-                                    "Could not create a graphics device for the settings window")));
-      return false;
-    }
-    // Der Dialog darf ruhig eine Warteschlange haben: er will fluessig dem
-    // Mauszeiger folgen, nicht in einer Millisekunde auf dem Schirm sein.
-    ComPtr<IDXGIDevice1> own;
-    if (SUCCEEDED(device_.As(&own)) && own) own->SetMaximumFrameLatency(3);
-  }
+  if (!surface_.CreateDevice(error)) return false;
   uiScale_ = uiScale > 0.1f ? uiScale : 1.0f;
 
   // What it was last time, or a sensible default the first time. The window
@@ -137,57 +109,10 @@ bool SettingsHost::Create(ID3D11Device* device, ID3D11DeviceContext* context, Im
     return false;
   }
 
-  ComPtr<IDXGIDevice> dxgiDevice;
-  ComPtr<IDXGIAdapter> adapter;
-  ComPtr<IDXGIFactory2> factory;
-  if (FAILED(CAP_HR(device_.As(&dxgiDevice))) ||
-      FAILED(CAP_HR(dxgiDevice->GetAdapter(&adapter))) ||
-      FAILED(CAP_HR(adapter->GetParent(IID_PPV_ARGS(&factory))))) {
-    ReportError(error, CAP_SAID(T("DXGI-Factory für das Einstellungsfenster fehlt",
-                                     "The settings window has no DXGI factory")));
+  if (!surface_.Attach(window_, allowTearing, error)) {
     Destroy();
     return false;
   }
-
-  DXGI_SWAP_CHAIN_DESC1 desc = {};
-  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-  desc.SampleDesc.Count = 1;
-  desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-  // Three, not two. The device asks for one frame of latency
-  // (SetMaximumFrameLatency in D3DContext, which is device-wide and binds this
-  // chain too), and with only two buffers a present that arrives before the
-  // previous one has been retired waits for it. The third buffer is a few
-  // megabytes against several milliseconds a frame.
-  desc.BufferCount = 3;
-  desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-  desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-  // Measured before this was here: the present below cost 12 to 17 milliseconds
-  // on average and up to 41 at worst, roughly thirty-five times a second. A
-  // flip model swapchain with a sync interval of zero and *no* tearing flag is
-  // not "not vsynced" -- it still hands the frame to the compositor at a
-  // vertical blank, and with the device-wide SetMaximumFrameLatency(1) the call
-  // blocks until the previous one has been retired. The thread that owns both
-  // windows was therefore parked for better than half of every second, not
-  // pumping messages, which is why the *desktop's* cursor stuttered and not
-  // only the preview.
-  //
-  // The flags have to match in three places -- creation, resize and present --
-  // or the resize fails and the present blocks anyway.
-  swapchainFlags_ = allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u;
-  presentFlags_ = allowTearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
-  desc.Flags = swapchainFlags_;
-  if (FAILED(CAP_HR(factory->CreateSwapChainForHwnd(device_.Get(), NativeWindow(window_), &desc,
-                                                    nullptr, nullptr, &swapchain_)))) {
-    ReportError(error, CAP_SAID(T("Swapchain für das Einstellungsfenster fehlgeschlagen",
-                                     "The settings window swapchain failed")));
-    Destroy();
-    return false;
-  }
-  // Deliberately not calling MakeWindowAssociation here. It is a property of the
-  // *factory*, not of a window: calling it again would replace the association
-  // the main window made, and with it the NO_WINDOW_CHANGES that stops DXGI
-  // resizing the preview behind our back. Leaving it alone means Alt+Enter keeps
-  // meaning the preview, which is what it should mean anyway.
 
   // A context of its own, sharing the main one's fonts: the glyphs are the same
   // and one atlas on the GPU is enough for both.
@@ -196,7 +121,6 @@ bool SettingsHost::Create(ID3D11Device* device, ID3D11DeviceContext* context, Im
   // nimmt dem Ganzen zugleich die Falle, die der geteilte Atlas mitbrachte: der
   // DX11-Rueckenteil legt die Textur-Id *im Atlas* ab, also riss das Schliessen
   // dieses Fensters dem Hauptfenster die Schrift unter den Fuessen weg.
-  (void)atlas;
   imgui_ = ImGui::CreateContext();
   ImGui::SetCurrentContext(imgui_);
   ImGuiIO& io = ImGui::GetIO();
@@ -210,8 +134,7 @@ bool SettingsHost::Create(ID3D11Device* device, ID3D11DeviceContext* context, Im
   // Atlas des gerade aktuellen Kontexts.
   LoadUiFont(17.0f * uiScale_);
 
-  const bool ok =
-      window_.AttachUi(imgui_) && ImGui_ImplDX11_Init(device_.Get(), ctx_.Get());
+  const bool ok = window_.AttachUi(imgui_) && surface_.InitUi();
   ImGui::SetCurrentContext(previous);
   if (!ok) {
     ReportError(error, CAP_SAID(T("ImGui für das Einstellungsfenster fehlgeschlagen",
@@ -220,7 +143,6 @@ bool SettingsHost::Create(ID3D11Device* device, ID3D11DeviceContext* context, Im
     return false;
   }
 
-  CreateRenderTarget();
   CAP_LOG("Settings window created");
   return true;
 }
@@ -232,46 +154,20 @@ void SettingsHost::Destroy() {
     // there is nothing to go back to and nothing to repair.
     if (previous == imgui_) previous = nullptr;
     ImGui::SetCurrentContext(imgui_);
-    // Guarded, because Create can fail between the two backends: the platform
-    // one is initialised first and the renderer one only if it succeeded, and
-    // the failure path comes straight here. Shutting down a backend that was
-    // never started walks a null.
-    if (ImGui::GetIO().BackendRendererUserData) ImGui_ImplDX11_Shutdown();
+    surface_.ShutdownUi();
     window_.DetachUi();
     ImGui::DestroyContext(imgui_);
     imgui_ = nullptr;
     ImGui::SetCurrentContext(previous == nullptr ? nullptr : previous);
 
   }
-  ReleaseRenderTarget();
-  swapchain_.Reset();
+  surface_.ReleaseSwapchain();
   window_.Destroy();
-  device_.Reset();
-  ctx_.Reset();
+  surface_.ReleaseDevice();
   visible_ = false;
 }
 
-bool SettingsHost::CreateRenderTarget() {
-  if (!swapchain_) return false;
-  ComPtr<ID3D11Texture2D> back;
-  if (FAILED(swapchain_->GetBuffer(0, IID_PPV_ARGS(&back)))) return false;
-  if (FAILED(CAP_HR(device_->CreateRenderTargetView(back.Get(), nullptr, &rtv_)))) return false;
-
-  D3D11_TEXTURE2D_DESC td = {};
-  back->GetDesc(&td);
-  width_ = (int)td.Width;
-  height_ = (int)td.Height;
-  return true;
-}
-
-void SettingsHost::ReleaseRenderTarget() { rtv_.Reset(); }
-
-void SettingsHost::Resize() {
-  if (!swapchain_) return;
-  ReleaseRenderTarget();
-  swapchain_->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, swapchainFlags_);
-  CreateRenderTarget();
-}
+void SettingsHost::Resize() { surface_.Resize(); }
 
 void SettingsHost::Show(const std::string& title) {
   if (!created()) return;
@@ -330,15 +226,12 @@ void SettingsHost::ApplyTheme(bool darkMode, unsigned accentColor) {
 }
 
 bool SettingsHost::BeginFrame(bool darkMode, unsigned accentColor) {
-  if (!created() || !visible_ || !imgui_ || !rtv_) return false;
+  if (!created() || !visible_ || !imgui_ || !surface_.hasTarget()) return false;
   if (window_.minimized()) return false;
   // Covered by something else: stop drawing and ask cheaply whether that is
   // still true, rather than paying for a present nobody can see.
-  if (occluded_) {
-    if (swapchain_->Present(0, DXGI_PRESENT_TEST) != S_OK) return false;
-    occluded_ = false;
-  }
-  if (width_ <= 0 || height_ <= 0) return false;
+  if (surface_.StillOccluded()) return false;
+  if (surface_.width() <= 0 || surface_.height() <= 0) return false;
 
   // Ein Deckel bleibt, aber weit oberhalb dessen, was ein Monitor zeigt: ohne
   // ihn zeichnet der Dialog den kompletten Einstellungsbaum so oft neu, wie die
@@ -346,7 +239,7 @@ bool SettingsHost::BeginFrame(bool darkMode, unsigned accentColor) {
   // niemand sieht. Bei vier Millisekunden sind das 250 in der Sekunde -- ueber
   // jeder Bildwiederholrate, die an diesem Rechner haengt, und trotzdem
   // begrenzt.
-  const DWORD now = ::GetTickCount();
+  const uint32_t now = TickMilliseconds();
   if (lastDrawTick_ != 0 && now - lastDrawTick_ < 4) return false;
   lastDrawTick_ = now;
 
@@ -354,7 +247,7 @@ bool SettingsHost::BeginFrame(bool darkMode, unsigned accentColor) {
 
   previous_ = ImGui::GetCurrentContext();
   ImGui::SetCurrentContext(imgui_);
-  ImGui_ImplDX11_NewFrame();
+  surface_.NewUiFrame();
   window_.BeginUiFrame();
   ImGui::NewFrame();
   return true;
@@ -371,34 +264,7 @@ void SettingsHost::EndFrame() {
   clear[2] = bg.z;
   clear[3] = 1.0f;
 
-  ID3D11RenderTargetView* rtvs[] = {rtv_.Get()};
-  ctx_->OMSetRenderTargets(1, rtvs, nullptr);
-  ctx_->ClearRenderTargetView(rtv_.Get(), clear);
-
-  D3D11_VIEWPORT vp = {};
-  vp.Width = (float)width_;
-  vp.Height = (float)height_;
-  vp.MaxDepth = 1.0f;
-  ctx_->RSSetViewports(1, &vp);
-
-  ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-  // Sixty a second, after the preview has already gone to the screen. Both
-  // halves of that matter: this used to run in the middle of the preview's own
-  // frame, where presenting a second swapchain flushes everything queued for
-  // the first one.
-  //
-  // The result is kept rather than discarded: a fully covered window gets DXGI's
-  // occluded-present throttle, and every present then takes far longer than it
-  // looks like it should. The main window handles that the same way.
-  const HRESULT hr = swapchain_->Present(0, presentFlags_);
-  occluded_ = hr == DXGI_STATUS_OCCLUDED;
-
-  // And unbind. Defensive now rather than necessary -- the preview sets its own
-  // targets at the start of every pass -- but leaving a presented back buffer
-  // bound to the shared immediate context is the sort of thing that only shows
-  // up later, in something unrelated.
-  ID3D11RenderTargetView* none[] = {nullptr};
-  ctx_->OMSetRenderTargets(1, none, nullptr);
+  surface_.Present(clear);
 
   ImGui::SetCurrentContext(previous_);
   previous_ = nullptr;

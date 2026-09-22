@@ -8,11 +8,10 @@
 #include <cstdio>
 
 #include "app_identity.h"
-#include "backends/imgui_impl_dx11.h"
 #include "i18n.h"
 #include "imgui.h"
 #include "record/ffmpeg_locator.h"
-#include "render/d3d_context.h"
+#include "render/display.h"
 #include "record/screenshot.h"
 #include "resource.h"
 #include "text_win32.h"
@@ -196,12 +195,12 @@ bool App::Initialize() {
   if (!CreateMainWindow()) return false;
 
   std::string error;
-  if (!d3d_.Initialize(window_, &error)) {
+  if (!display_.Initialize(window_, &error)) {
     ShowErrorMessage(error);
     return false;
   }
   if (!InitImGui()) return false;
-  if (!renderer_.Initialize(&d3d_, &error)) {
+  if (!renderer_.Initialize(&display_, &error)) {
     ShowErrorMessage(error);
     return false;
   }
@@ -256,7 +255,7 @@ void App::Shutdown() {
   audio_.Stop();
   renderer_.Shutdown();
   ShutdownImGui();
-  d3d_.Shutdown();
+  display_.Shutdown();
   window_.Destroy();
   ::SetThreadExecutionState(ES_CONTINUOUS);
 }
@@ -358,7 +357,7 @@ void App::SetFullscreen(bool on) {
     window_.SetCursorHidden(false);
     ApplyWindowFlags();
   }
-  d3d_.Resize();
+  display_.Resize();
 }
 
 void App::ToggleFullscreen() {
@@ -382,7 +381,7 @@ bool App::InitImGui() {
   uiScale_ = scale;
 
   if (!window_.AttachUi(nullptr)) return false;
-  if (!ImGui_ImplDX11_Init(d3d_.device(), d3d_.context())) {
+  if (!display_.InitUi()) {
     // Messages went to ImGui only once both halves were up; the window must not
     // go on feeding them to half of it.
     window_.DetachUi();
@@ -394,7 +393,7 @@ bool App::InitImGui() {
 
 void App::ShutdownImGui() {
   if (!imguiReady_) return;
-  ImGui_ImplDX11_Shutdown();
+  display_.ShutdownUi();
   window_.DetachUi();
   ImGui::DestroyContext();
   imguiReady_ = false;
@@ -1447,7 +1446,7 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
     // possible in eight bit -- an HDR back buffer is scRGB float, and the
     // conversion out of it is not something to guess at. There, the picture
     // itself is saved instead and the message says so.
-    if (!d3d_.GrabBackBuffer(&pixels, &width, &height)) {
+    if (!display_.GrabBackBuffer(&pixels, &width, &height)) {
       includeUi = false;
       note = T(" (ohne Oberfläche, HDR-Ausgabe)", " (without interface, HDR output)");
     }
@@ -3606,7 +3605,7 @@ void App::ResetStandardColourCheck() {
 // in the binary for WIC to decode. LoadImage understands that split and picks
 // the size asked for, which is the whole reason to go the GDI way here.
 void App::LoadIdleIcon() {
-  if (idleIcon_ || !d3d_.device()) return;
+  if (idleIcon_ || !display_.initialized()) return;
 
   const int want = 256;
   HICON icon = (HICON)::LoadImageW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_QBLANK),
@@ -3643,9 +3642,9 @@ void App::LoadIdleIcon() {
   if (pixels.empty()) return;
 
   // GetDIBits hands back BGRA. Two things have to happen on the way to a
-  // D3D texture: the channel swap, and premultiplying by alpha -- ImGui's
-  // blend state is premultiplied, and handing it straight alpha draws a dark
-  // halo around every edge of the icon.
+  // texture: the channel swap, and premultiplying by alpha -- ImGui's blend
+  // state is premultiplied, and handing it straight alpha draws a dark halo
+  // around every edge of the icon.
   //
   // An icon with no alpha at all is an old-style one whose transparency lives
   // in the mask instead. Rather than decode the mask, such an icon is drawn
@@ -3665,26 +3664,9 @@ void App::LoadIdleIcon() {
     pixels[i + 3] = (uint8_t)a;
   }
 
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)w;
-  td.Height = (UINT)h;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_IMMUTABLE;
-  td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-  D3D11_SUBRESOURCE_DATA init = {};
-  init.pSysMem = pixels.data();
-  init.SysMemPitch = (UINT)w * 4;
-
-  ComPtr<ID3D11Texture2D> tex;
-  if (FAILED(d3d_.device()->CreateTexture2D(&td, &init, &tex))) return;
-  if (FAILED(d3d_.device()->CreateShaderResourceView(tex.Get(), nullptr, &idleIcon_))) {
-    idleIcon_.Reset();
-    return;
-  }
+  UiImage image = display_.CreateUiImage(pixels.data(), w, h);
+  if (!image) return;
+  idleIcon_ = image;
   idleIconSize_ = w;
 }
 
@@ -3794,8 +3776,7 @@ void App::DrawSettingsWindowed() {
       where.width = config_.app.settingsPanelW;
       where.height = config_.app.settingsPanelH;
     }
-    if (!settingsHost_.Create(d3d_.device(), d3d_.context(), ImGui::GetIO().Fonts, uiScale_,
-                              d3d_.tearingSupported(), where, &error)) {
+    if (!settingsHost_.Create(uiScale_, display_.tearingSupported(), where, &error)) {
       config_.app.settingsSeparateWindow = false;
       Toast(error);
       return;
@@ -3950,13 +3931,13 @@ void App::UpdateHdr() {
 
   // The screen can change without anything else doing so -- dragging the window
   // to another monitor, or turning HDR on in Windows while this runs. Asking
-  // DXGI costs a little, so not every frame.
+  // costs a little, so not every frame.
   if (++hdrDisplayPoll_ >= 120) {
     hdrDisplayPoll_ = 0;
-    d3d_.RefreshDisplayCapability();
+    display_.RefreshDisplayCapability();
   }
 
-  const D3DContext::DisplayCapability display = d3d_.displayCapability();
+  const Display::DisplayCapability display = display_.displayCapability();
   bool want = false;
   switch (config_.app.hdrOutput) {
     case HdrOutput::Always:
@@ -3972,9 +3953,9 @@ void App::UpdateHdr() {
       break;
   }
 
-  if (want != d3d_.hdrOutput()) {
+  if (want != display_.hdrOutput()) {
     std::string error;
-    if (!d3d_.SetHdrOutput(want, &error)) {
+    if (!display_.SetHdrOutput(want, &error)) {
       // Said once and then left alone, rather than every frame from here on.
       if (!error.empty() && want) {
         config_.app.hdrOutput = HdrOutput::Off;
@@ -3983,11 +3964,11 @@ void App::UpdateHdr() {
     }
   }
 
-  renderer_.SetHdrOutput(d3d_.hdrOutput(), config_.app.paperWhiteNits,
+  renderer_.SetHdrOutput(display_.hdrOutput(), config_.app.paperWhiteNits,
                          config_.app.sourcePeakNits,
-                         d3d_.hdrOutput() ? display.peakNits : 100.0f);
+                         display_.hdrOutput() ? display.peakNits : 100.0f);
 
-  settings_.SetHdrState(display.hdr, d3d_.hdrOutput(), display.peakNits, (int)transfer);
+  settings_.SetHdrState(display.hdr, display_.hdrOutput(), display.peakNits, (int)transfer);
   settings_.SetCarrierPeriod(renderer_.effectiveCarrierPeriod());
 }
 
@@ -4765,7 +4746,7 @@ void App::EndCropPick(bool apply) {
 
 void App::DrawCropPicker() {
   const VideoFormatInfo format = renderer_.sourceFormat();
-  const RECT& r = renderer_.videoRect();
+  const Rect& r = renderer_.videoRect();
   const float rw = (float)(r.right - r.left);
   const float rh = (float)(r.bottom - r.top);
   if (!format.valid() || rw < 8.0f || rh < 8.0f) {
@@ -4931,7 +4912,7 @@ void App::DragCompareDivider() {
     return;
   }
   const ImageSettings img = EffectiveImage(config_.active());
-  const RECT& r = renderer_.videoRect();
+  const Rect& r = renderer_.videoRect();
   const float rw = (float)(r.right - r.left);
   const float rh = (float)(r.bottom - r.top);
   if (!img.compare || !renderer_.hasFrame() || rw < 8.0f || rh < 8.0f) {
@@ -5494,7 +5475,7 @@ void App::RenderFrame() {
   // ---- draw ----
   float clear[4];
   GetBackgroundColor(darkMode_, config_.app.accentColor, clear);
-  if (!d3d_.BeginFrame(clear)) return;
+  if (!display_.BeginFrame(clear)) return;
 
   // Decided before drawing, so the picture is laid out around the bar in the
   // same frame the bar appears in.
@@ -5510,7 +5491,7 @@ void App::RenderFrame() {
     WriteScreenshot(false, screenshotToClipboard_);
   }
 
-  ImGui_ImplDX11_NewFrame();
+  display_.NewUiFrame();
   window_.BeginUiFrame();
   ImGui::NewFrame();
   DrawUi();
@@ -5519,7 +5500,7 @@ void App::RenderFrame() {
   // and the screen is being fed linear light, so it needs converting rather than
   // copying. In SDR both calls do nothing and it draws straight to the screen.
   const bool uiLayer = renderer_.BeginUiLayer();
-  ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+  display_.RenderUi(ImGui::GetDrawData());
   if (uiLayer) renderer_.CompositeUiLayer();
 
   // The other grab point. Everything has been drawn and nothing has been
@@ -5541,7 +5522,7 @@ void App::RenderFrame() {
   FeedRecorder();
   UpdateVirtualCamera();
   FeedFrameConsumers();
-  d3d_.EndFrame(config_.app.vsync);
+  display_.EndFrame(config_.app.vsync);
 
   // ---- Durchlaufzeit ----
   // Erst hier, weil erst hier feststeht, wann das Bild qBlank verlaesst.
@@ -5638,7 +5619,7 @@ void App::DrawUi() {
     } else if (captureState_ == CaptureState::Running) {
       const VideoRenderer::SignalVerdict verdict = renderer_.detectedSignal();
       DrawIdleScreen(
-          (unsigned long long)idleIcon_.Get(), idleIconSize_,
+          idleIcon_.id(), idleIconSize_,
           verdict == VideoRenderer::SignalVerdict::Snow
               ? T("Kein Signal — die Karte empfängt nur Rauschen. Kabel und Eingang prüfen.",
                   "No signal — the card is receiving noise only. Check the cable and input.")
@@ -5655,7 +5636,7 @@ void App::DrawUi() {
       // gleich anklickbar ist statt hinter einem Reiter, aber wer nicht auf die
       // Idee kommt, ins Bild zu klicken, findet es nie.
       DrawIdleScreen(
-          (unsigned long long)idleIcon_.Get(), idleIconSize_,
+          idleIcon_.id(), idleIconSize_,
           firstRun_ ? T("Willkommen, bitte zuerst die Capture-Karte auswählen: F2 öffnet die "
                         "Einstellungen,\n"
                         "oder Rechtsklick für das Kontextmenü.",
@@ -5721,7 +5702,7 @@ void App::DrawUi() {
     stats.frameAge = frameAgeMeter_;
     stats.audioBuffer = audioBufferMeter_;
     stats.vsync = config_.app.vsync;
-    stats.tearing = d3d_.tearingSupported();
+    stats.tearing = display_.tearingSupported();
     // Vier Zustaende, und der erste ist derjenige, der sonst wie ein Fehler
     // aussieht: solange gemessen wird, steht das auch da. Die Erkennung braucht
     // rund eine Sekunde bewegtes Bild, und wer in dieser Sekunde hinsieht, soll
@@ -5748,7 +5729,7 @@ void App::DrawUi() {
     // dort, wo er ohnehin nachsieht. Ein Fragezeichen und nicht mehr: der
     // Zustand steht davor, dies ist nur der Zweifel daran.
     if (InterlaceVerdictDoubtful(profile)) stats.scanLabel += T(" (?)", " (?)");
-    const RECT& r = renderer_.videoRect();
+    const Rect& r = renderer_.videoRect();
     stats.displayWidth = (int)(r.right - r.left);
     stats.displayHeight = (int)(r.bottom - r.top);
     stats.filterName = ScaleFilterName((int)profile.image.filter);
@@ -6371,7 +6352,7 @@ bool App::OnWindowEvent(const WindowEvent& e) {
       return true;
     case WindowEvent::Kind::Resized:
       minimized_ = e.minimized;
-      if (!minimized_) d3d_.Resize();
+      if (!minimized_) display_.Resize();
       return true;
 
     case WindowEvent::Kind::MouseMoved:

@@ -1,4 +1,9 @@
-#include "render/d3d_context.h"
+#include "render/display_win32.h"
+
+#include <dxgi1_6.h>
+
+#include "backends/imgui_impl_dx11.h"
+#include "common_win32.h"
 #include "i18n.h"
 #include "text_win32.h"
 #include "window_win32.h"
@@ -58,11 +63,45 @@ bool QueryTearingSupport(IDXGIFactory2* factory) {
 
 }  // namespace
 
-D3DContext::~D3DContext() {
-  Shutdown();
-}
+struct Display::Impl {
+  bool Initialize(const Window& window, std::string* error);
+  void Shutdown();
+  void Resize();
+  void RefreshDisplayCapability();
+  bool SetHdrOutput(bool enabled, std::string* error);
+  bool BeginFrame(const float clearColor[4]);
+  void EndFrame(bool vsync);
+  bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height);
 
-bool D3DContext::Initialize(const Window& window, std::string* error) {
+  // How many frames the CPU may run ahead of the GPU. One is what the preview
+  // wants on its own -- it is the cheapest latency there is. It stops being
+  // right the moment a second window shares the device: the queue is per
+  // device, so with a depth of one the two swapchains take turns waiting for
+  // each other, and a present that should cost a fraction of a millisecond
+  // costs most of a refresh. Raised while the settings have a window, put back
+  // when they do not.
+  void SetFrameLatency(UINT frames);
+
+  bool CreateRenderTarget();
+  void ReleaseRenderTarget();
+
+  HWND hwnd_ = nullptr;
+  ComPtr<ID3D11Device> device_;
+  ComPtr<ID3D11DeviceContext> context_;
+  ComPtr<IDXGISwapChain1> swapchain_;
+  DisplayCapability display_;
+  bool hdrOutput_ = false;
+  ComPtr<ID3D11RenderTargetView> rtv_;
+
+  int width_ = 0;
+  int height_ = 0;
+  bool tearingSupported_ = false;
+  UINT frameLatency_ = 1;
+  bool occluded_ = false;
+  UINT swapchainFlags_ = 0;
+};
+
+bool Display::Impl::Initialize(const Window& window, std::string* error) {
   hwnd_ = NativeWindow(window);
 
   UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
@@ -166,7 +205,7 @@ bool D3DContext::Initialize(const Window& window, std::string* error) {
   return true;
 }
 
-void D3DContext::Shutdown() {
+void Display::Impl::Shutdown() {
   ReleaseRenderTarget();
   swapchain_.Reset();
   if (context_) {
@@ -178,7 +217,7 @@ void D3DContext::Shutdown() {
   hwnd_ = nullptr;
 }
 
-bool D3DContext::CreateRenderTarget() {
+bool Display::Impl::CreateRenderTarget() {
   ComPtr<ID3D11Texture2D> backbuffer;
   if (FAILED(CAP_HR(swapchain_->GetBuffer(0, IID_PPV_ARGS(&backbuffer))))) return false;
   if (FAILED(CAP_HR(device_->CreateRenderTargetView(backbuffer.Get(), nullptr, &rtv_)))) {
@@ -191,11 +230,11 @@ bool D3DContext::CreateRenderTarget() {
   return true;
 }
 
-void D3DContext::ReleaseRenderTarget() {
+void Display::Impl::ReleaseRenderTarget() {
   rtv_.Reset();
 }
 
-void D3DContext::Resize() {
+void Display::Impl::Resize() {
   if (!swapchain_) return;
 
   RECT rc{};
@@ -213,7 +252,7 @@ void D3DContext::Resize() {
   CreateRenderTarget();
 }
 
-bool D3DContext::BeginFrame(const float clearColor[4]) {
+bool Display::Impl::BeginFrame(const float clearColor[4]) {
   if (!rtv_ || width_ <= 0 || height_ <= 0) return false;
 
   if (occluded_) {
@@ -234,7 +273,7 @@ bool D3DContext::BeginFrame(const float clearColor[4]) {
   return true;
 }
 
-bool D3DContext::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
+bool Display::Impl::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
   if (!rgba || !swapchain_ || !context_ || !device_) return false;
   if (hdrOutput_) return false;  // scRGB-Float, siehe Kommentar in der Kopfdatei
   if (width_ <= 0 || height_ <= 0) return false;
@@ -281,7 +320,7 @@ bool D3DContext::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* hei
   return true;
 }
 
-void D3DContext::EndFrame(bool vsync) {
+void Display::Impl::EndFrame(bool vsync) {
   if (!swapchain_) return;
 
   UINT interval = vsync ? 1u : 0u;
@@ -297,7 +336,7 @@ void D3DContext::EndFrame(bool vsync) {
 }
 
 
-void D3DContext::RefreshDisplayCapability() {
+void Display::Impl::RefreshDisplayCapability() {
   display_ = DisplayCapability();
   if (!swapchain_) return;
 
@@ -317,7 +356,7 @@ void D3DContext::RefreshDisplayCapability() {
   display_.minNits = desc.MinLuminance;
 }
 
-bool D3DContext::SetHdrOutput(bool enabled, std::string* error) {
+bool Display::Impl::SetHdrOutput(bool enabled, std::string* error) {
   if (enabled == hdrOutput_) return true;
   if (!swapchain_ || !device_) return false;
 
@@ -367,7 +406,7 @@ bool D3DContext::SetHdrOutput(bool enabled, std::string* error) {
   return true;
 }
 
-void D3DContext::SetFrameLatency(UINT frames) {
+void Display::Impl::SetFrameLatency(UINT frames) {
   if (frames == frameLatency_ || !device_) return;
   ComPtr<IDXGIDevice1> dxgiDevice;
   if (FAILED(device_.As(&dxgiDevice)) || !dxgiDevice) return;
@@ -375,6 +414,94 @@ void D3DContext::SetFrameLatency(UINT frames) {
     frameLatency_ = frames;
     CAP_LOG("Frame queue set to %u", frames);
   }
+}
+
+// ---- Display ----
+
+Display::Display() : impl_(new Impl) {}
+
+Display::~Display() {
+  Shutdown();
+}
+
+bool Display::Initialize(const Window& window, std::string* error) {
+  return impl_->Initialize(window, error);
+}
+
+void Display::Shutdown() { impl_->Shutdown(); }
+
+bool Display::initialized() const { return impl_->device_.Get() != nullptr; }
+
+void Display::Resize() { impl_->Resize(); }
+
+Display::DisplayCapability Display::displayCapability() const { return impl_->display_; }
+
+void Display::RefreshDisplayCapability() { impl_->RefreshDisplayCapability(); }
+
+bool Display::SetHdrOutput(bool enabled, std::string* error) {
+  return impl_->SetHdrOutput(enabled, error);
+}
+
+bool Display::hdrOutput() const { return impl_->hdrOutput_; }
+
+bool Display::BeginFrame(const float clearColor[4]) { return impl_->BeginFrame(clearColor); }
+
+void Display::EndFrame(bool vsync) { impl_->EndFrame(vsync); }
+
+bool Display::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
+  return impl_->GrabBackBuffer(rgba, width, height);
+}
+
+int Display::width() const { return impl_->width_; }
+int Display::height() const { return impl_->height_; }
+bool Display::tearingSupported() const { return impl_->tearingSupported_; }
+
+bool Display::InitUi() {
+  return ImGui_ImplDX11_Init(impl_->device_.Get(), impl_->context_.Get());
+}
+
+void Display::ShutdownUi() { ImGui_ImplDX11_Shutdown(); }
+
+void Display::NewUiFrame() { ImGui_ImplDX11_NewFrame(); }
+
+void Display::RenderUi(ImDrawData* data) { ImGui_ImplDX11_RenderDrawData(data); }
+
+UiImage Display::CreateUiImage(const uint8_t* rgba, int width, int height) {
+  UiImage image;
+  if (!impl_->device_) return image;
+
+  D3D11_TEXTURE2D_DESC td = {};
+  td.Width = (UINT)width;
+  td.Height = (UINT)height;
+  td.MipLevels = 1;
+  td.ArraySize = 1;
+  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  td.SampleDesc.Count = 1;
+  td.Usage = D3D11_USAGE_IMMUTABLE;
+  td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+  D3D11_SUBRESOURCE_DATA init = {};
+  init.pSysMem = rgba;
+  init.SysMemPitch = (UINT)width * 4;
+
+  ComPtr<ID3D11Texture2D> tex;
+  if (FAILED(impl_->device_->CreateTexture2D(&td, &init, &tex))) return image;
+  ID3D11ShaderResourceView* srv = nullptr;
+  if (FAILED(impl_->device_->CreateShaderResourceView(tex.Get(), nullptr, &srv))) return image;
+  image.texture.reset(srv, [](void* p) { ((ID3D11ShaderResourceView*)p)->Release(); });
+  return image;
+}
+
+ID3D11Device* NativeDevice(const Display& display) {
+  return display.impl()->device_.Get();
+}
+
+ID3D11DeviceContext* NativeContext(const Display& display) {
+  return display.impl()->context_.Get();
+}
+
+ID3D11RenderTargetView* NativeBackBuffer(const Display& display) {
+  return display.impl()->rtv_.Get();
 }
 
 }  // namespace cap

@@ -11,28 +11,30 @@
 // happens to deliver, and means the filter always works on real pixels rather
 // than on half-decoded chroma.
 
-#include <d3d11.h>
-
+#include <memory>
 #include <vector>
 #include <string>
 
 #include "capture/frame_buffer.h"
 #include "capture/video_format.h"
-#include "common_win32.h"
+#include "common.h"
 #include "config.h"
-#include "render/d3d_context.h"
+#include "render/render_passes.h"
+#include "window.h"
 
 namespace cap {
 
+class Display;
+
 class VideoRenderer {
  public:
-  VideoRenderer() = default;
+  VideoRenderer();
   ~VideoRenderer();
 
   VideoRenderer(const VideoRenderer&) = delete;
   VideoRenderer& operator=(const VideoRenderer&) = delete;
 
-  bool Initialize(D3DContext* ctx, std::string* error);
+  bool Initialize(Display* display, std::string* error);
   void Shutdown();
 
   // Reconfigures the input textures. Cheap when the format did not change.
@@ -50,7 +52,7 @@ class VideoRenderer {
   void DropFrame() { hasFrame_ = false; }
 
   // Where the picture ended up inside the window, in client pixels.
-  const RECT& videoRect() const { return videoRect_; }
+  const Rect& videoRect() const { return videoRect_; }
 
   // Pixels reserved at the top of the window for the toolbar. The picture is
   // fitted below them rather than drawn underneath, so the bar never covers
@@ -179,17 +181,16 @@ class VideoRenderer {
   bool readbackEnabled() const { return readbackEnabled_; }
 
   // Byte order the readback delivers, written the way ffmpeg names it. The
-  // staging texture is DXGI_FORMAT_R8G8B8A8_UNORM, so the bytes run R, G, B, A
-  // -- that is ffmpeg's "rgba", not "bgra". Whoever changes the texture format
-  // in video_renderer.cpp changes this line in the same edit. Getting it wrong
-  // is not a crash: red and blue simply trade places, and orange comes back
-  // blue.
+  // bytes run R, G, B, A -- that is ffmpeg's "rgba", not "bgra". Whoever
+  // changes the target the backend copies from changes this line in the same
+  // edit. Getting it wrong is not a crash: red and blue simply trade places,
+  // and orange comes back blue.
   static constexpr const char* kReadbackPixelFormat = "rgba";
 
   // The same picture for a recording that keeps the range: ten bits per
-  // component, PQ encoded, BT.2020. DXGI packs R10G10B10A2 with red in the low
-  // bits, which is what ffmpeg calls x2bgr10le -- the name looks wrong until
-  // you remember it describes the bytes, not the order they are written in.
+  // component, PQ encoded, BT.2020, packed with red in the low bits. That is
+  // what ffmpeg calls x2bgr10le -- the name looks wrong until you remember it
+  // describes the bytes, not the order they are written in.
   static constexpr const char* kHdrReadbackPixelFormat = "x2bgr10le";
 
 
@@ -429,14 +430,11 @@ class VideoRenderer {
   };
 
 
-  bool CreateShaders(std::string* error);
-  bool CreateStates(std::string* error);
   bool CreateSourceTextures(std::string* error);
   bool EnsureIntermediate(int width, int height);
   // The pass between the intermediate and everything that is not the window.
   // "half" picks the linear light target, which is what the PQ recording and
   // the wide screenshot read; the other one is an ordinary eight bit picture.
-  bool EnsureDelivery(int width, int height, bool half);
   bool RenderDelivery(bool half);
   void ComputeDeliverySize(const ImageSettings& image);
   // Shape the picture should be seen in, as width over height. Cropping,
@@ -472,7 +470,6 @@ class VideoRenderer {
   bool UploadPacked(const FrameView& frame);
   bool UploadNv12(const FrameView& frame);
   bool UploadP010(const FrameView& frame);
-  bool EnsureUiLayer(int width, int height);
   bool UploadPlanar(const FrameView& frame);
   bool UploadRgb24(const FrameView& frame);
   bool UploadRgb32(const FrameView& frame);
@@ -480,86 +477,23 @@ class VideoRenderer {
   void ComputeDestRect(const ImageSettings& image);
   void ComputeDestRectIn(const ImageSettings& image, int winW, int winH);
 
-  D3DContext* ctx_ = nullptr;
+  // Everything a graphics API owns lives behind this one member: the textures,
+  // the shaders, the passes themselves. What is left in this class is the
+  // deciding -- which pass to run, at what size, with which numbers.
+  std::unique_ptr<RenderPasses> passes_;
+  // The window's device and back buffer. Not owned.
+  Display* display_ = nullptr;
 
-  ComPtr<ID3D11VertexShader> vs_;
-  ComPtr<ID3D11PixelShader> psClean_;
-  ComPtr<ID3D11PixelShader> psConvert_;
-  ComPtr<ID3D11PixelShader> psScale_;
-  ComPtr<ID3D11PixelShader> psUiComposite_;
-  ComPtr<ID3D11Texture2D> uiTex_;
-  ComPtr<ID3D11RenderTargetView> uiRtv_;
-  ComPtr<ID3D11ShaderResourceView> uiSrv_;
-  ComPtr<ID3D11Buffer> cbUi_;
-  ComPtr<ID3D11BlendState> blendPremultiplied_;
-  int uiWidth_ = 0;
-  int uiHeight_ = 0;
-  ComPtr<ID3D11Buffer> cbConvert_;
-  ComPtr<ID3D11Buffer> cbScale_;
-  ComPtr<ID3D11SamplerState> sampPoint_;
-  ComPtr<ID3D11SamplerState> sampLinear_;
-  ComPtr<ID3D11RasterizerState> raster_;
-  ComPtr<ID3D11BlendState> blendOpaque_;
-
-  // Input planes. Which of these exist depends on the source format.
-  ComPtr<ID3D11Texture2D> plane_[3];
-  ComPtr<ID3D11ShaderResourceView> planeSrv_[3];
+  // Input planes. How many of these exist depends on the source format.
   int planeCount_ = 0;
 
-  // The three preceding frames, as a ring. Filled by copying the current planes
-  // just before they are overwritten, which is cheaper than uploading twice and
-  // keeps the capture path untouched. One copy per frame regardless of depth;
-  // the copies only happen while something that reads them is switched on.
-  //
-  // Three because the composite denoiser needs a four frame window -- see the
-  // measurement in the shader. YADIF only ever looks at the first of them.
-  static const int kHistoryDepth = 3;
-  ComPtr<ID3D11Texture2D> planeHist_[kHistoryDepth][3];
-  ComPtr<ID3D11ShaderResourceView> planeHistSrv_[kHistoryDepth][3];
+  static const int kHistoryDepth = RenderPasses::kHistoryDepth;
   int historyWrite_ = 0;   // ring slot the next copy goes into
   int historyCount_ = 0;   // slots that hold a picture, up to kHistoryDepth
   bool historyWanted_ = false;
 
-  // Between the capture planes and the deinterlacer: the picture as the card
-  // sent it, in its own geometry, with the composite artefacts already taken
-  // out. Floating point because limited range material legitimately runs past
-  // both ends once it has been expanded, and rounding that back into eight bits
-  // here would throw away what the expansion just recovered.
-  bool EnsureClean(int width, int height);
-  ComPtr<ID3D11Texture2D> cleanTex_;
-  ComPtr<ID3D11ShaderResourceView> cleanSrv_;
-  ComPtr<ID3D11RenderTargetView> cleanRtv_;
-  // The same, one frame back. YADIF is the only thing that reads it.
-  ComPtr<ID3D11Texture2D> cleanPrevTex_;
-  ComPtr<ID3D11ShaderResourceView> cleanPrevSrv_;
-  int cleanWidth_ = 0;
-  int cleanHeight_ = 0;
-
-  // Intermediate render target between the two passes.
-  ComPtr<ID3D11Texture2D> intermediate_;
-  ComPtr<ID3D11ShaderResourceView> intermediateSrv_;
-  ComPtr<ID3D11RenderTargetView> intermediateRtv_;
-  int intermediateWidth_ = 0;
-  int intermediateHeight_ = 0;
-
   VideoFormatInfo source_;
   bool tenBitContainer_ = false;
-  DXGI_FORMAT intermediateFormat_ = DXGI_FORMAT_R8G8B8A8_UNORM;
-  // Where the picture goes when it is leaving for something that is not the
-  // window and cannot be handed the intermediate as it stands -- because it
-  // needs square pixels, or because it is eight bit and the intermediate is
-  // not.
-  ComPtr<ID3D11Texture2D> delivery_;
-  ComPtr<ID3D11RenderTargetView> deliveryRtv_;
-  int deliveryTexWidth_ = 0;
-  int deliveryTexHeight_ = 0;
-  // The same, still in linear light: a resample that must not be tone mapped
-  // on the way, because a PQ recording and a wide screenshot come off it.
-  ComPtr<ID3D11Texture2D> deliveryHalf_;
-  ComPtr<ID3D11RenderTargetView> deliveryHalfRtv_;
-  ComPtr<ID3D11ShaderResourceView> deliveryHalfSrv_;
-  int deliveryHalfTexWidth_ = 0;
-  int deliveryHalfTexHeight_ = 0;
   Transfer hdrTransfer_ = Transfer::Sdr;
   bool hdrWideGamut_ = false;
   bool hdrOutput_ = false;
@@ -600,30 +534,20 @@ class VideoRenderer {
   int loggedDeliveryH_ = -1;
   int loggedOutW_ = -1;
   int loggedOutH_ = -1;
-  RECT videoRect_ = {};
+  Rect videoRect_ = {};
   int topInset_ = 0;
   double carrierSamples_ = 3.0449;  // PAL, the common case here
 
-  // Scratch row buffer for RGB24, which has no matching DXGI format.
+  // Scratch row buffer for RGB24, which no backend has a plane format for.
   std::vector<uint8_t> expandBuffer_;
 
-  // Readback ring. Three staging textures: one being written by the GPU, one
-  // in flight, one old enough to map without stalling.
-  static const int kReadbackSlots = 3;
-  ComPtr<ID3D11Texture2D> readbackTex_[kReadbackSlots];
+  static const int kReadbackSlots = RenderPasses::kReadbackSlots;
 
   // The recording path when the range is being kept. A ring of its own rather
   // than a mode on the one above: the camera and the screenshots still want an
   // ordinary eight bit picture at the same moment.
   bool hdrRecordWanted_ = false;
   bool hdrCameraWanted_ = false;
-  ComPtr<ID3D11PixelShader> psHdrRecord_;
-  ComPtr<ID3D11Buffer> cbRecord_;
-  ComPtr<ID3D11Texture2D> hdrRecTex_;
-  ComPtr<ID3D11RenderTargetView> hdrRecRtv_;
-  ComPtr<ID3D11Texture2D> hdrReadbackTex_[kReadbackSlots];
-  int hdrRecWidth_ = 0;
-  int hdrRecHeight_ = 0;
   int hdrReadWrite_ = 0;
   int hdrReadQueued_ = 0;
   int hdrReadMapped_ = -1;
@@ -728,10 +652,10 @@ class VideoRenderer {
   SignalVerdict signalVerdict_ = SignalVerdict::Unknown;
   int signalFramesSeen_ = 0;
   std::vector<uint8_t> signalPrev_;
-  // When the current verdict was first reached, on the tick clock. Zero before
-  // anything is measured. Milliseconds are ample for "how long has this held",
-  // and this file has no QPC helper of its own to borrow.
-  unsigned long signalSinceTick_ = 0;
+  // When the current verdict was first reached, on the coarse tick counter.
+  // Zero before anything is measured. Milliseconds are ample for "how long has
+  // this held"; the steady clock would be precision nobody reads.
+  uint32_t signalSinceTick_ = 0;
 
   // Content bounds. Measured as a union across a window of frames, because a
   // fade to black is not evidence that the picture got smaller, and published

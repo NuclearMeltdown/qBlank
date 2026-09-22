@@ -2,12 +2,11 @@
 
 #include "common.h"
 #include "config.h"
-#include "render/d3d_context.h"
+#include "render/display.h"
 #include "ui/theme.h"
 #include "window.h"
 
 #include "imgui.h"
-#include "backends/imgui_impl_dx11.h"
 
 namespace cap {
 namespace {
@@ -16,7 +15,7 @@ namespace {
 // from yet -- that is the whole reason this window exists.
 constexpr unsigned kDefaultAccent = 0x8B5CF6;
 
-D3DContext* g_d3d = nullptr;
+Display* g_display = nullptr;
 StartupAnswer g_answer = StartupAnswer::Postpone;
 bool g_done = false;
 
@@ -29,7 +28,7 @@ float g_contentHeight = 0.0f;
 bool OnEvent(const WindowEvent& e) {
   switch (e.kind) {
     case WindowEvent::Kind::Resized:
-      if (g_d3d && !e.minimized) g_d3d->Resize();
+      if (g_display && !e.minimized) g_display->Resize();
       return true;
     case WindowEvent::Kind::CloseRequested:
       // Closing decides nothing. Both files stay where they are and the
@@ -136,15 +135,15 @@ StartupAnswer AskAtStartup(const StartupQuestion& question) {
   window.SetListener(OnEvent);
   if (window.Create(spec) != CreateResult::Ok) return StartupAnswer::Postpone;
 
-  D3DContext d3d;
+  Display display;
   std::string error;
-  if (!d3d.Initialize(window, &error)) {
+  if (!display.Initialize(window, &error)) {
     // No device, no window worth showing. The caller falls back to deciding
     // nothing, which leaves both files untouched.
     window.Destroy();
     return StartupAnswer::Postpone;
   }
-  g_d3d = &d3d;
+  g_display = &display;
 
   const bool dark = ResolveDark(Theme::System);
   IMGUI_CHECKVERSION();
@@ -157,7 +156,7 @@ StartupAnswer AskAtStartup(const StartupQuestion& question) {
   ApplyImGuiTheme(dark, kDefaultAccent);
   ImGui::GetStyle().ScaleAllSizes(scale);
 
-  bool ready = window.AttachUi(nullptr) && ImGui_ImplDX11_Init(d3d.device(), d3d.context());
+  bool ready = window.AttachUi(nullptr) && display.InitUi();
   if (ready) {
     window.SetDarkFrame(dark);
 
@@ -169,7 +168,7 @@ StartupAnswer AskAtStartup(const StartupQuestion& question) {
     while (!g_done) {
       if (!PumpEvents()) break;
 
-      ImGui_ImplDX11_NewFrame();
+      display.NewUiFrame();
       window.BeginUiFrame();
       ImGui::NewFrame();
       Draw(question, scale);
@@ -186,22 +185,22 @@ StartupAnswer AskAtStartup(const StartupQuestion& question) {
         continue;
       }
 
-      if (d3d.BeginFrame(clear)) {
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        d3d.EndFrame(true);
+      if (display.BeginFrame(clear)) {
+        display.RenderUi(ImGui::GetDrawData());
+        display.EndFrame(true);
       } else {
-        ::Sleep(16);
+        SleepMilliseconds(16);
       }
     }
 
-    ImGui_ImplDX11_Shutdown();
+    display.ShutdownUi();
     window.DetachUi();
   }
 
   ImGui::DestroyContext();
   ImGui::SetCurrentContext(previous);
-  g_d3d = nullptr;
-  d3d.Shutdown();
+  g_display = nullptr;
+  display.Shutdown();
   window.Destroy();
 
   // Nothing of this window may be left in the queue when the program starts.

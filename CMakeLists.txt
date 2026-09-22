@@ -92,9 +92,11 @@ add_executable(qBlank WIN32
   src/record/recorder.cpp
   src/record/remuxer.cpp
   src/record/screenshot.cpp
-  src/render/d3d_context.cpp
+  src/render/display_win32.cpp
+  src/render/render_passes_win32.cpp
   src/render/video_renderer.cpp
   src/ui/file_dialog.cpp
+  src/ui/ui_surface_win32.cpp
   src/ui/toolbar.cpp
   src/ui/theme.cpp
   src/update/release_source.cpp

@@ -1,226 +1,13 @@
 #include "render/video_renderer.h"
 
-#include <d3dcompiler.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 
-#include "render/shaders.h"
 #include "i18n.h"
-#include "app_identity.h"
-
+#include "render/display.h"
 namespace cap {
 namespace {
-
-struct ConvertCB {
-  int32_t formatKind;
-  int32_t deinterlaceMode;
-  int32_t fieldIndex;
-  int32_t bottomUp;
-
-  int32_t cropLeft;
-  int32_t cropTop;
-  int32_t srcWidth;
-  int32_t srcHeight;
-
-  int32_t outWidth;
-  int32_t outHeight;
-  int32_t isYuv;
-  int32_t havePrev;
-
-  float yOffset;
-  float yScale;
-  float cScale;
-  // P010 keeps ten bits in the top of sixteen, so a R16_UNORM read comes back
-  // 1023*64/65535 for full scale rather than 1.0. This puts that right; it is
-  // 1.0 for everything else.
-  float pixelScale;
-
-  // -1 = the fields are half a picture line apart, as a real interlaced signal
-  // has them. 0 or 1 = they are co-sited, and this is the row a pair starts on.
-  int32_t coSitedPhase;
-  int32_t rotation;
-  int32_t lineDouble;
-  int32_t chromaSoft;
-
-  float temporal;
-  int32_t histCount;
-  float dotNotch;
-  float carrierPeriod;
-
-  // 0 = the picture is already display referred, as everything SDR is.
-  // 1 = PQ (SMPTE ST 2084), 2 = HLG. Either way the clean pass turns it into
-  // linear light with 1.0 meaning diffuse white.
-  int32_t transfer;
-  int32_t gamut;  // 1 = the primaries are BT.2020 and want converting to BT.709
-  // Where the temporal filter's motion gate lets go: how much movement it
-  // ignores, and how fast it gives up above that. See TemporalGate.
-  float motionSlack;
-  float motionSlope;
-
-  // The three restoration steps added in 3.3. Each one is described where it is
-  // implemented; the motion compensator's comment also says what it refuses to
-  // do and why, which is the part that is easy to get wrong.
-  int32_t motionComp;   // 1 = follow the movement when averaging noise away
-  int32_t adaptChroma;  // 1 = soften colour only where the brightness invites it
-  float bandwidth;      // 0..1, how much of the rolled off luma band to restore
-  // Where the A/B divider sits, as a share of the cropped width or height.
-  // Negative turns the comparison off; zero cannot, because zero is a divider on
-  // the left or top edge.
-  float compareSplit;
-
-  float coef[4];
-
-  int32_t compareAxis;  // 0 = divider upright, 1 = lying across
-  int32_t pad[3];
-};
-static_assert(sizeof(ConvertCB) % 16 == 0, "constant buffer must be 16 byte aligned");
-
-struct ScaleCB {
-  float srcSize[2];
-  float dstSize[2];
-  int32_t filter;
-  float sharpen;
-  int32_t transfer;    // as ConvertCB::transfer -- was the source HDR
-  int32_t outputHdr;   // the swapchain is scRGB and wants linear light
-
-  float paperWhite;    // nits the source's diffuse white should come out at
-  float sourcePeak;    // nits the brightest part of the source is assumed to reach
-  float displayPeak;   // nits this display can actually manage
-  float scanlines;     // 0..1, how dark the gaps between source lines go
-
-  int32_t mask;        // 0 off, 1 aperture grille, 2 shadow mask
-  float maskStrength;  // 0..1
-  int32_t nativeWidth; // pixels the source really has across, 0 = leave alone
-  float linePitch;     // output rows per real picture line; 0 disables scanlines
-
-  int32_t passthrough; // resample only: no display effects, no transfer, no clamp
-  float brightness;    // -1..1 added, or stops of exposure in linear light
-  float contrast;      // 0..2 around a pivot; 1 neutral
-  float saturation;    // 0..2; 1 neutral
-
-  float hue;           // radians
-  int32_t procAmp;     // apply the four above in this pass
-  float compareSplit;  // as ConvertCB::compareSplit; the unfiltered side skips this pass's effects
-  int32_t compareAxis;
-
-  int32_t rotation;    // to find the divider's axis again after the quarter turns
-  int32_t pad[3];
-};
-static_assert(sizeof(ScaleCB) % 16 == 0, "constant buffer must be 16 byte aligned");
-
-// Where a compiled shader is kept between runs. The conversion shader has grown
-// into several hundred lines of branching, and D3DCompile spends seconds on it
-// at optimisation level three -- seconds the user waits through before the
-// window appears, every single time, to arrive at byte-for-byte the same answer.
-//
-// The name carries a hash of the source and the target profile, so editing the
-// shader or changing the profile simply misses the cache rather than loading
-// something stale. A miss costs what it always cost; there is nothing to
-// invalidate by hand.
-std::wstring ShaderCachePath(const char* source, const char* target) {
-  uint64_t hash = 1469598103934665603ull;  // FNV-1a
-  for (const char* p = source; *p; ++p) {
-    hash = (hash ^ (unsigned char)*p) * 1099511628211ull;
-  }
-  for (const char* p = target; *p; ++p) {
-    hash = (hash ^ (unsigned char)*p) * 1099511628211ull;
-  }
-  wchar_t name[64];
-  ::swprintf(name, 64, L"shader-%016llx.cso", (unsigned long long)hash);
-  return ExeDirectory() + name;
-}
-
-ComPtr<ID3DBlob> LoadCachedShader(const std::wstring& path) {
-  HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE) return nullptr;
-  LARGE_INTEGER size = {};
-  ComPtr<ID3DBlob> blob;
-  if (::GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart < (1 << 22) &&
-      SUCCEEDED(::D3DCreateBlob((SIZE_T)size.QuadPart, &blob))) {
-    DWORD read = 0;
-    if (!::ReadFile(file, blob->GetBufferPointer(), (DWORD)size.QuadPart, &read, nullptr) ||
-        read != size.QuadPart) {
-      blob.Reset();
-    }
-  }
-  ::CloseHandle(file);
-  return blob;
-}
-
-void StoreCachedShader(const std::wstring& path, ID3DBlob* code) {
-  HANDLE file = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE) return;  // read-only folder: compile every time, no harm
-  DWORD written = 0;
-  ::WriteFile(file, code->GetBufferPointer(), (DWORD)code->GetBufferSize(), &written, nullptr);
-  ::CloseHandle(file);
-}
-
-// Was in diesem Lauf tatsaechlich gebraucht wurde. Alles andere neben der exe
-// ist ein Rest aus einer aelteren Fassung des Shaders.
-std::vector<std::wstring>& ShaderCacheInUse() {
-  static std::vector<std::wstring> names;
-  return names;
-}
-
-// Loescht die Dateien, die kein Shader dieser Fassung mehr beansprucht. Der
-// Cache ist nach Inhalt benannt, eine geaenderte Quelle trifft also eine neue
-// Datei und die alte bleibt sonst fuer immer liegen -- nach ein paar Releases
-// steht da ein Dutzend toter Blobs.
-void PruneShaderCache() {
-  const std::wstring dir = ExeDirectory();
-  WIN32_FIND_DATAW found = {};
-  HANDLE search = ::FindFirstFileW((dir + L"shader-*.cso").c_str(), &found);
-  if (search == INVALID_HANDLE_VALUE) return;
-  int removed = 0;
-  do {
-    if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-    const std::wstring path = dir + found.cFileName;
-    bool live = false;
-    for (const std::wstring& used : ShaderCacheInUse()) {
-      if (_wcsicmp(used.c_str(), path.c_str()) == 0) {
-        live = true;
-        break;
-      }
-    }
-    // Ein Fehlschlag ist keiner: liegt die Datei fest, weil eine zweite Instanz
-    // sie gerade liest, ist der naechste Start wieder an der Reihe.
-    if (!live && ::DeleteFileW(path.c_str())) ++removed;
-  } while (::FindNextFileW(search, &found));
-  ::FindClose(search);
-  if (removed > 0) CAP_LOG("Shader cache: %d stale file(s) removed", removed);
-}
-
-ComPtr<ID3DBlob> CompileShader(const char* source, const char* target, std::string* error) {
-  const std::wstring cachePath = ShaderCachePath(source, target);
-  ShaderCacheInUse().push_back(cachePath);
-  if (ComPtr<ID3DBlob> cached = LoadCachedShader(cachePath)) return cached;
-
-  UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_ENABLE_STRICTNESS;
-  ComPtr<ID3DBlob> code;
-  ComPtr<ID3DBlob> errors;
-  const DWORD started = ::GetTickCount();
-  HRESULT hr = ::D3DCompile(source, strlen(source), nullptr, nullptr, nullptr, "main", target,
-                            flags, 0, &code, &errors);
-  if (SUCCEEDED(hr)) {
-    CAP_LOG("Shader %s compiled in %lu ms, cached", target,
-            (unsigned long)(::GetTickCount() - started));
-    StoreCachedShader(cachePath, code.Get());
-  }
-  if (FAILED(hr)) {
-    std::string detail = errors ? std::string((const char*)errors->GetBufferPointer(),
-                                              errors->GetBufferSize())
-                                : HrToString(hr);
-    ReportError(error, CAP_SAID(T("Shader (", "Shader (") + std::string(target) +
-                          T(") konnte nicht kompiliert werden: ", ") could not be compiled: ") + detail));
-    CAP_ERR("Shader error: %s", detail.c_str());
-    return nullptr;
-  }
-  return code;
-}
 
 // Rec.601 / Rec.709 conversion coefficients: Cr->R, Cb->G, Cr->G, Cb->B.
 void MatrixCoefficients(ColorMatrix matrix, bool hd, float out[4]) {
@@ -240,203 +27,30 @@ void MatrixCoefficients(ColorMatrix matrix, bool hd, float out[4]) {
 
 }  // namespace
 
+VideoRenderer::VideoRenderer() : passes_(CreateRenderPasses()) {}
+
 VideoRenderer::~VideoRenderer() {
   Shutdown();
 }
 
 // ------------------------------------------------------------------ lifetime
 
-bool VideoRenderer::Initialize(D3DContext* ctx, std::string* error) {
-  ctx_ = ctx;
-  if (!ctx_ || !ctx_->device()) {
-    ReportError(error, CAP_SAID(T("Kein Direct3D-Gerät", "No Direct3D device")));
-    return false;
-  }
-  if (!CreateShaders(error)) return false;
-  if (!CreateStates(error)) return false;
-  return true;
+bool VideoRenderer::Initialize(Display* display, std::string* error) {
+  display_ = display;
+  return passes_->Initialize(display, error);
 }
 
 void VideoRenderer::Shutdown() {
   ReleaseReadbackResources();
   ReleaseSourceTextures();
-  intermediateRtv_.Reset();
-  intermediateSrv_.Reset();
-  intermediate_.Reset();
-  blendOpaque_.Reset();
-  raster_.Reset();
-  sampLinear_.Reset();
-  sampPoint_.Reset();
-  cbScale_.Reset();
-  cbConvert_.Reset();
-  psScale_.Reset();
-  psConvert_.Reset();
-  vs_.Reset();
-  ctx_ = nullptr;
-}
-
-bool VideoRenderer::CreateShaders(std::string* error) {
-  ID3D11Device* dev = ctx_->device();
-
-  ComPtr<ID3DBlob> vsCode = CompileShader(kFullscreenVS, "vs_4_0", error);
-  if (!vsCode) return false;
-  if (FAILED(CAP_HR(dev->CreateVertexShader(vsCode->GetBufferPointer(), vsCode->GetBufferSize(),
-                                            nullptr, &vs_)))) {
-    ReportError(error, CAP_SAID(T("Vertex-Shader konnte nicht erstellt werden",
-                                     "The vertex shader could not be created")));
-    return false;
-  }
-
-  ComPtr<ID3DBlob> cleanCode = CompileShader(kCleanPS, "ps_4_0", error);
-  if (!cleanCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(cleanCode->GetBufferPointer(),
-                                           cleanCode->GetBufferSize(), nullptr, &psClean_)))) {
-    ReportError(error, CAP_SAID(T("Aufbereitungs-Shader konnte nicht erstellt werden",
-                                     "The cleanup shader could not be created")));
-    return false;
-  }
-
-  ComPtr<ID3DBlob> convertCode = CompileShader(kConvertPS, "ps_4_0", error);
-  if (!convertCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(convertCode->GetBufferPointer(),
-                                           convertCode->GetBufferSize(), nullptr, &psConvert_)))) {
-    ReportError(error, CAP_SAID(T("Konvertierungs-Shader konnte nicht erstellt werden",
-                                     "The conversion shader could not be created")));
-    return false;
-  }
-
-  ComPtr<ID3DBlob> scaleCode = CompileShader(kScalePS, "ps_4_0", error);
-  if (!scaleCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(scaleCode->GetBufferPointer(), scaleCode->GetBufferSize(),
-                                           nullptr, &psScale_)))) {
-    ReportError(error, CAP_SAID(T("Skalierungs-Shader konnte nicht erstellt werden",
-                                     "The scaling shader could not be created")));
-    return false;
-  }
-
-  ComPtr<ID3DBlob> recordCode = CompileShader(kHdrRecordPS, "ps_4_0", error);
-  if (!recordCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(recordCode->GetBufferPointer(),
-                                           recordCode->GetBufferSize(), nullptr,
-                                           &psHdrRecord_)))) {
-    ReportError(error, CAP_SAID(T("Aufnahme-Shader konnte nicht erstellt werden",
-                                     "The recording shader could not be created")));
-    return false;
-  }
-
-  ComPtr<ID3DBlob> uiCode = CompileShader(kUiCompositePS, "ps_4_0", error);
-  if (!uiCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(uiCode->GetBufferPointer(), uiCode->GetBufferSize(),
-                                           nullptr, &psUiComposite_)))) {
-    ReportError(error, CAP_SAID(T("Oberflächen-Shader konnte nicht erstellt werden",
-                                     "The interface shader could not be created")));
-    return false;
-  }
-
-  // Erst hier, wo feststeht, welche Dateien diese Fassung braucht.
-  PruneShaderCache();
-
-  D3D11_BUFFER_DESC bd = {};
-  bd.Usage = D3D11_USAGE_DYNAMIC;
-  bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-  bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-
-  bd.ByteWidth = sizeof(ConvertCB);
-  if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbConvert_)))) {
-    ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
-                                     "The constant buffer could not be created")));
-    return false;
-  }
-  bd.ByteWidth = 16;  // one float plus padding
-  if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbRecord_)))) {
-    ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
-                                     "The constant buffer could not be created")));
-    return false;
-  }
-  if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbUi_)))) {
-    ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
-                                     "The constant buffer could not be created")));
-    return false;
-  }
-
-  // Premultiplied: what arrives has already been multiplied by its own coverage,
-  // so the source contributes as it is rather than being scaled again.
-  D3D11_BLEND_DESC pm = {};
-  pm.RenderTarget[0].BlendEnable = TRUE;
-  pm.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
-  pm.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-  pm.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-  pm.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-  pm.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-  pm.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-  pm.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-  if (FAILED(CAP_HR(dev->CreateBlendState(&pm, &blendPremultiplied_)))) {
-    ReportError(error, CAP_SAID(T("Blend-State konnte nicht erstellt werden",
-                                     "The blend state could not be created")));
-    return false;
-  }
-
-  bd.ByteWidth = sizeof(ScaleCB);
-  if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbScale_)))) {
-    ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
-                                     "The constant buffer could not be created")));
-    return false;
-  }
-  return true;
-}
-
-bool VideoRenderer::CreateStates(std::string* error) {
-  ID3D11Device* dev = ctx_->device();
-
-  D3D11_SAMPLER_DESC sd = {};
-  sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-  sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
-  sd.MaxLOD = D3D11_FLOAT32_MAX;
-
-  sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
-  if (FAILED(CAP_HR(dev->CreateSamplerState(&sd, &sampPoint_)))) {
-    ReportError(error, CAP_SAID(T("Sampler konnte nicht erstellt werden",
-                                     "The sampler could not be created")));
-    return false;
-  }
-  sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-  if (FAILED(CAP_HR(dev->CreateSamplerState(&sd, &sampLinear_)))) {
-    ReportError(error, CAP_SAID(T("Sampler konnte nicht erstellt werden",
-                                     "The sampler could not be created")));
-    return false;
-  }
-
-  D3D11_RASTERIZER_DESC rd = {};
-  rd.FillMode = D3D11_FILL_SOLID;
-  rd.CullMode = D3D11_CULL_NONE;
-  rd.DepthClipEnable = TRUE;
-  if (FAILED(CAP_HR(dev->CreateRasterizerState(&rd, &raster_)))) {
-    ReportError(error, CAP_SAID(T("Rasterizer-State konnte nicht erstellt werden",
-                                     "The rasteriser state could not be created")));
-    return false;
-  }
-
-  D3D11_BLEND_DESC bd = {};
-  bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-  if (FAILED(CAP_HR(dev->CreateBlendState(&bd, &blendOpaque_)))) {
-    ReportError(error, CAP_SAID(T("Blend-State konnte nicht erstellt werden",
-                                     "The blend state could not be created")));
-    return false;
-  }
-  return true;
+  passes_->Shutdown();
+  display_ = nullptr;
 }
 
 // ------------------------------------------------------------- source format
 
 void VideoRenderer::ReleaseSourceTextures() {
-  for (int i = 0; i < 3; ++i) {
-    planeSrv_[i].Reset();
-    plane_[i].Reset();
-    for (int h = 0; h < kHistoryDepth; ++h) {
-      planeHistSrv_[h][i].Reset();
-      planeHist_[h][i].Reset();
-    }
-  }
+  passes_->ReleasePlanes();
   planeCount_ = 0;
   historyWrite_ = 0;
   historyCount_ = 0;
@@ -496,42 +110,11 @@ bool VideoRenderer::SetSourceFormat(const VideoFormatInfo& info, std::string* er
 }
 
 bool VideoRenderer::CreateSourceTextures(std::string* error) {
-  ID3D11Device* dev = ctx_->device();
   const int w = source_.width;
   const int h = source_.height;
 
-  auto makePlane = [&](int index, int pw, int ph, DXGI_FORMAT fmt) -> bool {
-    D3D11_TEXTURE2D_DESC td = {};
-    td.Width = (UINT)std::max(1, pw);
-    td.Height = (UINT)std::max(1, ph);
-    td.MipLevels = 1;
-    td.ArraySize = 1;
-    td.Format = fmt;
-    td.SampleDesc.Count = 1;
-    td.Usage = D3D11_USAGE_DYNAMIC;
-    td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    td.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &plane_[index])))) return false;
-    if (FAILED(CAP_HR(dev->CreateShaderResourceView(plane_[index].Get(), nullptr,
-                                                    &planeSrv_[index])))) {
-      return false;
-    }
-
-    // The history copies. Written by the GPU rather than the CPU, so they are
-    // plain default resources; they are allocated whether or not anything reads
-    // them, because switching a filter on mid-stream should not have to
-    // reallocate anything. Three copies of a 480 line frame is under two
-    // megabytes.
-    td.Usage = D3D11_USAGE_DEFAULT;
-    td.CPUAccessFlags = 0;
-    for (int h = 0; h < kHistoryDepth; ++h) {
-      if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &planeHist_[h][index])))) return false;
-      if (FAILED(CAP_HR(dev->CreateShaderResourceView(planeHist_[h][index].Get(), nullptr,
-                                                      &planeHistSrv_[h][index])))) {
-        return false;
-      }
-    }
-    return true;
+  auto makePlane = [&](int index, int pw, int ph, PlaneFormat fmt) -> bool {
+    return passes_->CreatePlane(index, pw, ph, fmt);
   };
 
   bool ok = true;
@@ -540,31 +123,31 @@ bool VideoRenderer::CreateSourceTextures(std::string* error) {
     case FormatKind::Uyvy:
     case FormatKind::Yvyu:
       // Two pixels per RGBA texel.
-      ok = makePlane(0, (w + 1) / 2, h, DXGI_FORMAT_R8G8B8A8_UNORM);
+      ok = makePlane(0, (w + 1) / 2, h, PlaneFormat::Rgba8);
       planeCount_ = 1;
       break;
     case FormatKind::Nv12:
-      ok = makePlane(0, w, h, DXGI_FORMAT_R8_UNORM) &&
-           makePlane(1, (w + 1) / 2, (h + 1) / 2, DXGI_FORMAT_R8G8_UNORM);
+      ok = makePlane(0, w, h, PlaneFormat::R8) &&
+           makePlane(1, (w + 1) / 2, (h + 1) / 2, PlaneFormat::Rg8);
       break;
 
     case FormatKind::P010:
-      ok = makePlane(0, w, h, DXGI_FORMAT_R16_UNORM) &&
-           makePlane(1, (w + 1) / 2, (h + 1) / 2, DXGI_FORMAT_R16G16_UNORM);
+      ok = makePlane(0, w, h, PlaneFormat::R16) &&
+           makePlane(1, (w + 1) / 2, (h + 1) / 2, PlaneFormat::Rg16);
       planeCount_ = 2;
       break;
     case FormatKind::Planar420:
-      ok = makePlane(0, w, h, DXGI_FORMAT_R8_UNORM) &&
-           makePlane(1, (w + 1) / 2, (h + 1) / 2, DXGI_FORMAT_R8_UNORM) &&
-           makePlane(2, (w + 1) / 2, (h + 1) / 2, DXGI_FORMAT_R8_UNORM);
+      ok = makePlane(0, w, h, PlaneFormat::R8) &&
+           makePlane(1, (w + 1) / 2, (h + 1) / 2, PlaneFormat::R8) &&
+           makePlane(2, (w + 1) / 2, (h + 1) / 2, PlaneFormat::R8);
       planeCount_ = 3;
       break;
     case FormatKind::Rgb:
     default:
       // RGB24 is expanded to RGBA on upload; RGB32 goes in as BGRA directly.
       ok = makePlane(0, w, h,
-                     source_.layout == PixelLayout::Bgr24 ? DXGI_FORMAT_R8G8B8A8_UNORM
-                                                          : DXGI_FORMAT_B8G8R8A8_UNORM);
+                     source_.layout == PixelLayout::Bgr24 ? PlaneFormat::Rgba8
+                                                          : PlaneFormat::Bgra8);
       planeCount_ = 1;
       break;
   }
@@ -580,90 +163,13 @@ bool VideoRenderer::CreateSourceTextures(std::string* error) {
   return true;
 }
 
-bool VideoRenderer::EnsureClean(int width, int height) {
-  width = std::max(1, width);
-  height = std::max(1, height);
-  if (cleanTex_ && cleanWidth_ == width && cleanHeight_ == height) return true;
-
-  cleanSrv_.Reset();
-  cleanRtv_.Reset();
-  cleanTex_.Reset();
-  cleanPrevSrv_.Reset();
-  cleanPrevTex_.Reset();
-  cleanWidth_ = 0;
-  cleanHeight_ = 0;
-
-  ID3D11Device* dev = ctx_->device();
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)width;
-  td.Height = (UINT)height;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_DEFAULT;
-  td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &cleanTex_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateShaderResourceView(cleanTex_.Get(), nullptr, &cleanSrv_)))) {
-    return false;
-  }
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(cleanTex_.Get(), nullptr, &cleanRtv_)))) {
-    return false;
-  }
-
-  td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &cleanPrevTex_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateShaderResourceView(cleanPrevTex_.Get(), nullptr,
-                                                  &cleanPrevSrv_)))) {
-    return false;
-  }
-
-  cleanWidth_ = width;
-  cleanHeight_ = height;
-  return true;
-}
-
 bool VideoRenderer::EnsureIntermediate(int width, int height) {
-  width = std::max(1, width);
-  height = std::max(1, height);
   // Eight bits cannot hold linear light: an HDR highlight is a value above one,
   // and this is the buffer it would be thrown away in -- before the tone mapping
   // at the end of the pipeline ever got to look at it. So the picture between
   // the passes is half float whenever the source is HDR, and stays eight bit
   // otherwise, where it costs nothing and is all that is needed.
-  const DXGI_FORMAT format = hdrTransfer_ == Transfer::Sdr ? DXGI_FORMAT_R8G8B8A8_UNORM
-                                                           : DXGI_FORMAT_R16G16B16A16_FLOAT;
-  if (intermediate_ && intermediateWidth_ == width && intermediateHeight_ == height &&
-      intermediateFormat_ == format) {
-    return true;
-  }
-
-  intermediateRtv_.Reset();
-  intermediateSrv_.Reset();
-  intermediate_.Reset();
-
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)width;
-  td.Height = (UINT)height;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = format;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_DEFAULT;
-  td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-
-  ID3D11Device* dev = ctx_->device();
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &intermediate_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateShaderResourceView(intermediate_.Get(), nullptr, &intermediateSrv_)))) {
-    return false;
-  }
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(intermediate_.Get(), nullptr, &intermediateRtv_)))) {
-    return false;
-  }
-  intermediateWidth_ = width;
-  intermediateHeight_ = height;
-  intermediateFormat_ = format;
-  return true;
+  return passes_->EnsureIntermediate(width, height, hdrTransfer_ != Transfer::Sdr);
 }
 
 // The picture as an ordinary screen would see it, whatever the screen is
@@ -678,90 +184,46 @@ bool VideoRenderer::EnsureIntermediate(int width, int height) {
 // and there is no reason to have two copies of that curve.
 bool VideoRenderer::GrabStillHalf(std::vector<uint16_t>* out, int* width, int* height,
                                   int* strideBytes) {
-  if (!intermediate_ || !ctx_ || hdrTransfer_ == Transfer::Sdr) return false;
-  if (intermediateFormat_ != DXGI_FORMAT_R16G16B16A16_FLOAT) return false;
+  if (!passes_->hasIntermediate() || !display_ || hdrTransfer_ == Transfer::Sdr) return false;
+  if (!passes_->intermediateWide()) return false;
 
   // Square pixels here too, and in linear light so nothing about the range is
   // decided on the way. A still is allowed the extra pass; it happens when
   // somebody presses a key, not sixty times a second.
-  ID3D11Texture2D* from = intermediate_.Get();
-  int fromW = intermediateWidth_;
-  int fromH = intermediateHeight_;
+  PassImage from = PassImage::Intermediate;
+  int fromW = passes_->intermediateWidth();
+  int fromH = passes_->intermediateHeight();
   if (deliveryHalfNeeded()) {
     if (!RenderDelivery(true)) return false;
-    from = deliveryHalf_.Get();
+    from = PassImage::DeliveryHalf;
     fromW = deliveryWidth_;
     fromH = deliveryHeight_;
   }
 
-  D3D11_TEXTURE2D_DESC td = {};
-  from->GetDesc(&td);
-  td.Usage = D3D11_USAGE_STAGING;
-  td.BindFlags = 0;
-  td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-  td.MiscFlags = 0;
-
-  ComPtr<ID3D11Texture2D> staging;
-  if (FAILED(CAP_HR(ctx_->device()->CreateTexture2D(&td, nullptr, &staging)))) return false;
-
-  ID3D11DeviceContext* dc = ctx_->context();
-  dc->CopyResource(staging.Get(), from);
-
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (FAILED(CAP_HR(dc->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))) return false;
-
-  out->resize((size_t)mapped.RowPitch / sizeof(uint16_t) * fromH);
-  memcpy(out->data(), mapped.pData, out->size() * sizeof(uint16_t));
-  dc->Unmap(staging.Get(), 0);
+  if (!passes_->ReadStillHalf(from, fromH, out, strideBytes)) return false;
 
   *width = fromW;
   *height = fromH;
-  *strideBytes = (int)mapped.RowPitch;
   return true;
 }
 
 bool VideoRenderer::EnsureHdrRecord(int width, int height) {
   width = std::max(1, width);
   height = std::max(1, height);
-  if (hdrRecTex_ && hdrRecWidth_ == width && hdrRecHeight_ == height) return true;
+  if (passes_->hasHdrRecord() && passes_->hdrRecordWidth() == width &&
+      passes_->hdrRecordHeight() == height) {
+    return true;
+  }
 
-  hdrRecRtv_.Reset();
-  hdrRecTex_.Reset();
-  for (int i = 0; i < kReadbackSlots; ++i) hdrReadbackTex_[i].Reset();
   hdrReadWrite_ = 0;
   hdrReadQueued_ = 0;
   hdrReadMapped_ = -1;
 
-  ID3D11Device* dev = ctx_->device();
-
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)width;
-  td.Height = (UINT)height;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_DEFAULT;
-  td.BindFlags = D3D11_BIND_RENDER_TARGET;
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &hdrRecTex_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(hdrRecTex_.Get(), nullptr, &hdrRecRtv_)))) {
-    return false;
-  }
-
-  td.Usage = D3D11_USAGE_STAGING;
-  td.BindFlags = 0;
-  td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-  for (int i = 0; i < kReadbackSlots; ++i) {
-    if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &hdrReadbackTex_[i])))) return false;
-  }
-
-  hdrRecWidth_ = width;
-  hdrRecHeight_ = height;
-  return true;
+  return passes_->CreateHdrRecord(width, height);
 }
 
 void VideoRenderer::QueueHdrReadback() {
-  if (!hdrWideActive() || !intermediate_ || !ctx_) return;
+  if (!hdrWideActive() || !passes_->hasIntermediate() || !display_) return;
   if (!EnsureHdrRecord(deliveryWidth_, deliveryHeight_)) return;
   if (hdrReadWrite_ == hdrReadMapped_) return;
 
@@ -769,119 +231,37 @@ void VideoRenderer::QueueHdrReadback() {
   // other way round would interpolate between PQ coded values, which are not
   // proportional to anything, and every soft edge would end up at the wrong
   // brightness.
-  ID3D11ShaderResourceView* wideSource = intermediateSrv_.Get();
+  PassImage wideSource = PassImage::Intermediate;
   if (deliveryHalfNeeded()) {
     if (!RenderDelivery(true)) return;
-    wideSource = deliveryHalfSrv_.Get();
+    wideSource = PassImage::DeliveryHalf;
   }
 
-  ID3D11DeviceContext* dc = ctx_->context();
-
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (SUCCEEDED(dc->Map(cbRecord_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    const float value[4] = {paperWhiteNits_, 0.0f, 0.0f, 0.0f};
-    memcpy(mapped.pData, value, sizeof(value));
-    dc->Unmap(cbRecord_.Get(), 0);
-  }
-
-  ID3D11RenderTargetView* rtv[] = {hdrRecRtv_.Get()};
-  dc->OMSetRenderTargets(1, rtv, nullptr);
-
-  D3D11_VIEWPORT vp = {};
-  vp.Width = (float)hdrRecWidth_;
-  vp.Height = (float)hdrRecHeight_;
-  vp.MaxDepth = 1.0f;
-  dc->RSSetViewports(1, &vp);
-
-  dc->IASetInputLayout(nullptr);
-  dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-  dc->VSSetShader(vs_.Get(), nullptr, 0);
-  dc->PSSetShader(psHdrRecord_.Get(), nullptr, 0);
-  ID3D11ShaderResourceView* srv[] = {wideSource};
-  dc->PSSetShaderResources(0, 1, srv);
-  ID3D11SamplerState* samp[] = {sampPoint_.Get()};
-  dc->PSSetSamplers(0, 1, samp);
-  ID3D11Buffer* cbs[] = {cbRecord_.Get()};
-  dc->PSSetConstantBuffers(0, 1, cbs);
-  dc->RSSetState(raster_.Get());
-  dc->Draw(3, 0);
-
-  ID3D11ShaderResourceView* none[] = {nullptr};
-  dc->PSSetShaderResources(0, 1, none);
-
-  dc->CopyResource(hdrReadbackTex_[hdrReadWrite_].Get(), hdrRecTex_.Get());
+  passes_->RecordHdr(wideSource, paperWhiteNits_, hdrReadWrite_);
   hdrReadWrite_ = (hdrReadWrite_ + 1) % kReadbackSlots;
   if (hdrReadQueued_ < kReadbackSlots) ++hdrReadQueued_;
 }
 
 bool VideoRenderer::FetchHdrReadback(ReadbackFrame* out) {
-  if (!hdrWideActive() || !ctx_ || hdrReadQueued_ < kReadbackSlots) return false;
+  if (!hdrWideActive() || !display_ || hdrReadQueued_ < kReadbackSlots) return false;
   if (hdrReadMapped_ >= 0) return false;
 
   const int slot = hdrReadWrite_;  // oldest: two copies are queued behind it
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (FAILED(ctx_->context()->Map(hdrReadbackTex_[slot].Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
-    return false;
-  }
+  MappedImage mapped;
+  if (!passes_->MapHdrReadback(slot, &mapped)) return false;
   hdrReadMapped_ = slot;
-  out->data = static_cast<const uint8_t*>(mapped.pData);
-  out->stride = (int)mapped.RowPitch;
-  out->width = hdrRecWidth_;
-  out->height = hdrRecHeight_;
-  out->size = (size_t)mapped.RowPitch * hdrRecHeight_;
+  out->data = mapped.data;
+  out->stride = (int)mapped.rowPitch;
+  out->width = passes_->hdrRecordWidth();
+  out->height = passes_->hdrRecordHeight();
+  out->size = mapped.rowPitch * (size_t)passes_->hdrRecordHeight();
   return true;
 }
 
 void VideoRenderer::ReleaseHdrReadback() {
   if (hdrReadMapped_ < 0) return;
-  ctx_->context()->Unmap(hdrReadbackTex_[hdrReadMapped_].Get(), 0);
+  passes_->UnmapHdrReadback(hdrReadMapped_);
   hdrReadMapped_ = -1;
-}
-
-bool VideoRenderer::EnsureDelivery(int width, int height, bool half) {
-  width = std::max(1, width);
-  height = std::max(1, height);
-
-  ComPtr<ID3D11Texture2D>& tex = half ? deliveryHalf_ : delivery_;
-  ComPtr<ID3D11RenderTargetView>& rtv = half ? deliveryHalfRtv_ : deliveryRtv_;
-  int& haveW = half ? deliveryHalfTexWidth_ : deliveryTexWidth_;
-  int& haveH = half ? deliveryHalfTexHeight_ : deliveryTexHeight_;
-  if (tex && haveW == width && haveH == height) return true;
-
-  if (half) deliveryHalfSrv_.Reset();
-  rtv.Reset();
-  tex.Reset();
-  haveW = 0;
-  haveH = 0;
-
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)width;
-  td.Height = (UINT)height;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = half ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_DEFAULT;
-  // The half float one is read again afterwards, by the shader that lays the PQ
-  // curve over it. The eight bit one is only ever copied out.
-  td.BindFlags = D3D11_BIND_RENDER_TARGET;
-  if (half) td.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
-
-  ID3D11Device* dev = ctx_->device();
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &tex)))) return false;
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(tex.Get(), nullptr, &rtv)))) {
-    tex.Reset();
-    return false;
-  }
-  if (half &&
-      FAILED(CAP_HR(dev->CreateShaderResourceView(tex.Get(), nullptr, &deliveryHalfSrv_)))) {
-    rtv.Reset();
-    tex.Reset();
-    return false;
-  }
-  haveW = width;
-  haveH = height;
-  return true;
 }
 
 // The picture on its way out of the window's world. Two jobs in one pass,
@@ -890,15 +270,12 @@ bool VideoRenderer::EnsureDelivery(int width, int height, bool half) {
 // curve over it. It reuses the scaling shader because that shader already
 // knows both, and there is no reason to keep a second copy of either.
 bool VideoRenderer::RenderDelivery(bool half) {
-  if (!intermediate_ || !ctx_) return false;
+  if (!passes_->hasIntermediate() || !display_) return false;
   if (deliveryWidth_ <= 0 || deliveryHeight_ <= 0) return false;
-  if (!EnsureDelivery(deliveryWidth_, deliveryHeight_, half)) return false;
 
-  ID3D11DeviceContext* dc = ctx_->context();
-
-  ScaleCB sc = {};
-  sc.srcSize[0] = (float)intermediateWidth_;
-  sc.srcSize[1] = (float)intermediateHeight_;
+  ScaleParams sc = {};
+  sc.srcSize[0] = (float)passes_->intermediateWidth();
+  sc.srcSize[1] = (float)passes_->intermediateHeight();
   sc.dstSize[0] = (float)deliveryWidth_;
   sc.dstSize[1] = (float)deliveryHeight_;
   // At one to one nearest is exact, and it is the only filter that cannot
@@ -946,37 +323,7 @@ bool VideoRenderer::RenderDelivery(bool half) {
   sc.compareAxis = compareAxis_;
   sc.rotation = rotation_;
 
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (SUCCEEDED(dc->Map(cbScale_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    memcpy(mapped.pData, &sc, sizeof(sc));
-    dc->Unmap(cbScale_.Get(), 0);
-  }
-
-  ID3D11RenderTargetView* rtv[] = {half ? deliveryHalfRtv_.Get() : deliveryRtv_.Get()};
-  dc->OMSetRenderTargets(1, rtv, nullptr);
-
-  D3D11_VIEWPORT vp = {};
-  vp.Width = (float)deliveryWidth_;
-  vp.Height = (float)deliveryHeight_;
-  vp.MaxDepth = 1.0f;
-  dc->RSSetViewports(1, &vp);
-
-  dc->IASetInputLayout(nullptr);
-  dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-  dc->VSSetShader(vs_.Get(), nullptr, 0);
-  dc->PSSetShader(psScale_.Get(), nullptr, 0);
-  ID3D11ShaderResourceView* srv[] = {intermediateSrv_.Get()};
-  dc->PSSetShaderResources(0, 1, srv);
-  ID3D11SamplerState* samplers[] = {sampPoint_.Get(), sampLinear_.Get()};
-  dc->PSSetSamplers(0, 2, samplers);
-  ID3D11Buffer* cbs[] = {cbScale_.Get()};
-  dc->PSSetConstantBuffers(0, 1, cbs);
-  dc->RSSetState(raster_.Get());
-  dc->Draw(3, 0);
-
-  ID3D11ShaderResourceView* none[] = {nullptr};
-  dc->PSSetShaderResources(0, 1, none);
-  return true;
+  return passes_->Deliver(half, deliveryWidth_, deliveryHeight_, sc);
 }
 
 // ----------------------------------------------------------------- uploading
@@ -1909,7 +1256,7 @@ void VideoRenderer::AnalyzeSignal(const FrameView& frame) {
 
   if (verdict != signalVerdict_) {
     signalVerdict_ = verdict;
-    signalSinceTick_ = ::GetTickCount();
+    signalSinceTick_ = TickMilliseconds();
     if (signalSinceTick_ == 0) signalSinceTick_ = 1;  // 0 means "never measured"
     CAP_LOG("Signal: %s (spread %d, change %d)",
             verdict == SignalVerdict::Picture ? "picture"
@@ -1923,7 +1270,7 @@ double VideoRenderer::signalHeldSeconds() const {
   if (signalSinceTick_ == 0) return 0.0;
   // Unsigned subtraction, so the wrap after seven weeks of uptime costs one
   // wrong reading rather than a negative age.
-  const unsigned long elapsed = ::GetTickCount() - signalSinceTick_;
+  const uint32_t elapsed = TickMilliseconds() - signalSinceTick_;
   return (double)elapsed / 1000.0;
 }
 
@@ -2148,15 +1495,7 @@ bool VideoRenderer::UploadFrame(const FrameView& frame) {
   // something that reads the history is on, so nobody pays for a filter they
   // have not switched on.
   if (historyWanted_ && hasFrame_) {
-    ID3D11DeviceContext* dc = ctx_->context();
-    // The cleaned picture currently in cleanTex_ belongs to the frame that is
-    // about to be replaced, so this is the moment it becomes the previous one.
-    if (cleanTex_ && cleanPrevTex_) dc->CopyResource(cleanPrevTex_.Get(), cleanTex_.Get());
-    for (int i = 0; i < planeCount_; ++i) {
-      if (plane_[i] && planeHist_[historyWrite_][i]) {
-        dc->CopyResource(planeHist_[historyWrite_][i].Get(), plane_[i].Get());
-      }
-    }
+    passes_->PushHistory(historyWrite_, planeCount_);
     historyWrite_ = (historyWrite_ + 1) % kHistoryDepth;
     if (historyCount_ < kHistoryDepth) ++historyCount_;
   } else if (!historyWanted_) {
@@ -2184,12 +1523,11 @@ bool VideoRenderer::UploadFrame(const FrameView& frame) {
 namespace {
 
 // Copies `rows` scanlines, honouring both the source and the mapped pitch.
-void CopyRows(const D3D11_MAPPED_SUBRESOURCE& dst, const uint8_t* src, size_t srcPitch,
+void CopyRows(const MappedPlane& dst, const uint8_t* src, size_t srcPitch,
               size_t bytesPerRow, int rows) {
-  const size_t copy = std::min(bytesPerRow, (size_t)dst.RowPitch);
-  auto* out = (uint8_t*)dst.pData;
+  const size_t copy = std::min(bytesPerRow, dst.rowPitch);
   for (int y = 0; y < rows; ++y) {
-    memcpy(out + (size_t)y * dst.RowPitch, src + (size_t)y * srcPitch, copy);
+    memcpy(dst.data + (size_t)y * dst.rowPitch, src + (size_t)y * srcPitch, copy);
   }
 }
 
@@ -2201,11 +1539,10 @@ bool VideoRenderer::UploadPacked(const FrameView& frame) {
   const size_t srcPitch = source_.stride > 0 ? (size_t)source_.stride : (size_t)w * 2;
   if (frame.size < srcPitch * (size_t)h) return false;
 
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  ID3D11DeviceContext* dc = ctx_->context();
-  if (FAILED(dc->Map(plane_[0].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  MappedPlane mapped;
+  if (!passes_->MapPlane(0, &mapped)) return false;
   CopyRows(mapped, frame.data, srcPitch, (size_t)w * 2, h);
-  dc->Unmap(plane_[0].Get(), 0);
+  passes_->UnmapPlane(0);
   return true;
 }
 
@@ -2217,102 +1554,27 @@ bool VideoRenderer::UploadNv12(const FrameView& frame) {
   const int ch = (h + 1) / 2;
   if (frame.size < lumaBytes + srcPitch * (size_t)ch) return false;
 
-  ID3D11DeviceContext* dc = ctx_->context();
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  MappedPlane mapped;
 
-  if (FAILED(dc->Map(plane_[0].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  if (!passes_->MapPlane(0, &mapped)) return false;
   CopyRows(mapped, frame.data, srcPitch, (size_t)w, h);
-  dc->Unmap(plane_[0].Get(), 0);
+  passes_->UnmapPlane(0);
 
-  if (FAILED(dc->Map(plane_[1].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  if (!passes_->MapPlane(1, &mapped)) return false;
   // Interleaved chroma: (w/2) texels of two bytes each.
   CopyRows(mapped, frame.data + lumaBytes, srcPitch, (size_t)((w + 1) / 2) * 2, ch);
-  dc->Unmap(plane_[1].Get(), 0);
-  return true;
-}
-
-bool VideoRenderer::EnsureUiLayer(int width, int height) {
-  if (uiTex_ && uiWidth_ == width && uiHeight_ == height) return true;
-  uiSrv_.Reset();
-  uiRtv_.Reset();
-  uiTex_.Reset();
-  uiWidth_ = 0;
-  uiHeight_ = 0;
-  if (width <= 0 || height <= 0) return false;
-
-  // Eight bit on purpose. This holds an ordinary sRGB interface, and giving it
-  // more precision than the thing that drew it would buy nothing.
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)width;
-  td.Height = (UINT)height;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_DEFAULT;
-  td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-
-  ID3D11Device* dev = ctx_->device();
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &uiTex_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(uiTex_.Get(), nullptr, &uiRtv_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateShaderResourceView(uiTex_.Get(), nullptr, &uiSrv_)))) return false;
-  uiWidth_ = width;
-  uiHeight_ = height;
+  passes_->UnmapPlane(1);
   return true;
 }
 
 bool VideoRenderer::BeginUiLayer() {
-  if (!ctx_->hdrOutput()) return false;
-  if (!EnsureUiLayer(ctx_->width(), ctx_->height())) return false;
-
-  ID3D11DeviceContext* dc = ctx_->context();
-  const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-  dc->ClearRenderTargetView(uiRtv_.Get(), clear);
-  ID3D11RenderTargetView* rtv[] = {uiRtv_.Get()};
-  dc->OMSetRenderTargets(1, rtv, nullptr);
-  return true;
+  if (!display_->hdrOutput()) return false;
+  return passes_->BeginUiLayer(display_->width(), display_->height());
 }
 
 void VideoRenderer::CompositeUiLayer() {
-  if (!ctx_->hdrOutput() || !uiSrv_) return;
-
-  ID3D11DeviceContext* dc = ctx_->context();
-
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (SUCCEEDED(dc->Map(cbUi_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    float value[4] = {paperWhiteNits_, 0.0f, 0.0f, 0.0f};
-    memcpy(mapped.pData, value, sizeof(value));
-    dc->Unmap(cbUi_.Get(), 0);
-  }
-
-  ID3D11RenderTargetView* backbuffer[] = {ctx_->rtv()};
-  dc->OMSetRenderTargets(1, backbuffer, nullptr);
-
-  D3D11_VIEWPORT vp = {};
-  vp.Width = (float)ctx_->width();
-  vp.Height = (float)ctx_->height();
-  vp.MaxDepth = 1.0f;
-  dc->RSSetViewports(1, &vp);
-
-  dc->IASetInputLayout(nullptr);
-  dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-  dc->VSSetShader(vs_.Get(), nullptr, 0);
-  dc->PSSetShader(psUiComposite_.Get(), nullptr, 0);
-  ID3D11ShaderResourceView* srv[] = {uiSrv_.Get()};
-  dc->PSSetShaderResources(0, 1, srv);
-  ID3D11SamplerState* samp[] = {sampPoint_.Get()};
-  dc->PSSetSamplers(0, 1, samp);
-  ID3D11Buffer* cbs[] = {cbUi_.Get()};
-  dc->PSSetConstantBuffers(0, 1, cbs);
-  dc->RSSetState(raster_.Get());
-
-  const float blendFactor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-  dc->OMSetBlendState(blendPremultiplied_.Get(), blendFactor, 0xffffffff);
-  dc->Draw(3, 0);
-  dc->OMSetBlendState(nullptr, blendFactor, 0xffffffff);
-
-  ID3D11ShaderResourceView* none[] = {nullptr};
-  dc->PSSetShaderResources(0, 1, none);
+  if (!display_->hdrOutput()) return;
+  passes_->CompositeUiLayer(paperWhiteNits_);
 }
 
 bool VideoRenderer::UploadP010(const FrameView& frame) {
@@ -2325,16 +1587,15 @@ bool VideoRenderer::UploadP010(const FrameView& frame) {
   const int ch = (h + 1) / 2;
   if (frame.size < lumaBytes + srcPitch * (size_t)ch) return false;
 
-  ID3D11DeviceContext* dc = ctx_->context();
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  MappedPlane mapped;
 
-  if (FAILED(dc->Map(plane_[0].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  if (!passes_->MapPlane(0, &mapped)) return false;
   CopyRows(mapped, frame.data, srcPitch, (size_t)w * 2, h);
-  dc->Unmap(plane_[0].Get(), 0);
+  passes_->UnmapPlane(0);
 
-  if (FAILED(dc->Map(plane_[1].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  if (!passes_->MapPlane(1, &mapped)) return false;
   CopyRows(mapped, frame.data + lumaBytes, srcPitch, (size_t)((w + 1) / 2) * 4, ch);
-  dc->Unmap(plane_[1].Get(), 0);
+  passes_->UnmapPlane(1);
   return true;
 }
 
@@ -2356,20 +1617,19 @@ bool VideoRenderer::UploadPlanar(const FrameView& frame) {
   const uint8_t* uPlane = planarUvSwapped_ ? second : first;
   const uint8_t* vPlane = planarUvSwapped_ ? first : second;
 
-  ID3D11DeviceContext* dc = ctx_->context();
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  MappedPlane mapped;
 
-  if (FAILED(dc->Map(plane_[0].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  if (!passes_->MapPlane(0, &mapped)) return false;
   CopyRows(mapped, frame.data, yPitch, (size_t)w, h);
-  dc->Unmap(plane_[0].Get(), 0);
+  passes_->UnmapPlane(0);
 
-  if (FAILED(dc->Map(plane_[1].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  if (!passes_->MapPlane(1, &mapped)) return false;
   CopyRows(mapped, uPlane, cPitch, (size_t)cw, ch);
-  dc->Unmap(plane_[1].Get(), 0);
+  passes_->UnmapPlane(1);
 
-  if (FAILED(dc->Map(plane_[2].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  if (!passes_->MapPlane(2, &mapped)) return false;
   CopyRows(mapped, vPlane, cPitch, (size_t)cw, ch);
-  dc->Unmap(plane_[2].Get(), 0);
+  passes_->UnmapPlane(2);
   return true;
 }
 
@@ -2379,15 +1639,14 @@ bool VideoRenderer::UploadRgb24(const FrameView& frame) {
   const size_t srcPitch = source_.stride > 0 ? (size_t)source_.stride : (((size_t)w * 3 + 3) & ~3u);
   if (frame.size < srcPitch * (size_t)h) return false;
 
-  ID3D11DeviceContext* dc = ctx_->context();
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (FAILED(dc->Map(plane_[0].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  MappedPlane mapped;
+  if (!passes_->MapPlane(0, &mapped)) return false;
 
   // DirectShow delivers BGR; the texture is RGBA, so expand and swap per pixel.
-  auto* out = (uint8_t*)mapped.pData;
+  uint8_t* out = mapped.data;
   for (int y = 0; y < h; ++y) {
     const uint8_t* src = frame.data + (size_t)y * srcPitch;
-    uint8_t* dst = out + (size_t)y * mapped.RowPitch;
+    uint8_t* dst = out + (size_t)y * mapped.rowPitch;
     for (int x = 0; x < w; ++x) {
       dst[0] = src[2];
       dst[1] = src[1];
@@ -2397,7 +1656,7 @@ bool VideoRenderer::UploadRgb24(const FrameView& frame) {
       dst += 4;
     }
   }
-  dc->Unmap(plane_[0].Get(), 0);
+  passes_->UnmapPlane(0);
   return true;
 }
 
@@ -2407,11 +1666,10 @@ bool VideoRenderer::UploadRgb32(const FrameView& frame) {
   const size_t srcPitch = source_.stride > 0 ? (size_t)source_.stride : (size_t)w * 4;
   if (frame.size < srcPitch * (size_t)h) return false;
 
-  ID3D11DeviceContext* dc = ctx_->context();
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (FAILED(dc->Map(plane_[0].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+  MappedPlane mapped;
+  if (!passes_->MapPlane(0, &mapped)) return false;
   CopyRows(mapped, frame.data, srcPitch, (size_t)w * 4, h);
-  dc->Unmap(plane_[0].Get(), 0);
+  passes_->UnmapPlane(0);
   return true;
 }
 
@@ -2426,40 +1684,27 @@ void VideoRenderer::SetReadbackEnabled(bool enabled) {
 }
 
 void VideoRenderer::ReleaseReadbackResources() {
-  if (readbackMapped_ >= 0 && ctx_) {
-    ctx_->context()->Unmap(readbackTex_[readbackMapped_].Get(), 0);
+  if (readbackMapped_ >= 0 && display_) {
+    passes_->UnmapReadback(readbackMapped_);
     readbackMapped_ = -1;
   }
-  for (int i = 0; i < kReadbackSlots; ++i) readbackTex_[i].Reset();
+  passes_->ReleaseReadbackSlots();
   readbackWidth_ = readbackHeight_ = 0;
   readbackWrite_ = 0;
   readbackQueued_ = 0;
 }
 
 void VideoRenderer::QueueReadback() {
-  if (!readbackEnabled_ || !intermediate_ || !ctx_) return;
+  if (!readbackEnabled_ || !passes_->hasIntermediate() || !display_) return;
 
   // Resolution changed (crop, or the card switched mode): start over.
   if (readbackWidth_ != deliveryWidth_ || readbackHeight_ != deliveryHeight_) {
     ReleaseReadbackResources();
 
-    D3D11_TEXTURE2D_DESC td = {};
-    td.Width = (UINT)deliveryWidth_;
-    td.Height = (UINT)deliveryHeight_;
-    td.MipLevels = 1;
-    td.ArraySize = 1;
-    td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    td.SampleDesc.Count = 1;
-    td.Usage = D3D11_USAGE_STAGING;
-    td.BindFlags = 0;
-    td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-    for (int i = 0; i < kReadbackSlots; ++i) {
-      if (FAILED(CAP_HR(ctx_->device()->CreateTexture2D(&td, nullptr, &readbackTex_[i])))) {
-        ReleaseReadbackResources();
-        readbackEnabled_ = false;
-        return;
-      }
+    if (!passes_->CreateReadbackSlots(deliveryWidth_, deliveryHeight_)) {
+      ReleaseReadbackResources();
+      readbackEnabled_ = false;
+      return;
     }
     readbackWidth_ = deliveryWidth_;
     readbackHeight_ = deliveryHeight_;
@@ -2471,49 +1716,47 @@ void VideoRenderer::QueueReadback() {
   // Straight off the intermediate whenever it already is what the recorder
   // wants: same size, eight bits, nothing to do. Otherwise through the delivery
   // pass, which handles either reason or both at once.
-  ID3D11Texture2D* from = intermediate_.Get();
+  PassImage from = PassImage::Intermediate;
   if (deliveryNeeded()) {
     if (!RenderDelivery(false)) return;
-    from = delivery_.Get();
+    from = PassImage::Delivery;
   }
-  ctx_->context()->CopyResource(readbackTex_[readbackWrite_].Get(), from);
+  passes_->CopyToReadback(readbackWrite_, from);
   QueueHdrReadback();
   readbackWrite_ = (readbackWrite_ + 1) % kReadbackSlots;
   if (readbackQueued_ < kReadbackSlots) ++readbackQueued_;
 }
 
 bool VideoRenderer::FetchReadback(ReadbackFrame* out) {
-  if (!readbackEnabled_ || !ctx_ || readbackQueued_ < kReadbackSlots) return false;
+  if (!readbackEnabled_ || !display_ || readbackQueued_ < kReadbackSlots) return false;
   if (readbackMapped_ >= 0) return false;  // previous frame not released yet
 
   // Oldest slot: two copies have been queued behind it, so the GPU is long done
   // and the map returns immediately instead of stalling the pipeline.
   const int slot = readbackWrite_;
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  HRESULT hr = ctx_->context()->Map(readbackTex_[slot].Get(), 0, D3D11_MAP_READ,
-                                    D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
-  if (hr == DXGI_ERROR_WAS_STILL_DRAWING) return false;
-  if (FAILED(hr)) return false;
+  MappedImage mapped;
+  if (!passes_->MapReadback(slot, &mapped)) return false;
 
   readbackMapped_ = slot;
   if (out) {
-    out->data = (const uint8_t*)mapped.pData;
-    out->stride = (int)mapped.RowPitch;
+    out->data = mapped.data;
+    out->stride = (int)mapped.rowPitch;
     out->width = readbackWidth_;
     out->height = readbackHeight_;
-    out->size = (size_t)mapped.RowPitch * (size_t)readbackHeight_;
+    out->size = mapped.rowPitch * (size_t)readbackHeight_;
   }
   return true;
 }
 
 void VideoRenderer::ReleaseReadback() {
-  if (readbackMapped_ < 0 || !ctx_) return;
-  ctx_->context()->Unmap(readbackTex_[readbackMapped_].Get(), 0);
+  if (readbackMapped_ < 0 || !display_) return;
+  passes_->UnmapReadback(readbackMapped_);
   readbackMapped_ = -1;
 }
 
 bool VideoRenderer::GrabStill(std::vector<uint8_t>* pixels, int* width, int* height) {
-  if (!pixels || !intermediate_ || !ctx_ || intermediateWidth_ <= 0 || intermediateHeight_ <= 0) {
+  if (!pixels || !passes_->hasIntermediate() || !display_ ||
+      passes_->intermediateWidth() <= 0 || passes_->intermediateHeight() <= 0) {
     return false;
   }
 
@@ -2524,46 +1767,11 @@ bool VideoRenderer::GrabStill(std::vector<uint8_t>* pixels, int* width, int* hei
   // staging texture never was a legal copy.
   const bool viaDelivery = deliveryNeeded();
   if (viaDelivery && !RenderDelivery(false)) return false;
-  ID3D11Texture2D* from = viaDelivery ? delivery_.Get() : intermediate_.Get();
-  const int fromW = viaDelivery ? deliveryWidth_ : intermediateWidth_;
-  const int fromH = viaDelivery ? deliveryHeight_ : intermediateHeight_;
+  const PassImage from = viaDelivery ? PassImage::Delivery : PassImage::Intermediate;
+  const int fromW = viaDelivery ? deliveryWidth_ : passes_->intermediateWidth();
+  const int fromH = viaDelivery ? deliveryHeight_ : passes_->intermediateHeight();
 
-  // A staging texture of its own rather than a slot from the readback ring: the
-  // ring only exists while recording, and its slots are deliberately two frames
-  // stale. A screenshot should be the picture that was on screen when the key
-  // went down.
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)fromW;
-  td.Height = (UINT)fromH;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_STAGING;
-  td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-  ComPtr<ID3D11Texture2D> staging;
-  if (FAILED(CAP_HR(ctx_->device()->CreateTexture2D(&td, nullptr, &staging)))) return false;
-
-  ctx_->context()->CopyResource(staging.Get(), from);
-
-  // Blocking map: D3D11_MAP_READ without DO_NOT_WAIT flushes and waits.
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (FAILED(CAP_HR(ctx_->context()->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))) {
-    return false;
-  }
-
-  const size_t rowBytes = (size_t)fromW * 4;
-  pixels->resize(rowBytes * (size_t)fromH);
-  const uint8_t* src = (const uint8_t*)mapped.pData;
-  for (int y = 0; y < fromH; ++y) {
-    uint8_t* dst = pixels->data() + (size_t)y * rowBytes;
-    memcpy(dst, src + (size_t)y * (size_t)mapped.RowPitch, rowBytes);
-    // The pipeline carries an alpha channel it has no use for. Whatever ended up
-    // in it, a screenshot of opaque video is opaque.
-    for (size_t x = 3; x < rowBytes; x += 4) dst[x] = 0xFF;
-  }
-  ctx_->context()->Unmap(staging.Get(), 0);
+  if (!passes_->ReadStill(from, fromW, fromH, pixels)) return false;
 
   if (width) *width = fromW;
   if (height) *height = fromH;
@@ -2744,7 +1952,7 @@ void VideoRenderer::ComputeDeliverySize(const ImageSettings& image) {
 void VideoRenderer::ComputeDestRect(const ImageSettings& image) {
   // Fit into the window minus the reserved strip, then push the result down by
   // it. Every branch below can then go on thinking it owns the whole window.
-  ComputeDestRectIn(image, ctx_->width(), ctx_->height() - topInset_);
+  ComputeDestRectIn(image, display_->width(), display_->height() - topInset_);
   videoRect_.top += topInset_;
   videoRect_.bottom += topInset_;
 }
@@ -2754,12 +1962,12 @@ void VideoRenderer::ComputeDestRectIn(const ImageSettings& image, int winW, int 
   const int srcH = outputHeight_;
 
   if (winW <= 0 || winH <= 0 || srcW <= 0 || srcH <= 0) {
-    videoRect_ = RECT{0, 0, 0, 0};
+    videoRect_ = Rect{0, 0, 0, 0};
     return;
   }
 
   if (image.aspect == AspectMode::Stretch) {
-    videoRect_ = RECT{0, 0, (LONG)winW, (LONG)winH};
+    videoRect_ = Rect{0, 0, winW, winH};
     return;
   }
 
@@ -2803,7 +2011,7 @@ void VideoRenderer::ComputeDestRectIn(const ImageSettings& image, int winW, int 
       h = std::max(1, std::min(h, winH));
       const int ix = (winW - w) / 2;
       const int iy = (winH - h) / 2;
-      videoRect_ = RECT{ix, iy, ix + w, iy + h};
+      videoRect_ = Rect{ix, iy, ix + w, iy + h};
       return;
     }
     // Window too small for even one line per pixel -- fall through to the
@@ -2820,11 +2028,11 @@ void VideoRenderer::ComputeDestRectIn(const ImageSettings& image, int winW, int 
   h = std::max(1, std::min(h, winH));
   const int x = (winW - w) / 2;
   const int y = (winH - h) / 2;
-  videoRect_ = RECT{x, y, x + w, y + h};
+  videoRect_ = Rect{x, y, x + w, y + h};
 }
 
 void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
-  if (!hasFrame_ || planeCount_ == 0 || !ctx_) return;
+  if (!hasFrame_ || planeCount_ == 0 || !display_) return;
 
   const int srcW = source_.width;
   const int srcH = source_.height;
@@ -2852,10 +2060,8 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   // leaves behind.
   ComputeDeliverySize(image);
 
-  if (!EnsureClean(srcW, srcH)) return;
+  if (!passes_->EnsureClean(srcW, srcH)) return;
   if (!EnsureIntermediate(outputWidth_, outputHeight_)) return;
-
-  ID3D11DeviceContext* dc = ctx_->context();
 
   // The media type is believed when it claims interlaced; when it says nothing,
   // which is the normal case on an analogue input, the measurement decides.
@@ -2892,7 +2098,7 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
     }
   }
 
-  ConvertCB cb = {};
+  ConvertParams cb = {};
   cb.formatKind = (int32_t)kind_;
   cb.deinterlaceMode = (int32_t)deint;
   cb.fieldIndex = fieldIndex ? 1 : 0;
@@ -2966,73 +2172,9 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   cb.transfer = (int32_t)hdrTransfer_;
   cb.gamut = hdrWideGamut_ ? 1 : 0;
 
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (SUCCEEDED(dc->Map(cbConvert_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    memcpy(mapped.pData, &cb, sizeof(cb));
-    dc->Unmap(cbConvert_.Get(), 0);
-  }
-
-  ID3D11ShaderResourceView* nullSrvs[3 + kHistoryDepth * 3] = {};
-  dc->IASetInputLayout(nullptr);
-  dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-  dc->VSSetShader(vs_.Get(), nullptr, 0);
-  ID3D11Buffer* cbs[] = {cbConvert_.Get()};
-  dc->PSSetConstantBuffers(0, 1, cbs);
-  dc->RSSetState(raster_.Get());
-  const float blendFactor[4] = {0, 0, 0, 0};
-  dc->OMSetBlendState(blendOpaque_.Get(), blendFactor, 0xFFFFFFFF);
-
-  // ---- pass 1: decode the planes and clean the signal, in source geometry ----
-  //
-  // Deliberately before anything touches the field structure. A cleanup that
-  // runs after a deinterlacer has to work out which source line the pixel in
-  // front of it came from, and for the interpolating modes there is no single
-  // answer -- which is how the same class of artefact kept coming back.
-  {
-    ID3D11RenderTargetView* rtv[] = {cleanRtv_.Get()};
-    dc->OMSetRenderTargets(1, rtv, nullptr);
-
-    D3D11_VIEWPORT vp = {};
-    vp.Width = (float)srcW;
-    vp.Height = (float)srcH;
-    vp.MaxDepth = 1.0f;
-    dc->RSSetViewports(1, &vp);
-
-    // Newest history first, so the shader can treat them as "one frame ago",
-    // "two frames ago", "three frames ago" without knowing where the ring
-    // happens to stand. historyWrite_ points at the slot that will be
-    // overwritten next, which is the oldest one.
-    ID3D11ShaderResourceView* srvs[3 + kHistoryDepth * 3] = {};
-    for (int i = 0; i < 3; ++i) srvs[i] = planeSrv_[i].Get();
-    for (int h = 0; h < kHistoryDepth; ++h) {
-      const int slot = (historyWrite_ - 1 - h + kHistoryDepth * 2) % kHistoryDepth;
-      for (int i = 0; i < 3; ++i) srvs[3 + h * 3 + i] = planeHistSrv_[slot][i].Get();
-    }
-    dc->PSSetShaderResources(0, 3 + kHistoryDepth * 3, srvs);
-    dc->PSSetShader(psClean_.Get(), nullptr, 0);
-    dc->Draw(3, 0);
-    dc->PSSetShaderResources(0, 3 + kHistoryDepth * 3, nullSrvs);
-  }
-
-  // ---- pass 2: fields, cropping, line doubling, rotation ----
-  {
-    ID3D11RenderTargetView* rtv[] = {intermediateRtv_.Get()};
-    dc->OMSetRenderTargets(1, rtv, nullptr);
-
-    D3D11_VIEWPORT vp = {};
-    vp.Width = (float)outputWidth_;
-    vp.Height = (float)outputHeight_;
-    vp.MaxDepth = 1.0f;
-    dc->RSSetViewports(1, &vp);
-
-    ID3D11ShaderResourceView* srvs[2] = {cleanSrv_.Get(), cleanPrevSrv_.Get()};
-    dc->PSSetShaderResources(0, 2, srvs);
-    dc->PSSetShader(psConvert_.Get(), nullptr, 0);
-    dc->Draw(3, 0);
-  }
+  passes_->CleanAndConvert(cb, srcW, srcH, outputWidth_, outputHeight_, historyWrite_);
 
   // ---- pass 3: scale onto the back buffer ----
-  dc->PSSetShaderResources(0, 3, nullSrvs);
 
   // Queue the recording copy here, between the passes: the intermediate holds
   // the finished picture at source resolution, and the copy runs on the GPU
@@ -3040,11 +2182,11 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   QueueReadback();
 
   ComputeDestRect(image);
-  const int dstW = (int)(videoRect_.right - videoRect_.left);
-  const int dstH = (int)(videoRect_.bottom - videoRect_.top);
+  const int dstW = videoRect_.width();
+  const int dstH = videoRect_.height();
   if (dstW <= 0 || dstH <= 0) return;
 
-  ScaleCB sc = {};
+  ScaleParams sc = {};
   sc.srcSize[0] = (float)outputWidth_;
   sc.srcSize[1] = (float)outputHeight_;
   sc.dstSize[0] = (float)dstW;
@@ -3110,40 +2252,7 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   sc.compareAxis = compareAxis_;
   sc.rotation = rotation_;
 
-  if (SUCCEEDED(dc->Map(cbScale_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    memcpy(mapped.pData, &sc, sizeof(sc));
-    dc->Unmap(cbScale_.Get(), 0);
-  }
-
-  ID3D11RenderTargetView* backbuffer[] = {ctx_->rtv()};
-  dc->OMSetRenderTargets(1, backbuffer, nullptr);
-
-  D3D11_VIEWPORT vp = {};
-  vp.MaxDepth = 1.0f;
-  vp.TopLeftX = (float)videoRect_.left;
-  vp.TopLeftY = (float)videoRect_.top;
-  vp.Width = (float)dstW;
-  vp.Height = (float)dstH;
-  dc->RSSetViewports(1, &vp);
-
-  ID3D11ShaderResourceView* scaleSrv[] = {intermediateSrv_.Get()};
-  dc->PSSetShaderResources(0, 1, scaleSrv);
-  ID3D11SamplerState* samplers[] = {sampPoint_.Get(), sampLinear_.Get()};
-  dc->PSSetSamplers(0, 2, samplers);
-  dc->PSSetShader(psScale_.Get(), nullptr, 0);
-  ID3D11Buffer* scaleCbs[] = {cbScale_.Get()};
-  dc->PSSetConstantBuffers(0, 1, scaleCbs);
-  dc->Draw(3, 0);
-
-  // Leave the pipeline clean so ImGui's own state setup starts from scratch.
-  dc->PSSetShaderResources(0, 1, nullSrvs);
-
-  // Restore the full window viewport for whatever draws next.
-  vp.TopLeftX = 0;
-  vp.TopLeftY = 0;
-  vp.Width = (float)ctx_->width();
-  vp.Height = (float)ctx_->height();
-  dc->RSSetViewports(1, &vp);
+  passes_->ScaleToScreen(sc, videoRect_.left, videoRect_.top, dstW, dstH);
 }
 
 }  // namespace cap

@@ -91,6 +91,15 @@ bool ReportError(std::string* error, const Said& said);
 int64_t ClockTicks();
 double TicksToSeconds(int64_t ticks);
 
+// A coarse milliseconds counter, for the places that only want to know whether
+// something happened recently. Wraps around after about fifty days, so the
+// difference of two readings is what may be used, never a reading on its own.
+uint32_t TickMilliseconds();
+
+// Gives the rest of this time slice away. Only ever a few milliseconds, in the
+// loops that would otherwise spin while waiting for something else.
+void SleepMilliseconds(uint32_t ms);
+
 // ------------------------------------------------------------------ misc utils
 
 // ExeFolder, OwnFile and the rest live in app_files.h, included above.
