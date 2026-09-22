@@ -53,7 +53,8 @@ set_target_properties(qblank_vcam PROPERTIES
 )
 
 add_executable(qBlank WIN32
-  src/main.cpp
+  src/main_win32.cpp
+  src/program.cpp
   src/app_files.cpp
   src/app_files_win32.cpp
   src/app_identity.cpp

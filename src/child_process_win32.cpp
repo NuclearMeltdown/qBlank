@@ -1,6 +1,8 @@
 #include "child_process.h"
 
 #include "common_win32.h"
+// shellapi.h is a wall of errors without windows.h having been seen first.
+#include <shellapi.h>
 
 #include <algorithm>
 #include <thread>
@@ -302,6 +304,19 @@ bool RunAndWait(const ProcessSpec& spec, int* exitCode, uint32_t timeoutMs) {
 
   if (exitCode) *exitCode = code;
   return true;
+}
+
+// ShellExecuteW and not CreateProcessW: what this starts is not a child of this
+// process and inherits nothing from it -- no handles, no console. The build that
+// replaces this one has to outlive it cleanly, and a process still holding the
+// old one's handles is exactly what would keep the old file from going away.
+bool StartAndLetGo(const std::filesystem::path& program, const std::filesystem::path& startIn) {
+  if (program.empty()) return false;
+  const HINSTANCE result =
+      ::ShellExecuteW(nullptr, L"open", program.c_str(), nullptr,
+                      startIn.empty() ? nullptr : startIn.c_str(), SW_SHOWNORMAL);
+  // Everything up to 32 is one of the old error codes rather than an instance.
+  return (INT_PTR)result > 32;
 }
 
 // ------------------------------------------------------------------- streams

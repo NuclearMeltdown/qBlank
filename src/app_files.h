@@ -27,6 +27,12 @@ std::filesystem::path ExeFolder();
 // "...\qBlank.json". The extension comes without its dot.
 std::filesystem::path OwnFile(const char* extension);
 
+// The running program's own file. Not OwnFile with the platform's extension for
+// a program: after a rename the image on disk still carries the old name for one
+// more start, and this is the file that is really running -- the one the updater
+// has to replace.
+std::filesystem::path OwnProgramFile();
+
 // Moves a file to "<name>.bak" instead of deleting it, replacing an older .bak
 // if one is there. Used wherever a file has to get out of the way: what is in
 // these files is worth more than the tidiness, and a wrong answer stays one

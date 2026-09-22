@@ -1,23 +1,17 @@
-#include <windows.h>
+#include "program.h"
 
 #include <cstdio>
-#include <cstdlib>
-#include <string>
 
 #include "app.h"
-#include "app_identity.h"
+#include "app_files.h"
 #include "common.h"
-#include "common_win32.h"
 #include "config.h"
 #include "files.h"
 #include "i18n.h"
 #include "platform.h"
 #include "record/ffmpeg_download.h"
 #include "record/ffmpeg_locator.h"
-#include "text_win32.h"
 #include "ui/startup_dialog.h"
-#include "update/updater.h"
-#include "window_win32.h"
 
 namespace {
 
@@ -155,51 +149,42 @@ int ListEncoders() {
   return 0;
 }
 
+// A word that contains the flag counts, which is how the whole command line was
+// searched before it arrived here as words.
+bool Asked(const std::vector<std::string>& arguments, const char* flag) {
+  for (const std::string& word : arguments) {
+    if (word.find(flag) != std::string::npos) return true;
+  }
+  return false;
+}
+
 }  // namespace
 
-int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR commandLine, int showCmd) {
-  cap::SetStartupShowCommand(showCmd);
+namespace cap {
 
-  cap::MakeProcessDpiAware();
+int RunProgram(const std::vector<std::string>& arguments) {
+  // Before anything reads the settings: settle which file they are. The name the
+  // program wears has already been corrected by this point, so the question here
+  // is only about the contents -- see FindForeignSettings in config.h.
+  AdoptSettings(&AskAboutSettings);
 
-  // Multi threaded apartment: DirectShow filters and WASAPI both push from
-  // their own threads, and MTA keeps those calls free of apartment marshalling.
-  cap::ComScope com(COINIT_MULTITHREADED);
-  if (!com.ok()) {
-    ::MessageBoxW(nullptr, L"COM could not be initialised.", cap::kAppName,
-                  MB_ICONERROR | MB_OK);
-    return 1;
-  }
+  if (Asked(arguments, "--fetch-ffmpeg")) return FetchFfmpeg();
+  if (Asked(arguments, "--list-encoders")) return ListEncoders();
 
-  // Before anything reads a file: sort out what this program is called. A build
-  // that arrived through the updater while the program was being renamed is
-  // still sitting under the old file name, and the settings next to it still
-  // carry the old name too. Both are corrected here, once, and everything after
-  // this point can just ask for "the settings file" and get the right one.
-  //
-  // Renaming a running executable is allowed on Windows -- only overwriting is
-  // not -- which is the same thing the updater relies on to replace itself.
-  cap::Updater::CleanUpPreviousBuild();
-  cap::AdoptOwnName();
-  cap::AdoptFormerLog();
-  cap::AdoptSettings(&AskAboutSettings);
-
-  const std::wstring args = commandLine ? commandLine : L"";
-  if (args.find(L"--fetch-ffmpeg") != std::wstring::npos) return FetchFfmpeg();
-  if (args.find(L"--list-encoders") != std::wstring::npos) return ListEncoders();
-
-  cap::BeginPreciseTiming();
+  BeginPreciseTiming();
 
   int result = 1;
   {
-    cap::App app;
+    App app;
     if (app.Initialize()) {
       result = app.Run();
     }
     app.Shutdown();
   }
 
-  cap::EndPreciseTiming();
-  cap::LogEnd();
+  EndPreciseTiming();
+  LogEnd();
   return result;
 }
+
+}  // namespace cap

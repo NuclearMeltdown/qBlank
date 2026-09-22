@@ -1,14 +1,9 @@
 #include "update/updater.h"
 
+#include "app_files.h"
+#include "child_process.h"
 #include "common.h"
-
-// shellapi.h is a wall of errors without windows.h having been seen first.
-#include <windows.h>
-#include <shellapi.h>
-
-#include <vector>
-
-#include "app_identity.h"
+#include "files.h"
 #include "i18n.h"
 #include "update/release_source.h"
 
@@ -18,6 +13,14 @@ namespace {
 // Where a release lives and which file in it is the program are questions with
 // answers that outlive any name -- see src/update/release_source.h. Nothing in
 // this file spells out a repository, a file name or a version scheme.
+
+// The three names the update dance works with, all derived from the file that is
+// running: itself, the one that arrived, and the one it used to be.
+std::filesystem::path Beside(const char* suffix) {
+  std::filesystem::path path = OwnProgramFile();
+  path += suffix;
+  return path;
+}
 
 UpdateError Translate(FetchError error) {
   switch (error) {
@@ -92,11 +95,9 @@ std::string WebsiteUrl() { return Releases().website; }
 const char* Updater::currentVersion() { return kAppVersion; }
 
 void Updater::CleanUpPreviousBuild() {
-  const std::wstring old = ExePath() + L".old";
-  if (::GetFileAttributesW(old.c_str()) != INVALID_FILE_ATTRIBUTES) {
-    if (::DeleteFileW(old.c_str())) {
-      CAP_LOG("Previous program version removed");
-    }
+  const std::filesystem::path old = Beside(".old");
+  if (PathExists(old) && RemoveFile(old)) {
+    CAP_LOG("Previous program version removed");
   }
 }
 
@@ -209,26 +210,14 @@ void Updater::Run(bool install) {
     return;
   }
 
-  const std::wstring exe = ExePath();
-  const std::wstring fresh = exe + L".new";
-  const std::wstring old = exe + L".old";
+  const std::filesystem::path exe = OwnProgramFile();
+  const std::filesystem::path fresh = Beside(".new");
+  const std::filesystem::path old = Beside(".old");
 
-  HANDLE file = ::CreateFileW(fresh.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE) {
-    s.state = UpdateStatus::State::Failed;
-    s.error = UpdateError::WriteFailed;
-    SetStatus(s);
-    busy_.store(false, std::memory_order_release);
-    return;
-  }
-  DWORD written = 0;
-  const bool wrote =
-      ::WriteFile(file, data.data(), (DWORD)data.size(), &written, nullptr) != FALSE &&
-      written == data.size();
-  ::CloseHandle(file);
-  if (!wrote) {
-    ::DeleteFileW(fresh.c_str());
+  // Not ReplaceWholeFile: this is a new file next to the program, not a file
+  // being replaced, and what is at stake is caught by the two renames below.
+  if (!WriteWholeFile(fresh, data.data(), data.size())) {
+    RemoveFile(fresh);
     s.state = UpdateStatus::State::Failed;
     s.error = UpdateError::WriteFailed;
     SetStatus(s);
@@ -243,18 +232,18 @@ void Updater::Run(bool install) {
   // The new build takes the old file's name, whatever that name is. If the
   // program has been renamed since, the build that just arrived notices at its
   // next start and corrects its own name -- see AdoptOwnName in app_identity.h.
-  ::DeleteFileW(old.c_str());
-  if (!::MoveFileExW(exe.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-    ::DeleteFileW(fresh.c_str());
+  RemoveFile(old);
+  if (!RenameOver(exe, old)) {
+    RemoveFile(fresh);
     s.state = UpdateStatus::State::Failed;
     s.error = UpdateError::MoveAsideFailed;
     SetStatus(s);
     busy_.store(false, std::memory_order_release);
     return;
   }
-  if (!::MoveFileExW(fresh.c_str(), exe.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-    ::MoveFileExW(old.c_str(), exe.c_str(), MOVEFILE_REPLACE_EXISTING);
-    ::DeleteFileW(fresh.c_str());
+  if (!RenameOver(fresh, exe)) {
+    RenameOver(old, exe);
+    RemoveFile(fresh);
     s.state = UpdateStatus::State::Failed;
     s.error = UpdateError::InsertFailed;
     SetStatus(s);
@@ -271,11 +260,8 @@ void Updater::Run(bool install) {
 
 bool Updater::RestartIntoNewBuild() const {
   if (status().state != UpdateStatus::State::Ready) return false;
-  const std::wstring exe = ExePath();
-  const std::wstring dir = ExeDirectory();
-  const HINSTANCE result =
-      ::ShellExecuteW(nullptr, L"open", exe.c_str(), nullptr, dir.c_str(), SW_SHOWNORMAL);
-  return (INT_PTR)result > 32;
+  const std::filesystem::path exe = OwnProgramFile();
+  return StartAndLetGo(exe, exe.parent_path());
 }
 
 }  // namespace cap

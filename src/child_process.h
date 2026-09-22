@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -49,6 +50,18 @@ bool RunAndCollect(const ProcessSpec& spec, std::string* output, int* exitCode,
 
 // The same without reading anything back.
 bool RunAndWait(const ProcessSpec& spec, int* exitCode, uint32_t timeoutMs);
+
+// Starts a program and lets go of it: it goes on running after this program has
+// ended, and nothing of it is read back. No arguments, because the one thing
+// started this way is the build that just replaced this one -- and none of the
+// quoting rules above would be worth keeping half of.
+//
+// `startIn` is the folder the new program starts in. It matters: a program that
+// looks for its settings next to itself has to be told where itself is.
+//
+// False means it did not start. True only means it was handed over; whether it
+// then ran is not something this can wait around to find out.
+bool StartAndLetGo(const std::filesystem::path& program, const std::filesystem::path& startIn);
 
 // A stream of bytes into a running child: this program writes, the child reads.
 //
