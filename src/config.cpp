@@ -3,10 +3,10 @@
 #include <algorithm>
 #include <cmath>
 
-#include "app_identity.h"
+#include "app_files.h"
 #include "common_win32.h"
+#include "files.h"
 #include "json.h"
-#include "text_win32.h"
 
 namespace cap {
 
@@ -742,47 +742,16 @@ Profile ReadProfile(const json::Value& v) {
   return p;
 }
 
-bool ReadWholeFile(const std::filesystem::path& path, std::string& out) {
-  HANDLE h = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                           FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (h == INVALID_HANDLE_VALUE) return false;
-  LARGE_INTEGER size{};
-  if (!::GetFileSizeEx(h, &size) || size.QuadPart > (LONGLONG)16 * 1024 * 1024) {
-    ::CloseHandle(h);
-    return false;
-  }
-  out.resize((size_t)size.QuadPart);
-  DWORD read = 0;
-  bool ok = out.empty() || (::ReadFile(h, out.data(), (DWORD)out.size(), &read, nullptr) &&
-                            read == out.size());
-  ::CloseHandle(h);
+// A settings file is a few kilobytes. Sixteen megabytes is already absurd, and
+// something that size next to the executable is not a settings file.
+const uint64_t kJsonLimit = 16 * 1024 * 1024;
+
+bool ReadJsonFile(const std::filesystem::path& path, std::string& out) {
+  if (!ReadWholeFile(path, &out, kJsonLimit)) return false;
   // Strip a UTF-8 BOM if an editor added one.
-  if (ok && out.size() >= 3 && (unsigned char)out[0] == 0xEF && (unsigned char)out[1] == 0xBB &&
+  if (out.size() >= 3 && (unsigned char)out[0] == 0xEF && (unsigned char)out[1] == 0xBB &&
       (unsigned char)out[2] == 0xBF) {
     out.erase(0, 3);
-  }
-  return ok;
-}
-
-// Writes to a sibling temp file and swaps it in, so an interrupted save cannot
-// leave a truncated config behind.
-bool WriteWholeFileAtomic(const std::filesystem::path& path, const std::string& data) {
-  std::wstring tmp = path.native() + L".tmp";
-  HANDLE h = ::CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                           FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (h == INVALID_HANDLE_VALUE) return false;
-  DWORD written = 0;
-  bool ok = ::WriteFile(h, data.data(), (DWORD)data.size(), &written, nullptr) &&
-            written == data.size();
-  ok = ::FlushFileBuffers(h) && ok;
-  ::CloseHandle(h);
-  if (!ok) {
-    ::DeleteFileW(tmp.c_str());
-    return false;
-  }
-  if (!::MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-    ::DeleteFileW(tmp.c_str());
-    return false;
   }
   return true;
 }
@@ -864,36 +833,27 @@ std::filesystem::path Config::FilePath() {
 }
 
 std::vector<ForeignSettings> FindForeignSettings() {
-  const std::wstring folder = ExeDirectory();
-  const std::wstring mine = FileStem(Config::FilePath().native());
-
-  WIN32_FIND_DATAW found = {};
-  const HANDLE search = ::FindFirstFileW((folder + L"*.json").c_str(), &found);
-  if (search == INVALID_HANDLE_VALUE) return {};
+  const std::string mine = ToUpper(PathToUtf8(Config::FilePath().stem()));
 
   // Sorted by when it was last written, newest first: if somebody has three of
   // these lying around, the one they were using last is the interesting one.
-  // Files set aside earlier end in ".bak" and are not matched by the pattern.
-  std::vector<std::pair<unsigned long long, ForeignSettings>> dated;
-  do {
-    if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-    const std::wstring stem = FileStem(found.cFileName);
-    if (_wcsicmp(stem.c_str(), mine.c_str()) == 0) continue;
+  // Files set aside earlier end in ".bak" and are not in this list.
+  std::vector<std::pair<int64_t, ForeignSettings>> dated;
+  for (const std::filesystem::path& file : FilesWithExtension(ExeFolder(), ".json")) {
+    const std::string stem = PathToUtf8(file.stem());
+    if (ToUpper(stem) == mine) continue;
     ForeignSettings entry;
-    entry.stem = ToUtf8(stem);
-    entry.path = folder + found.cFileName;
+    entry.stem = stem;
+    entry.path = file;
 
     std::string text;
-    if (!ReadWholeFile(entry.path, text)) continue;
+    if (!ReadJsonFile(entry.path, text)) continue;
     if (!LooksLikeSettings(json::Parse(text), &entry)) continue;
 
-    ULARGE_INTEGER when = {};
-    when.LowPart = found.ftLastWriteTime.dwLowDateTime;
-    when.HighPart = found.ftLastWriteTime.dwHighDateTime;
-    entry.modified = when.QuadPart;
-    dated.emplace_back(when.QuadPart, std::move(entry));
-  } while (::FindNextFileW(search, &found));
-  ::FindClose(search);
+    const int64_t when = FileWriteTime(file);
+    entry.modified = when;
+    dated.emplace_back(when, std::move(entry));
+  }
 
   std::sort(dated.begin(), dated.end(),
             [](const auto& a, const auto& b) { return a.first > b.first; });
@@ -905,7 +865,7 @@ std::vector<ForeignSettings> FindForeignSettings() {
 
 int SettingsLanguage(const std::filesystem::path& path) {
   std::string text;
-  if (!ReadWholeFile(path, text)) return -1;
+  if (!ReadJsonFile(path, text)) return -1;
   ForeignSettings probe;
   if (!LooksLikeSettings(json::Parse(text), &probe)) return -1;
   return probe.language;
@@ -917,7 +877,7 @@ std::string AdoptSettings(SettingsChoice ask) {
 
   const ForeignSettings& other = others.front();
   const std::filesystem::path mine = Config::FilePath();
-  const bool haveOwn = ::GetFileAttributesW(mine.c_str()) != INVALID_FILE_ATTRIBUTES;
+  const bool haveOwn = PathExists(mine);
 
   // Nobody but the user knows which of the two files has the evening's work in
   // it, so nobody but the user answers this. The loser is set aside rather than
@@ -929,9 +889,7 @@ std::string AdoptSettings(SettingsChoice ask) {
     return std::string();
   }
   if (haveOwn) SetFileAside(mine);
-  if (!::MoveFileExW(other.path.c_str(), mine.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-    return std::string();
-  }
+  if (!RenameOver(other.path, mine)) return std::string();
 
   // What the file calls the program if it says so, otherwise what it is called
   // -- either way the name those settings were written under.
@@ -944,7 +902,7 @@ bool Config::Load(std::string* error) {
   if (error) error->clear();
 
   std::string text;
-  if (!ReadWholeFile(FilePath(), text)) {
+  if (!ReadJsonFile(FilePath(), text)) {
     return false;  // no file yet -- first run, defaults apply
   }
 
@@ -1088,7 +1046,8 @@ bool Config::Load(std::string* error) {
 
 bool Config::Save(std::string* error) const {
   if (error) error->clear();
-  if (!WriteWholeFileAtomic(FilePath(), Serialize())) {
+  const std::string text = Serialize();
+  if (!ReplaceWholeFile(FilePath(), text.data(), text.size())) {
     ReportError(error,
                 CAP_SAID(T("Konfiguration konnte nicht geschrieben werden (Schreibrechte im Programmordner?)",
                            "Could not write the configuration (write access to the program folder?)")));

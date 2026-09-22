@@ -3,34 +3,23 @@
 #include <algorithm>
 
 #include "child_process.h"
+#include "files.h"
 #include "i18n.h"
 #include "record/ffmpeg_locator.h"
-#include "text_win32.h"
 
 namespace cap {
 namespace {
 
-bool FileExists(const std::wstring& path) {
-  const DWORD attrs = ::GetFileAttributesW(path.c_str());
-  return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-std::wstring FileNameOf(const std::wstring& path) {
-  const size_t slash = path.find_last_of(L"\\/");
-  return slash == std::wstring::npos ? path : path.substr(slash + 1);
-}
-
 // Same name, .mp4 instead. Nothing is ever overwritten: a batch job that eats
 // the original the user meant to keep is not a job anyone runs twice.
-std::wstring MakeOutputName(const std::wstring& input) {
-  const size_t dot = input.find_last_of(L'.');
-  const size_t slash = input.find_last_of(L"\\/");
-  const bool hasExt = dot != std::wstring::npos && (slash == std::wstring::npos || dot > slash);
-  const std::wstring stem = hasExt ? input.substr(0, dot) : input;
+std::filesystem::path MakeOutputName(const std::filesystem::path& input) {
+  std::filesystem::path candidate = input;
+  candidate.replace_extension(".mp4");
 
-  std::wstring candidate = stem + L".mp4";
-  for (int n = 1; FileExists(candidate) && n < 1000; ++n) {
-    candidate = stem + L" (" + std::to_wstring(n) + L").mp4";
+  const std::filesystem::path folder = input.parent_path();
+  const std::string stem = PathToUtf8(input.stem());
+  for (int n = 1; IsFile(candidate) && n < 1000; ++n) {
+    candidate = folder / Utf8ToPath(stem + " (" + std::to_string(n) + ").mp4");
   }
   return candidate;
 }
@@ -133,15 +122,15 @@ void Remuxer::Run(std::filesystem::path ffmpegPath) {
       return;
     }
 
-    std::wstring input;
+    std::filesystem::path input;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      input = items_[i].input.native();
+      input = items_[i].input;
     }
-    const std::wstring output = MakeOutputName(input);
+    const std::filesystem::path output = MakeOutputName(input);
 
     SetMessage(Format(T("%zu von %zu: %s", "%zu of %zu: %s"), i + 1, count,
-                      ToUtf8(FileNameOf(input)).c_str()));
+                      PathToUtf8(input.filename()).c_str()));
 
     // -c copy is the whole point: the streams are moved, not re read. faststart
     // then pulls the index to the front of the file, which is what a player
@@ -151,17 +140,17 @@ void Remuxer::Run(std::filesystem::path ffmpegPath) {
     spec.Add("-hide_banner");
     spec.Add("-loglevel", "error");
     spec.Add("-y");
-    spec.Add("-i", ToUtf8(input));
+    spec.Add("-i", PathToUtf8(input));
     spec.Add("-map", "0");
     spec.Add("-c", "copy");
     spec.Add("-movflags", "+faststart");
-    spec.Add(ToUtf8(output));
+    spec.Add(PathToUtf8(output));
 
     std::string captured;
     int exitCode = 0;
     const bool started = RunAndCollect(spec, &captured, &exitCode, 30 * 60 * 1000);
 
-    const bool good = started && exitCode == 0 && FileExists(output);
+    const bool good = started && exitCode == 0 && IsFile(output);
     Said failure;
     if (!good) {
       failure = started ? CAP_SAID(ExplainFailure(captured, exitCode))
@@ -177,11 +166,11 @@ void Remuxer::Run(std::filesystem::path ffmpegPath) {
     }
     if (good) {
       ok_.fetch_add(1, std::memory_order_relaxed);
-      CAP_LOG("Remuxed: %s", ToUtf8(FileNameOf(output)).c_str());
+      CAP_LOG("Remuxed: %s", PathToUtf8(output.filename()).c_str());
     } else {
       // A half written MP4 is worse than none: it looks like a result.
-      ::DeleteFileW(output.c_str());
-      LogWrite("ERR ", "Remux failed: %s -- %s", ToUtf8(FileNameOf(input)).c_str(),
+      RemoveFile(output);
+      LogWrite("ERR ", "Remux failed: %s -- %s", PathToUtf8(input.filename()).c_str(),
                failure.logged.c_str());
     }
 

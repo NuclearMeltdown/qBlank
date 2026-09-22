@@ -11,6 +11,7 @@
 #include "app_identity.h"
 #include "common.h"
 #include "config.h"
+#include "files.h"
 #include "i18n.h"
 #include "record/ffmpeg_download.h"
 #include "record/ffmpeg_locator.h"
@@ -33,10 +34,13 @@ void SpeakLanguageOf(const cap::ForeignSettings& found) {
 }
 
 // "08.09.2026 21:14" in whatever order and separators Windows is set to.
-std::string WhenWritten(unsigned long long fileTime) {
-  if (fileTime == 0) return std::string();
+//
+// The timestamp arrives as plain seconds now, so it has to go back into a file
+// time: the two formatters below are the reason, they take nothing else.
+std::string WhenWritten(int64_t unixSeconds) {
+  if (unixSeconds <= 0) return std::string();
   ULARGE_INTEGER raw;
-  raw.QuadPart = fileTime;
+  raw.QuadPart = (unsigned long long)(unixSeconds + 11644473600LL) * 10000000ULL;
   FILETIME utc = {raw.LowPart, raw.HighPart};
   FILETIME local = {};
   SYSTEMTIME when = {};
@@ -48,15 +52,6 @@ std::string WhenWritten(unsigned long long fileTime) {
   ::GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &when, nullptr, date, 64, nullptr);
   ::GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &when, nullptr, time, 64);
   return cap::ToUtf8(std::wstring(date) + L" " + time);
-}
-
-unsigned long long LastWritten(const std::filesystem::path& path) {
-  WIN32_FILE_ATTRIBUTE_DATA info = {};
-  if (!::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info)) return 0;
-  ULARGE_INTEGER when = {};
-  when.LowPart = info.ftLastWriteTime.dwLowDateTime;
-  when.HighPart = info.ftLastWriteTime.dwHighDateTime;
-  return when.QuadPart;
 }
 
 // Settings under a name this build does not use: leftovers of the rename, or a
@@ -97,7 +92,7 @@ cap::SettingsAnswer AskAboutSettings(const cap::ForeignSettings& found, bool hav
     cap::StartupQuestion::Row own;
     own.label = mine + ".json";
     own.detail = cap::Format(cap::T("%s, diese Version", "%s, this build"), mine.c_str()) + "  ·  " +
-                 WhenWritten(LastWritten(cap::Config::FilePath()));
+                 WhenWritten(cap::FileWriteTime(cap::Config::FilePath()));
     q.rows.push_back(own);
   }
 

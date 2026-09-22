@@ -1,13 +1,11 @@
 #include "record/ffmpeg_locator.h"
 
-#include <shlobj.h>
-
 #include <algorithm>
 
-#include "app_identity.h"
+#include "app_files.h"
 #include "child_process.h"
+#include "files.h"
 #include "i18n.h"
-#include "text_win32.h"
 
 namespace cap {
 namespace {
@@ -44,21 +42,6 @@ const RecordEncoder kEfficiencyOrder[] = {
     RecordEncoder::Amf,       RecordEncoder::X265,         RecordEncoder::X264,
 };
 
-bool FileExists(const std::wstring& path) {
-  const DWORD attrs = ::GetFileAttributesW(path.c_str());
-  return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-// Searches PATH for ffmpeg.exe.
-std::wstring FindOnPath() {
-  wchar_t buffer[MAX_PATH * 4] = {};
-  wchar_t* filePart = nullptr;
-  const DWORD n = ::SearchPathW(nullptr, L"ffmpeg.exe", nullptr, (DWORD)std::size(buffer), buffer,
-                                &filePart);
-  if (n > 0 && n < std::size(buffer)) return buffer;
-  return {};
-}
-
 std::string FirstLine(const std::string& text) {
   const size_t end = text.find_first_of("\r\n");
   return end == std::string::npos ? text : text.substr(0, end);
@@ -70,41 +53,35 @@ std::string FirstLine(const std::string& text) {
 // ------------------------------------------------------------------ locating
 
 std::filesystem::path DefaultRecordFolder(const std::string& name) {
-  PWSTR videos = nullptr;
-  std::wstring folder;
-  if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Videos, 0, nullptr, &videos)) && videos) {
-    folder = videos;
-    ::CoTaskMemFree(videos);
-  }
-  if (folder.empty()) folder = ExeDirectory();
-  if (!folder.empty() && folder.back() != L'\\') folder += L'\\';
-  return std::filesystem::path(folder + ToWide(name));
+  std::filesystem::path folder = UserVideosFolder();
+  if (folder.empty()) folder = ExeFolder();
+  return folder / Utf8ToPath(name);
 }
 
 FfmpegInfo LocateFfmpeg(const std::string& configuredPath) {
   FfmpegInfo info;
   info.encoders = KnownEncoders();
 
-  std::vector<std::wstring> candidates;
-  if (!configuredPath.empty()) candidates.push_back(ToWide(configuredPath));
-  const std::wstring exeDir = ExeDirectory();
-  candidates.push_back(exeDir + L"ffmpeg\\bin\\ffmpeg.exe");
-  candidates.push_back(exeDir + L"ffmpeg\\ffmpeg.exe");
-  candidates.push_back(exeDir + L"ffmpeg.exe");
+  std::vector<std::filesystem::path> candidates;
+  if (!configuredPath.empty()) candidates.push_back(Utf8ToPath(configuredPath));
+  const std::filesystem::path exeDir = ExeFolder();
+  candidates.push_back(exeDir / "ffmpeg" / "bin" / "ffmpeg.exe");
+  candidates.push_back(exeDir / "ffmpeg" / "ffmpeg.exe");
+  candidates.push_back(exeDir / "ffmpeg.exe");
 
-  std::wstring found;
-  for (const std::wstring& c : candidates) {
-    if (FileExists(c)) {
+  std::filesystem::path found;
+  for (const std::filesystem::path& c : candidates) {
+    if (IsFile(c)) {
       found = c;
       break;
     }
   }
-  if (found.empty()) found = FindOnPath();
+  if (found.empty()) found = ProgramOnPath("ffmpeg");
   if (found.empty()) return info;
 
   // Confirm it actually runs before believing the file name.
   ProcessSpec spec;
-  spec.program = ToUtf8(found);
+  spec.program = PathToUtf8(found);
   spec.Add("-hide_banner", "-version");
 
   std::string output;
@@ -112,7 +89,7 @@ FfmpegInfo LocateFfmpeg(const std::string& configuredPath) {
   if (output.find("ffmpeg version") == std::string::npos) return info;
 
   info.found = true;
-  info.path = ToUtf8(found);
+  info.path = PathToUtf8(found);
   info.version = FirstLine(output);
   CAP_LOG("ffmpeg found: %s (%s)", info.path.c_str(), info.version.c_str());
   return info;

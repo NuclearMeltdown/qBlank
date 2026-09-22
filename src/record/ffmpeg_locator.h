@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "common_win32.h"
+#include "common.h"
 #include "config.h"
 
 namespace cap {

@@ -62,6 +62,9 @@ add_executable(qBlank WIN32
   src/platform_win32.cpp
   src/child_process_win32.cpp
   src/http_win32.cpp
+  src/files.cpp
+  src/files_win32.cpp
+  src/archive_win32.cpp
   src/text_win32.cpp
   src/wake_signal_win32.cpp
   src/i18n.cpp
@@ -227,6 +230,8 @@ add_executable(qblank_probe
   src/common.cpp
   src/common_win32.cpp
   src/child_process_win32.cpp
+  src/files.cpp
+  src/files_win32.cpp
   src/text_win32.cpp
   src/wake_signal_win32.cpp
   src/i18n.cpp

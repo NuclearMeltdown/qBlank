@@ -8,6 +8,7 @@
 #include <cstdio>
 
 #include "app_identity.h"
+#include "files.h"
 #include "i18n.h"
 #include "imgui.h"
 #include "record/ffmpeg_locator.h"
@@ -913,7 +914,7 @@ void App::DrawToastStrip() {
   if (result.clicked) {
     // Wer einmal geklickt hat, braucht den Hinweis nicht mehr.
     config_.app.fileToastHints = kFileToastHints;
-    if (::GetFileAttributesW(toastFile_.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!PathExists(toastFile_)) {
       Toast(T("Die Datei ist nicht mehr da.", "The file is no longer there."));
       return;
     }
@@ -1111,8 +1112,7 @@ void App::StartRecording() {
   // portable build on a stick that got unplugged, an antivirus quarantine, or
   // simply someone tidying up. Checking costs one file attribute lookup and
   // turns a confusing "ffmpeg exited with code 1" into an honest answer.
-  if (ffmpeg_.found &&
-      ::GetFileAttributesW(ToWide(ffmpeg_.path).c_str()) == INVALID_FILE_ATTRIBUTES) {
+  if (ffmpeg_.found && !IsFile(Utf8ToPath(ffmpeg_.path))) {
     CAP_WARN("ffmpeg has disappeared: %s", ffmpeg_.path.c_str());
     ffmpeg_ = FfmpegInfo{};
   }

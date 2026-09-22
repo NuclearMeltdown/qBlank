@@ -1,6 +1,5 @@
 #include "record/screenshot.h"
 
-#include <shlobj.h>
 #include <DirectXPackedVector.h>
 #include <wincodec.h>
 
@@ -8,21 +7,14 @@
 #include <cmath>
 #include <vector>
 
-#include "app_identity.h"
+#include "app_files.h"
 #include "child_process.h"
 #include "common_win32.h"
+#include "files.h"
 #include "i18n.h"
-#include "text_win32.h"
 #include "window_win32.h"
 
 namespace cap {
-namespace {
-
-bool FileExists(const std::wstring& path) {
-  return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
-}
-
-}  // namespace
 
 bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, int width, int height,
                     ScreenshotFormat format, int jpegQuality, std::string* error) {
@@ -310,29 +302,14 @@ bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem
 
   // Through a file rather than a pipe. One still is not worth the plumbing, and
   // a temporary file cannot deadlock against a process that stops reading.
-  wchar_t tempDir[MAX_PATH] = {};
-  ::GetTempPathW(MAX_PATH, tempDir);
-  wchar_t tempFile[MAX_PATH] = {};
-  if (!::GetTempFileNameW(tempDir, L"cvs", 0, tempFile)) {
+  const std::filesystem::path raw = MakeTempFile("cvs");
+  if (raw.empty()) {
     return fail(CAP_SAID(T("Kein Platz für die Zwischendatei.", "Nowhere to put the working file.")));
   }
-  const std::wstring raw = tempFile;
-  {
-    HANDLE file = ::CreateFileW(raw.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                FILE_ATTRIBUTE_TEMPORARY, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-      return fail(CAP_SAID(T("Zwischendatei ließ sich nicht anlegen.",
-                             "The working file could not be created.")));
-    }
-    DWORD written = 0;
-    const DWORD bytes = (DWORD)(packed.size() * sizeof(uint32_t));
-    const bool ok = ::WriteFile(file, packed.data(), bytes, &written, nullptr) && written == bytes;
-    ::CloseHandle(file);
-    if (!ok) {
-      ::DeleteFileW(raw.c_str());
-      return fail(CAP_SAID(T("Zwischendatei ließ sich nicht schreiben.",
-                             "The working file could not be written.")));
-    }
+  if (!WriteWholeFile(raw, packed.data(), packed.size() * sizeof(uint32_t))) {
+    RemoveFile(raw);
+    return fail(CAP_SAID(T("Zwischendatei ließ sich nicht schreiben.",
+                           "The working file could not be written.")));
   }
 
   ProcessSpec spec;
@@ -343,7 +320,7 @@ bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem
   spec.Add("-f", "rawvideo");
   spec.Add("-pix_fmt", "x2bgr10le");
   spec.Add("-s", std::to_string(width) + "x" + std::to_string(height));
-  spec.Add("-i", ToUtf8(raw));
+  spec.Add("-i", PathToUtf8(raw));
   spec.Add("-frames:v", "1");
   spec.Add("-c:v", "libaom-av1");
   spec.Add("-still-picture", "1");
@@ -359,7 +336,7 @@ bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem
 
   int code = 1;
   if (!RunAndWait(spec, &code, 60000)) code = 1;
-  ::DeleteFileW(raw.c_str());
+  RemoveFile(raw);
 
   if (code != 0) {
     return fail(CAP_SAID(T("ffmpeg konnte das AVIF nicht schreiben.",
@@ -369,43 +346,34 @@ bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem
 }
 
 std::filesystem::path DefaultScreenshotFolder(const std::string& name) {
-  PWSTR pictures = nullptr;
-  std::wstring folder;
-  if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &pictures)) && pictures) {
-    folder = pictures;
-    ::CoTaskMemFree(pictures);
-  }
-  if (folder.empty()) folder = ExeDirectory();
-  if (!folder.empty() && folder.back() != L'\\') folder += L'\\';
-  return std::filesystem::path(folder + ToWide(name));
+  std::filesystem::path folder = UserPicturesFolder();
+  if (folder.empty()) folder = ExeFolder();
+  return folder / Utf8ToPath(name);
 }
 
 std::filesystem::path MakeHdrScreenshotPath(const std::filesystem::path& folder,
                                             HdrShotFormat format) {
-  const std::wstring base = MakeScreenshotPath(folder, ScreenshotFormat::Png).native();
+  std::filesystem::path base = MakeScreenshotPath(folder, ScreenshotFormat::Png);
   if (base.empty()) return base;
-  return base.substr(0, base.size() - 4) + (format == HdrShotFormat::Avif ? L".avif" : L".jxr");
+  base.replace_extension(format == HdrShotFormat::Avif ? ".avif" : ".jxr");
+  return base;
 }
 
 std::filesystem::path MakeScreenshotPath(const std::filesystem::path& folder,
                                          ScreenshotFormat format) {
-  std::wstring dir = folder.native();
-  if (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
-  if (!EnsureFolder(dir)) return {};
+  if (!EnsureFolder(folder)) return {};
 
-  const wchar_t* ext = format == ScreenshotFormat::Jpeg ? L".jpg" : L".png";
-
-  SYSTEMTIME st;
-  ::GetLocalTime(&st);
-  wchar_t stamp[64];
-  swprintf_s(stamp, L"%s_%04u-%02u-%02u_%02u-%02u-%02u", kAppName, st.wYear, st.wMonth, st.wDay,
-             st.wHour, st.wMinute, st.wSecond);
+  const std::string ext = format == ScreenshotFormat::Jpeg ? ".jpg" : ".png";
+  const LocalTime now = NowLocal();
+  const std::string stamp =
+      Format("%s_%04d-%02d-%02d_%02d-%02d-%02d", AppNameUtf8().c_str(), now.year, now.month,
+             now.day, now.hour, now.minute, now.second);
 
   // Someone holding the key down produces several shots inside one second, and
   // silently overwriting the earlier ones would be the wrong answer.
-  std::wstring candidate = dir + L"\\" + stamp + ext;
-  for (int n = 2; FileExists(candidate) && n < 1000; ++n) {
-    candidate = dir + L"\\" + stamp + L"_" + std::to_wstring(n) + ext;
+  std::filesystem::path candidate = folder / Utf8ToPath(stamp + ext);
+  for (int n = 2; IsFile(candidate) && n < 1000; ++n) {
+    candidate = folder / Utf8ToPath(stamp + "_" + std::to_string(n) + ext);
   }
   return candidate;
 }

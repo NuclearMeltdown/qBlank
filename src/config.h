@@ -771,10 +771,10 @@ struct ForeignSettings {
   // profiles back.
   int language = -1;
 
-  // Last written, as a Windows file time. Shown in the question, because when
-  // each file was last touched is the one fact that actually tells the two
-  // apart.
-  unsigned long long modified = 0;
+  // Last written, in seconds since 1970-01-01 UTC, 0 when unknown. Shown in
+  // the question, because when each file was last touched is the one fact that
+  // actually tells the two apart.
+  int64_t modified = 0;
 };
 
 // Every settings file next to the executable that is ours but is not the one

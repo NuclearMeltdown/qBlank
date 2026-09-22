@@ -559,7 +559,7 @@ void Recorder::VideoThread() {
       }
     }
     if (!held) {
-      ::Sleep(2);
+      SleepMilliseconds(2);
       continue;
     }
 
