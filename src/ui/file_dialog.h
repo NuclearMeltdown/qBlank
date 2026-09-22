@@ -2,20 +2,15 @@
 
 // File and folder pickers that do not freeze the picture.
 //
-// Two things make this less trivial than calling the API.
+// A system's own picker is modal and talks to the window that owns it while it
+// is up. Waiting for it on the thread that owns that window deadlocks: the
+// picker waits for a message pump that is blocked waiting for the picker. On
+// Windows there is a second reason -- the common item dialogs want an
+// apartment the rest of this program deliberately does not run in.
 //
-// The common item dialogs (IFileOpenDialog) need a single threaded apartment.
-// qBlank initialises COM as MTA, because DirectShow and WASAPI both push from
-// their own threads and MTA keeps those calls free of apartment marshalling.
-// Creating the dialog on an MTA thread appears to work and then hangs.
-//
-// And a modal dialog talks to its owner window while it is up -- EnableWindow
-// on the owner is a cross thread SendMessage. Waiting for the dialog on the
-// thread that owns the window therefore deadlocks: the dialog waits for a
-// message pump that is blocked waiting for the dialog.
-//
-// So the dialog gets an apartment threaded thread of its own and the caller
-// polls for the result. The picture keeps running while someone browses.
+// So the picker gets a thread of its own and the caller polls for the result.
+// The picture keeps running while someone browses. Everything above the thread
+// is here; the picker itself is ShowFileDialog, in file_dialog_win32.cpp.
 
 #include <atomic>
 #include <filesystem>
@@ -73,5 +68,11 @@ class AsyncFileDialog {
   mutable std::mutex mutex_;
   std::vector<std::filesystem::path> results_;
 };
+
+// The system's picker, run on that thread and blocking until the user is done.
+// Returns what was picked, or nothing when they cancelled. Not called
+// directly: AsyncFileDialog is what the interface uses.
+std::vector<std::filesystem::path> ShowFileDialog(const FileDialogRequest& request,
+                                                  const Window* owner);
 
 }  // namespace cap

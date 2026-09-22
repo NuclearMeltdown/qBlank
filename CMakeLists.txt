@@ -59,6 +59,7 @@ add_executable(qBlank WIN32
   src/app_identity.cpp
   src/common.cpp
   src/common_win32.cpp
+  src/platform_win32.cpp
   src/text_win32.cpp
   src/wake_signal_win32.cpp
   src/i18n.cpp
@@ -96,6 +97,7 @@ add_executable(qBlank WIN32
   src/render/render_passes_win32.cpp
   src/render/video_renderer.cpp
   src/ui/file_dialog.cpp
+  src/ui/file_dialog_win32.cpp
   src/ui/ui_surface_win32.cpp
   src/ui/toolbar.cpp
   src/ui/theme.cpp

@@ -4,10 +4,7 @@
 
 namespace cap {
 
-// True when Windows is set to a dark app theme.
-bool IsSystemDarkMode();
-
-// Resolves Theme::System against the current Windows setting.
+// Resolves Theme::System against what the desktop is set to.
 bool ResolveDark(Theme theme);
 
 // Applies colours, spacing and rounding to the current ImGui context. The whole

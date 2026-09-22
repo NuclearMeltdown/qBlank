@@ -4,9 +4,8 @@
 #include <cmath>
 
 #include "common.h"
-#include "common_win32.h"
 #include "imgui.h"
-#include "text_win32.h"
+#include "platform.h"
 
 namespace cap {
 namespace {
@@ -43,29 +42,12 @@ ImVec4 WithAlpha(ImVec4 c, float alpha) {
 
 }  // namespace
 
-bool IsSystemDarkMode() {
-  HKEY key = nullptr;
-  if (::RegOpenKeyExW(HKEY_CURRENT_USER,
-                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0,
-                      KEY_READ, &key) != ERROR_SUCCESS) {
-    return true;  // assume dark; this program is meant for a darkened room
-  }
-  DWORD value = 1;
-  DWORD size = sizeof(value);
-  DWORD type = 0;
-  const bool ok = ::RegQueryValueExW(key, L"AppsUseLightTheme", nullptr, &type, (LPBYTE)&value,
-                                     &size) == ERROR_SUCCESS &&
-                  type == REG_DWORD;
-  ::RegCloseKey(key);
-  return ok ? value == 0 : true;
-}
-
 bool ResolveDark(Theme theme) {
   switch (theme) {
     case Theme::Dark: return true;
     case Theme::Light: return false;
     case Theme::System:
-    default: return IsSystemDarkMode();
+    default: return SystemPrefersDark();
   }
 }
 
@@ -214,11 +196,6 @@ void ApplyImGuiTheme(bool dark, unsigned accentRgb) {
 void LoadUiFont(float sizePixels) {
   ImGuiIO& io = ImGui::GetIO();
 
-  wchar_t windir[MAX_PATH] = {};
-  if (::GetWindowsDirectoryW(windir, MAX_PATH) == 0) return;
-
-  // Segoe UI Variable on Windows 11, plain Segoe UI everywhere else.
-  const wchar_t* candidates[] = {L"\\Fonts\\SegUIVar.ttf", L"\\Fonts\\segoeui.ttf"};
   ImFontConfig cfg;
   cfg.OversampleH = 2;
   cfg.OversampleV = 1;
@@ -235,13 +212,9 @@ void LoadUiFont(float sizePixels) {
       0,
   };
 
-  for (const wchar_t* rel : candidates) {
-    std::wstring path = std::wstring(windir) + rel;
-    if (::GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
-    // ImGui takes UTF-8 paths.
-    if (io.Fonts->AddFontFromFileTTF(ToUtf8(path).c_str(), sizePixels, &cfg, ranges)) {
-      return;
-    }
+  // ImGui takes UTF-8 paths, which is what the interface deals in anyway.
+  for (const std::string& path : UiFontFiles()) {
+    if (io.Fonts->AddFontFromFileTTF(path.c_str(), sizePixels, &cfg, ranges)) return;
   }
   CAP_WARN("Segoe UI not found, using the built-in font");
 }
