@@ -1,13 +1,11 @@
 #include "app.h"
 
-#include <shellapi.h>   // ShellExecuteW
-#include <shlobj.h>     // SHOpenFolderAndSelectItems
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 
 #include "app_identity.h"
+#include "desktop.h"
 #include "files.h"
 #include "i18n.h"
 #include "imgui.h"
@@ -849,29 +847,6 @@ constexpr double kFileToastSeconds = 4.0;
 // Wie viele Toasts zu einer Datei dazusagen, dass ein Klick sie zeigt.
 constexpr int kFileToastHints = 3;
 
-// Explorer, mit der Datei markiert. SHOpenFolderAndSelectItems nimmt ein
-// Fenster, das den Ordner schon zeigt, statt ein neues danebenzustellen, will
-// aber ein STA -- und dieser Faden ist wegen DirectShow MTA. Also ein kurzer
-// eigener. Geht es dort schief, tut es explorer /select auch, nur eben mit
-// einem Fenster mehr.
-void ShowFileInExplorer(const std::wstring& file) {
-  // Nur wer vorn ist, darf das weitergeben -- und das sind wir gerade, es
-  // wurde eben auf uns geklickt. Sonst ginge der Explorer hinter dem Bild auf.
-  ::AllowSetForegroundWindow(ASFW_ANY);
-  std::thread([file] {
-    ComScope com(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    HRESULT hr = E_FAIL;
-    if (PIDLIST_ABSOLUTE item = ::ILCreateFromPathW(file.c_str())) {
-      hr = ::SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
-      ::ILFree(item);
-    }
-    if (FAILED(hr)) {
-      const std::wstring args = L"/select,\"" + file + L"\"";
-      ::ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
-    }
-  }).detach();
-}
-
 }  // namespace
 
 void App::Toast(const std::string& text, const std::filesystem::path& file) {
@@ -918,7 +893,7 @@ void App::DrawToastStrip() {
       Toast(T("Die Datei ist nicht mehr da.", "The file is no longer there."));
       return;
     }
-    ShowFileInExplorer(toastFile_.native());
+    ShowFileInFolder(toastFile_);
     toastText_.clear();
     toastFile_.clear();
   }
@@ -1390,13 +1365,13 @@ void App::SyncMicrophone(bool aboutToRecord) {
   mic_.SetGain(a.micGain);
 }
 
-void App::OpenFolderInExplorer(std::string* configured, const std::filesystem::path& fallback) {
+void App::ShowOutputFolder(std::string* configured, const std::filesystem::path& fallback) {
   const std::filesystem::path folder = ResolveOutputFolder(configured, fallback);
   if (folder.empty()) {
     Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
     return;
   }
-  ::ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  OpenFolder(folder);
 }
 
 void App::DrawToolbarStrip() {
@@ -1420,10 +1395,10 @@ void App::DrawToolbarStrip() {
     case ToolbarAction::Screenshot: RequestScreenshot(); break;
     case ToolbarAction::Settings: OpenSettings({}); break;
     case ToolbarAction::OpenRecordFolder:
-      OpenFolderInExplorer(&config_.record.outputFolder, DefaultRecordFolder());
+      ShowOutputFolder(&config_.record.outputFolder, DefaultRecordFolder());
       break;
     case ToolbarAction::OpenScreenshotFolder:
-      OpenFolderInExplorer(&config_.record.screenshotFolder, DefaultScreenshotFolder());
+      ShowOutputFolder(&config_.record.screenshotFolder, DefaultScreenshotFolder());
       break;
     case ToolbarAction::ToggleMute: ToggleMute(); break;
     case ToolbarAction::Hide: config_.app.showToolbar = false; break;
@@ -3891,15 +3866,9 @@ void App::DrawSettingsWindowed() {
   if (result == SettingsWindow::Result::Close) settings_.Close();
 }
 
-void App::OpenReleasePage(const UpdateStatus& status) {
-  const std::wstring url = ToWide(ReleasePageUrl(status));
-  ::ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-}
+void App::OpenReleasePage(const UpdateStatus& status) { OpenUrl(ReleasePageUrl(status)); }
 
-void App::OpenWebsite() {
-  const std::wstring url = ToWide(WebsiteUrl());
-  ::ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-}
+void App::OpenWebsite() { OpenUrl(WebsiteUrl()); }
 
 void App::UpdateHdr() {
   const VideoFormatInfo& src = renderer_.sourceFormat();
@@ -4104,7 +4073,7 @@ void App::DrawCrashNotice() {
 
   const float buttonWidth = 130.0f * uiScale_;
   if (ImGui::Button(T("Protokoll öffnen", "Open log"), ImVec2(buttonWidth, 0))) {
-    ::ShellExecuteW(nullptr, L"open", OwnFile("log").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    OpenFile(OwnFile("log"));
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();

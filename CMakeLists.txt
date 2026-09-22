@@ -60,6 +60,7 @@ add_executable(qBlank WIN32
   src/common.cpp
   src/common_win32.cpp
   src/platform_win32.cpp
+  src/desktop_win32.cpp
   src/child_process_win32.cpp
   src/http_win32.cpp
   src/files.cpp

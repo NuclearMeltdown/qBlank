@@ -6,14 +6,13 @@
 
 #include "common_win32.h"
 
-#include <shellapi.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include "app_identity.h"
+#include "desktop.h"
 #include "i18n.h"
 #include "record/screenshot.h"
 #include "text_win32.h"
@@ -873,15 +872,9 @@ void SettingsWindow::DrawUpdatesTab() {
                          "Release-Seite und auf der Website.",
                          "By hand still works: the current build is on the release page and "
                          "on the website."));
-    if (ImGui::Button(T("Releases öffnen", "Open releases"))) {
-      ::ShellExecuteW(nullptr, L"open", ToWide(ReleasePageUrl(st)).c_str(), nullptr, nullptr,
-                      SW_SHOWNORMAL);
-    }
+    if (ImGui::Button(T("Releases öffnen", "Open releases"))) OpenUrl(ReleasePageUrl(st));
     ImGui::SameLine();
-    if (ImGui::Button(T("Website öffnen", "Open website"))) {
-      ::ShellExecuteW(nullptr, L"open", ToWide(WebsiteUrl()).c_str(), nullptr, nullptr,
-                      SW_SHOWNORMAL);
-    }
+    if (ImGui::Button(T("Website öffnen", "Open website"))) OpenUrl(WebsiteUrl());
   }
 
   if (st.state == UpdateStatus::State::Available) {
@@ -3202,7 +3195,7 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
   if (ImGui::Button((std::string(T("Öffnen", "Open")) + "##" + id).c_str())) {
     const std::filesystem::path folder = value->empty() ? defaultFolder : Utf8ToPath(*value);
     EnsureFolder(folder);
-    ::ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    OpenFolder(folder);
   }
 }
 

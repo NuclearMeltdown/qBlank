@@ -169,7 +169,7 @@ class App {
   // daran.
   void UpdateDiskSpace();
   void DrawToolbarStrip();
-  void OpenFolderInExplorer(std::string* configured, const std::filesystem::path& fallback);
+  void ShowOutputFolder(std::string* configured, const std::filesystem::path& fallback);
   // Starts or stops the microphone to match the settings and what is going on.
   // `aboutToRecord` starts it for a recording that has not begun yet -- the
   // sample rate has to be known before ffmpeg is given its command line.
