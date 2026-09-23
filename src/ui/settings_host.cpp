@@ -114,8 +114,6 @@ bool SettingsHost::Create(float uiScale, bool allowTearing, const Placement& whe
     return false;
   }
 
-  // A context of its own, sharing the main one's fonts: the glyphs are the same
-  // and one atlas on the GPU is enough for both.
   ImGuiContext* previous = ImGui::GetCurrentContext();
   // Eigener Atlas, weil eine Textur nicht ueber zwei Geraete hinweg gilt. Das
   // nimmt dem Ganzen zugleich die Falle, die der geteilte Atlas mitbrachte: der

@@ -29,8 +29,6 @@ class SettingsHost {
   SettingsHost& operator=(const SettingsHost&) = delete;
   SettingsHost() = default;
 
-  // Creates the window hidden. `allowTearing` comes from the preview, which
-  // has already asked whether the adapter supports it.
   // Where the window should come up, and where it ended up. Zero or negative
   // means "wherever Windows likes", which is only right the very first time.
   struct Placement {
@@ -41,6 +39,8 @@ class SettingsHost {
   };
   Placement placement() const;
 
+  // Creates the window hidden. `allowTearing` comes from the preview, which
+  // has already asked whether the adapter supports it.
   bool Create(float uiScale, bool allowTearing, const Placement& where, std::string* error);
   void Destroy();
 

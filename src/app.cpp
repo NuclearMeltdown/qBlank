@@ -3648,8 +3648,6 @@ void App::DrawSettingsWindowed() {
 
   if (wanted && !settingsHost_.created()) {
     std::string error;
-    // The font atlas is shared rather than rebuilt -- same glyphs, and one copy
-    // on the GPU is enough for both windows.
     // Auspoppen: das Fenster geht dort auf, wo das eingebettete Feld gerade
     // stand. Der Weg fuehrt ueber Bildschirmkoordinaten, weil die beiden in
     // verschiedenen Bezugssystemen leben -- das Feld im Client des
@@ -3763,13 +3761,6 @@ void App::DrawSettingsWindowed() {
     }
   }
 
-  // Two swapchains on one device need somewhere to queue. Measured: at a depth
-  // of one the dialog's present cost eight to fourteen milliseconds because it
-  // was waiting for the preview's frame to retire, and the preview's cost three
-  // because it was waiting for the dialog's. At three, both are under a
-  // millisecond. Only while the dialog is actually on screen -- the preview
-  // wants the shortest queue there is the rest of the time, and that is the
-  // single biggest lever on its latency.
   // Die Vorschau behaelt ihre kurze Warteschlange, immer. Frueher musste sie
   // hier auf drei hoch, weil beide Fenster an einem Geraet hingen und sich
   // gegenseitig auf das Present warten liessen; seit der Dialog sein eigenes
