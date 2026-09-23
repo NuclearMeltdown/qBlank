@@ -97,7 +97,9 @@ LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARA
       // ueberhaupt annimmt (USER_TIMER_MINIMUM). Ein Weckruf ohne neues Bild
       // kostet seit dem Wegfall der Zeitschranke nichts mehr als die Frage, ob
       // eines da ist -- also darf oefter gefragt werden, als 60 Hz brauchen.
-      ::SetTimer(hwnd, kModalTimer, role == WindowRole::Main ? 8 : 10, nullptr);
+      // Both windows: the main window asked for 8, which Windows quietly raised
+      // to the same 10.
+      ::SetTimer(hwnd, kModalTimer, USER_TIMER_MINIMUM, nullptr);
       return 0;
     case WM_EXITSIZEMOVE:
       if (role == WindowRole::Dialog) break;
