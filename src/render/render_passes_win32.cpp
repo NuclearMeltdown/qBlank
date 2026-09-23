@@ -933,6 +933,10 @@ bool D3D11Passes::Deliver(bool half, int width, int height, const ScaleParams& p
   ID3D11Buffer* cbs[] = {cbScale_.Get()};
   dc->PSSetConstantBuffers(0, 1, cbs);
   dc->RSSetState(raster_.Get());
+  // Set here rather than inherited: whatever drew last may have left blending
+  // on, and this pass writes a picture, not something to lay over one.
+  const float blendFactor[4] = {0, 0, 0, 0};
+  dc->OMSetBlendState(blendOpaque_.Get(), blendFactor, 0xFFFFFFFF);
   dc->Draw(3, 0);
 
   ID3D11ShaderResourceView* none[] = {nullptr};
@@ -1114,6 +1118,9 @@ void D3D11Passes::RecordHdr(PassImage from, float paperWhiteNits, int slot) {
   ID3D11Buffer* cbs[] = {cbRecord_.Get()};
   dc->PSSetConstantBuffers(0, 1, cbs);
   dc->RSSetState(raster_.Get());
+  // The same as the delivery pass: opaque, whatever was bound before.
+  const float blendFactor[4] = {0, 0, 0, 0};
+  dc->OMSetBlendState(blendOpaque_.Get(), blendFactor, 0xFFFFFFFF);
   dc->Draw(3, 0);
 
   ID3D11ShaderResourceView* none[] = {nullptr};
