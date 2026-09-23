@@ -73,15 +73,6 @@ struct Display::Impl {
   void EndFrame(bool vsync);
   bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height);
 
-  // How many frames the CPU may run ahead of the GPU. One is what the preview
-  // wants on its own -- it is the cheapest latency there is. It stops being
-  // right the moment a second window shares the device: the queue is per
-  // device, so with a depth of one the two swapchains take turns waiting for
-  // each other, and a present that should cost a fraction of a millisecond
-  // costs most of a refresh. Raised while the settings have a window, put back
-  // when they do not.
-  void SetFrameLatency(UINT frames);
-
   bool CreateRenderTarget();
   void ReleaseRenderTarget();
 
@@ -96,7 +87,6 @@ struct Display::Impl {
   int width_ = 0;
   int height_ = 0;
   bool tearingSupported_ = false;
-  UINT frameLatency_ = 1;
   bool occluded_ = false;
   UINT swapchainFlags_ = 0;
 };
@@ -404,16 +394,6 @@ bool Display::Impl::SetHdrOutput(bool enabled, std::string* error) {
   CreateRenderTarget();
   CAP_LOG("Display switched to %s", enabled ? "scRGB (HDR)" : "sRGB");
   return true;
-}
-
-void Display::Impl::SetFrameLatency(UINT frames) {
-  if (frames == frameLatency_ || !device_) return;
-  ComPtr<IDXGIDevice1> dxgiDevice;
-  if (FAILED(device_.As(&dxgiDevice)) || !dxgiDevice) return;
-  if (SUCCEEDED(dxgiDevice->SetMaximumFrameLatency(frames))) {
-    frameLatency_ = frames;
-    CAP_LOG("Frame queue set to %u", frames);
-  }
 }
 
 // ---- Display ----
