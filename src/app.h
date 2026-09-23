@@ -26,6 +26,7 @@
 #include "camera_sink.h"
 #include "ui/settings_window.h"
 #include "ui/toolbar.h"
+#include "tray.h"
 #include "window.h"
 
 namespace cap {
@@ -128,6 +129,11 @@ class App {
   void SetFullscreen(bool on);
   void ApplyWindowFlags();
   void ApplyTheme();
+  // The icon in the notification area: shown or not, its menu kept current,
+  // and whatever was picked there run on this thread.
+  void UpdateTray();
+  std::vector<TrayMenuItem> BuildTrayMenu();
+  void RunTrayCommand(int id);
   void AdjustVolume(float delta);
   void ToggleMute();
   void ShowVolumeOsd();
@@ -422,6 +428,10 @@ class App {
   bool clickOnPicture_ = false;  // the last left click landed on the bare picture
   bool moveDragArmed_ = false;   // the left button went down on the bare picture
   bool recordingBadge_ = false;  // the red dot is on the taskbar button
+  TrayIcon tray_;
+  std::vector<TrayMenuItem> trayMenu_;  // what the icon's menu holds right now
+  std::string trayTooltip_;
+  bool trayFailed_ = false;  // not retried until the setting goes off and on
   bool bypass_ = false;
   // Whether the bar was drawn this frame; the picture layout follows it.
   bool toolbarVisible_ = false;

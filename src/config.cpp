@@ -17,6 +17,14 @@ int Pick(int index, int count) {
   return (index < 0 || index >= count) ? 0 : index;
 }
 
+// The tray items as the file names them. By name rather than by position, so
+// an entry added in the middle of TrayItem later does not shift what everyone
+// already chose.
+const char* const kTrayItemKeys[kTrayItemCount] = {
+    "record",     "screenshot",  "screenshotClipboard", "recordFolder", "screenshotFolder",
+    "fullscreen", "alwaysOnTop", "borderless",          "mute",         "freeze",
+    "virtualCamera", "profiles", "restartCapture",      "settings"};
+
 }  // namespace
 
 // ------------------------------------------------------------------ UI labels
@@ -344,6 +352,21 @@ const char* RecordSpeedName(int i) {
   // x264 preset names, left in English because that is what they are called.
   static const char* names[5] = {"ultrafast", "veryfast", "faster", "fast", "medium"};
   return names[Pick(i, 5)];
+}
+
+const char* TrayItemName(int i) {
+  static const char* de[kTrayItemCount] = {
+      "Aufnahme starten/stoppen", "Screenshot", "Screenshot in die Zwischenablage",
+      "Aufnahmeordner öffnen", "Screenshot-Ordner öffnen", "Vollbild", "Immer im Vordergrund",
+      "Rahmenlos", "Stumm", "Standbild", "Virtuelle Kamera", "Profil wechseln",
+      "Aufnahme neu starten", "Einstellungen"};
+  static const char* en[kTrayItemCount] = {
+      "Start / stop recording", "Screenshot", "Screenshot to clipboard",
+      "Open the recordings folder", "Open the screenshots folder", "Fullscreen", "Always on top",
+      "Borderless", "Mute", "Freeze", "Virtual camera", "Switch profile", "Restart capture",
+      "Settings"};
+  i = Pick(i, kTrayItemCount);
+  return T(de[i], en[i]);
 }
 
 const char* OsdCornerName(int i) {
@@ -908,6 +931,21 @@ bool Config::Load(std::string* error) {
   app.vsync = a["vsync"].AsBool(false);
   app.alwaysOnTop = a["alwaysOnTop"].AsBool(false);
   app.borderless = a["borderless"].AsBool(false);
+  app.trayIcon = a["trayIcon"].AsBool(true);
+  // No list means the defaults; a list, even an empty one, means exactly what
+  // it names. Names this build does not know are skipped.
+  const json::Value& tray = a["trayItems"];
+  if (tray.IsArray()) {
+    app.trayItems = {};
+    for (size_t i = 0; i < tray.Size(); ++i) {
+      const std::string key = tray.At(i).AsString();
+      for (int k = 0; k < kTrayItemCount; ++k) {
+        if (key == kTrayItemKeys[k]) app.trayItems[(size_t)k] = true;
+      }
+    }
+  } else {
+    app.trayItems = DefaultTrayItems();
+  }
   app.hideCursorFullscreen = a["hideCursorFullscreen"].AsBool(true);
   app.preventSleep = a["preventSleep"].AsBool(true);
   app.showStats = a["showStats"].AsBool(false);
@@ -1051,6 +1089,12 @@ std::string Config::Serialize() const {
   a["vsync"] = app.vsync;
   a["alwaysOnTop"] = app.alwaysOnTop;
   a["borderless"] = app.borderless;
+  a["trayIcon"] = app.trayIcon;
+  json::Value tray = json::Value::Array();
+  for (int k = 0; k < kTrayItemCount; ++k) {
+    if (app.trayItems[(size_t)k]) tray.Push(json::Value(kTrayItemKeys[k]));
+  }
+  a["trayItems"] = tray;
   a["hideCursorFullscreen"] = app.hideCursorFullscreen;
   a["preventSleep"] = app.preventSleep;
   a["showStats"] = app.showStats;

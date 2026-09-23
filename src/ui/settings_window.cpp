@@ -3125,6 +3125,36 @@ void SettingsWindow::DrawDisplayTab() {
   Anchor("startfs");
 
   ImGui::Spacing();
+  ImGui::SeparatorText(T("Infobereich", "Notification area"));
+  Anchor("traysec");
+  ImGui::Checkbox(T("Symbol im Infobereich", "Icon in the notification area"), &app.trayIcon);
+  Anchor("tray");
+  ImGui::SameLine();
+  HelpMarker(T("Ein Symbol neben der Uhr. Linksklick holt das Fenster nach vorn, Rechtsklick "
+               "öffnet ein Menü mit den Befehlen, die unten angehakt sind. Das Fenster behält "
+               "seinen Knopf in der Taskleiste.",
+               "An icon by the clock. A left click brings the window to the front, a right "
+               "click opens a menu with the commands ticked below. The window keeps its "
+               "taskbar button."));
+  ImGui::BeginDisabled(!app.trayIcon);
+  ImGui::Indent();
+  ImGui::TextDisabled("%s", T("Im Menü, außer Anzeigen und Beenden:",
+                              "In its menu, besides Show and Quit:"));
+  Anchor("trayitems");
+  if (ImGui::BeginTable("##trayitems", 2, ImGuiTableFlags_SizingStretchSame)) {
+    for (int i = 0; i < kTrayItemCount; ++i) {
+      ImGui::TableNextColumn();
+      bool on = app.trayItems[(size_t)i];
+      ImGui::PushID(i);
+      if (ImGui::Checkbox(TrayItemName(i), &on)) app.trayItems[(size_t)i] = on;
+      ImGui::PopID();
+    }
+    ImGui::EndTable();
+  }
+  ImGui::Unindent();
+  ImGui::EndDisabled();
+
+  ImGui::Spacing();
   ImGui::SeparatorText(T("Sonstiges", "Other"));
   ImGui::Checkbox(
       Format(T("Protokoll in %s.log schreiben", "Write a log to %s.log"), AppNameUtf8().c_str())

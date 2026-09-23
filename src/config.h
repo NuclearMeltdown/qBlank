@@ -8,6 +8,7 @@
 // source -- device, crossbar input, capture format, image and audio settings --
 // so "SNES 4:3 nearest" and "PS2 Component 480i" are one hotkey apart.
 
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -211,6 +212,43 @@ inline bool IsAutoEncoder(RecordEncoder e) {
 // vendor defaults are better than anything guessed here.
 enum class RecordSpeed { UltraFast, VeryFast, Faster, Fast, Medium };
 
+// What the icon in the notification area can offer, in the order its menu
+// shows them. Showing the window and quitting are not on the list: the menu
+// always has those two.
+enum class TrayItem {
+  Record,
+  Screenshot,
+  ScreenshotClipboard,
+  RecordFolder,
+  ScreenshotFolder,
+  Fullscreen,
+  AlwaysOnTop,
+  Borderless,
+  Mute,
+  Freeze,
+  VirtualCamera,
+  Profiles,
+  RestartCapture,
+  Settings,
+  Count
+};
+constexpr int kTrayItemCount = (int)TrayItem::Count;
+using TrayItems = std::array<bool, kTrayItemCount>;
+
+// The everyday ones are on from the start: recording, screenshots, the two
+// folders they land in, and the settings. The rest is switched on by whoever
+// wants them there.
+constexpr TrayItems DefaultTrayItems() {
+  TrayItems on = {};
+  on[(int)TrayItem::Record] = true;
+  on[(int)TrayItem::Screenshot] = true;
+  on[(int)TrayItem::ScreenshotClipboard] = true;
+  on[(int)TrayItem::RecordFolder] = true;
+  on[(int)TrayItem::ScreenshotFolder] = true;
+  on[(int)TrayItem::Settings] = true;
+  return on;
+}
+
 // UI labels in the language currently selected, taken by enum value. Passing an
 // out of range index is safe and yields the first entry.
 const char* ThemeName(int index);
@@ -249,6 +287,7 @@ const char* RecordContainerName(int index);
 const char* ScreenshotFormatName(int index);
 const char* RecordEncoderName(int index);
 const char* RecordSpeedName(int index);
+const char* TrayItemName(int index);
 
 // Short explanations shown as tooltips. Empty string when there is nothing
 // worth saying beyond the label.
@@ -639,6 +678,11 @@ struct AppSettings {
   // The window without title bar and frame, only the picture; moved by dragging
   // the picture, sized at its edges. It keeps its taskbar button.
   bool borderless = false;
+  // The icon in the notification area, and what its menu offers. A second place
+  // for commands, never a place to hide the window in: the taskbar button stays
+  // either way.
+  bool trayIcon = true;
+  TrayItems trayItems = DefaultTrayItems();
   bool hideCursorFullscreen = true;
   bool preventSleep = true;
   bool showStats = false;
