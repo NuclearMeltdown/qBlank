@@ -266,6 +266,13 @@ const Entry kEntries[] = {
      "Tray-Icon|Tray icon|Systray|Infobereich|Notification area|Symbol|Icon"},
     {Kind::Control, kTabDisplay, "trayitems", "Im Menü des Symbols", "In the icon's menu",
      "Schnellzugriff|Quick actions|Schnellaktionen|Tray-Menü|Tray menu|Befehle|Commands"},
+    {Kind::Section, kTabDisplay, "shortcutsec", "Verknüpfungen", "Shortcuts",
+     "Verknüpfung|Shortcut|Link|Startmenü|Start menu|Desktop|Symbol|Icon|Anheften|Pin"},
+    {Kind::Control, kTabDisplay, "shortcutstart", "Ins Startmenü", "Add to the Start menu",
+     "Startmenü|Start menu|Startmenue|Alle Apps|All apps|Programme|Programs|"
+     "Startmenüverknüpfung|Start menu shortcut"},
+    {Kind::Control, kTabDisplay, "shortcutdesktop", "Auf den Desktop", "Add to the desktop",
+     "Desktop|Schreibtisch|Desktopverknüpfung|Desktop shortcut"},
     {Kind::Place, kTabDisplay, nullptr, "Sonstiges", "Other", nullptr},
     {Kind::Control, kTabDisplay, "log", "Protokoll schreiben", "Write a log",
      "Log|Logfile|Logdatei|Debug|Fehlersuche|Troubleshooting|Diagnose"},

@@ -266,6 +266,13 @@ class SettingsWindow {
   std::vector<AudioDeviceInfo> audioOutputs_;
   std::vector<MonitorInfoEntry> monitors_;
 
+  // Whether the start menu and the desktop have a shortcut to this copy. Read
+  // from disk once per opening, and again after each button, not every frame.
+  bool shortcutsRead_ = false;
+  bool shortcutStartMenu_ = false;
+  bool shortcutDesktop_ = false;
+  bool shortcutFailed_ = false;
+
   // Capabilities of the device the dialog last probed, keyed by its id.
   std::string probedId_;
   DeviceProbeResult probed_;

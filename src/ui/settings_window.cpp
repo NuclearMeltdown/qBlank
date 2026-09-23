@@ -205,6 +205,8 @@ void SettingsWindow::Open(Config* live, const std::string& reason) {
   open_ = true;
   restorePos_ = true;
   listsValid_ = false;
+  shortcutsRead_ = false;
+  shortcutFailed_ = false;
   renameTarget_ = -1;
   recordBuffersLoaded_ = false;
 }
@@ -3153,6 +3155,43 @@ void SettingsWindow::DrawDisplayTab() {
   }
   ImGui::Unindent();
   ImGui::EndDisabled();
+
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Verknüpfungen", "Shortcuts"));
+  Anchor("shortcutsec");
+  if (!shortcutsRead_) {
+    shortcutStartMenu_ = HasShortcut(ShortcutPlace::StartMenu);
+    shortcutDesktop_ = HasShortcut(ShortcutPlace::Desktop);
+    shortcutsRead_ = true;
+  }
+  // Buttons, not checkboxes: they act at once, and Discard could not take a
+  // file back off the desktop. Each says what it would do, which is also what
+  // tells whether the shortcut is there.
+  const auto shortcutButton = [&](ShortcutPlace place, bool* has, const char* add,
+                                  const char* remove, const char* anchor) {
+    if (ImGui::Button(*has ? remove : add)) {
+      shortcutFailed_ = !(*has ? RemoveShortcut(place) : CreateShortcut(place));
+      *has = HasShortcut(place);
+    }
+    Anchor(anchor);
+  };
+  shortcutButton(ShortcutPlace::StartMenu, &shortcutStartMenu_,
+                 T("Ins Startmenü", "Add to the Start menu"),
+                 T("Aus dem Startmenü entfernen", "Remove from the Start menu"), "shortcutstart");
+  ImGui::SameLine();
+  shortcutButton(ShortcutPlace::Desktop, &shortcutDesktop_, T("Auf den Desktop", "Add to the desktop"),
+                 T("Vom Desktop entfernen", "Remove from the desktop"), "shortcutdesktop");
+  ImGui::SameLine();
+  HelpMarker(Format(T("Verknüpfungen zu %s an dem Ort, an dem es gerade liegt. Wird es "
+                      "verschoben, einfach neu anlegen.",
+                      "Shortcuts to %s where it is now. If it is moved, just add them again."),
+                    AppNameUtf8().c_str())
+                 .c_str());
+  if (shortcutFailed_) {
+    ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.35f, 1.0f), "%s",
+                       T("Die Verknüpfung ließ sich nicht ändern.",
+                         "The shortcut could not be changed."));
+  }
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Sonstiges", "Other"));

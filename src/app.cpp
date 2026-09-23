@@ -220,6 +220,11 @@ bool App::Initialize() {
   // ein Problem.
   if (firstRun_) {
     CAP_LOG("First start: welcome screen instead of settings");
+    // Asked only for what is not there yet: a copy unpacked a second time, with
+    // its settings file left behind, may still have its shortcuts.
+    welcomeStartMenu_ = !HasShortcut(ShortcutPlace::StartMenu);
+    welcomeDesktop_ = !HasShortcut(ShortcutPlace::Desktop);
+    welcomeQueued_ = welcomeStartMenu_ || welcomeDesktop_;
   } else if (config_.active().capture.video.empty()) {
     OpenSettings(T("Noch kein Aufnahmegerät ausgewählt. Wähle unten die Capture-Karte aus.",
                    "No capture device selected yet. Pick your capture card below."));
@@ -4110,8 +4115,10 @@ void App::DrawUpdatePrompt() {
   }
 
   const char* id = T("Update verfügbar###app_update", "Update available###app_update");
-  // Not over the crash notice: opened at the same level, it would replace it.
-  if (updatePromptQueued_ && !ImGui::IsPopupOpen("###crash_notice")) {
+  // Not over the crash notice or the welcome: opened at the same level, it
+  // would replace them.
+  if (updatePromptQueued_ && !ImGui::IsPopupOpen("###crash_notice") &&
+      !ImGui::IsPopupOpen("###welcome")) {
     ImGui::OpenPopup(id);
     updatePromptQueued_ = false;
   }
@@ -4220,6 +4227,56 @@ void App::DrawCrashNotice() {
   }
   ImGui::SameLine();
   if (ImGui::Button("OK", ImVec2(buttonWidth, 0))) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
+void App::DrawWelcome() {
+  const char* id = T("Erster Start###welcome", "First start###welcome");
+  if (welcomeQueued_) {
+    ImGui::OpenPopup(id);
+    welcomeQueued_ = false;
+  }
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                 viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+                          ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  ImGui::Text(T("Sieht so aus, als wäre das dein erster Start mit %s.",
+                "Looks like this is your first time using %s."),
+              AppNameUtf8().c_str());
+  ImGui::TextUnformatted(T("Verknüpfungen anlegen?", "Create shortcuts?"));
+  ImGui::Spacing();
+  if (welcomeStartMenu_) {
+    ImGui::Checkbox(T("Im Startmenü", "In the Start menu"), &welcomeWantStartMenu_);
+  }
+  if (welcomeDesktop_) {
+    ImGui::Checkbox(T("Auf dem Desktop", "On the desktop"), &welcomeWantDesktop_);
+  }
+  ImGui::Spacing();
+  ImGui::TextDisabled("%s", T("Geht auch später, in den Einstellungen unter Anzeige.",
+                              "Also possible later, in the settings under Display."));
+  ImGui::Spacing();
+
+  const bool startMenu = welcomeStartMenu_ && welcomeWantStartMenu_;
+  const bool desktop = welcomeDesktop_ && welcomeWantDesktop_;
+  const float buttonWidth = 130.0f * uiScale_;
+  ImGui::BeginDisabled(!startMenu && !desktop);
+  if (ImGui::Button(T("Anlegen", "Create"), ImVec2(buttonWidth, 0))) {
+    bool ok = true;
+    if (startMenu) ok = CreateShortcut(ShortcutPlace::StartMenu) && ok;
+    if (desktop) ok = CreateShortcut(ShortcutPlace::Desktop) && ok;
+    if (!ok) {
+      Toast(T("Die Verknüpfung ließ sich nicht anlegen.", "The shortcut could not be created."));
+    }
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (ImGui::Button(T("Nein danke", "No thanks"), ImVec2(buttonWidth, 0))) {
+    ImGui::CloseCurrentPopup();
+  }
   ImGui::EndPopup();
 }
 
@@ -6122,6 +6179,7 @@ void App::DrawUi() {
     }
   }
   if (settings_.takeProbeRequest()) StartEncoderProbe(true);
+  DrawWelcome();
   DrawCrashNotice();
   DrawUpdatePrompt();
   if (settings_.takeRestartRequest()) {

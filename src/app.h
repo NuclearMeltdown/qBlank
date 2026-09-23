@@ -263,6 +263,8 @@ class App {
   void DrawUpdatePrompt();
   // Once, when the log's previous session never got its end line.
   void DrawCrashNotice();
+  // On the very first start: shortcuts in the start menu and on the desktop?
+  void DrawWelcome();
 
   void OpenDeviceConfig();
   void DetectCrop();
@@ -481,6 +483,13 @@ class App {
   bool updatePromptRaised_ = false;   // already shown once this session
   UnfinishedSession unfinishedSession_;  // what the crash notice reports
   bool crashNoticeQueued_ = false;
+  // The first start's question: which shortcuts are missing, and which of
+  // those are ticked.
+  bool welcomeQueued_ = false;
+  bool welcomeStartMenu_ = false;
+  bool welcomeDesktop_ = false;
+  bool welcomeWantStartMenu_ = true;
+  bool welcomeWantDesktop_ = true;
   bool devicePagesWereBusy_ = false;
   // Guards the frame drawn from inside a window drag against re-entering itself.
   bool inModalFrame_ = false;
