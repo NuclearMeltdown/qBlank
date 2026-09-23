@@ -207,6 +207,13 @@ class D3D11Passes : public RenderPasses {
   bool EnsureDelivery(int width, int height, bool half);
   bool EnsureUiLayer(int width, int height);
 
+  // Each drops one group of pictures and forgets its size.
+  void ReleaseClean();
+  void ReleaseIntermediate();
+  void ReleaseDelivery(bool half);
+  void ReleaseUiLayer();
+  void ReleaseHdrRecord();
+
   ID3D11Device* dev() const { return NativeDevice(*display_); }
   ID3D11DeviceContext* dc() const { return NativeContext(*display_); }
 
@@ -319,19 +326,31 @@ bool D3D11Passes::Initialize(Display* display, std::string* error) {
 }
 
 void D3D11Passes::Shutdown() {
+  // All of it, not just what is expensive to keep: everything here was made on
+  // the display's device, and any one piece still held keeps that device alive
+  // past the display's own shutdown.
   ReleaseReadbackSlots();
+  ReleaseHdrRecord();
+  ReleaseUiLayer();
+  ReleaseDelivery(true);
+  ReleaseDelivery(false);
+  ReleaseIntermediate();
+  ReleaseClean();
   ReleasePlanes();
-  intermediateRtv_.Reset();
-  intermediateSrv_.Reset();
-  intermediate_.Reset();
+  blendPremultiplied_.Reset();
   blendOpaque_.Reset();
   raster_.Reset();
   sampLinear_.Reset();
   sampPoint_.Reset();
+  cbRecord_.Reset();
+  cbUi_.Reset();
   cbScale_.Reset();
   cbConvert_.Reset();
+  psHdrRecord_.Reset();
+  psUiComposite_.Reset();
   psScale_.Reset();
   psConvert_.Reset();
+  psClean_.Reset();
   vs_.Reset();
   display_ = nullptr;
 }
@@ -561,6 +580,48 @@ void D3D11Passes::PushHistory(int slot, int planeCount) {
 }
 
 // ------------------------------------------------- the pictures between passes
+
+void D3D11Passes::ReleaseClean() {
+  cleanSrv_.Reset();
+  cleanRtv_.Reset();
+  cleanTex_.Reset();
+  cleanPrevSrv_.Reset();
+  cleanPrevTex_.Reset();
+  cleanWidth_ = 0;
+  cleanHeight_ = 0;
+}
+
+void D3D11Passes::ReleaseIntermediate() {
+  intermediateRtv_.Reset();
+  intermediateSrv_.Reset();
+  intermediate_.Reset();
+  intermediateWidth_ = 0;
+  intermediateHeight_ = 0;
+  intermediateFormat_ = DXGI_FORMAT_R8G8B8A8_UNORM;
+}
+
+void D3D11Passes::ReleaseDelivery(bool half) {
+  if (half) {
+    deliveryHalfSrv_.Reset();
+    deliveryHalfRtv_.Reset();
+    deliveryHalf_.Reset();
+    deliveryHalfTexWidth_ = 0;
+    deliveryHalfTexHeight_ = 0;
+  } else {
+    deliveryRtv_.Reset();
+    delivery_.Reset();
+    deliveryTexWidth_ = 0;
+    deliveryTexHeight_ = 0;
+  }
+}
+
+void D3D11Passes::ReleaseUiLayer() {
+  uiSrv_.Reset();
+  uiRtv_.Reset();
+  uiTex_.Reset();
+  uiWidth_ = 0;
+  uiHeight_ = 0;
+}
 
 bool D3D11Passes::EnsureClean(int width, int height) {
   width = std::max(1, width);
@@ -988,6 +1049,14 @@ bool D3D11Passes::MapReadback(int slot, MappedImage* mapped) {
 
 void D3D11Passes::UnmapReadback(int slot) {
   dc()->Unmap(readbackTex_[slot].Get(), 0);
+}
+
+void D3D11Passes::ReleaseHdrRecord() {
+  hdrRecRtv_.Reset();
+  hdrRecTex_.Reset();
+  for (int i = 0; i < kReadbackSlots; ++i) hdrReadbackTex_[i].Reset();
+  hdrRecWidth_ = 0;
+  hdrRecHeight_ = 0;
 }
 
 bool D3D11Passes::CreateHdrRecord(int width, int height) {
