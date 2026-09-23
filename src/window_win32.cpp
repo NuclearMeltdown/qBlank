@@ -59,6 +59,7 @@ constexpr DWORD kDwmWindowCornerPreference = 33;
 constexpr DWORD kDwmBorderColor = 34;
 constexpr int kDwmCornerDefault = 0;
 constexpr int kDwmCornerSquare = 1;
+constexpr int kDwmCornerRound = 2;
 constexpr COLORREF kDwmColorDefault = 0xFFFFFFFF;
 constexpr COLORREF kDwmColorNone = 0xFFFFFFFE;
 
@@ -385,8 +386,9 @@ LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARA
       Emit(w, event);
       // Windows suggests a size that keeps the window the same size to the eye
       // on the new monitor, but does not apply it itself. The startup dialog
-      // stays as it is: it does not rescale its contents either.
-      if (role != WindowRole::Dialog) {
+      // stays as it is: it does not rescale its contents either. A popup is
+      // sized by what it holds, which its owner measures anew.
+      if (role != WindowRole::Dialog && role != WindowRole::Popup) {
         const auto* rc = reinterpret_cast<const RECT*>(lparam);
         ::SetWindowPos(hwnd, nullptr, rc->left, rc->top, rc->right - rc->left,
                        rc->bottom - rc->top, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -570,6 +572,7 @@ BOOL CALLBACK CollectDisplay(HMONITOR monitor, HDC, LPRECT, LPARAM data) {
   DisplayInfo display;
   display.rect = {info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right,
                   info.rcMonitor.bottom};
+  display.work = {info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom};
   display.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
   list->push_back(display);
   return TRUE;
@@ -703,6 +706,20 @@ CreateResult Window::Create(const WindowSpec& spec) {
       }
       break;
     }
+
+    case WindowRole::Popup: {
+      // The shadow the system's menus have. Registered once and kept, like the
+      // settings window's class.
+      wc.style = CS_DROPSHADOW;
+      ::RegisterClassExW(&wc);
+      style = WS_POPUP;
+      // No taskbar button and no Alt+Tab entry, and above a topmost preview.
+      exStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
+      // CW_USEDEFAULT means nothing to a popup.
+      x = spec.hasPosition ? spec.x : 0;
+      y = spec.hasPosition ? spec.y : 0;
+      break;
+    }
   }
 
   const HWND hwnd = ::CreateWindowExW(exStyle, w.className.c_str(), ToWide(spec.title).c_str(),
@@ -713,6 +730,12 @@ CreateResult Window::Create(const WindowSpec& spec) {
     return CreateResult::WindowFailed;
   }
   if (w.borderless) ApplyBorderlessLook(&w);
+  if (spec.role == WindowRole::Popup) {
+    // Rounded like the system's menus on Windows 11. Earlier versions refuse
+    // and keep square corners.
+    const int corner = kDwmCornerRound;
+    ::DwmSetWindowAttribute(hwnd, kDwmWindowCornerPreference, &corner, sizeof(corner));
+  }
   return CreateResult::Ok;
 }
 
@@ -914,6 +937,22 @@ bool Window::ClientSizeFits(int width, int height) const {
   if (!Frameless(impl_.get())) frame = FrameOffsets(hwnd);
   return width + (frame.right - frame.left) <= work.right - work.left &&
          height + (frame.bottom - frame.top) <= work.bottom - work.top;
+}
+
+void Window::SetFrameRect(const Rect& rect) {
+  const HWND hwnd = impl_->hwnd;
+  if (!hwnd) return;
+  ::SetWindowPos(hwnd, nullptr, rect.left, rect.top, rect.width(), rect.height(),
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+bool Window::SetOutlineColor(unsigned rgb) {
+  const HWND hwnd = impl_->hwnd;
+  if (!hwnd || impl_->role != WindowRole::Popup) return false;
+  // Windows 11 draws the line along the rounded corners; Windows 10 has neither
+  // and refuses the attribute.
+  const COLORREF color = RGB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+  return SUCCEEDED(::DwmSetWindowAttribute(hwnd, kDwmBorderColor, &color, sizeof(color)));
 }
 
 void Window::SetSizingAspect(double aspect, int inset) {

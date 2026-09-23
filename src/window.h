@@ -50,6 +50,10 @@ enum class WindowRole {
   // A question on its own, before there is a main window. Fixed size; centred
   // on the primary screen's work area unless a position is given.
   Dialog,
+  // A menu of the program's own, drawn by it: no frame, no taskbar button,
+  // above everything, with the shadow and corners the platform gives its own
+  // menus. Placed with SetFrameRect.
+  Popup,
 };
 
 struct WindowSpec {
@@ -183,6 +187,13 @@ class Window {
   // Whether the window, frame and all, would fit that screen's work area with
   // the inside at this size.
   bool ClientSizeFits(int width, int height) const;
+  // The whole window at `rect`, in screen coordinates, as it is: nothing is
+  // kept on a screen or restored.
+  void SetFrameRect(const Rect& rect);
+  // Popup only: the colour, 0xRRGGBB, of the thin line the platform draws
+  // around the window. False when it draws none, and the window has to draw
+  // its own.
+  bool SetOutlineColor(unsigned rgb);
   // Main window only: while Shift is held, resizing keeps the inside below the
   // top `inset` pixels at this width over height. 0 turns it off.
   void SetSizingAspect(double aspect, int inset);
@@ -238,6 +249,7 @@ const Window* UiWindow();
 
 struct DisplayInfo {
   Rect rect;
+  Rect work;  // without the taskbar and whatever else is docked to the edges
   bool primary = false;
 };
 // In the platform's order, which is the order the settings number them in.
