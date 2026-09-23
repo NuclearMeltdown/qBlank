@@ -156,7 +156,8 @@ StartupAnswer AskAtStartup(const StartupQuestion& question) {
   ApplyImGuiTheme(dark, kDefaultAccent);
   ImGui::GetStyle().ScaleAllSizes(scale);
 
-  bool ready = window.AttachUi(nullptr) && display.InitUi();
+  const bool attached = window.AttachUi(nullptr);
+  const bool ready = attached && display.InitUi();
   if (ready) {
     window.SetDarkFrame(dark);
 
@@ -194,8 +195,10 @@ StartupAnswer AskAtStartup(const StartupQuestion& question) {
     }
 
     display.ShutdownUi();
-    window.DetachUi();
   }
+  // Also when the drawing side failed to start: the window's half was already
+  // attached, and a context must not be destroyed with a backend still in it.
+  if (attached) window.DetachUi();
 
   ImGui::DestroyContext();
   ImGui::SetCurrentContext(previous);
