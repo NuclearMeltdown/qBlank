@@ -8,6 +8,7 @@
 #include "files.h"
 #include "i18n.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "platform.h"
 #include "record/ffmpeg_locator.h"
 #include "render/display.h"
@@ -62,6 +63,32 @@ void WrappedTooltip(const char* text) {
     ImGui::PopTextWrapPos();
     ImGui::EndTooltip();
   }
+}
+
+// BeginMenu mit Tastenkuerzel. Dear ImGui zeichnet bei einem Untermenue keins,
+// die Spalte dafuer hat das Menue aber trotzdem: hier wird sie angemeldet und
+// das Kuerzel an dieselbe Stelle und in derselben Farbe gesetzt wie bei einem
+// MenuItem, links vom Pfeil.
+bool BeginMenuWithShortcut(const char* label, const char* shortcut) {
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  const bool draw = shortcut && *shortcut && !window->SkipItems &&
+                    window->DC.LayoutType == ImGuiLayoutType_Vertical;
+  const ImVec2 pos = window->DC.CursorPos;
+  float stretch = 0.0f;
+  if (draw) {
+    const float mark = IM_TRUNC(ImGui::GetFontSize() * 1.20f);
+    const float width = window->DC.MenuColumns.DeclColumns(
+        0.0f, ImGui::CalcTextSize(label, nullptr, true).x, ImGui::CalcTextSize(shortcut).x, mark);
+    stretch = ImMax(0.0f, ImGui::GetContentRegionAvail().x - width);
+  }
+  const bool open = ImGui::BeginMenu(label);
+  // Nach einem geoeffneten BeginMenu ist das Untermenue das aktuelle Fenster,
+  // das Kuerzel gehoert aber in die Zeile darueber.
+  if (draw) {
+    const ImVec2 at(pos.x + window->DC.MenuColumns.OffsetShortcut + stretch, pos.y);
+    window->DrawList->AddText(at, ImGui::GetColorU32(ImGuiCol_TextDisabled), shortcut);
+  }
+  return open;
 }
 
 }  // namespace
@@ -1015,10 +1042,32 @@ void App::ToggleCompare() {
   if (compare_) bypass_ = false;
   if (!compare_) {
     Toast(T("Vergleich aus", "Compare off"));
-  } else if (config_.active().image.compareHorizontal) {
+  } else {
+    ToastCompareSide();
+  }
+}
+
+void App::ToastCompareSide() {
+  if (config_.active().image.compareHorizontal) {
     Toast(T("Vergleich: über der Linie ohne Filter", "Compare: filters off above the line"));
   } else {
     Toast(T("Vergleich: links ohne Filter", "Compare: filters off on the left"));
+  }
+}
+
+// Aus dem Kontextmenue: eine Richtung waehlen zeigt den Vergleich in dieser
+// Richtung, die schon gezeigte noch einmal waehlen schaltet ihn aus.
+void App::ChooseCompare(bool horizontal) {
+  bool& across = config_.active().image.compareHorizontal;
+  if (compare_ && across == horizontal) {
+    ToggleCompare();
+    return;
+  }
+  across = horizontal;
+  if (compare_) {
+    ToastCompareSide();
+  } else {
+    ToggleCompare();
   }
 }
 
@@ -6020,14 +6069,30 @@ void App::DrawContextMenu() {
                    "laufen weiter, nur die Quelle steht.",
                    "Holds the picture so filters can be set in peace. The filters keep "
                    "running; only the source stands still."));
-  if (ImGui::MenuItem(T("Filter vergleichen", "Compare filters"), sc(HotkeyAction::Compare),
-                      compare_)) {
-    ToggleCompare();
+  // Die Richtung gleich mit, statt sie im Einstellungsfenster zu suchen. Die
+  // Taste schaltet den Vergleich in der zuletzt gewaehlten Richtung, deshalb
+  // steht sie am Menue und nicht an einer der beiden.
+  if (BeginMenuWithShortcut(T("Filter vergleichen", "Compare filters"),
+                            sc(HotkeyAction::Compare))) {
+    const bool across = config_.active().image.compareHorizontal;
+    const char* hint = T("Teilt das Bild: auf einer Seite alle Filter aus, auf der anderen an. "
+                         "Das Deinterlacing läuft auf beiden Seiten, die Trennlinie lässt sich "
+                         "im Bild ziehen. Noch einmal wählen schaltet den Vergleich aus.",
+                         "Splits the picture: every filter off on one side, on on the other. "
+                         "Deinterlacing runs on both sides, and the divider can be dragged in "
+                         "the picture. Choose it again to switch off.");
+    if (ImGui::MenuItem(T("Senkrecht – links ungefiltert", "Vertical – unfiltered on the left"),
+                        nullptr, compare_ && !across)) {
+      ChooseCompare(false);
+    }
+    WrappedTooltip(hint);
+    if (ImGui::MenuItem(T("Waagerecht – oben ungefiltert", "Horizontal – unfiltered on top"),
+                        nullptr, compare_ && across)) {
+      ChooseCompare(true);
+    }
+    WrappedTooltip(hint);
+    ImGui::EndMenu();
   }
-  WrappedTooltip(T("Teilt das Bild: links alle Filter aus, rechts an. Das Deinterlacing läuft "
-                   "auf beiden Seiten. Die Trennlinie steht unter Bild → Vergleich.",
-                   "Splits the picture: every filter off on the left, on on the right. "
-                   "Deinterlacing runs on both sides. The divider is under Picture → Compare."));
   if (ImGui::MenuItem(T("Alle Filter aus", "All filters off"), sc(HotkeyAction::BypassFilters),
                       bypass_)) {
     ToggleBypass();

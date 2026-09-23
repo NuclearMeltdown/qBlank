@@ -163,6 +163,8 @@ class App {
   // die Anzeige anhaelt.
   void ToggleFreeze();
   void ToggleCompare();
+  void ToastCompareSide();
+  void ChooseCompare(bool horizontal);
   void ToggleBypass();
   // Fragt den freien Platz auf dem Aufnahmelaufwerk ab, hoechstens einmal je
   // Sekunde. Die Einstellungen zeigen ihn an, die laufende Aufnahme haengt
