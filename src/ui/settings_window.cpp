@@ -175,6 +175,9 @@ std::string FpsLabel(double fps) {
   return s + " Hz";
 }
 
+// A width written for 100 %, at the scale of the monitor the window is on.
+float Px(float pixels) { return pixels * ImGui::GetStyle().FontScaleDpi; }
+
 }  // namespace
 
 std::vector<MonitorInfoEntry> EnumerateMonitors() {
@@ -416,6 +419,13 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
     // Der Rückfall greift, wenn das Hauptfenster inzwischen kleiner ist als
     // damals -- dann läge das Feld ganz oder überwiegend draußen, und ohne
     // Titelleiste in Reichweite bekäme man es nicht mehr zurück.
+    //
+    // The sizes below are for 100 %; the style carries the monitor's scale.
+    //
+    // The default goes first: ImGui keeps only the last size it is handed, so
+    // after the restore below it used to replace the remembered size.
+    const float scale = ImGui::GetStyle().FontScaleDpi;
+    ImGui::SetNextWindowSize(ImVec2(780.0f * scale, 660.0f * scale), ImGuiCond_FirstUseEver);
     if (restorePos_) {
       restorePos_ = false;
       const ImVec2 work = viewport->WorkPos;
@@ -442,9 +452,19 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
             ImVec2(work.x + area.x * 0.5f, work.y + area.y * 0.5f), ImGuiCond_Always,
             ImVec2(0.5f, 0.5f));
       }
+    } else if (panelScale_ > 0.0f && scale != panelScale_) {
+      // The main window went to a monitor with other scaling and grew or shrank
+      // with it. The panel does the same and keeps its place in it.
+      const float k = scale / panelScale_;
+      const AppSettings& app = cfg().app;
+      ImGui::SetNextWindowPos(ImVec2(app.settingsPanelX * k, app.settingsPanelY * k),
+                              ImGuiCond_Always);
+      ImGui::SetNextWindowSize(ImVec2(app.settingsPanelW * k, app.settingsPanelH * k),
+                               ImGuiCond_Always);
     }
-    ImGui::SetNextWindowSize(ImVec2(780.0f, 660.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(620.0f, 460.0f), ImVec2(FLT_MAX, FLT_MAX));
+    panelScale_ = scale;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(620.0f * scale, 460.0f * scale),
+                                        ImVec2(FLT_MAX, FLT_MAX));
 
     // Everything after "###" is the id, everything before it is the label.
     // Without this the window is a different window in each language: ImGui keys
@@ -902,7 +922,7 @@ void SettingsWindow::DrawUpdatesTab() {
                             st.state == UpdateStatus::State::Ready)) {
     ImGui::Spacing();
     ImGui::SeparatorText(T("Was neu ist", "What is new"));
-    ImGui::BeginChild("release_notes", ImVec2(0, 220.0f), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("release_notes", ImVec2(0, Px(220.0f)), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted(st.notes.c_str());
     ImGui::PopTextWrapPos();
@@ -1446,13 +1466,13 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   Anchor("manualfmt");
   if (customFormat_) {
     ImGui::Indent();
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(Px(120.0f));
     ImGui::InputInt(T("Breite", "Width"), &customWidth_, 0, 0);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(Px(120.0f));
     ImGui::InputInt(T("Höhe", "Height"), &customHeight_, 0, 0);
     float fpsInput = (float)customFps_;
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(Px(120.0f));
     if (ImGui::InputFloat(T("Bilder/s", "Frames/s"), &fpsInput, 0.0f, 0.0f, "%.3f")) {
       customFps_ = fpsInput;
     }
@@ -2877,7 +2897,7 @@ void SettingsWindow::DrawHdrBlock() {
   Anchor("hdrshot");
   if (app.screenshotHdr) {
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(150.0f);
+    ImGui::SetNextItemWidth(Px(150.0f));
     const char* shotNames[] = {T("JPEG XR (.jxr)", "JPEG XR (.jxr)"), T("AVIF", "AVIF")};
     int shot = (int)app.hdrShotFormat;
     if (ImGui::Combo("##hdrshot", &shot, shotNames, kHdrShotFormatCount)) {
@@ -3126,7 +3146,7 @@ void SettingsWindow::DrawDisplayTab() {
   ImGui::Checkbox(T("Sitzungen älter als##logAge", "Sessions older than##logAge"), &keep.byAge);
   ImGui::SameLine();
   ImGui::BeginDisabled(!keep.byAge);
-  ImGui::SetNextItemWidth(64.0f);
+  ImGui::SetNextItemWidth(Px(64.0f));
   if (ImGui::InputInt("##logDays", &keep.days, 0, 0, ImGuiInputTextFlags_CharsDecimal)) {
     keep.days = Clamp(keep.days, 1, 3650);
   }
@@ -3137,7 +3157,7 @@ void SettingsWindow::DrawDisplayTab() {
                   &keep.byCount);
   ImGui::SameLine();
   ImGui::BeginDisabled(!keep.byCount);
-  ImGui::SetNextItemWidth(64.0f);
+  ImGui::SetNextItemWidth(Px(64.0f));
   if (ImGui::InputInt("##logSessions", &keep.sessions, 0, 0, ImGuiInputTextFlags_CharsDecimal)) {
     keep.sessions = Clamp(keep.sessions, 1, 1000);
   }
@@ -3665,7 +3685,7 @@ void SettingsWindow::DrawVirtualCameraBlock() {
                 "for administrator rights for that, using it afterwards does not. The "
                 "source travels inside the program and is laid down when installing."));
     ImGui::Spacing();
-    if (ImGui::Button(T("Kamera installieren", "Install camera"), ImVec2(200.0f, 0.0f))) {
+    if (ImGui::Button(T("Kamera installieren", "Install camera"), ImVec2(Px(200.0f), 0.0f))) {
       virtualCameraRequest_ = 1;
       vcamStatusChecked_ = 0.0;
     }
@@ -3731,7 +3751,7 @@ void SettingsWindow::DrawVirtualCameraBlock() {
                         "there."));
 
   ImGui::Spacing();
-  if (ImGui::Button(T("Kamera deinstallieren", "Uninstall camera"), ImVec2(200.0f, 0.0f))) {
+  if (ImGui::Button(T("Kamera deinstallieren", "Uninstall camera"), ImVec2(Px(200.0f), 0.0f))) {
     virtualCameraRequest_ = 2;
     vcamStatusChecked_ = 0.0;
   }
@@ -3800,7 +3820,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   // Und ein Feld daneben, weil ein Regler eine Zahl nur ungefaehr trifft und
   // man hier oft eine bestimmte will. Strg+Klick auf den Regler tut dasselbe,
   // aber das weiss niemand, dem es niemand sagt -- ein sichtbares Feld schon.
-  ImGui::SetNextItemWidth(96.0f);
+  ImGui::SetNextItemWidth(Px(96.0f));
   if (ImGui::InputInt(T("Bitrate", "Bitrate"), &rec.bitrateKbps, 0, 0,
                       ImGuiInputTextFlags_CharsDecimal)) {
     rec.bitrateKbps = Clamp(rec.bitrateKbps, 1000, 100000);
@@ -4156,11 +4176,11 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
       ImGui::SetKeyboardFocusHere();
       namePopupFocus_ = false;
     }
-    ImGui::SetNextItemWidth(320.0f);
+    ImGui::SetNextItemWidth(Px(320.0f));
     const bool entered = ImGui::InputText("##name", renameBuffer_, sizeof(renameBuffer_),
                                           ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::Spacing();
-    if (entered || ImGui::Button("OK", ImVec2(100, 0))) {
+    if (entered || ImGui::Button("OK", ImVec2(Px(100.0f), 0))) {
       const std::string trimmed = Trim(renameBuffer_);
       if (!trimmed.empty()) {
         if (creating) {
@@ -4177,7 +4197,7 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
       ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button(T("Abbrechen", "Cancel"), ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+    if (ImGui::Button(T("Abbrechen", "Cancel"), ImVec2(Px(100.0f), 0))) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   }
 }

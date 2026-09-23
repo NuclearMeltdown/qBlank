@@ -255,6 +255,7 @@ class SettingsWindow {
 
   bool open_ = false;
   bool restorePos_ = true;
+  float panelScale_ = 0.0f;  // DPI scale the embedded panel was last laid out at
   std::string reason_;
   Config* live_ = nullptr;
   Config snapshot_;  // state when the dialog opened, for Discard

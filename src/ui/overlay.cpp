@@ -357,7 +357,9 @@ void DrawStatusCard(const std::string& title, const std::string& detail, bool sp
       ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
       ImGuiCond_Always, ImVec2(0.5f, 0.5f));
   ImGui::SetNextWindowBgAlpha(0.92f);
-  ImGui::SetNextWindowSizeConstraints(ImVec2(340.0f, 0.0f), ImVec2(560.0f, FLT_MAX));
+  const float scale = ImGui::GetStyle().FontScaleDpi;
+  ImGui::SetNextWindowSizeConstraints(ImVec2(340.0f * scale, 0.0f),
+                                      ImVec2(560.0f * scale, FLT_MAX));
 
   if (!ImGui::Begin("##status", nullptr, kOverlayFlags)) {
     ImGui::End();
