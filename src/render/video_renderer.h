@@ -59,6 +59,14 @@ class VideoRenderer {
   // what you are playing.
   void SetTopInset(int pixels) { topInset_ = pixels < 0 ? 0 : pixels; }
 
+  // Width over height the picture should be shown at, as of the last draw; 0
+  // before anything was drawn. Stretch does not change it.
+  double pictureAspect() const { return pictureAspect_; }
+
+  // Picture size with `factor` window pixels per output line and the other
+  // side following the aspect. False while there is no picture.
+  bool PictureSizeAt(int factor, int* w, int* h) const;
+
   // Samples per cycle of the colour subcarrier, for a full width line. Set from
   // the video standard; the dot crawl filter is built around it.
   void SetCarrierSamples(double samples) { carrierSamples_ = samples; }
@@ -536,6 +544,8 @@ class VideoRenderer {
   int loggedOutH_ = -1;
   Rect videoRect_ = {};
   int topInset_ = 0;
+  double pictureAspect_ = 0.0;
+  bool pictureTurned_ = false;
   double carrierSamples_ = 3.0449;  // PAL, the common case here
 
   static const int kReadbackSlots = RenderPasses::kReadbackSlots;

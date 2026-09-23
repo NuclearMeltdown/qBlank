@@ -1950,6 +1950,23 @@ void VideoRenderer::ComputeDeliverySize(const ImageSettings& image) {
   }
 }
 
+bool VideoRenderer::PictureSizeAt(int factor, int* w, int* h) const {
+  if (!hasFrame_ || factor < 1 || pictureAspect_ <= 0.0 || outputWidth_ <= 0 ||
+      outputHeight_ <= 0)
+    return false;
+  // Same arithmetic as the Integer branch of ComputeDestRectIn: the factor goes
+  // on the lines, the other side follows the aspect. Rounded up rather than to
+  // nearest, so the Integer fit, which floors, still finds `factor` in it.
+  if (pictureTurned_) {
+    *w = outputWidth_ * factor;
+    *h = (int)std::ceil((double)*w / pictureAspect_ - 1e-6);
+  } else {
+    *h = outputHeight_ * factor;
+    *w = (int)std::ceil((double)*h * pictureAspect_ - 1e-6);
+  }
+  return true;
+}
+
 void VideoRenderer::ComputeDestRect(const ImageSettings& image) {
   // Fit into the window minus the reserved strip, then push the result down by
   // it. Every branch below can then go on thinking it owns the whole window.
@@ -1962,7 +1979,22 @@ void VideoRenderer::ComputeDestRectIn(const ImageSettings& image, int winW, int 
   const int srcW = outputWidth_;
   const int srcH = outputHeight_;
 
-  if (winW <= 0 || winH <= 0 || srcW <= 0 || srcH <= 0) {
+  if (srcW <= 0 || srcH <= 0) {
+    pictureAspect_ = 0.0;
+    videoRect_ = Rect{0, 0, 0, 0};
+    return;
+  }
+
+  double target = TargetAspect(image);
+  if (target <= 0.0) target = (double)srcW / (double)srcH;
+  const bool turned =
+      image.rotation == Rotation::Cw90 || image.rotation == Rotation::Ccw90;
+  // Kept even for Stretch: the window sizing wants the shape the picture
+  // should have, not the one the window currently forces on it.
+  pictureAspect_ = target;
+  pictureTurned_ = turned;
+
+  if (winW <= 0 || winH <= 0) {
     videoRect_ = Rect{0, 0, 0, 0};
     return;
   }
@@ -1971,9 +2003,6 @@ void VideoRenderer::ComputeDestRectIn(const ImageSettings& image, int winW, int 
     videoRect_ = Rect{0, 0, winW, winH};
     return;
   }
-
-  double target = TargetAspect(image);
-  if (target <= 0.0) target = (double)srcW / (double)srcH;
 
   if (image.aspect == AspectMode::Integer) {
     // The whole-number factor goes on the *lines*, and the width follows the
@@ -1990,8 +2019,6 @@ void VideoRenderer::ComputeDestRectIn(const ImageSettings& image, int winW, int 
     // keep. Line doubling is already in outputHeight_ and multiplying doubled
     // rows by a whole number keeps them equal, so it needs no special case. A
     // quarter turn does: it puts the lines on the other axis.
-    const bool turned =
-        image.rotation == Rotation::Cw90 || image.rotation == Rotation::Ccw90;
     const int lines = turned ? srcW : srcH;
     // Largest factor that still leaves both directions inside the window.
     const double byLines =

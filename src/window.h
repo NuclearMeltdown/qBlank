@@ -142,6 +142,7 @@ class Window {
   void SetTitle(const std::string& title);
 
   bool minimized() const;
+  bool maximized() const;
   bool IsVisible() const;
   bool IsForeground() const;
   // True when `other` is visible, overlaps this window and lies above it.
@@ -173,6 +174,16 @@ class Window {
   // Gives the inside of the window this height, keeps the width, and centres it
   // on the primary screen's work area.
   void ResizeClientHeightCentred(int clientHeight);
+  // Gives the inside of the window this size, restoring it first if it is
+  // maximised. The top left corner stays unless that would push the window off
+  // the work area of its screen.
+  void SetClientSize(int width, int height);
+  // Whether the window, frame and all, would fit that screen's work area with
+  // the inside at this size.
+  bool ClientSizeFits(int width, int height) const;
+  // Main window only: while Shift is held, resizing keeps the inside below the
+  // top `inset` pixels at this width over height. 0 turns it off.
+  void SetSizingAspect(double aspect, int inset);
 
   // Borderless over `target`. `under`, when given, is the window it goes
   // directly beneath; otherwise it goes to the front, above everything if

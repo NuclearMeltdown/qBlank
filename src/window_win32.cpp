@@ -3,6 +3,9 @@
 #include <dwmapi.h>
 #include <windowsx.h>  // GET_X_LPARAM
 
+#include <algorithm>
+#include <cmath>
+
 #include "app_identity.h"
 #include "backends/imgui_impl_win32.h"
 #include "imgui.h"
@@ -28,6 +31,9 @@ struct Window::Impl {
   ImGuiContext* ui = nullptr;
   bool cursorHidden = false;
   WINDOWPLACEMENT windowed = {};  // what leaving fullscreen goes back to
+  // What Shift holds while the main window is resized; see SetSizingAspect.
+  double sizingAspect = 0.0;
+  int sizingInset = 0;
 };
 
 namespace {
@@ -74,6 +80,73 @@ class UiScope {
   bool swapped_;
 };
 
+constexpr int kMainMinWidth = 320;
+constexpr int kMainMinHeight = 240;
+
+// Shift held while the main window is resized: the rectangle Windows proposes is
+// bent so the picture keeps its shape, the way a graphics program keeps an
+// image's proportions. Without Shift the window sizes freely, as before.
+//
+// A side edge sets the width and the height follows at the bottom; the top or
+// bottom edge sets the height and the width follows at the right. A corner
+// takes whichever of the two asks for more, and the opposite corner stays put.
+void KeepAspect(const Window::Impl* w, HWND hwnd, WPARAM edge, RECT* rc) {
+  RECT window = {}, client = {};
+  if (!::GetWindowRect(hwnd, &window) || !::GetClientRect(hwnd, &client)) return;
+  const double aspect = w->sizingAspect;
+  // Everything around the picture: the frame, and the toolbar above it.
+  const int extraW = (window.right - window.left) - client.right;
+  const int extraH = (window.bottom - window.top) - client.bottom + w->sizingInset;
+
+  int picW = (rc->right - rc->left) - extraW;
+  int picH = (rc->bottom - rc->top) - extraH;
+  const bool sides = edge == WMSZ_LEFT || edge == WMSZ_RIGHT;
+  const bool ends = edge == WMSZ_TOP || edge == WMSZ_BOTTOM;
+  if (sides || (!ends && picW / aspect >= picH)) {
+    picH = (int)std::lround(picW / aspect);
+  } else {
+    picW = (int)std::lround(picH * aspect);
+  }
+  // Windows clamps to the minimum after this, one side at a time, which would
+  // bend the shape again; growing both here keeps it.
+  const int minW = kMainMinWidth - extraW;
+  const int minH = kMainMinHeight - extraH;
+  if (picW < minW) {
+    picW = minW;
+    picH = (int)std::lround(picW / aspect);
+  }
+  if (picH < minH) {
+    picH = minH;
+    picW = (int)std::lround(picH * aspect);
+  }
+
+  const int width = picW + extraW;
+  const int height = picH + extraH;
+  const bool left = edge == WMSZ_LEFT || edge == WMSZ_TOPLEFT || edge == WMSZ_BOTTOMLEFT;
+  const bool top = edge == WMSZ_TOP || edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT;
+  if (left) {
+    rc->left = rc->right - width;
+  } else {
+    rc->right = rc->left + width;
+  }
+  if (top) {
+    rc->top = rc->bottom - height;
+  } else {
+    rc->bottom = rc->top + height;
+  }
+}
+
+// Work area of the screen the window is on.
+bool WorkArea(HWND hwnd, RECT* out) {
+  MONITORINFO info = {};
+  info.cbSize = sizeof(info);
+  if (!::GetMonitorInfoW(::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &info)) {
+    return false;
+  }
+  *out = info.rcWork;
+  return true;
+}
+
 LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (w->forwardUi) {
     UiScope scope(w->ui);
@@ -118,6 +191,11 @@ LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARA
       // cannot be starved by the flood of mouse input that causes the problem
       // in the first place.
       if (role == WindowRole::Tool) Emit(w, WindowEvent::Kind::ModalFrame);
+      if (msg == WM_SIZING && role == WindowRole::Main && w->sizingAspect > 0.0 &&
+          (::GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+        KeepAspect(w, hwnd, wparam, reinterpret_cast<RECT*>(lparam));
+        return TRUE;
+      }
       break;  // and on to DefWindowProc, which does the actual moving
 
     case WM_SIZE: {
@@ -150,8 +228,8 @@ LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARA
       if (role != WindowRole::Main) break;
       {
         auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
-        info->ptMinTrackSize.x = 320;
-        info->ptMinTrackSize.y = 240;
+        info->ptMinTrackSize.x = kMainMinWidth;
+        info->ptMinTrackSize.y = kMainMinHeight;
       }
       return 0;
 
@@ -458,6 +536,10 @@ bool Window::minimized() const {
   return impl_->hwnd && ::IsIconic(impl_->hwnd);
 }
 
+bool Window::maximized() const {
+  return impl_->hwnd && ::IsZoomed(impl_->hwnd);
+}
+
 bool Window::IsVisible() const {
   return impl_->hwnd && ::IsWindowVisible(impl_->hwnd);
 }
@@ -567,6 +649,43 @@ void Window::ResizeClientHeightCentred(int clientHeight) {
   const int x = work.left + ((work.right - work.left) - width) / 2;
   const int y = work.top + ((work.bottom - work.top) - height) / 2;
   ::SetWindowPos(hwnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void Window::SetClientSize(int width, int height) {
+  const HWND hwnd = impl_->hwnd;
+  if (!hwnd || width <= 0 || height <= 0) return;
+  if (::IsZoomed(hwnd) || ::IsIconic(hwnd)) ::ShowWindow(hwnd, SW_RESTORE);
+  RECT window = {}, client = {}, work = {};
+  ::GetWindowRect(hwnd, &window);
+  ::GetClientRect(hwnd, &client);
+  const int outerW = width + (window.right - window.left) - client.right;
+  const int outerH = height + (window.bottom - window.top) - client.bottom;
+  int x = window.left;
+  int y = window.top;
+  if (WorkArea(hwnd, &work)) {
+    if (x + outerW > work.right) x = std::max<int>(work.left, work.right - outerW);
+    if (y + outerH > work.bottom) y = std::max<int>(work.top, work.bottom - outerH);
+  }
+  ::SetWindowPos(hwnd, nullptr, x, y, outerW, outerH, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+bool Window::ClientSizeFits(int width, int height) const {
+  const HWND hwnd = impl_->hwnd;
+  RECT work = {};
+  if (!hwnd || !WorkArea(hwnd, &work)) return false;
+  // The frame of the restored window, which is what the size would be set on;
+  // a maximised window's own rectangles say nothing about it.
+  RECT frame = {0, 0, 0, 0};
+  ::AdjustWindowRectExForDpi(&frame, (DWORD)::GetWindowLongPtrW(hwnd, GWL_STYLE), FALSE,
+                             (DWORD)::GetWindowLongPtrW(hwnd, GWL_EXSTYLE),
+                             ::GetDpiForWindow(hwnd));
+  return width + (frame.right - frame.left) <= work.right - work.left &&
+         height + (frame.bottom - frame.top) <= work.bottom - work.top;
+}
+
+void Window::SetSizingAspect(double aspect, int inset) {
+  impl_->sizingAspect = aspect > 0.0 ? aspect : 0.0;
+  impl_->sizingInset = inset > 0 ? inset : 0;
 }
 
 void Window::EnterFullscreen(const Rect& target, const Window* under, bool topmost) {

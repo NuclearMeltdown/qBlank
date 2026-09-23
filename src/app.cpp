@@ -5400,9 +5400,12 @@ void App::RenderFrame() {
 
   // Decided before drawing, so the picture is laid out around the bar in the
   // same frame the bar appears in.
-  renderer_.SetTopInset(toolbarVisible_ ? (int)std::lround(ToolbarHeight()) : 0);
+  const int topInset = toolbarVisible_ ? (int)std::lround(ToolbarHeight()) : 0;
+  renderer_.SetTopInset(topInset);
   UpdateHdr();
   renderer_.Draw(EffectiveImage(profile), fieldIndex_);
+  // The shape Shift holds while the window is resized.
+  window_.SetSizingAspect(renderer_.hasFrame() ? renderer_.pictureAspect() : 0.0, topInset);
 
   // Right after the first pass, so the still is the picture that was just put on
   // screen -- and before the UI is drawn, so the overlay never lands in it. The
@@ -5924,6 +5927,24 @@ void App::DrawContextMenu() {
 
   bool fs = fullscreen_;
   if (ImGui::MenuItem(T("Vollbild", "Fullscreen"), sc(HotkeyAction::Fullscreen), &fs)) SetFullscreen(fs);
+
+  // Whole multiples of the lines, so integer scaling does not mean hunting for
+  // the size by hand. The width follows the aspect, as in the Integer mode, and
+  // the toolbar is added on top so the picture itself gets the size.
+  if (ImGui::BeginMenu(T("Fenstergröße", "Window size"), !fullscreen_ && renderer_.hasFrame())) {
+    const int inset = toolbarVisible_ ? (int)std::lround(ToolbarHeight()) : 0;
+    for (int factor = 1; factor <= 3; ++factor) {
+      int w = 0, h = 0;
+      if (!renderer_.PictureSizeAt(factor, &w, &h)) continue;
+      const bool current = !window_.maximized() && display_.width() == w &&
+                           display_.height() == h + inset;
+      const std::string label = Format("%d× (%d × %d)", factor, w, h);
+      if (ImGui::MenuItem(label.c_str(), nullptr, current, window_.ClientSizeFits(w, h + inset))) {
+        window_.SetClientSize(w, h + inset);
+      }
+    }
+    ImGui::EndMenu();
+  }
 
   bool top = config_.app.alwaysOnTop;
   if (ImGui::MenuItem(T("Immer im Vordergrund", "Always on top"), nullptr, &top)) {
