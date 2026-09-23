@@ -320,6 +320,7 @@ class App {
   bool imguiReady_ = false;
   bool darkMode_ = true;
   float uiScale_ = 1.0f;
+  float pendingUiScale_ = 0.0f;  // from a DPI change, applied before the next frame
 
   Config config_;
   Display display_;

@@ -62,9 +62,18 @@ void GetBackgroundColor(bool dark, unsigned accentRgb, float out[4]) {
   out[3] = 1.0f;
 }
 
-void ApplyImGuiTheme(bool dark, unsigned accentRgb) {
+void ApplyImGuiTheme(bool dark, unsigned accentRgb, float scale) {
   const Hsv a = RgbToHsv(accentRgb);
   ImGuiStyle& s = ImGui::GetStyle();
+
+  // Starts from ImGui's defaults every time. ScaleAllSizes multiplies whatever
+  // is there, so on top of the previous call it would scale the fields this
+  // function does not set once more with every theme or monitor change. The
+  // base font size survives: a theme change can come in the middle of a frame,
+  // and the wordmark reads it to size itself.
+  const float fontSizeBase = s.FontSizeBase;
+  s = ImGuiStyle();
+  s.FontSizeBase = fontSizeBase;
 
   s.WindowRounding = 10.0f;
   s.ChildRounding = 8.0f;
@@ -197,9 +206,15 @@ void ApplyImGuiTheme(bool dark, unsigned accentRgb) {
   c[ImGuiCol_TableHeaderBg] = headerBg;
   c[ImGuiCol_TableBorderStrong] = border;
   c[ImGuiCol_TableBorderLight] = WithAlpha(border, 0.5f);
+
+  // Sizes above are written for 100 %. The font is loaded at its 100 % size as
+  // well and scaled at draw time; since 1.92 ImGui rasterizes it anew for the
+  // size it ends up at, so it stays sharp.
+  s.ScaleAllSizes(scale);
+  s.FontScaleDpi = scale;
 }
 
-void LoadUiFont(float sizePixels) {
+void LoadUiFont() {
   ImGuiIO& io = ImGui::GetIO();
 
   // No glyph ranges and no oversampling set by hand. Since ImGui 1.92 a glyph is
@@ -211,7 +226,7 @@ void LoadUiFont(float sizePixels) {
   //
   // ImGui takes UTF-8 paths, which is what the interface deals in anyway.
   for (const std::string& path : UiFontFiles()) {
-    if (io.Fonts->AddFontFromFileTTF(path.c_str(), sizePixels)) return;
+    if (io.Fonts->AddFontFromFileTTF(path.c_str(), kUiFontSize)) return;
   }
   CAP_WARN("Segoe UI not found, using the built-in font");
 }

@@ -152,9 +152,8 @@ StartupAnswer AskAtStartup(const StartupQuestion& question) {
   ImGuiIO& io = ImGui::GetIO();
   io.IniFilename = nullptr;
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-  LoadUiFont(17.0f * scale);
-  ApplyImGuiTheme(dark, kDefaultAccent);
-  ImGui::GetStyle().ScaleAllSizes(scale);
+  LoadUiFont();
+  ApplyImGuiTheme(dark, kDefaultAccent, scale);
 
   const bool attached = window.AttachUi(nullptr);
   const bool ready = attached && display.InitUi();

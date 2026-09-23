@@ -75,7 +75,7 @@ struct WindowEvent {
   enum class Kind {
     Resized,          // minimized
     Moved,
-    DpiChanged,
+    DpiChanged,       // dpiScale
     FocusChanged,     // focused
     // The platform holds the thread in a loop of its own -- Windows does while
     // a window is dragged or resized -- so the program's loop is not running.
@@ -100,6 +100,7 @@ struct WindowEvent {
   bool focused = false;
   Point mouse;
   int wheelNotches = 0;
+  float dpiScale = 1.0f;  // 1.0 at 96 DPI
   Key key = Key::None;
   bool ctrl = false;
   bool shift = false;

@@ -38,6 +38,12 @@ bool SettingsHost::OnWindowEvent(const WindowEvent& e) {
     case WindowEvent::Kind::ModalFrame:
       PumpModalFrame();
       return true;
+    case WindowEvent::Kind::DpiChanged:
+      // Moved to a monitor with other scaling. Applied at the next BeginFrame,
+      // before ImGui starts one, never in the middle of a frame.
+      uiScale_ = e.dpiScale;
+      themeApplied_ = false;
+      return false;
     default:
       return false;
   }
@@ -108,6 +114,9 @@ bool SettingsHost::Create(float uiScale, bool allowTearing, const Placement& whe
                                      "The settings window could not be created")));
     return false;
   }
+  // The main window's scale only guessed the default size. A remembered
+  // position can put this window on another monitor.
+  uiScale_ = window_.DpiScale();
 
   if (!surface_.Attach(window_, allowTearing, error)) {
     Destroy();
@@ -130,7 +139,7 @@ bool SettingsHost::Create(float uiScale, bool allowTearing, const Placement& whe
   //
   // Muss nach SetCurrentContext stehen: LoadUiFont haengt die Schrift in den
   // Atlas des gerade aktuellen Kontexts.
-  LoadUiFont(17.0f * uiScale_);
+  LoadUiFont();
 
   const bool ok = window_.AttachUi(imgui_) && surface_.InitUi();
   ImGui::SetCurrentContext(previous);
@@ -216,8 +225,7 @@ void SettingsHost::ApplyTheme(bool darkMode, unsigned accentColor) {
   if (!imgui_) return;
   ImGuiContext* previous = ImGui::GetCurrentContext();
   ImGui::SetCurrentContext(imgui_);
-  ApplyImGuiTheme(darkMode, accentColor);
-  ImGui::GetStyle().ScaleAllSizes(uiScale_);
+  ApplyImGuiTheme(darkMode, accentColor, uiScale_);
   ImGui::SetCurrentContext(previous);
   window_.SetDarkFrame(darkMode);
   themeApplied_ = true;

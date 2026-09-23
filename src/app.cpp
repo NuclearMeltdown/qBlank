@@ -375,11 +375,9 @@ bool App::InitImGui() {
   io.IniFilename = nullptr;  // no imgui.ini next to the exe
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-  const float scale = window_.DpiScale();
-  LoadUiFont(17.0f * scale);
-  ApplyImGuiTheme(darkMode_, config_.app.accentColor);
-  ImGui::GetStyle().ScaleAllSizes(scale);
-  uiScale_ = scale;
+  uiScale_ = window_.DpiScale();
+  LoadUiFont();
+  ApplyImGuiTheme(darkMode_, config_.app.accentColor, uiScale_);
 
   if (!window_.AttachUi(nullptr)) return false;
   if (!display_.InitUi()) {
@@ -403,10 +401,7 @@ void App::ShutdownImGui() {
 void App::ApplyTheme() {
   const bool dark = ResolveDark(config_.app.theme);
   darkMode_ = dark;
-  // ApplyImGuiTheme resets the style wholesale, so the DPI scaling has to be
-  // reapplied on top of it every time.
-  ApplyImGuiTheme(dark, config_.app.accentColor);
-  ImGui::GetStyle().ScaleAllSizes(uiScale_);
+  ApplyImGuiTheme(dark, config_.app.accentColor, uiScale_);
   window_.SetDarkFrame(dark);
   if (settingsHost_.created()) settingsHost_.ApplyTheme(dark, config_.app.accentColor);
 }
@@ -5393,6 +5388,16 @@ void App::RenderFrame() {
   GetBackgroundColor(darkMode_, config_.app.accentColor, clear);
   if (!display_.BeginFrame(clear)) return;
 
+  // The window is on a monitor with other scaling now. Sizes, spacing and font
+  // follow it from this frame on.
+  if (pendingUiScale_ > 0.0f) {
+    if (pendingUiScale_ != uiScale_) {
+      uiScale_ = pendingUiScale_;
+      ApplyTheme();
+    }
+    pendingUiScale_ = 0.0f;
+  }
+
   // Decided before drawing, so the picture is laid out around the bar in the
   // same frame the bar appears in.
   renderer_.SetTopInset(toolbarVisible_ ? (int)std::lround(ToolbarHeight()) : 0);
@@ -6022,7 +6027,7 @@ void App::DrawContextMenu() {
   bool muted = audio.mute;
   if (ImGui::MenuItem(T("Stumm", "Muted"), sc(HotkeyAction::Mute), &muted)) ToggleMute();
 
-  ImGui::SetNextItemWidth(180.0f);
+  ImGui::SetNextItemWidth(180.0f * uiScale_);
   float percent = audio.volume * 100.0f;
   if (ImGui::SliderFloat(T("Lautstärke", "Volume"), &percent, 0.0f, 100.0f, "%.0f %%")) {
     audio.volume = Clamp(percent / 100.0f, 0.0f, 1.0f);
@@ -6286,6 +6291,12 @@ bool App::OnWindowEvent(const WindowEvent& e) {
       minimized_ = e.minimized;
       if (!minimized_) display_.Resize();
       return true;
+    case WindowEvent::Kind::DpiChanged:
+      // Can arrive in the middle of a frame -- a SetWindowPos from the UI that
+      // lands the window on another monitor sends it right away -- so the
+      // interface is rescaled before the next frame, not here.
+      pendingUiScale_ = e.dpiScale;
+      return false;
 
     case WindowEvent::Kind::MouseMoved:
       if (e.mouse.x != lastMousePos_.x || e.mouse.y != lastMousePos_.y) {

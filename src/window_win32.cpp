@@ -130,15 +130,22 @@ LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARA
     case WM_MOVE:
       if (Emit(w, WindowEvent::Kind::Moved)) return 0;
       break;
-    case WM_DPICHANGED:
-      Emit(w, WindowEvent::Kind::DpiChanged);
-      if (role == WindowRole::Main) {
+    case WM_DPICHANGED: {
+      WindowEvent event;
+      event.kind = WindowEvent::Kind::DpiChanged;
+      event.dpiScale = LOWORD(wparam) / 96.0f;
+      Emit(w, event);
+      // Windows suggests a size that keeps the window the same size to the eye
+      // on the new monitor, but does not apply it itself. The startup dialog
+      // stays as it is: it does not rescale its contents either.
+      if (role != WindowRole::Dialog) {
         const auto* rc = reinterpret_cast<const RECT*>(lparam);
         ::SetWindowPos(hwnd, nullptr, rc->left, rc->top, rc->right - rc->left,
                        rc->bottom - rc->top, SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
       }
       break;
+    }
     case WM_GETMINMAXINFO:
       if (role != WindowRole::Main) break;
       {
