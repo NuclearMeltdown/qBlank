@@ -628,13 +628,7 @@ bool D3D11Passes::EnsureClean(int width, int height) {
   height = std::max(1, height);
   if (cleanTex_ && cleanWidth_ == width && cleanHeight_ == height) return true;
 
-  cleanSrv_.Reset();
-  cleanRtv_.Reset();
-  cleanTex_.Reset();
-  cleanPrevSrv_.Reset();
-  cleanPrevTex_.Reset();
-  cleanWidth_ = 0;
-  cleanHeight_ = 0;
+  ReleaseClean();
 
   ID3D11Device* dev = NativeDevice(*display_);
   D3D11_TEXTURE2D_DESC td = {};
@@ -646,18 +640,21 @@ bool D3D11Passes::EnsureClean(int width, int height) {
   td.SampleDesc.Count = 1;
   td.Usage = D3D11_USAGE_DEFAULT;
   td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &cleanTex_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateShaderResourceView(cleanTex_.Get(), nullptr, &cleanSrv_)))) {
-    return false;
-  }
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(cleanTex_.Get(), nullptr, &cleanRtv_)))) {
+  // Here and in the other Ensure functions: a failure takes back what was
+  // already made. A texture left without its views would pass for a finished
+  // one on the next call.
+  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &cleanTex_))) ||
+      FAILED(CAP_HR(dev->CreateShaderResourceView(cleanTex_.Get(), nullptr, &cleanSrv_))) ||
+      FAILED(CAP_HR(dev->CreateRenderTargetView(cleanTex_.Get(), nullptr, &cleanRtv_)))) {
+    ReleaseClean();
     return false;
   }
 
   td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &cleanPrevTex_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateShaderResourceView(cleanPrevTex_.Get(), nullptr,
+  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &cleanPrevTex_))) ||
+      FAILED(CAP_HR(dev->CreateShaderResourceView(cleanPrevTex_.Get(), nullptr,
                                                   &cleanPrevSrv_)))) {
+    ReleaseClean();
     return false;
   }
 
@@ -675,9 +672,7 @@ bool D3D11Passes::EnsureIntermediate(int width, int height, bool wide) {
     return true;
   }
 
-  intermediateRtv_.Reset();
-  intermediateSrv_.Reset();
-  intermediate_.Reset();
+  ReleaseIntermediate();
 
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = (UINT)width;
@@ -690,11 +685,12 @@ bool D3D11Passes::EnsureIntermediate(int width, int height, bool wide) {
   td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 
   ID3D11Device* dev = NativeDevice(*display_);
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &intermediate_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateShaderResourceView(intermediate_.Get(), nullptr, &intermediateSrv_)))) {
-    return false;
-  }
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(intermediate_.Get(), nullptr, &intermediateRtv_)))) {
+  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &intermediate_))) ||
+      FAILED(CAP_HR(dev->CreateShaderResourceView(intermediate_.Get(), nullptr,
+                                                  &intermediateSrv_))) ||
+      FAILED(CAP_HR(dev->CreateRenderTargetView(intermediate_.Get(), nullptr,
+                                                &intermediateRtv_)))) {
+    ReleaseIntermediate();
     return false;
   }
   intermediateWidth_ = width;
@@ -713,11 +709,7 @@ bool D3D11Passes::EnsureDelivery(int width, int height, bool half) {
   int& haveH = half ? deliveryHalfTexHeight_ : deliveryTexHeight_;
   if (tex && haveW == width && haveH == height) return true;
 
-  if (half) deliveryHalfSrv_.Reset();
-  rtv.Reset();
-  tex.Reset();
-  haveW = 0;
-  haveH = 0;
+  ReleaseDelivery(half);
 
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = (UINT)width;
@@ -733,15 +725,11 @@ bool D3D11Passes::EnsureDelivery(int width, int height, bool half) {
   if (half) td.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
 
   ID3D11Device* dev = NativeDevice(*display_);
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &tex)))) return false;
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(tex.Get(), nullptr, &rtv)))) {
-    tex.Reset();
-    return false;
-  }
-  if (half &&
-      FAILED(CAP_HR(dev->CreateShaderResourceView(tex.Get(), nullptr, &deliveryHalfSrv_)))) {
-    rtv.Reset();
-    tex.Reset();
+  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &tex))) ||
+      FAILED(CAP_HR(dev->CreateRenderTargetView(tex.Get(), nullptr, &rtv))) ||
+      (half &&
+       FAILED(CAP_HR(dev->CreateShaderResourceView(tex.Get(), nullptr, &deliveryHalfSrv_))))) {
+    ReleaseDelivery(half);
     return false;
   }
   haveW = width;
@@ -751,11 +739,7 @@ bool D3D11Passes::EnsureDelivery(int width, int height, bool half) {
 
 bool D3D11Passes::EnsureUiLayer(int width, int height) {
   if (uiTex_ && uiWidth_ == width && uiHeight_ == height) return true;
-  uiSrv_.Reset();
-  uiRtv_.Reset();
-  uiTex_.Reset();
-  uiWidth_ = 0;
-  uiHeight_ = 0;
+  ReleaseUiLayer();
   if (width <= 0 || height <= 0) return false;
 
   // Eight bit on purpose. This holds an ordinary sRGB interface, and giving it
@@ -771,9 +755,12 @@ bool D3D11Passes::EnsureUiLayer(int width, int height) {
   td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
   ID3D11Device* dev = NativeDevice(*display_);
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &uiTex_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(uiTex_.Get(), nullptr, &uiRtv_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateShaderResourceView(uiTex_.Get(), nullptr, &uiSrv_)))) return false;
+  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &uiTex_))) ||
+      FAILED(CAP_HR(dev->CreateRenderTargetView(uiTex_.Get(), nullptr, &uiRtv_))) ||
+      FAILED(CAP_HR(dev->CreateShaderResourceView(uiTex_.Get(), nullptr, &uiSrv_)))) {
+    ReleaseUiLayer();
+    return false;
+  }
   uiWidth_ = width;
   uiHeight_ = height;
   return true;
@@ -1063,9 +1050,7 @@ bool D3D11Passes::CreateHdrRecord(int width, int height) {
   width = std::max(1, width);
   height = std::max(1, height);
 
-  hdrRecRtv_.Reset();
-  hdrRecTex_.Reset();
-  for (int i = 0; i < kReadbackSlots; ++i) hdrReadbackTex_[i].Reset();
+  ReleaseHdrRecord();
 
   ID3D11Device* dev = NativeDevice(*display_);
 
@@ -1078,8 +1063,9 @@ bool D3D11Passes::CreateHdrRecord(int width, int height) {
   td.SampleDesc.Count = 1;
   td.Usage = D3D11_USAGE_DEFAULT;
   td.BindFlags = D3D11_BIND_RENDER_TARGET;
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &hdrRecTex_)))) return false;
-  if (FAILED(CAP_HR(dev->CreateRenderTargetView(hdrRecTex_.Get(), nullptr, &hdrRecRtv_)))) {
+  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &hdrRecTex_))) ||
+      FAILED(CAP_HR(dev->CreateRenderTargetView(hdrRecTex_.Get(), nullptr, &hdrRecRtv_)))) {
+    ReleaseHdrRecord();
     return false;
   }
 
@@ -1087,7 +1073,10 @@ bool D3D11Passes::CreateHdrRecord(int width, int height) {
   td.BindFlags = 0;
   td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
   for (int i = 0; i < kReadbackSlots; ++i) {
-    if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &hdrReadbackTex_[i])))) return false;
+    if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &hdrReadbackTex_[i])))) {
+      ReleaseHdrRecord();
+      return false;
+    }
   }
 
   hdrRecWidth_ = width;
