@@ -5282,6 +5282,13 @@ void App::Tick() {
     StartAudio();
   }
 
+  // Der rote Punkt in der Taskleiste folgt der Aufnahme, auch wenn sie von
+  // selbst endet.
+  if (recorder_.recording() != recordingBadge_) {
+    recordingBadge_ = !recordingBadge_;
+    window_.SetTaskbarBadge(recordingBadge_, T("Aufnahme läuft", "Recording"));
+  }
+
   // Hide the pointer once it has been still for a while in fullscreen.
   if (fullscreen_ && config_.app.hideCursorFullscreen && !settings_.isOpen()) {
     if (!window_.cursorHidden() &&

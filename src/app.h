@@ -421,6 +421,7 @@ class App {
   bool compareDrag_ = false;  // the divider is being dragged with the mouse
   bool clickOnPicture_ = false;  // the last left click landed on the bare picture
   bool moveDragArmed_ = false;   // the left button went down on the bare picture
+  bool recordingBadge_ = false;  // the red dot is on the taskbar button
   bool bypass_ = false;
   // Whether the bar was drawn this frame; the picture layout follows it.
   bool toolbarVisible_ = false;

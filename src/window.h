@@ -197,6 +197,9 @@ class Window {
   // none; call it while the button is held. `grabbed` is where it went down, in
   // screen coordinates: that point of the window follows the pointer.
   void BeginMoveDrag(Point grabbed);
+  // Main window only: a red dot on the taskbar button. `description` is what a
+  // screen reader says about it.
+  void SetTaskbarBadge(bool shown, const std::string& description);
 
   // Borderless over `target`. `under`, when given, is the window it goes
   // directly beneath; otherwise it goes to the front, above everything if

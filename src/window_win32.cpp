@@ -1,6 +1,7 @@
 #include "window_win32.h"
 
 #include <dwmapi.h>
+#include <shobjidl.h>  // ITaskbarList3
 #include <windowsx.h>  // GET_X_LPARAM
 
 #include <algorithm>
@@ -39,6 +40,10 @@ struct Window::Impl {
   // minimise animation -- and the frame is taken away in WM_NCCALCSIZE instead.
   bool borderless = false;
   bool fullscreen = false;
+  // The dot on the taskbar button and what it says to a screen reader, kept
+  // for when the button is made again. See SetTaskbarBadge.
+  HICON badge = nullptr;
+  std::wstring badgeText;
 };
 
 namespace {
@@ -208,10 +213,114 @@ LRESULT BorderlessHitTest(HWND hwnd, LPARAM lparam) {
   return HTCLIENT;
 }
 
+// Sent once the taskbar button exists, and again after Explorer has been
+// restarted, which forgets every overlay.
+UINT TaskbarButtonCreated() {
+  static const UINT msg = ::RegisterWindowMessageW(L"TaskbarButtonCreated");
+  return msg;
+}
+
+// A small red dot in the top right corner of an icon `size` pixels square, the
+// red of the record button. The taskbar lays that square over the corner of the
+// program's icon, so the dot sits beside it rather than on it; a dark ring
+// keeps the two apart where they touch.
+HICON MakeDotIcon(int size) {
+  BITMAPV5HEADER bi = {};
+  bi.bV5Size = sizeof(bi);
+  bi.bV5Width = size;
+  bi.bV5Height = -size;  // top down
+  bi.bV5Planes = 1;
+  bi.bV5BitCount = 32;
+  bi.bV5Compression = BI_BITFIELDS;
+  bi.bV5RedMask = 0x00FF0000;
+  bi.bV5GreenMask = 0x0000FF00;
+  bi.bV5BlueMask = 0x000000FF;
+  bi.bV5AlphaMask = 0xFF000000;
+  void* bits = nullptr;
+  HBITMAP color = ::CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS,
+                                     &bits, nullptr, 0);
+  if (!color) return nullptr;
+
+  // Coverage from 4x4 samples per pixel, so the edge is smooth.
+  const double scale = size / 16.0;
+  const double dot = 3.5 * scale;
+  const double ring = 4.5 * scale;
+  const double cx = size - ring - 0.5 * scale;
+  const double cy = ring + 0.5 * scale;
+  constexpr double kRingAlpha = 0.6;
+  constexpr int kSamples = 4;
+  auto* px = static_cast<DWORD*>(bits);
+  for (int y = 0; y < size; ++y) {
+    for (int x = 0; x < size; ++x) {
+      int inRing = 0;
+      int inDot = 0;
+      for (int sy = 0; sy < kSamples; ++sy) {
+        for (int sx = 0; sx < kSamples; ++sx) {
+          const double dx = x + (sx + 0.5) / kSamples - cx;
+          const double dy = y + (sy + 0.5) / kSamples - cy;
+          const double d2 = dx * dx + dy * dy;
+          if (d2 <= ring * ring) ++inRing;
+          if (d2 <= dot * dot) ++inDot;
+        }
+      }
+      DWORD value = 0;
+      if (inRing > 0) {
+        // The ring is black and half see-through, so it darkens whatever the
+        // taskbar's colour is. Icons take their colour unmultiplied by the
+        // alpha, which leaves only the red to scale.
+        const double red = (double)inDot / (kSamples * kSamples);
+        const double alpha = red + kRingAlpha * (inRing - inDot) / (kSamples * kSamples);
+        const double share = red / alpha;
+        const DWORD a = (DWORD)std::lround(255.0 * alpha);
+        const DWORD r = (DWORD)std::lround(230 * share);
+        const DWORD gb = (DWORD)std::lround(70 * share);
+        value = (a << 24) | (r << 16) | (gb << 8) | gb;
+      }
+      px[y * size + x] = value;
+    }
+  }
+
+  // An empty mask: the alpha channel says what is drawn.
+  std::vector<BYTE> maskBits((size_t)((size + 15) / 16) * 2 * size, 0);
+  HBITMAP mask = ::CreateBitmap(size, size, 1, 1, maskBits.data());
+  ICONINFO info = {};
+  info.fIcon = TRUE;
+  info.hbmMask = mask;
+  info.hbmColor = color;
+  HICON icon = mask ? ::CreateIconIndirect(&info) : nullptr;
+  if (mask) ::DeleteObject(mask);
+  ::DeleteObject(color);
+  return icon;
+}
+
+// Hands the dot, or its absence, to the taskbar button. A fresh ITaskbarList3
+// each time: this happens when a recording starts or ends, and one kept around
+// would have to be released before COM goes away.
+void ApplyBadge(const Window::Impl* w) {
+  if (!w->hwnd) return;
+  ITaskbarList3* taskbar = nullptr;
+  if (FAILED(::CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&taskbar)))) {
+    return;
+  }
+  if (SUCCEEDED(taskbar->HrInit())) {
+    // An empty text rather than none: given none, the taskbar kept telling
+    // screen readers about the dot after it had gone.
+    taskbar->SetOverlayIcon(w->hwnd, w->badge, w->badge ? w->badgeText.c_str() : L"");
+  }
+  taskbar->Release();
+}
+
 LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (w->forwardUi) {
     UiScope scope(w->ui);
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam) != 0) return 1;
+  }
+
+  // Not a constant, so it cannot be a case below.
+  if (msg == TaskbarButtonCreated()) {
+    if (w->badge) ApplyBadge(w);
+    return 0;
   }
 
   const WindowRole role = w->role;
@@ -613,11 +722,17 @@ bool Window::created() const {
 
 void Window::Destroy() {
   Impl& w = *impl_;
-  if (!w.hwnd) return;
-  const HWND hwnd = w.hwnd;
-  w.hwnd = nullptr;
-  ::DestroyWindow(hwnd);
-  if (w.role == WindowRole::Dialog) ::UnregisterClassW(w.className.c_str(), Instance());
+  if (w.hwnd) {
+    const HWND hwnd = w.hwnd;
+    w.hwnd = nullptr;
+    ::DestroyWindow(hwnd);
+    if (w.role == WindowRole::Dialog) ::UnregisterClassW(w.className.c_str(), Instance());
+  }
+  // The button went with the window.
+  if (w.badge) {
+    ::DestroyIcon(w.badge);
+    w.badge = nullptr;
+  }
 }
 
 void Window::ShowFirstTime(bool maximized) {
@@ -850,6 +965,17 @@ void Window::SetBorderless(bool borderless) {
   }
   ::SetWindowPos(hwnd, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+void Window::SetTaskbarBadge(bool shown, const std::string& description) {
+  Impl& w = *impl_;
+  if (w.role != WindowRole::Main || shown == (w.badge != nullptr)) return;
+  // The small icon's size, like the program's own icon on the button.
+  const HICON old = w.badge;
+  w.badge = shown ? MakeDotIcon(::GetSystemMetrics(SM_CXSMICON)) : nullptr;
+  w.badgeText = ToWide(description);
+  ApplyBadge(&w);
+  if (old) ::DestroyIcon(old);
 }
 
 void Window::BeginMoveDrag(Point grabbed) {
