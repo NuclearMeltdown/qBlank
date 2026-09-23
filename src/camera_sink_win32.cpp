@@ -1,5 +1,7 @@
 #include "camera_sink.h"
 
+#include "text_win32.h"
+#include "vcam/vcam_shared.h"
 #include "vcam/virtual_camera.h"
 
 namespace cap {
@@ -38,6 +40,10 @@ bool CameraSink::RemoveSystemWide(std::string* error) {
 }
 
 void CameraSink::CleanUpOldInstalls() { VirtualCamera::CleanUpOldSources(); }
+
+// The name the filter registers itself under, which is the one thing about the
+// far end that the settings tab has to be able to say out loud.
+std::string CameraSink::DeviceName() { return ToUtf8(vcam::kFilterName); }
 
 void CameraSink::SetWideOffered(bool offered) { impl_->camera.SetWideOffered(offered); }
 

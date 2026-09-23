@@ -2,20 +2,16 @@
 
 #include "record/recorder.h"
 #include "camera_sink.h"
-#include "vcam/vcam_shared.h"
-
-#include "common_win32.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
-#include "app_identity.h"
+#include "app_files.h"
 #include "desktop.h"
 #include "i18n.h"
 #include "record/screenshot.h"
-#include "text_win32.h"
 #include "ui/file_dialog.h"
 #include "imgui.h"
 
@@ -3644,7 +3640,7 @@ void SettingsWindow::DrawVirtualCameraBlock() {
                      "Teams, the browser. The camera is called \"%s\" "
                      "and stays in the device list once installed. While %s is not "
                      "running it shows a notice instead of a picture."),
-                   ToUtf8(vcam::kFilterName).c_str(), AppNameUtf8().c_str())
+                   CameraSink::DeviceName().c_str(), AppNameUtf8().c_str())
                 .c_str());
   ImGui::Spacing();
 

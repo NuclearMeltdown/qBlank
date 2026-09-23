@@ -63,6 +63,11 @@ class CameraSink {
   // whatever had those files open has usually let go.
   static void CleanUpOldInstalls();
 
+  // What the camera is called in other applications' lists of cameras. Fixed,
+  // and not the program's own name: once it has been installed under this name,
+  // that is the name everything that found it goes on looking for.
+  static std::string DeviceName();
+
   // Whether to publish the ten bit picture when there is one. Takes effect on
   // the next frame; readers already connected are converted rather than cut
   // off, which is the far end's business and not this one's.

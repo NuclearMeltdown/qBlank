@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstdio>
 
-#include "app_identity.h"
 #include "desktop.h"
 #include "files.h"
 #include "i18n.h"
