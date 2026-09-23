@@ -3,7 +3,7 @@
 #include "common_win32.h"
 
 #include <shellapi.h>  // ShellExecuteW
-#include <shlobj.h>    // SHOpenFolderAndSelectItems
+#include <shlobj.h>    // SHOpenFolderAndSelectItems, IShellLinkW, known folders
 
 #include <thread>
 
@@ -20,6 +20,41 @@ bool Shell(const wchar_t* verb, const std::wstring& what, const wchar_t* args) {
   const HINSTANCE result =
       ::ShellExecuteW(nullptr, verb, what.c_str(), args, nullptr, SW_SHOWNORMAL);
   return (INT_PTR)result > 32;
+}
+
+// The user's own start menu and desktop, not the ones shared by everybody on
+// the machine: those need administrator rights, and a portable program has no
+// business asking for them.
+std::wstring ShortcutFile(ShortcutPlace place) {
+  const KNOWNFOLDERID& id =
+      place == ShortcutPlace::StartMenu ? FOLDERID_Programs : FOLDERID_Desktop;
+  PWSTR raw = nullptr;
+  std::wstring folder;
+  if (SUCCEEDED(::SHGetKnownFolderPath(id, 0, nullptr, &raw)) && raw) folder.assign(raw);
+  if (raw) ::CoTaskMemFree(raw);
+  if (folder.empty()) return folder;
+  return folder + L"\\" + kAppName + L".lnk";
+}
+
+// Whether the shortcut at `lnk` exists and leads to the running executable.
+bool StartsThisCopy(const std::wstring& lnk) {
+  if (::GetFileAttributesW(lnk.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+  ComPtr<IShellLinkW> link;
+  ComPtr<IPersistFile> file;
+  if (FAILED(::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&link))) ||
+      FAILED(link.As(&file)) || FAILED(file->Load(lnk.c_str(), STGM_READ))) {
+    return false;
+  }
+  // Raw and unresolved, as in RepointShortcuts: resolving goes looking for a
+  // target that has moved, and may rewrite the shortcut while doing it.
+  wchar_t raw[MAX_PATH * 2] = {};
+  if (FAILED(link->GetPath(raw, (int)std::size(raw), nullptr, SLGP_RAWPATH))) return false;
+  wchar_t target[MAX_PATH * 2] = {};
+  const DWORD n = ::ExpandEnvironmentStringsW(raw, target, (DWORD)std::size(target));
+  if (n == 0 || n > std::size(target)) return false;
+  const std::wstring exe = ExePath();
+  return ::CompareStringOrdinal(target, -1, exe.c_str(), (int)exe.size(), TRUE) == CSTR_EQUAL;
 }
 
 }  // namespace
@@ -62,6 +97,51 @@ bool ShowFileInFolder(const std::filesystem::path& file) {
 
 void ShowFatalMessage(const std::string& text) {
   ::MessageBoxW(nullptr, ToWide(text).c_str(), kAppName, MB_ICONERROR | MB_OK);
+}
+
+// The main thread is already in the multithreaded apartment; the scope only
+// matters to a thread that is in none, and costs nothing otherwise.
+bool HasShortcut(ShortcutPlace place) {
+  const std::wstring lnk = ShortcutFile(place);
+  if (lnk.empty()) return false;
+  ComScope com(COINIT_MULTITHREADED);
+  return StartsThisCopy(lnk);
+}
+
+bool CreateShortcut(ShortcutPlace place) {
+  const std::wstring lnk = ShortcutFile(place);
+  if (lnk.empty()) return false;
+  ComScope com(COINIT_MULTITHREADED);
+  ComPtr<IShellLinkW> link;
+  ComPtr<IPersistFile> file;
+  if (FAILED(::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&link))) ||
+      FAILED(link.As(&file))) {
+    return false;
+  }
+  const std::wstring exe = ExePath();
+  std::wstring folder = ExeDirectory();
+  if (folder.size() > 3 && (folder.back() == L'\\' || folder.back() == L'/')) folder.pop_back();
+  link->SetPath(exe.c_str());
+  link->SetWorkingDirectory(folder.c_str());
+  link->SetIconLocation(exe.c_str(), 0);
+
+  const bool replacing = ::GetFileAttributesW(lnk.c_str()) != INVALID_FILE_ATTRIBUTES;
+  if (FAILED(CAP_HR(file->Save(lnk.c_str(), TRUE)))) return false;
+  // Explorer notices a new file by itself, but only when it next gets round to
+  // it; told directly, the icon is on the desktop at once.
+  ::SHChangeNotify(replacing ? SHCNE_UPDATEITEM : SHCNE_CREATE, SHCNF_PATHW, lnk.c_str(),
+                   nullptr);
+  return true;
+}
+
+bool RemoveShortcut(ShortcutPlace place) {
+  const std::wstring lnk = ShortcutFile(place);
+  if (lnk.empty()) return false;
+  ComScope com(COINIT_MULTITHREADED);
+  if (!StartsThisCopy(lnk) || !::DeleteFileW(lnk.c_str())) return false;
+  ::SHChangeNotify(SHCNE_DELETE, SHCNF_PATHW, lnk.c_str(), nullptr);
+  return true;
 }
 
 }  // namespace cap
