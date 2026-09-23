@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qBlank — low-latency capture card viewer for Windows</title>
-<meta name="description" content="A low-latency viewer and recorder for DirectShow capture cards on Windows. Play on your capture card instead of only watching it.">
+<meta name="description" content="Play any console through your capture card. A lightweight, low-latency viewer and recorder for DirectShow devices on Windows.">
 <link rel="icon" href="icon.png">
 <meta property="og:title" content="qBlank">
-<meta property="og:description" content="Play on your capture card, don't just watch it. 1080p60 at about one millisecond.">
+<meta property="og:description" content="Play any console through your capture card. Lightweight, low latency, any DirectShow device.">
 <meta property="og:image" content="https://nuclearmeltdown.github.io/qBlank/viewer.jpg">
 <style>
 :root{
@@ -86,6 +86,40 @@ h1{font-size:clamp(2.6rem,7vw,4.2rem);font-weight:700;letter-spacing:-.03em;marg
 .btn-main:hover{background:#7c4ff0}
 .btn-ghost{border-color:var(--line);color:var(--text);background:var(--bg-raised)}
 .btn-ghost:hover{border-color:var(--accent)}
+
+/* the winget command, dressed as a field: selectable by hand, and copyable
+   by a button that only appears once the script can back it */
+.cmd{
+  display:flex;align-items:center;gap:6px;padding:0 6px 0 20px;border-radius:11px;
+  min-height:calc(28px + .98rem * 1.65); /* a .btn's height, on a row of its own too */
+  border:1px solid var(--line);background:var(--bg-raised);color:var(--text);
+  font:500 .92rem/1 ui-monospace,"Cascadia Mono",Consolas,monospace;
+  transition:border-color .16s ease;
+}
+.cmd:hover{border-color:var(--accent)}
+.cmd code{font:inherit;white-space:nowrap;user-select:all}
+.cmd code::before{content:">";color:var(--accent-soft);margin-right:.7em;user-select:none}
+.soon{
+  margin-left:10px;padding:4px 9px;border:1px solid var(--accent);border-radius:999px;
+  font:600 .68rem/1 "Segoe UI",system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--accent-soft);white-space:nowrap;user-select:none;
+}
+@media (max-width:420px){
+  .cmd{padding-left:14px;font-size:.84rem}
+  .soon{margin-left:6px;padding:4px 7px;letter-spacing:.03em}
+}
+.copy{
+  width:40px;height:40px;flex:none;display:flex;align-items:center;justify-content:center;
+  border:0;border-radius:8px;background:transparent;color:var(--dim);cursor:pointer;
+  transition:background .16s ease,color .16s ease;
+}
+.copy[hidden]{display:none}
+.copy:hover{background:var(--line);color:var(--text)}
+.copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.copy svg{
+  width:18px;height:18px;fill:none;stroke:currentColor;
+  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;
+}
 .sub{margin-top:14px;font-size:.86rem;color:var(--dim)}
 
 /* ---------------------------------------------------------------- switch */
@@ -119,6 +153,16 @@ figure img{
   border:1px solid var(--line);background:#000;
 }
 figcaption{margin-top:12px;font-size:.87rem;color:var(--dim);line-height:1.55}
+
+/* two pictures side by side, cut to one shape so their captions line up */
+.pair{display:grid;gap:22px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin:34px 0}
+.pair figure{margin:0}
+.pair img{aspect-ratio:5/4;object-fit:cover}
+
+/* the break between what every source gets and what an analogue one gets */
+.group{padding:96px 0 0;text-align:center}
+.group h2{font-size:clamp(1.9rem,4.4vw,2.6rem)}
+.group .lead{margin:0 auto}
 
 /* close-ups of the interface: shown at their own size, never blown up, and
    allowed the full width of a phone so the labels stay readable */
@@ -193,11 +237,18 @@ footer .made{margin-top:18px}
   <div class="wrap">
     <img class="logo" src="icon.png" alt="">
     <h1>qBlank</h1>
-    <p class="tag">A low-latency viewer and recorder for DirectShow capture cards on&nbsp;Windows. Built to be <em>played on</em>, not just watched.</p>
+    <p class="tag">Play any console through your capture card. A lightweight, low-latency viewer and recorder for&nbsp;Windows.</p>
     <div class="cta">
       <a class="btn btn-main" id="dl" href="https://github.com/NuclearMeltdown/qBlank/releases/latest">Download the latest release</a>
       <a class="btn btn-ghost" href="https://github.com/NuclearMeltdown/qBlank">Source on GitHub</a>
       <a class="btn btn-ghost" href="https://github.com/NuclearMeltdown/qBlank/wiki">Documentation</a>
+      <div class="cmd">
+        <code id="cmd">winget install qBlank</code>
+        <span class="soon">coming soon</span>
+        <button class="copy" id="copyCmd" type="button" aria-label="Copy the command" title="Copy the command" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+        </button>
+      </div>
     </div>
     <p class="sub">One file, about 2&nbsp;MB. No installer, nothing written to the registry.</p>
   </div>
@@ -219,21 +270,67 @@ footer .made{margin-top:18px}
 
 <section class="reveal">
   <div class="wrap">
-    <h2><span class="num">01</span>Why it exists</h2>
-    <p class="lead">A capture card's picture normally arrives too late to play on. qBlank takes the queue out of the path so the console on your desk behaves like a console on a television — while still recording, screenshotting and feeding a virtual camera.</p>
+    <h2><span class="num">01</span>Nothing between the card and the screen</h2>
+    <p class="lead">No queue, no clock, no wait for VSync. What qBlank adds on top of the card itself is about a millisecond, and the overlay shows it.</p>
     <div class="grid">
       <div class="card"><h3>No queue in the capture path</h3><p>Frames are copied into a triple buffer and the filter returns at once. Anything arriving faster than it can be shown is dropped, never buffered, so delay cannot accumulate.</p></div>
       <div class="card"><h3>No graph clock</h3><p>The DirectShow graph runs without a reference clock, so nothing is held back waiting for a presentation time.</p></div>
       <div class="card"><h3>Tearing allowed</h3><p>A flip-model swap chain with one frame of queue and VSync off by default — the single biggest lever there is.</p></div>
       <div class="card"><h3>Conversion on the GPU</h3><p>YUY2, UYVY, NV12, planar 4:2:0, RGB and P010 are unpacked in a pixel shader. Nothing touches the CPU between arrival and drawing.</p></div>
-      <div class="card"><h3>And it shows you the bill</h3><p>The overlay times the one stretch qBlank is answerable for: from a frame arriving to the present that hands it over. Upload, deinterlacing, filters, scaling and the wait for the flip are all inside that number. What the card did before, and what the panel does after, is nobody's to measure from in here &mdash; so it is not quietly folded in.</p></div>
+      <div class="card"><h3>And it shows you the bill</h3><p>The overlay times the stretch qBlank is answerable for: from a frame arriving to the present that hands it over, with upload, deinterlacing, filters and scaling inside. What the card does before and the screen after is not folded in.</p></div>
     </div>
   </div>
 </section>
 
 <section class="reveal">
   <div class="wrap">
-    <h2><span class="num">02</span>It cleans up composite</h2>
+    <h2><span class="num">02</span>Record, capture, pass it on</h2>
+    <p class="lead">For any DirectShow device: HDMI and analogue cards, USB dongles, webcams.</p>
+    <div class="grid">
+      <div class="card"><h3>Recording</h3><p>H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265. The audio is the master clock, so the output is constant frame rate and does not drift — measured at 1&nbsp;ms over 15&nbsp;seconds. The free space on the drive is shown as the recording time it is worth, and a recording stops itself before the drive fills up.</p></div>
+      <div class="card"><h3>Encoder controls</h3><p>Rate control, preset, tuning, look-ahead, adaptive quantisation and multipass, under one set of names translated into each vendor's own.</p></div>
+      <div class="card"><h3>Audio</h3><p>The card's own audio or any Windows recording device, out through WASAPI, with clock drift corrected on the fly. A microphone can go on a track of its own in the recording, and is never played back.</p></div>
+      <div class="card"><h3>Screenshots</h3><p>PNG or JPEG at source resolution through Windows Imaging Component, so no ffmpeg is needed. JPEG&nbsp;XR keeps the HDR range and needs none either; AVIF does. A switch grabs the finished window instead, interface and all, and <strong>Ctrl+F10</strong> puts the shot on the clipboard rather than on disk.</p></div>
+      <div class="card"><h3>Virtual camera</h3><p>Offer the picture to OBS, Discord or a browser at the source's own resolution and frame rate &mdash; and to anything that cannot take that, at whatever it asks for instead.</p></div>
+      <div class="card"><h3>High dynamic range</h3><p>PQ and HLG are decoded to linear light, tone mapped with BT.2390 for an ordinary screen or passed through as scRGB for an HDR one.</p></div>
+      <div class="card"><h3>Profiles</h3><p>Device, input, capture format and every picture and audio setting, one per source, on Ctrl+1 to Ctrl+9 &mdash; or on none at all: a profile can name the video standard that means it, and the standard the search settles on then picks the profile.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">03</span>Set up while you watch</h2>
+    <p class="lead">Every setting takes effect on the next frame, so it is judged on the picture rather than from memory. Where a value is easier to see than to type, it is set on the picture itself.</p>
+    <div class="pair">
+      <figure>
+        <img src="compare-split.jpg" alt="A GameCube title screen split down the middle by a white line: the filters off on the left half, on on the right">
+        <figcaption><strong>F12</strong> splits the live picture, filters off on one side and on on the other &mdash; vertically or horizontally, chosen in the right-click menu. The divider can be dragged, and <strong>F11</strong> holds the source still.</figcaption>
+      </figure>
+      <figure>
+        <img src="crop-configure.jpg" alt="The crop editor: white handles on all four edges of the picture and a toolbar with the four values, the resulting size, Apply and Cancel">
+        <figcaption>The crop is dragged on the running picture, and <strong>F8</strong> finds the border by itself &mdash; measured across two seconds, so a fade to black is not read as the picture shrinking. Kept per picture size.</figcaption>
+      </figure>
+    </div>
+    <div class="grid">
+      <div class="card"><h3>A settings window of its own</h3><p>On its own Direct3D device, so it can sit on a second monitor while the picture runs on the first. Controls that cannot apply to the source are absent rather than greyed out.</p></div>
+      <div class="card"><h3>Found, not scrolled to</h3><p><strong>Ctrl+F</strong> finds any setting, through typos and the names other programs use. A right click puts a slider back to its default.</p></div>
+      <div class="card"><h3>Colour range, measured</h3><p>Full or limited is read off the picture rather than inferred from the pixel format, with the numbers behind the verdict on show. <strong>F6</strong> measures again, for the one thing that changes without touching the format: an option in the card's own driver.</p></div>
+      <div class="card"><h3>All filters off</h3><p><strong>Shift+F12</strong> shows the signal as it arrives, with deinterlacing, crop and aspect kept &mdash; the quick answer to whether a filter is the problem.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="reveal group">
+  <div class="wrap">
+    <h2>And for analogue consoles</h2>
+    <p class="lead">An analogue source needs more than a viewer usually offers. qBlank finds the video standard, deinterlaces, cleans up composite and can put the scanlines back &mdash; all in real time.</p>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">04</span>It cleans up composite</h2>
     <p class="lead">Composite carries colour and brightness on one wire and they leak into each other. Most viewers leave that alone. qBlank removes it in real time, and the numbers behind every setting were measured on real hardware rather than guessed.</p>
     <figure>
       <img src="composite-before-after.png" alt="The same GameCube frame over composite: filter off on the left, dot crawl beading along every letter edge and across the colour bars, the four-frame average on and clean on the right">
@@ -246,47 +343,42 @@ footer .made{margin-top:18px}
     </table>
     <div class="note">The two are told about each other: the averaging reports how much of the job it did, and the demodulator only handles the rest. Turning both up used to make the picture worse than either alone.</div>
     <figure>
-      <img src="compare-split.jpg" alt="A GameCube title screen split down the middle by a white line: the composite filters off on the left half, on on the right">
-      <figcaption><strong>F12</strong> splits the live picture &mdash; filters off on the left, on on the right &mdash; so a setting is judged against the source it is meant to fix rather than against memory. The split is measured in the source's own grid and stays put when the window is resized, and <strong>F11</strong> holds the source still for the ones that are easier to see on a frozen picture.</figcaption>
-    </figure>
-    <figure>
-      <img src="compare-dotcrawl.jpg" alt="The same title screen magnified across the divider: the logo and the lettering beaded with dot crawl on the left half, clean on the right">
-      <figcaption>The same divider, close up. A title screen is where it shows worst: large flat colour against a hard edge, standing still long enough for the crawl to walk through it. Left of the line is what the cable delivers.</figcaption>
+      <img src="compare-dotcrawl.jpg" alt="A GameCube title screen under F12, magnified across the divider: the logo and the lettering beaded with dot crawl on the left half, clean on the right">
+      <figcaption>A title screen under <strong>F12</strong>, close up across the divider. This is where dot crawl shows worst: large flat colour against a hard edge, standing still long enough for the crawl to walk through it. Left of the line is what the cable delivers.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="settings-composite.png" alt="The Composite filter section of the settings: colour shimmer, the four-frame average with its conditions, the demodulator at step 9 of 9, restore bandwidth, and the A/B compare with its divider">
-      <figcaption>The section that does it. Under the demodulator is the reading it is working to &mdash; 81&nbsp;% of the pattern gone for 17&nbsp;% of the sharpness at a window of nine samples &mdash; and the last two rows are the split above.</figcaption>
+      <img src="settings-composite.png" alt="The Composite filter section of the settings: colour shimmer, the four-frame average with its conditions, the demodulator at step 9 of 9 and restore bandwidth">
+      <figcaption>The section that does it. Under the demodulator is the reading it is working to: 81&nbsp;% of the pattern gone for 17&nbsp;% of the sharpness at a window of nine samples.</figcaption>
     </figure>
   </div>
 </section>
 
 <section class="reveal">
   <div class="wrap">
-    <h2><span class="num">03</span>Five deinterlacers, and it measures which you need</h2>
+    <h2><span class="num">05</span>Five deinterlacers, and it measures which you need</h2>
     <p class="lead">Whether a source is interlaced is measured from the picture, not read from the media type — a media type is entitled to say so and frequently does not.</p>
     <figure>
       <img src="deinterlace-before-after.png" alt="Left: a kart driving past a 480i barrier, woven, the chevrons torn into interlacing combs. Right: the same moment through YADIF, clean">
       <figcaption>480i from a GameCube, the same moment in two runs of one replay. Left, weaving: combing on everything that moves. Right, YADIF. A 240p or 288p console whose fields hold the same lines is detected separately and handled without interpolation at all.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="settings-fields-crop.png" alt="The Fields and Crop sections of the settings: Measured: interlaced above the deinterlacer, and the four crop values with Configure, Detect and Reset">
-      <figcaption><em>Measured: interlaced</em> is the reading, not the media type &mdash; and the deinterlacer can be left on while a 240p console is plugged in, because it only runs where the measurement says it is needed. Under it, the crop: four numbers in source pixels, and the picture sizes they are already stored for.</figcaption>
+      <img src="settings-fields.png" alt="The Fields section of the settings: Only apply to interlaced sources, the reading Measured: interlaced, YADIF and the field order">
+      <figcaption><em>Measured: interlaced</em> is the reading, not the media type &mdash; so the deinterlacer can stay on while a 240p console is plugged in: it only runs where the measurement says it is needed.</figcaption>
     </figure>
   </div>
 </section>
 
 <section class="reveal">
   <div class="wrap">
-    <h2><span class="num">04</span>It works out the video standard on its own</h2>
+    <h2><span class="num">06</span>It works out the video standard on its own</h2>
     <p class="lead">An analogue decoder has to be told whether it is looking at PAL, NTSC or SECAM, and getting it wrong costs you either the picture or the colour. Leave it on automatic and qBlank finds it &mdash; and keeps finding it, so switching a console between 50 and 60&nbsp;Hz needs nothing from you.</p>
     <div class="grid">
       <div class="card"><h3>The card is only half the answer</h3><p>All a decoder reports is whether it has locked, and that is about line frequency. PAL&nbsp;60, NTSC&nbsp;M, PAL&nbsp;M and NTSC&nbsp;4.43 all lock on the same 525 lines, and it reports the wrong one just as confidently.</p></div>
       <div class="card"><h3>So the picture decides</h3><p>The candidates are compared on what they actually produce: how much colour there is, and whether black stays black. Decoding PAL as SECAM does not give a grey picture &mdash; it gives a bright red one where black should be, and that is what the second measurement catches.</p></div>
-      <div class="card"><h3>Two seconds, from wrong to confirmed</h3><p>Measured against a GameCube at 60&nbsp;Hz, starting from a deliberately wrong standard: 1.7 to 2.4&nbsp;seconds, where the same path used to take six. The lock costs a third of a second, and every candidate after it is measured for only as long as its reading takes to stand still &mdash; instead of all of them waiting out whatever the slowest one needs.</p></div>
-      <div class="card"><h3>It does not sit out the wrong ones</h3><p>A standard with the wrong line count never locks; it only uses up its deadline. So the list is walked quickly first and patiently only if that finds nothing &mdash; nothing is ruled out for good, and the common case, a console switched between 50 and 60&nbsp;Hz, is over in a fraction of the time.</p></div>
+      <div class="card"><h3>Two seconds, from wrong to confirmed</h3><p>Measured against a GameCube at 60&nbsp;Hz, starting from a deliberately wrong standard: 1.7 to 2.4&nbsp;seconds. The list is walked quickly first and patiently only if that finds nothing, so a console switched between 50 and 60&nbsp;Hz is over in a fraction of the time.</p></div>
       <div class="card"><h3>Two standards on one carrier</h3><p>PAL&nbsp;60 and NTSC&nbsp;4.43 carry colour at the same frequency and differ only in that PAL reverses the phase every other line. The wrong one of the pair does not decode nonsense &mdash; it decodes <em>less</em>, so counting colour rewards it for the omission. qBlank measures the reversal itself instead, and drops the standard that fights the signal.</p></div>
       <div class="card"><h3>Or ask it yourself</h3><p>F7 runs both stages again on the picture in front of you &mdash; the one case the automatic search cannot see, because colour that is <em>wrong</em> is still colour. It takes under two seconds, and it tells you what it found either way.</p></div>
-      <div class="card"><h3>And the format follows from it</h3><p>A card advertises the same list whatever is plugged into it &mdash; this one offers everything up to 1920&times;1080 at 60&nbsp;Hz with a PAL composite cable in front of it. Once the standard is known the raster is too, so the resolution offered by default is capped to what is really arriving instead of upscaling a console to 1080p inside the card. The rate list gains a mode to match: <em>the signal's rate</em>, 50 under PAL, 59.94 under NTSC, a flat 60 under PAL&nbsp;60 &mdash; worked out afresh every time the card is opened rather than written down as a number that the next mode change makes wrong.</p></div>
+      <div class="card"><h3>And the format follows from it</h3><p>A card advertises the same format list whatever is plugged into it. Once the standard is known the raster is too, so the resolution offered by default matches what really arrives instead of upscaling a console to 1080p inside the card &mdash; and the rate list gains <em>the signal's rate</em>: 50 under PAL, 59.94 under NTSC, a flat 60 under PAL&nbsp;60.</p></div>
       <div class="card"><h3>It knows when not to guess</h3><p>A comparison needs a picture to compare on. If the scene moves during the round, or the screen is essentially black, the round is thrown out rather than believed &mdash; a wrong answer held confidently is worse than waiting a moment.</p></div>
     </div>
   </div>
@@ -294,7 +386,7 @@ footer .made{margin-top:18px}
 
 <section class="reveal">
   <div class="wrap">
-    <h2><span class="num">05</span>And it can put the cathode ray tube back</h2>
+    <h2><span class="num">07</span>And it can put the cathode ray tube back</h2>
     <p class="lead">240p artwork was drawn for a display that had gaps between its lines and a coloured mask over its phosphors. On a flat panel the absence of both is itself a distortion. Off by default, and display only &mdash; a recording takes the picture from upstream of this pass.</p>
     <figure>
       <img src="crt-scanlines.png" alt="Left: the Super Mario World title screen at 240p, magnified six times. Right: the same picture with scanlines at 0.35, a dark gap between each pair of picture lines">
@@ -302,9 +394,7 @@ footer .made{margin-top:18px}
     </figure>
     <div class="grid">
       <div class="card"><h3>Say what the console draws</h3><p>A card that starts at 720p, or a dongle with a scaler of its own, hands over 1080 lines from a console that drew 480 &mdash; and nothing in the picture says reliably which number is real. <em>Source lines</em> is where you say it: 240 and 288 for a 60 or 50&nbsp;Hz SNES, Mega Drive, PS1 or N64, 480 and 576 for a GameCube, PS2, Dreamcast or Wii. PAL&nbsp;60 is the odd one &mdash; NTSC's raster at PAL's colour.</p></div>
-      <div class="card"><h3>Then the gaps land where they belong</h3><p>The declared count becomes the number of output rows per real picture line, which is where a scaled capture stops being a problem: 1080 lines from a 480-line console is 2.25 rows each, and the scanlines sit on the lines the console actually drew rather than on the ones the scaler invented.</p></div>
-      <div class="card"><h3>Nothing is hidden from you</h3><p>The section used to disappear above 576 lines, and someone on a 720p card asked twice whether the feature existed. It stays put now. The mask never depended on the source in the first place &mdash; it counts output pixels &mdash; and the scanlines were never really gated on 576 but on whether the window has the room. A 4K screen has it at 720p.</p></div>
-    </div>
+      <div class="card"><h3>Then the gaps land where they belong</h3><p>The declared count becomes the number of output rows per real picture line, which is where a scaled capture stops being a problem: 1080 lines from a 480-line console is 2.25 rows each, and the scanlines sit on the lines the console actually drew rather than on the ones the scaler invented.</p></div>    </div>
     <figure>
       <img src="crt-mask.png" alt="Three panels magnified to the pixel: mask off, an aperture grille with its vertical stripes, and a shadow mask whose triads step sideways every other row">
       <figcaption>Magnified to the pixel, because a triad is three of them. An aperture grille is vertical stripes, the way a Trinitron worked; a shadow mask steps its triads sideways every other line. Both stop at half strength &mdash; past that the brightness compensation has to lift the peak far enough to clip the channels apart from one another, and what arrives is a colour cast rather than a stronger effect.</figcaption>
@@ -314,32 +404,6 @@ footer .made{margin-top:18px}
       <figcaption>Three controls, and directly under them the colour range &mdash; measured from the picture rather than assumed from the input: full range, 53.41&nbsp;% of the samples below 16, and a line saying what that means for an analogue source.</figcaption>
     </figure>
     <div class="note">Both pictures were made by running the shader's own <code>Scanline()</code> and <code>Mask()</code> over a still, rather than photographed off the screen: the effects are display-only by design, so a screenshot taken inside qBlank does not contain them.</div>
-  </div>
-</section>
-
-<section class="reveal">
-  <div class="wrap">
-    <h2><span class="num">06</span>Set up on the picture itself</h2>
-    <p class="lead">The sections above are one window, on a Direct3D device of its own so it can sit on a second monitor while the picture runs on the first. Controls that cannot apply to the source are absent rather than greyed out &mdash; and what a setting is doing is written under it, not left to be guessed. Where a value is easier to see than to type, it is set on the picture instead.</p>
-    <figure>
-      <img src="crop-configure.jpg" alt="The crop editor: white handles on all four edges of the picture and a toolbar with the four values, the resulting size, Apply and Cancel">
-      <figcaption>The crop is dragged on the running picture rather than typed into four boxes, and <strong>F8</strong> finds the border on its own &mdash; measured across two seconds, so a fade to black is not read as the picture shrinking. The numbers are source pixels, and they are kept per picture size: a console switched from 480 to 576 lines gets its own.</figcaption>
-    </figure>
-  </div>
-</section>
-
-<section class="reveal">
-  <div class="wrap">
-    <h2><span class="num">07</span>Everything else</h2>
-    <div class="grid">
-      <div class="card"><h3>Recording</h3><p>H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265. The audio is the master clock, so the output is constant frame rate and does not drift — measured at 1&nbsp;ms over 15&nbsp;seconds. The free space on the drive is shown as the recording time it is worth, and a recording stops itself before the drive fills up.</p></div>
-      <div class="card"><h3>Encoder controls</h3><p>Rate control, preset, tuning, look-ahead, adaptive quantisation and multipass, under one set of names translated into each vendor's own.</p></div>
-      <div class="card"><h3>Virtual camera</h3><p>Offer the picture to OBS, Discord or a browser at the source's own resolution and frame rate &mdash; and to anything that cannot take that, at whatever it asks for instead.</p></div>
-      <div class="card"><h3>High dynamic range</h3><p>PQ and HLG are decoded to linear light, tone mapped with BT.2390 for an ordinary screen or passed through as scRGB for an HDR one.</p></div>
-      <div class="card"><h3>Screenshots</h3><p>PNG or JPEG at source resolution through Windows Imaging Component, so no ffmpeg is needed. JPEG&nbsp;XR keeps the HDR range and needs none either; AVIF does. A switch grabs the finished window instead, interface and all, and <strong>Ctrl+F10</strong> puts the shot on the clipboard rather than on disk.</p></div>
-      <div class="card"><h3>Colour range, measured</h3><p>Full or limited is read off the picture rather than inferred from the pixel format, and the numbers behind the verdict are on show: lowest and highest sample, and how much of the picture sits below 16. It holds until the format changes &mdash; and <strong>F6</strong> measures it again for the one thing that changes without touching the format, an option in the card's own driver.</p></div>
-      <div class="card"><h3>Profiles</h3><p>Device, input, capture format and every picture and audio setting, one per source, on Ctrl+1 to Ctrl+9 &mdash; or on none at all: a profile can name the video standard that means it, and the standard the search settles on then picks the profile.</p></div>
-    </div>
   </div>
 </section>
 
@@ -397,6 +461,28 @@ footer .made{margin-top:18px}
     paint();
   });
   if (light.addEventListener) light.addEventListener('change', paint);
+})();
+
+// The copy button beside the winget command. The clipboard is only there on a
+// secure page; where it is not, the button stays hidden and the command can
+// still be selected by hand.
+(function(){
+  var btn = document.getElementById('copyCmd');
+  var cmd = document.getElementById('cmd');
+  if (!navigator.clipboard || !window.isSecureContext) return;
+  var svg = btn.querySelector('svg');
+  var copy = svg.innerHTML;
+  var done = '<path d="M5 12.5l4.5 4.5L19 7.5"/>';
+  var timer = 0;
+  btn.hidden = false;
+  btn.addEventListener('click', function(){
+    navigator.clipboard.writeText(cmd.textContent).then(function(){
+      svg.innerHTML = done;
+      btn.title = 'Copied';
+      clearTimeout(timer);
+      timer = setTimeout(function(){ svg.innerHTML = copy; btn.title = 'Copy the command'; }, 1600);
+    }, function(){});
+  });
 })();
 
 // Scroll reveal, and nothing that breaks without JavaScript: the sections are
