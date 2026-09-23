@@ -133,6 +133,12 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - **Ctrl+1** … **Ctrl+9** switch between them.
 - A profile can say **which video standard means it** — same cable, two consoles, no keystroke.
 
+**The main window** · [wiki](../../wiki/The-main-window)
+- 1×, 2× or 3× the source's lines from the context menu.
+- **Shift** while resizing keeps the picture's shape.
+- Borderless keeps its taskbar button, Alt+Tab and Snap; drag the picture to move it.
+- A red dot on the taskbar button while recording.
+
 **The settings window** · [wiki](../../wiki/The-settings-window)
 - Its own window with its own Direct3D device, so it can go on a second monitor.
 - An embedded panel remains, because a window capture in OBS cannot see a second window.
