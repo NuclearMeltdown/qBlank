@@ -423,6 +423,7 @@ namespace {
 // the menu and the list in the settings cannot drift apart.
 constexpr int kTrayShow = 1;
 constexpr int kTrayQuit = 2;
+constexpr int kTrayIconOff = 3;
 constexpr int kTrayItemBase = 100;
 constexpr int kTrayProfileBase = 200;
 
@@ -530,6 +531,9 @@ std::vector<TrayMenuItem> App::BuildTrayMenu() {
 
   group();
   quick(TrayItem::Settings, T("Einstellungen...", "Settings..."));
+  // Always there, and always ticked: the icon's own way out, so switching it
+  // off does not mean hunting for it in the settings. Back on from there.
+  add(kTrayIconOff, T("Symbol im Infobereich", "Icon in the notification area"), true);
 
   group();
   add(kTrayQuit, T("Beenden", "Quit"));
@@ -543,6 +547,10 @@ void App::RunTrayCommand(int id) {
   }
   if (id == kTrayQuit) {
     window_.RequestClose();
+    return;
+  }
+  if (id == kTrayIconOff) {
+    config_.app.trayIcon = false;  // UpdateTray takes it away next frame
     return;
   }
   if (id >= kTrayProfileBase) {
