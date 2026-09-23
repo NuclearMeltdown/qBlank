@@ -234,6 +234,8 @@ const Entry kEntries[] = {
      "Input lag|Eingabeverzögerung"},
     {Kind::Control, kTabDisplay, "ontop", "Immer im Vordergrund", "Always on top",
      "Topmost|Oben halten|Pin|Anheften"},
+    {Kind::Control, kTabDisplay, "borderless", "Rahmenlos", "Borderless",
+     "Ohne Rahmen|Frameless|Titelleiste|Title bar|Randlos"},
     {Kind::Control, kTabDisplay, "hidecursor", "Mauszeiger im Vollbild ausblenden",
      "Hide cursor in fullscreen", "Cursor|Maus|Mouse|Zeiger|Pointer"},
     {Kind::Control, kTabDisplay, "nosleep", "Bildschirmschoner und Standby verhindern",

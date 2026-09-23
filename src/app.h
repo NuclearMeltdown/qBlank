@@ -273,6 +273,8 @@ class App {
   void DragCompareDivider();
   // Fullscreen on a double click on the picture.
   void DoubleClickFullscreen();
+  // Borderless window: dragging the picture moves the window.
+  void DragBorderlessWindow();
  public:
   bool cropPickActive() const { return cropPick_.active; }
  private:
@@ -397,6 +399,7 @@ class App {
     Theme theme = Theme::Dark;
     unsigned accent = 0;
     bool alwaysOnTop = false;
+    bool borderless = false;
     Language language = Language::German;
   };
   AppliedState applied_;
@@ -417,6 +420,7 @@ class App {
   bool compare_ = false;
   bool compareDrag_ = false;  // the divider is being dragged with the mouse
   bool clickOnPicture_ = false;  // the last left click landed on the bare picture
+  bool moveDragArmed_ = false;   // the left button went down on the bare picture
   bool bypass_ = false;
   // Whether the bar was drawn this frame; the picture layout follows it.
   bool toolbarVisible_ = false;

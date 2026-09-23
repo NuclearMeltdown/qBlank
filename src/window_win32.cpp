@@ -34,6 +34,11 @@ struct Window::Impl {
   // What Shift holds while the main window is resized; see SetSizingAspect.
   double sizingAspect = 0.0;
   int sizingInset = 0;
+  // The main window without its frame. The style stays WS_OVERLAPPEDWINDOW
+  // throughout -- that is what keeps the taskbar button, snapping and the
+  // minimise animation -- and the frame is taken away in WM_NCCALCSIZE instead.
+  bool borderless = false;
+  bool fullscreen = false;
 };
 
 namespace {
@@ -44,8 +49,20 @@ int g_startupShowCmd = SW_SHOWNORMAL;
 constexpr DWORD kDwmUseImmersiveDarkModeOld = 19;
 constexpr DWORD kDwmUseImmersiveDarkMode = 20;
 
+// Windows 11 only; earlier versions refuse them and keep their own look.
+constexpr DWORD kDwmWindowCornerPreference = 33;
+constexpr DWORD kDwmBorderColor = 34;
+constexpr int kDwmCornerDefault = 0;
+constexpr int kDwmCornerSquare = 1;
+constexpr COLORREF kDwmColorDefault = 0xFFFFFFFF;
+constexpr COLORREF kDwmColorNone = 0xFFFFFFFE;
+
 // The one timer a window sets, while it is being dragged.
 constexpr UINT_PTR kModalTimer = 1;
+
+// Posted by BeginMoveDrag, so the move loop starts from the message loop rather
+// than from inside a frame being drawn.
+constexpr UINT kMsgBeginMoveDrag = WM_APP + 1;
 
 HINSTANCE Instance() {
   return ::GetModuleHandleW(nullptr);
@@ -147,6 +164,50 @@ bool WorkArea(HWND hwnd, RECT* out) {
   return true;
 }
 
+// The main window's frame is being left off right now.
+bool Frameless(const Window::Impl* w) {
+  return w->role == WindowRole::Main && w->borderless && !w->fullscreen;
+}
+
+// Square corners and no outline while borderless: a rounded corner would cut
+// into the picture and the outline would lie on it.
+void ApplyBorderlessLook(const Window::Impl* w) {
+  if (!w->hwnd) return;
+  const int corner = w->borderless ? kDwmCornerSquare : kDwmCornerDefault;
+  const COLORREF border = w->borderless ? kDwmColorNone : kDwmColorDefault;
+  ::DwmSetWindowAttribute(w->hwnd, kDwmWindowCornerPreference, &corner, sizeof(corner));
+  ::DwmSetWindowAttribute(w->hwnd, kDwmBorderColor, &border, sizeof(border));
+}
+
+// The frame a restored main window has around its inside, as offsets: left and
+// top negative.
+RECT FrameOffsets(HWND hwnd) {
+  RECT frame = {0, 0, 0, 0};
+  ::AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, ::GetDpiForWindow(hwnd));
+  return frame;
+}
+
+// Without a frame there is nothing to grab, so a strip as wide as the frame
+// would have been is taken from the edge of the picture instead.
+LRESULT BorderlessHitTest(HWND hwnd, LPARAM lparam) {
+  RECT rc = {};
+  ::GetWindowRect(hwnd, &rc);
+  const int x = GET_X_LPARAM(lparam);
+  const int y = GET_Y_LPARAM(lparam);
+  const UINT dpi = ::GetDpiForWindow(hwnd);
+  const int edge = ::GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) +
+                   ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+  const bool left = x < rc.left + edge;
+  const bool right = x >= rc.right - edge;
+  const bool top = y < rc.top + edge;
+  const bool bottom = y >= rc.bottom - edge;
+  if (top) return left ? HTTOPLEFT : right ? HTTOPRIGHT : HTTOP;
+  if (bottom) return left ? HTBOTTOMLEFT : right ? HTBOTTOMRIGHT : HTBOTTOM;
+  if (left) return HTLEFT;
+  if (right) return HTRIGHT;
+  return HTCLIENT;
+}
+
 LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (w->forwardUi) {
     UiScope scope(w->ui);
@@ -224,6 +285,61 @@ LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARA
       }
       break;
     }
+    case WM_NCCALCSIZE:
+      if (Frameless(w)) {
+        // The whole window is inside. Maximised, a window hangs its frame over
+        // the screen's edges; with the frame gone the picture would reach past
+        // them by as much, so it gets the work area instead, which also leaves
+        // the taskbar uncovered. FALSE is what creating the window sends.
+        RECT* rc = wparam ? &reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam)->rgrc[0]
+                          : reinterpret_cast<RECT*>(lparam);
+        if (::IsZoomed(hwnd)) {
+          MONITORINFO info = {};
+          info.cbSize = sizeof(info);
+          if (::GetMonitorInfoW(::MonitorFromRect(rc, MONITOR_DEFAULTTONEAREST), &info)) {
+            *rc = info.rcWork;
+          }
+        }
+        return 0;
+      }
+      break;
+    case WM_NCHITTEST:
+      if (Frameless(w) && !::IsZoomed(hwnd)) return BorderlessHitTest(hwnd, lparam);
+      break;
+    case WM_NCACTIVATE:
+      // Left to itself, Windows paints the title bar it believes is there over
+      // the picture whenever the window gains or loses the focus. -1 stops it.
+      if (Frameless(w)) return ::DefWindowProcW(hwnd, msg, wparam, -1);
+      break;
+    case kMsgBeginMoveDrag:
+      if ((::GetKeyState(VK_LBUTTON) & 0x8000) == 0) return 0;  // let go meanwhile
+      {
+        // The loop below starts from where the pointer was when this message
+        // was posted, and it had moved on while the drag was being recognised.
+        // The window catches up first, so the point that was grabbed stays
+        // under the pointer.
+        const POINT grabbed = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        const DWORD posted = ::GetMessagePos();
+        POINT pt = {GET_X_LPARAM(posted), GET_Y_LPARAM(posted)};
+        RECT rc = {};
+        if (!::IsZoomed(hwnd) && ::GetWindowRect(hwnd, &rc)) {
+          ::SetWindowPos(hwnd, nullptr, rc.left + pt.x - grabbed.x, rc.top + pt.y - grabbed.y, 0,
+                         0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        ::ReleaseCapture();
+        // What a press on a title bar does. Returns once the button is up.
+        ::DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+        // The loop kept the release to itself, and Dear ImGui still thinks the
+        // button is down.
+        if (w->forwardUi && w->hwnd) {
+          ::GetCursorPos(&pt);
+          ::ScreenToClient(hwnd, &pt);
+          UiScope scope(w->ui);
+          ImGui_ImplWin32_WndProcHandler(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(pt.x, pt.y));
+        }
+      }
+      return 0;
+
     case WM_GETMINMAXINFO:
       if (role != WindowRole::Main) break;
       {
@@ -401,8 +517,11 @@ CreateResult Window::Create(const WindowSpec& spec) {
       if (!wc.hIcon) wc.hIcon = ::LoadIconW(nullptr, IDI_APPLICATION);
       if (!::RegisterClassExW(&wc)) return CreateResult::RegistrationFailed;
 
+      // Before the window exists, so its very first WM_NCCALCSIZE already
+      // leaves the frame off.
+      w.borderless = spec.borderless;
       RECT rc = {0, 0, spec.width, spec.height};
-      ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+      if (!w.borderless) ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
       width = rc.right - rc.left;
       height = rc.bottom - rc.top;
       // Zwei Gruende, die Stelle nicht zu benutzen, und beide sind echte Fragen.
@@ -484,6 +603,7 @@ CreateResult Window::Create(const WindowSpec& spec) {
     if (spec.role == WindowRole::Dialog) ::UnregisterClassW(w.className.c_str(), instance);
     return CreateResult::WindowFailed;
   }
+  if (w.borderless) ApplyBorderlessLook(&w);
   return CreateResult::Ok;
 }
 
@@ -604,7 +724,7 @@ bool Window::GetPlacement(Placement* out) const {
   // minimised or maximised would be remembered at the wrong size.
   const RECT& rc = wp.rcNormalPosition;
   RECT frame = {0, 0, 0, 0};
-  ::AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
+  if (!impl_->borderless) ::AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
   out->x = rc.left;
   out->y = rc.top;
   out->width = rc.right - rc.left;
@@ -676,9 +796,7 @@ bool Window::ClientSizeFits(int width, int height) const {
   // The frame of the restored window, which is what the size would be set on;
   // a maximised window's own rectangles say nothing about it.
   RECT frame = {0, 0, 0, 0};
-  ::AdjustWindowRectExForDpi(&frame, (DWORD)::GetWindowLongPtrW(hwnd, GWL_STYLE), FALSE,
-                             (DWORD)::GetWindowLongPtrW(hwnd, GWL_EXSTYLE),
-                             ::GetDpiForWindow(hwnd));
+  if (!Frameless(impl_.get())) frame = FrameOffsets(hwnd);
   return width + (frame.right - frame.left) <= work.right - work.left &&
          height + (frame.bottom - frame.top) <= work.bottom - work.top;
 }
@@ -688,12 +806,65 @@ void Window::SetSizingAspect(double aspect, int inset) {
   impl_->sizingInset = inset > 0 ? inset : 0;
 }
 
+void Window::SetBorderless(bool borderless) {
+  Impl& w = *impl_;
+  if (w.role != WindowRole::Main || w.borderless == borderless) return;
+  w.borderless = borderless;
+  const HWND hwnd = w.hwnd;
+  if (!hwnd) return;
+  ApplyBorderlessLook(&w);
+
+  // Fullscreen has no frame either way; what changes is the window it goes
+  // back to, which has to keep the same inside.
+  if (w.fullscreen) {
+    const RECT frame = FrameOffsets(hwnd);
+    const int s = borderless ? -1 : 1;
+    RECT& r = w.windowed.rcNormalPosition;
+    r.left += s * frame.left;
+    r.top += s * frame.top;
+    r.right += s * frame.right;
+    r.bottom += s * frame.bottom;
+    return;
+  }
+  // Maximised or minimised it only needs its inside worked out again.
+  if (::IsZoomed(hwnd) || ::IsIconic(hwnd)) {
+    ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    return;
+  }
+  // The picture stays where it is on screen and the frame goes around it or
+  // away from it -- not the window's corner staying put and the picture
+  // jumping by the width of the frame.
+  RECT rc = {};
+  ::GetClientRect(hwnd, &rc);
+  ::MapWindowPoints(hwnd, nullptr, reinterpret_cast<POINT*>(&rc), 2);
+  if (!borderless) {
+    const RECT frame = FrameOffsets(hwnd);
+    rc.left += frame.left;
+    rc.top += frame.top;
+    rc.right += frame.right;
+    rc.bottom += frame.bottom;
+    // A picture at the top of the screen would put the new title bar above it.
+    RECT work = {};
+    if (WorkArea(hwnd, &work) && rc.top < work.top) ::OffsetRect(&rc, 0, work.top - rc.top);
+  }
+  ::SetWindowPos(hwnd, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+void Window::BeginMoveDrag(Point grabbed) {
+  if (impl_->hwnd) {
+    ::PostMessageW(impl_->hwnd, kMsgBeginMoveDrag, 0, MAKELPARAM(grabbed.x, grabbed.y));
+  }
+}
+
 void Window::EnterFullscreen(const Rect& target, const Window* under, bool topmost) {
   Impl& w = *impl_;
   if (!w.hwnd) return;
   w.windowed.length = sizeof(w.windowed);
   ::GetWindowPlacement(w.hwnd, &w.windowed);
 
+  w.fullscreen = true;
   ::SetWindowLongPtrW(w.hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
   HWND after = topmost ? HWND_TOPMOST : HWND_TOP;
   if (under) after = NativeWindow(*under);
@@ -704,6 +875,9 @@ void Window::EnterFullscreen(const Rect& target, const Window* under, bool topmo
 void Window::LeaveFullscreen() {
   Impl& w = *impl_;
   if (!w.hwnd) return;
+  // Before the style comes back, so WM_NCCALCSIZE knows whether it may add the
+  // frame again.
+  w.fullscreen = false;
   ::SetWindowLongPtrW(w.hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
   ::SetWindowPlacement(w.hwnd, &w.windowed);
   ::SetWindowPos(w.hwnd, nullptr, 0, 0, 0, 0,

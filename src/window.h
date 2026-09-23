@@ -63,6 +63,8 @@ struct WindowSpec {
   bool hasPosition = false;
   int x = 0;
   int y = 0;
+  // Main only: see Window::SetBorderless.
+  bool borderless = false;
 };
 
 enum class CreateResult {
@@ -184,6 +186,17 @@ class Window {
   // Main window only: while Shift is held, resizing keeps the inside below the
   // top `inset` pixels at this width over height. 0 turns it off.
   void SetSizingAspect(double aspect, int inset);
+
+  // Main window only: no title bar and no frame, the inside is the whole
+  // window. It stays a window in every other respect -- taskbar button, Alt+Tab,
+  // snapping, minimising -- and is sized at its edges. The inside keeps its
+  // place on screen when this is switched.
+  void SetBorderless(bool borderless);
+  // Moves the window with the pointer for as long as the left button stays
+  // down, as dragging a title bar would. For the borderless window, which has
+  // none; call it while the button is held. `grabbed` is where it went down, in
+  // screen coordinates: that point of the window follows the pointer.
+  void BeginMoveDrag(Point grabbed);
 
   // Borderless over `target`. `under`, when given, is the window it goes
   // directly beneath; otherwise it goes to the front, above everything if

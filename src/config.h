@@ -636,6 +636,9 @@ struct AppSettings {
   unsigned accentColor = 0x8B5CF6;  // violet
   bool vsync = false;  // off means "allow tearing" -- the biggest latency lever
   bool alwaysOnTop = false;
+  // The window without title bar and frame, only the picture; moved by dragging
+  // the picture, sized at its edges. It keeps its taskbar button.
+  bool borderless = false;
   bool hideCursorFullscreen = true;
   bool preventSleep = true;
   bool showStats = false;

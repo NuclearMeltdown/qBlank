@@ -907,6 +907,7 @@ bool Config::Load(std::string* error) {
   app.wheelVolume = a["wheelVolume"].AsBool(true);
   app.vsync = a["vsync"].AsBool(false);
   app.alwaysOnTop = a["alwaysOnTop"].AsBool(false);
+  app.borderless = a["borderless"].AsBool(false);
   app.hideCursorFullscreen = a["hideCursorFullscreen"].AsBool(true);
   app.preventSleep = a["preventSleep"].AsBool(true);
   app.showStats = a["showStats"].AsBool(false);
@@ -1049,6 +1050,7 @@ std::string Config::Serialize() const {
   a["wheelVolume"] = app.wheelVolume;
   a["vsync"] = app.vsync;
   a["alwaysOnTop"] = app.alwaysOnTop;
+  a["borderless"] = app.borderless;
   a["hideCursorFullscreen"] = app.hideCursorFullscreen;
   a["preventSleep"] = app.preventSleep;
   a["showStats"] = app.showStats;

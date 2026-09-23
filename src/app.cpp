@@ -281,6 +281,7 @@ bool App::CreateMainWindow() {
                      config_.app.windowY != AppSettings::kWindowPosUnset;
   spec.x = config_.app.windowX;
   spec.y = config_.app.windowY;
+  spec.borderless = config_.app.borderless;
 
   switch (window_.Create(spec)) {
     case CreateResult::Ok:
@@ -689,6 +690,7 @@ void App::CaptureAppliedState() {
   applied_.theme = config_.app.theme;
   applied_.accent = config_.app.accentColor;
   applied_.alwaysOnTop = config_.app.alwaysOnTop;
+  applied_.borderless = config_.app.borderless;
   applied_.language = config_.app.language;
 }
 
@@ -705,6 +707,9 @@ void App::SyncConfigChanges() {
       devicePages_.busy() != devicePagesWereBusy_) {
     devicePagesWereBusy_ = devicePages_.busy();
     ApplyWindowFlags();
+  }
+  if (config_.app.borderless != applied_.borderless) {
+    window_.SetBorderless(config_.app.borderless);
   }
 
   // Anything that changes what the card is asked to produce needs the graph
@@ -4880,6 +4885,28 @@ void App::DoubleClickFullscreen() {
   clickOnPicture_ = onPicture;
 }
 
+// Ohne Titelleiste greift man das Fenster am Bild. Erst ein Ziehen ueber
+// ImGuis Schwelle macht daraus ein Verschieben, ein blosser Klick bleibt ein
+// Klick und zaehlt weiter fuer den Doppelklick. Der Druck muss wie dort auf dem
+// blossen Bild begonnen haben, nicht an der Trennlinie oder in einem Fenster.
+// Der zweite Klick eines Doppelklicks zaehlt nicht: verlaesst er das Vollbild,
+// springt das Fenster unter dem Zeiger weg, und der Sprung saehe aus wie Ziehen.
+void App::DragBorderlessWindow() {
+  if (!config_.app.borderless || fullscreen_ || !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    moveDragArmed_ = false;
+    return;
+  }
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    moveDragArmed_ = !ImGui::GetIO().WantCaptureMouse && !compareDrag_ &&
+                     !ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+  }
+  if (!moveDragArmed_ || !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) return;
+  moveDragArmed_ = false;
+  clickOnPicture_ = false;
+  const ImVec2 at = ImGui::GetIO().MouseClickedPos[ImGuiMouseButton_Left];
+  window_.BeginMoveDrag(window_.ClientToScreen({(int)at.x, (int)at.y}));
+}
+
 void App::FeedRecorder() {
   if (!recorder_.recording()) return;
 
@@ -5680,6 +5707,7 @@ void App::DrawUi() {
   } else {
     DragCompareDivider();
     DoubleClickFullscreen();
+    DragBorderlessWindow();
   }
 
   // ---- recording indicator ----
@@ -5951,6 +5979,9 @@ void App::DrawContextMenu() {
     config_.app.alwaysOnTop = top;
     ApplyWindowFlags();
   }
+
+  bool borderless = config_.app.borderless;
+  if (ImGui::MenuItem(T("Rahmenlos", "Borderless"), nullptr, &borderless)) config_.app.borderless = borderless;
 
   bool stats = config_.app.showStats;
   if (ImGui::MenuItem(T("Statistik", "Statistics"), sc(HotkeyAction::Stats), &stats)) config_.app.showStats = stats;
