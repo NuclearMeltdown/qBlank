@@ -202,25 +202,16 @@ void ApplyImGuiTheme(bool dark, unsigned accentRgb) {
 void LoadUiFont(float sizePixels) {
   ImGuiIO& io = ImGui::GetIO();
 
-  ImFontConfig cfg;
-  cfg.OversampleH = 2;
-  cfg.OversampleV = 1;
-  cfg.PixelSnapH = false;
-
-  // ImGui's default range stops at the end of Latin-1, which covers the umlauts
-  // but not the punctuation the interface actually uses. An em dash outside the
-  // baked range does not fall back to anything -- it renders as "?", which is
-  // how "— nothing selected —" ended up looking like an error message.
-  static const ImWchar ranges[] = {
-      0x0020, 0x00FF,  // Basic Latin + Latin-1 Supplement
-      0x2010, 0x203A,  // dashes, quotation marks, ellipsis, angle quotes
-      0x20AC, 0x20AC,  // euro sign
-      0,
-  };
-
+  // No glyph ranges and no oversampling set by hand. Since ImGui 1.92 a glyph is
+  // rasterized the first time it is drawn, at the size it is drawn at, so every
+  // character Segoe UI has is there and oversampling is picked per size. Up to
+  // 1.91 only the ranges baked at startup existed: an em dash outside them
+  // rendered as "?", which is how "— nothing selected —" once looked like an
+  // error message.
+  //
   // ImGui takes UTF-8 paths, which is what the interface deals in anyway.
   for (const std::string& path : UiFontFiles()) {
-    if (io.Fonts->AddFontFromFileTTF(path.c_str(), sizePixels, &cfg, ranges)) return;
+    if (io.Fonts->AddFontFromFileTTF(path.c_str(), sizePixels)) return;
   }
   CAP_WARN("Segoe UI not found, using the built-in font");
 }
