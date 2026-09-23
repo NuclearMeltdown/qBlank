@@ -155,6 +155,9 @@ void ApplyImGuiTheme(bool dark, unsigned accentRgb) {
   c[ImGuiCol_ScrollbarGrabActive] = scrollGrab;
 
   c[ImGuiCol_CheckMark] = accent;
+  // A ticked box keeps the plain frame: the accent tick already says it is on.
+  // Left unset, ImGui's own default blue shows through.
+  c[ImGuiCol_CheckboxSelectedBg] = frameBg;
   c[ImGuiCol_SliderGrab] = accent;
   c[ImGuiCol_SliderGrabActive] = accentActive;
 
@@ -186,6 +189,9 @@ void ApplyImGuiTheme(bool dark, unsigned accentRgb) {
   c[ImGuiCol_PlotHistogram] = accent;
   c[ImGuiCol_PlotHistogramHovered] = accentHover;
   c[ImGuiCol_TextSelectedBg] = WithAlpha(accent, 0.35f);
+  // ImGui's default is white, which would vanish in the light theme.
+  c[ImGuiCol_InputTextCursor] = text;
+  c[ImGuiCol_TreeLines] = border;
   c[ImGuiCol_NavCursor] = accent;
   c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, dark ? 0.55f : 0.35f);
   c[ImGuiCol_TableHeaderBg] = headerBg;

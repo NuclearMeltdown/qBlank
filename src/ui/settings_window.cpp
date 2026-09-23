@@ -490,10 +490,11 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
   captureRunning_ = liveCaps != nullptr;
   EnsureValidFormat(caps);
 
-  // Height to leave free for the button row. Each tab scrolls inside its own
-  // child, which is what keeps the tab strip pinned to the top.
+  // Height to leave free for the separator and the button row. Each tab scrolls
+  // inside its own child, which is what keeps the tab strip pinned to the top.
   const ImGuiStyle& style = ImGui::GetStyle();
-  const float footer = ImGui::GetFrameHeightWithSpacing() + style.ItemSpacing.y * 2.0f;
+  const float footer =
+      ImGui::GetFrameHeightWithSpacing() + style.ItemSpacing.y * 2.0f + style.SeparatorSize;
 
   // Which tab is open is state ImGui keeps per *context*, and the settings are
   // drawn into a different context depending on whether they live in a window
@@ -793,7 +794,7 @@ void SettingsWindow::Anchor(const char* key) {
   const float rounding = ImGui::GetStyle().FrameRounding;
   ImDrawList* draw = ImGui::GetWindowDrawList();
   draw->AddRectFilled(a, b, ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, 0.22f * fade)), rounding);
-  draw->AddRect(a, b, ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, 0.9f * fade)), rounding, 0, 1.5f);
+  draw->AddRect(a, b, ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, 0.9f * fade)), rounding, 1.5f);
 }
 
 // ---------------------------------------------------------------- updates tab

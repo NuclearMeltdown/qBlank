@@ -45,7 +45,7 @@ void IconCamera(ImDrawList* dl, ImVec2 c, float r, ImU32 col) {
   const float h = r * 0.62f;
   // Body, with the little raised section on top of a camera.
   dl->AddRect(ImVec2(c.x - w, c.y - h * 0.55f), ImVec2(c.x + w, c.y + h),
-              col, r * 0.18f, 0, r * 0.16f);
+              col, r * 0.18f, r * 0.16f);
   dl->AddRectFilled(ImVec2(c.x - w * 0.42f, c.y - h * 0.95f),
                     ImVec2(c.x - w * 0.02f, c.y - h * 0.5f), col, r * 0.08f);
   dl->AddCircle(ImVec2(c.x, c.y + h * 0.18f), r * 0.3f, col, 20, r * 0.16f);
@@ -71,7 +71,7 @@ void IconFolder(ImDrawList* dl, ImVec2 c, float r, ImU32 col, bool film) {
   dl->AddRectFilled(ImVec2(c.x - w, c.y - h), ImVec2(c.x - w * 0.15f, c.y - h * 0.62f),
                     col, r * 0.1f);
   dl->AddRect(ImVec2(c.x - w, c.y - h * 0.72f), ImVec2(c.x + w, c.y + h), col, r * 0.16f,
-              0, r * 0.16f);
+              r * 0.16f);
   // The two folders are otherwise the same shape, so the mark inside has to do
   // the distinguishing: a play triangle for recordings, an aperture for stills.
   if (film) {
@@ -102,7 +102,7 @@ void IconSpeaker(ImDrawList* dl, ImVec2 c, float r, ImU32 col, bool muted) {
   } else {
     for (int i = 1; i <= 2; ++i) {
       dl->PathArcTo(ImVec2(c.x - w * 0.42f, c.y), r * (0.42f + 0.28f * i), -0.9f, 0.9f, 14);
-      dl->PathStroke(col, 0, r * 0.13f);
+      dl->PathStroke(col, r * 0.13f);
     }
   }
 }

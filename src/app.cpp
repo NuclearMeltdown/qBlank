@@ -4763,7 +4763,7 @@ void App::DrawCropPicker() {
 
   const ImU32 line = IM_COL32(255, 255, 255, 230);
   const ImU32 lineHot = IM_COL32(255, 200, 80, 255);
-  dl->AddRect(ImVec2(xL, yT), ImVec2(xR, yB), line, 0.0f, 0, 1.5f);
+  dl->AddRect(ImVec2(xL, yT), ImVec2(xR, yB), line, 0.0f, 1.5f);
 
   // A thicker bar on each edge, so there is something obvious to aim at.
   const float bar = 4.0f;

@@ -329,9 +329,9 @@ void DrawIdleScreen(unsigned long long icon, int iconPixels, const std::string& 
   // The wordmark, at whatever the interface scale makes of it. Not a second
   // font: one is enough, and a name set in the same face as everything else
   // looks deliberate rather than like a logo dropped in.
-  ImGui::SetWindowFontScale(1.6f);
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.6f);
   centred(AppNameUtf8().c_str(), false);
-  ImGui::SetWindowFontScale(1.0f);
+  ImGui::PopFont();
 
   // Zeilenweise, und jede Zeile fuer sich zentriert. Ein \n in einem einzelnen
   // Textelement setzt die Zeilen zwar untereinander, aber linksbuendig zum

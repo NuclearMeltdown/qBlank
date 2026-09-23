@@ -5,7 +5,7 @@ see [LICENSE](LICENSE).
 
 ## Bundled in the source tree
 
-**Dear ImGui** — `third_party/imgui` — Copyright (c) 2014-2025 Omar Cornut,
+**Dear ImGui** — `third_party/imgui` — Copyright (c) 2014-2026 Omar Cornut,
 MIT License. Its own `LICENSE.txt` ships alongside the sources, and its
 copyright notice must be preserved in any redistribution. MIT places no
 condition the GPL does not already meet, so the combined work is distributed
