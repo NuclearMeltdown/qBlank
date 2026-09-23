@@ -538,9 +538,6 @@ class VideoRenderer {
   int topInset_ = 0;
   double carrierSamples_ = 3.0449;  // PAL, the common case here
 
-  // Scratch row buffer for RGB24, which no backend has a plane format for.
-  std::vector<uint8_t> expandBuffer_;
-
   static const int kReadbackSlots = RenderPasses::kReadbackSlots;
 
   // The recording path when the range is being kept. A ring of its own rather
