@@ -129,7 +129,7 @@ void FfmpegDownloader::Run(std::filesystem::path targetFolder, bool versionOnly)
   std::string expected = Trim(DownloadText(kHashUrl));
   const size_t space = expected.find_first_of(" \t");
   if (space != std::string::npos) expected = expected.substr(0, space);
-  expected = ToUpper(expected);
+  // Lower case, as Sha256HexOfFile writes it.
   for (char& c : expected) c = (char)tolower((unsigned char)c);
 
   // --- download ---
