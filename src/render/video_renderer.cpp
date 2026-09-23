@@ -129,8 +129,8 @@ bool VideoRenderer::CreateSourceTextures(std::string* error) {
     case FormatKind::Nv12:
       ok = makePlane(0, w, h, PlaneFormat::R8) &&
            makePlane(1, (w + 1) / 2, (h + 1) / 2, PlaneFormat::Rg8);
+      planeCount_ = 2;
       break;
-
     case FormatKind::P010:
       ok = makePlane(0, w, h, PlaneFormat::R16) &&
            makePlane(1, (w + 1) / 2, (h + 1) / 2, PlaneFormat::Rg16);
