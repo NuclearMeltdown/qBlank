@@ -26,6 +26,7 @@
 #include "camera_sink.h"
 #include "ui/settings_window.h"
 #include "ui/toolbar.h"
+#include "ui/tray_menu.h"
 #include "tray.h"
 #include "window.h"
 
@@ -130,9 +131,11 @@ class App {
   void ApplyWindowFlags();
   void ApplyTheme();
   // The icon in the notification area: shown or not, its menu kept current,
-  // and whatever was picked there run on this thread.
+  // and what happened to it answered on this thread.
   void UpdateTray();
   std::vector<TrayMenuItem> BuildTrayMenu();
+  // The icon's menu, when it is open, and whatever is picked there.
+  void DrawTrayMenu();
   void RunTrayCommand(int id);
   void AdjustVolume(float delta);
   void ToggleMute();
@@ -431,6 +434,7 @@ class App {
   bool moveDragArmed_ = false;   // the left button went down on the bare picture
   bool recordingBadge_ = false;  // the red dot is on the taskbar button
   TrayIcon tray_;
+  TrayMenu trayPopup_;
   std::vector<TrayMenuItem> trayMenu_;  // what the icon's menu holds right now
   std::string trayTooltip_;
   bool trayFailed_ = false;  // not retried until the setting goes off and on

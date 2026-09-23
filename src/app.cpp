@@ -250,6 +250,7 @@ bool App::Initialize() {
 
 void App::Shutdown() {
   // First, so nothing can be picked from its menu while the rest goes down.
+  trayPopup_.Destroy();
   tray_.Hide();
   if (window_.created()) SaveWindowPlacement();
   // Before anything else: closing the pipes is what makes ffmpeg finalise the
@@ -412,7 +413,6 @@ void App::ApplyTheme() {
   ApplyImGuiTheme(dark, config_.app.accentColor, uiScale_);
   window_.SetDarkFrame(dark);
   if (settingsHost_.created()) settingsHost_.ApplyTheme(dark, config_.app.accentColor);
-  tray_.SetDarkMenus(dark);
 }
 
 // ---------------------------------------------------------------------- tray
@@ -437,6 +437,7 @@ void App::UpdateTray() {
   if (!config_.app.trayIcon) {
     trayFailed_ = false;
     if (tray_.shown()) {
+      trayPopup_.Destroy();
       tray_.Hide();
       trayMenu_.clear();
       trayTooltip_.clear();
@@ -448,7 +449,6 @@ void App::UpdateTray() {
   const std::string tooltip =
       recorder_.recording() ? AppNameUtf8() + T(" – Aufnahme läuft", " – Recording") : AppNameUtf8();
   if (!tray_.shown()) {
-    tray_.SetDarkMenus(darkMode_);
     if (!tray_.Show(tooltip)) {
       // Not retried every frame; switching the setting off and on tries again.
       CAP_WARN("Tray icon could not be created");
@@ -465,12 +465,31 @@ void App::UpdateTray() {
   std::vector<TrayMenuItem> menu = BuildTrayMenu();
   if (menu != trayMenu_) {
     trayMenu_ = menu;
-    tray_.SetMenu(std::move(menu));
+    trayPopup_.SetItems(std::move(menu));
   }
 
   // Not from inside a move or resize: they wait there until it is over.
   if (inModalFrame_) return;
-  for (int id : tray_.TakeCommands()) RunTrayCommand(id);
+  for (const TrayEvent& event : tray_.TakeEvents()) {
+    if (event.kind == TrayEvent::Kind::Activate) {
+      window_.Raise();
+      continue;
+    }
+    std::string error;
+    if (!trayPopup_.Open(event.at, display_.tearingSupported(), &error)) {
+      CAP_WARN("Tray menu could not be opened: %s", error.c_str());
+    }
+  }
+}
+
+void App::DrawTrayMenu() {
+  if (inModalFrame_) return;
+  const int id = trayPopup_.Draw(darkMode_, config_.app.accentColor);
+  if (id == 0) return;
+  // Before the menu goes: while it is in front, the command may bring a window
+  // of the program forward.
+  RunTrayCommand(id);
+  trayPopup_.Close();
 }
 
 std::vector<TrayMenuItem> App::BuildTrayMenu() {
@@ -492,7 +511,6 @@ std::vector<TrayMenuItem> App::BuildTrayMenu() {
   };
 
   add(kTrayShow, Format(T("%s anzeigen", "Show %s"), AppNameUtf8().c_str()).c_str());
-  menu.back().isDefault = true;
 
   group();
   quick(TrayItem::Record, recorder_.recording() ? T("Aufnahme stoppen", "Stop recording")
@@ -541,7 +559,7 @@ std::vector<TrayMenuItem> App::BuildTrayMenu() {
 }
 
 void App::RunTrayCommand(int id) {
-  if (id == TrayIcon::kActivate || id == kTrayShow) {
+  if (id == kTrayShow) {
     window_.Raise();
     return;
   }
@@ -5461,6 +5479,8 @@ int App::Run() {
     // wants to follow the capture card. Tying them together made one of them
     // wrong whichever rate was chosen.
     DrawSettingsWindowed();
+    // The icon's menu likewise, while it is open.
+    DrawTrayMenu();
 
     // Wait for the next captured frame, a pending second field, or input.
     //
@@ -5479,7 +5499,8 @@ int App::Run() {
     // ist. Solange die Einstellungen offen sind kurz, weil das freigestellte
     // Fenster jede Runde gezeichnet wird; sonst so kurz, wie der Boden es
     // verlangt, und hoechstens 100 ms.
-    int timeout = settings_.isOpen() ? 16 : Clamp((int)idleFloor, 16, 100);
+    int timeout =
+        settings_.isOpen() || trayPopup_.isOpen() ? 16 : Clamp((int)idleFloor, 16, 100);
     if (secondFieldPending_) {
       // Rounded up, not truncated. Truncating asks to be woken a fraction of a
       // millisecond before the field is due, at which point the loop finds it is
