@@ -10,14 +10,13 @@
 
 ![The viewer in fullscreen showing a console at 1080p60, with the statistics overlay reading a frame age of 1.2 ms](docs/viewer.jpg)
 
-qBlank displays the output of a capture card with as little delay as the
-hardware allows, so the captured signal can be played on rather than only
-watched. Measured on a StarTech PEXHDCAP60L: **1080p60 sustained, around 1 ms
-from a frame arriving to the present that hands it to the compositor.**
+A lightweight program for playing any console through a capture card: one
+file, any DirectShow device, and as little delay as the hardware allows.
+Measured on a StarTech PEXHDCAP60L: **1080p60 sustained, around 1 ms from a
+frame arriving to the present that hands it to the compositor.**
 
-It is meant for using a capture card to play. Recording, screenshots, a
-microphone track and a virtual camera are included; scenes, overlays,
-compositing and streaming are not. For those, use OBS.
+Recording, screenshots, a microphone track and a virtual camera are included;
+scenes, overlays, compositing and streaming are not. For those, use OBS.
 
 > **The [wiki](../../wiki) is the documentation** — one page per feature, what the
 > code does and what was measured. This page is the list.
@@ -50,7 +49,7 @@ compositing and streaming are not. For those, use OBS.
 - Aspect override, integer scaling, square pixels, quarter turns, line doubling for 240p and 288p.
 - **Native pixel grid**: one output pixel per console pixel, where the card samples a line 720 times and a SNES drew 256.
 - **Freeze** (**F11**) holds the source, so a slider can be judged on a still picture.
-- **A/B compare** (**F12**) splits the picture, every filter off on the left, deinterlacing on both sides.
+- **A/B compare** (**F12**) splits the picture, every filter off on one side, deinterlacing on both. Vertical or horizontal, chosen in the right-click menu.
 - **All filters off** (**Shift+F12**) shows the signal as it arrives, with deinterlacing, crop, aspect and range kept.
 
 **Crop and colour range** · [wiki](../../wiki/Cropping-and-geometry)
@@ -86,7 +85,7 @@ compositing and streaming are not. For those, use OBS.
 
 ![A title screen under F12, magnified across the divider: the logo and the lettering beaded with dot crawl on the left half, clean on the right](docs/compare-dotcrawl.jpg)
 
-![The Composite filter section of the settings: colour shimmer, the four-frame average with its conditions, the demodulator at step 9 of 9 reading 81 % gone for 17 % softer, restore bandwidth, and the A/B compare with its divider](docs/settings-composite.png)
+![The Composite filter section of the settings: colour shimmer, the four-frame average with its conditions, the demodulator at step 9 of 9 reading 81 % gone for 17 % softer, and restore bandwidth](docs/settings-composite.png)
 
 **Cathode ray tube** — off by default, display only.
 - Scanline gaps follow the **source's** line grid, not the screen's, and are absent where there is no room.
@@ -194,6 +193,7 @@ build.bat
 - `build.bat keep` retains the build tree, `build.bat debug` builds a debug configuration.
 - Settings live in `qBlank.json` beside the executable; nothing goes into the registry.
 - Prebuilt executables are attached to each [release](../../releases). [Building](../../wiki/Building)
+- Or install through winget: `winget install qBlank` (coming soon — the package is still in review).
 
 ## Why DirectShow
 
