@@ -42,6 +42,7 @@ bool VideoRenderer::Initialize(Display* display, std::string* error) {
 
 void VideoRenderer::Shutdown() {
   ReleaseReadbackResources();
+  ReleaseHdrReadback();
   ReleaseSourceTextures();
   passes_->Shutdown();
   display_ = nullptr;
@@ -259,7 +260,7 @@ bool VideoRenderer::FetchHdrReadback(ReadbackFrame* out) {
 }
 
 void VideoRenderer::ReleaseHdrReadback() {
-  if (hdrReadMapped_ < 0) return;
+  if (hdrReadMapped_ < 0 || !display_) return;
   passes_->UnmapHdrReadback(hdrReadMapped_);
   hdrReadMapped_ = -1;
 }
