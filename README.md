@@ -138,6 +138,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - **Shift** while resizing keeps the picture's shape.
 - Borderless keeps its taskbar button, Alt+Tab and Snap; drag the picture to move it.
 - A red dot on the taskbar button while recording.
+- An optional tray icon with quick actions you pick; the taskbar button stays.
 
 **The settings window** · [wiki](../../wiki/The-settings-window)
 - Its own window with its own Direct3D device, so it can go on a second monitor.
