@@ -104,6 +104,9 @@ cbuffer ConvertCB : register(b0) {
   // across, cutting the cropped height. Either way the unfiltered part is the
   // one nearer the origin -- left, or above.
   int   gCompareAxis;
+  // How many frames the temporal average covers, 2..4: one cycle of the dot
+  // crawl, as measured on this source. Four until something is measured.
+  int   gCrawlCycle;
 };
 
 struct VSOut {
@@ -399,29 +402,32 @@ float3 SoftenChroma(float3 rgb, int x, int row) {
 // Anywhere something moved, the average would be a smear, so the blend is let go
 // exactly there. Analogue noise, which is uncorrelated between frames, goes the
 // same way for free.
-// Four frames, not two, and the number comes from the card rather than from a
-// textbook. Measured on this signal, the mean frame to frame difference of a
-// still picture runs 1.91 at a lag of one frame, 2.62 at two, 1.90 at three and
-// 0.78 at four -- a clean four frame cycle, which is the PAL subcarrier walking
-// through its sequence. Averaging two frames therefore cancels nothing; it picks
-// two arbitrary points of that cycle. Averaging four covers it exactly, and what
-// is left is the picture.
+// How many frames comes from the source rather than from a textbook. Measured on
+// a PAL signal through this card, the mean frame to frame difference of a still
+// picture runs 1.91 at a lag of one frame, 2.62 at two, 1.90 at three and 0.78
+// at four -- a clean four frame cycle, which is the PAL subcarrier walking
+// through its sequence. Averaging two frames there cancels little; it picks two
+// points of that cycle. Averaging four covers it exactly, and what is left is
+// the picture. A textbook NTSC signal is back after two, and a console that
+// picks its own clock can land on three, so the renderer measures the cycle of
+// whatever is plugged in and hands it over as gCrawlCycle. Until it has, the
+// average covers four frames, as it always did.
 //
 // The correction is computed on the woven pixels and then applied to whatever
 // the deinterlacer produced, so cleaning the picture never undoes the
 // reconstruction.
-// What four frames of averaging would change about one source pixel. Kept apart
-// from the decision of whether to apply it, because a deinterlaced pixel does
+// What one crawl cycle of averaging would change about one source pixel. Kept
+// apart from the decision of whether to apply it, because a deinterlaced pixel does
 // not come from the row it is drawn on -- and the pattern has no vertical
 // correlation whatsoever, so a correction taken from the neighbouring line does
 // not remove the crawl, it lays a second one on top. That is why the filter
 // worked with deinterlacing off and fell apart with it on.
 float3 TemporalDelta(int x, int row) {
   float3 f0 = FetchRgbFrame(int2(x, row), 0);
-  float3 f1 = FetchRgbFrame(int2(x, row), 1);
-  float3 f2 = FetchRgbFrame(int2(x, row), 2);
-  float3 f3 = FetchRgbFrame(int2(x, row), 3);
-  return (f0 + f1 + f2 + f3) * 0.25 - f0;
+  float3 sum = f0 + FetchRgbFrame(int2(x, row), 1);
+  if (gCrawlCycle >= 3) sum += FetchRgbFrame(int2(x, row), 2);
+  if (gCrawlCycle >= 4) sum += FetchRgbFrame(int2(x, row), 3);
+  return sum / (float)gCrawlCycle - f0;
 }
 
 // How much of that correction to trust here: everything where the picture is
@@ -463,9 +469,14 @@ float TemporalGate(int x, int row) {
 )HLSL"
 R"HLSL(    s0 += GateSampleAt(q, 0);
     s1 += GateSampleAt(q, 1);
-    s2 += GateSampleAt(q, 2);
-    s3 += GateSampleAt(q, 3);
+    if (gCrawlCycle >= 3) s2 += GateSampleAt(q, 2);
+    if (gCrawlCycle >= 4) s3 += GateSampleAt(q, 3);
   }
+  // Only the frames the average takes in. One it leaves out may move all it
+  // likes; standing in for it, the current frame changes neither end of the
+  // range.
+  if (gCrawlCycle < 3) s2 = s0;
+  if (gCrawlCycle < 4) s3 = s0;
   float3 chi = max(max(s0, s1), max(s2, s3)) * 0.142857;
   float3 clo = min(min(s0, s1), min(s2, s3)) * 0.142857;
   // Whichever of the three moved furthest, not their sum: a shift that shows
@@ -1119,7 +1130,7 @@ float4 main(VSOut i) : SV_Target {
     // at no cost in sharpness. Moving picture: the average steps back and the
     // demodulator takes over.
     float handled = 0.0;
-    if (gTemporal > 0.0 && gHistCount >= 3) {
+    if (gTemporal > 0.0 && gHistCount >= gCrawlCycle - 1) {
       handled = TemporalGate(p.x, p.y) * gTemporal;
       rgb += TemporalDelta(p.x, p.y) * handled;
     }

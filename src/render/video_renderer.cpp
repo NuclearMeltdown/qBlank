@@ -560,6 +560,7 @@ void VideoRenderer::ResetAnalysis() {
   signalPrev_.clear();
 
   ResetChroma();
+  ResetCrawl();
 }
 
 bool VideoRenderer::ChromaLayout(ChromaPlanes* planes) const {
@@ -1494,6 +1495,400 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
   pairOuter_ = 0;
 }
 
+// Der Kriechzyklus, siehe crawlCycle() im Header.
+//
+// Gemessen wird das, was der zeitliche Filter wegmitteln soll: der Rest des
+// Farbtraegers im Luma, an ruhenden Stellen, ueber mehrere Bilder. An jeder
+// Stelle des Rasters wird die Zeile ueber gut zwei Traegerperioden gegen Kosinus
+// und Sinus des Traegers gefaltet. Das gibt einen Zeiger, dessen Laenge sagt, wie
+// viel Traeger dort steht, und dessen Richtung, in welcher Phase.
+//
+// Verglichen werden dann nicht die Richtungen, sondern Abstaende: wie weit der
+// Zeiger eines Bildes von dem vor einem, zwei, drei und vier Bildern entfernt
+// liegt. Die Richtung allein taugt bei PAL nicht, dort drehen U und V
+// gegenlaeufig, und an einer Stelle steht eine Mischung aus beiden. Die
+// Abstaende sind davon unberuehrt, weil beide um denselben Betrag drehen. Was
+// vom Bild selbst im Traegerband liegt, steht still und faellt in der Differenz
+// heraus, und Rauschen legt auf alle vier Abstaende denselben Sockel.
+//
+// Uebrig bleibt ein Profil, und jeder Zyklus hat seins: bei zwei Bildern sind
+// die Abstaende eins und drei gross und zwei und vier null, bei dreien ist nur
+// drei null, bei vieren sind eins und drei halb so gross wie zwei und vier null.
+// Das gemessene PAL-Signal mit 1,91, 2,62, 1,90 und 0,78 ist das dritte, mit
+// dem Rauschsockel darunter.
+//
+// Ruhend heisst zweierlei. Der Mittelwert der Stelle darf sich ueber die
+// letzten fuenf Bilder kaum bewegen; das faengt alles, was mit Kanten durchs
+// Bild zieht. Feines Muster im Traegerband, das scrollt, sieht der Mittelwert
+// aber nicht, und es dreht den Zeiger genau so, wie das Kriechen es tut: ein
+// Bild, das um zwei Punkte je Bild scrollt, sah hier wie ein Zyklus aus drei
+// aus. Dagegen hilft, dass zwei, drei und vier alle in zwoelf aufgehen. Nach
+// zwoelf Bildern steht das Kriechen wieder genau so da wie jetzt, und ein
+// Zeiger, der dann woanders steht, hat sich mit dem Bild bewegt. Solche Stellen
+// fallen heraus. Der Massstab ist der Median aller ruhenden Stellen dieses
+// Bildes, weil niemand weiss, wie stark die Quelle rauscht. Bewegt sich mehr
+// als die Haelfte, taugt der Median nicht mehr -- dann bleibt aber der Abstand
+// ueber zwoelf Bilder in der Summe gross, und das passt zu keinem Zyklus, denn
+// bei jedem ist er so klein wie der kleinste der vier.
+//
+// Was sich so bewegt, dass es nach zwei, drei oder vier Bildern genau wieder
+// gleich aussieht, ist vom Kriechen nicht zu unterscheiden, von keinem Test,
+// der nur die Zeit ansieht. Ist es ein Teil des Bildes, verzieht es das Profil,
+// und kein Zyklus passt. Falsch wird das Urteil erst, wenn es den groessten Teil
+// der ruhenden Flaeche ausmacht, und das zwei Fenster lang, gut drei Sekunden.
+//
+// Gezaehlt wird nach der Nummer, die die Aufnahme jedem Bild gibt. Ein Bild,
+// das die Anzeige uebersprungen hat, fehlt hier, und jedes Bild, das eins der
+// fehlenden fuer seine Abstaende braucht, wird nicht gemessen. Eine Anzeige,
+// die oft Bilder auslaesst, verlaengert also die Messung, aber sie verdirbt
+// kein Profil.
+//
+// Je Bild 1280 Stellen zu je neun Abgriffen bei PAL, rund 35 000
+// Multiplikationen und ein Median ueber hoechstens 1280 Zahlen, unter Linux
+// gemessen gut 45 Mikrosekunden. Das ist wenig, aber es kommt in jedem Bild,
+// und im Bildpfad waere es Latenz. Deshalb ist die Messung zweigeteilt:
+// SampleCrawl in UploadFrame kopiert nur die Bytes unter den Fenstern heraus,
+// je Stelle ein Stueck am Block, gleich nach dem Hochladen, solange das Bild
+// noch im Cache liegt -- unter Linux gut fuenf Mikrosekunden statt gut
+// vierzig. AnalyzeCrawl rechnet nach dem Present.
+static const int kCrawlLags = 4;
+// Zwei, drei und vier gehen in zwoelf auf, siehe oben.
+static const int kCrawlRecur = 12;
+static const int kCrawlDepth = kCrawlRecur + 1;
+static const int kCrawlSitesX = 40;
+static const int kCrawlSitesY = 32;
+// Hundert Bilder sind zwei Sekunden bei PAL, gut anderthalb bei NTSC.
+static const int kCrawlWindow = 100;
+// Eine Stelle gilt als ruhend, wenn ihr Mittelwert ueber alle fuenf Bilder um
+// hoechstens so viele Stufen schwankt. Der Mittelwert sieht den Traeger kaum
+// (das Fenster laesst von ihm unter zwei Prozent durch), eine Bewegung aber
+// sofort. Rauschen der Karte bleibt deutlich darunter.
+static const float kCrawlStillSpan = 5.0f;
+// Eine Stelle, deren Zeiger nach zwoelf Bildern weiter als das so Vielfache des
+// Medians (im Quadrat) von dem jetzigen entfernt liegt, hat sich bewegt. Ist es
+// nur Rauschen, verteilt sich das Quadrat exponentiell; sechsmal der Median ist
+// gut viermal der Mittelwert und laesst so 98 Prozent der ruhenden Stellen
+// durch. Unter einer Stufe Abstand bewegt sich nichts, auch wenn der Median bei
+// einer sehr sauberen Quelle noch kleiner ist.
+static const float kCrawlRecurSpread = 6.0f;
+static const float kCrawlRecurFloor = 1.0f;
+// Weniger ruhende Stellen im Fenster, und es sagt nichts: ein Spiel, das gerade
+// scrollt, soll nicht mit einer Handvoll Zufallstreffern abstimmen.
+static const uint64_t kCrawlMinStill = 4000;
+// Der groesste Abstand muss den kleinsten um so viel uebertreffen, sonst ist da
+// nur Rauschen, etwa auf einem grauen Bild, das keinen Traeger hat.
+static const double kCrawlContrast = 1.3;
+// Wie weit das normierte Profil von der Vorlage abweichen darf, als Summe der
+// Quadrate ueber die Abstaende. Die Vorlagen liegen so gemessen mindestens 1,5
+// auseinander, und das gemessene PAL-Signal weicht um 0,001 von seiner ab. Ein
+// Muster, das ueber das ganze Bild scrollt und dessen Takt zufaellig einem
+// Zyklus nahekommt, passte im Versuch mit 0,07 bis 0,24; das schliesst 0,1
+// aus und laesst einem Bild, in dem sich hier und da etwas bewegt, noch Luft.
+static const double kCrawlFitMax = 0.1;
+// Der Abstand ueber zwoelf Bilder zaehlt in der Abweichung vierfach. Bei echtem
+// Kriechen ist er fuer jeden Zyklus so klein wie der kleinste der vier, und ein
+// solches Muster verraet sich oft nur an ihm.
+static const double kCrawlRecurWeight = 4.0;
+// Ausserhalb davon ist die Periode keine, die ein Traeger in diesem Bild haben
+// kann: unter 2,5 Abtastungen gibt es keinen sauberen Zeiger mehr, und ueber
+// acht liegt eine Karte, die weit mehr als 720 Punkte je Zeile abtastet.
+static const float kCrawlPeriodMin = 2.5f;
+static const float kCrawlPeriodMax = 8.0f;
+
+// Die Profile, normiert auf 0 fuer den kleinsten und 1 fuer den groessten der
+// Abstaende eins bis vier, fuer einen Zyklus aus zwei, drei und vier Bildern.
+// Der fuenfte Wert ist der Abstand ueber zwoelf Bilder, bei allen dreien 0.
+static const double kCrawlTemplates[3][kCrawlLags + 1] = {
+    {1.0, 0.0, 1.0, 0.0, 0.0},
+    {1.0, 1.0, 0.0, 1.0, 0.0},
+    {0.5, 1.0, 0.5, 0.0, 0.0},
+};
+
+void VideoRenderer::ResetCrawl() {
+  crawlCycle_ = 0;
+  crawlCandidate_ = 0;
+  crawlLogged_ = -1;
+  crawlWidth_ = 0;
+  crawlHeight_ = 0;
+  crawlPeriod_ = 0.0f;
+  crawlStep_ = 0;
+  crawlReach_ = 0;
+  crawlSiteX_.clear();
+  crawlSiteY_.clear();
+  crawlTapW_.clear();
+  crawlTapC_.clear();
+  crawlTapS_.clear();
+  crawlSumW_ = crawlSumC_ = crawlSumS_ = 0.0f;
+  crawlRing_.clear();
+  crawlRingSequence_.clear();
+  crawlLastSequence_ = 0;
+  crawlPending_.clear();
+  crawlPendingSequence_ = 0;
+  crawlScratch_.clear();
+  crawlRecur_.clear();
+  crawlFrames_ = 0;
+  crawlStill_ = 0;
+  for (double& d : crawlDiff_) d = 0.0;
+}
+
+void VideoRenderer::SampleCrawl(const FrameView& frame) {
+  if (!crawlWanted_ || !analogueSource_) return;
+
+  const int w = source_.width;
+  const int h = source_.height;
+  const float period = effectiveCarrierPeriod();
+  if (w < 64 || h < 32 || !(period >= kCrawlPeriodMin && period <= kCrawlPeriodMax)) return;
+  size_t offset = 0, step = 1;
+  if (!LumaLayout(&offset, &step)) return;
+  if ((size_t)w * step * (size_t)h > frame.size) return;
+
+  if (w != crawlWidth_ || h != crawlHeight_ || period != crawlPeriod_ || step != crawlStep_) {
+    ResetCrawl();
+    crawlWidth_ = w;
+    crawlHeight_ = h;
+    crawlPeriod_ = period;
+    crawlStep_ = step;
+    // Ein Hann-Fenster ueber gut zwei Perioden. Ohne Fenster wuerde jede Kante
+    // am Rand des Ausschnitts als Traeger mitgezaehlt.
+    const int reach = (int)std::ceil(period);
+    crawlReach_ = reach;
+    const double pi = 3.14159265358979;
+    const double omega = 2.0 * pi / (double)period;
+    for (int k = -reach; k <= reach; ++k) {
+      const double win = 0.5 + 0.5 * std::cos(pi * k / (double)(reach + 1));
+      crawlTapW_.push_back((float)win);
+      crawlTapC_.push_back((float)(win * std::cos(omega * k)));
+      crawlTapS_.push_back((float)(win * std::sin(omega * k)));
+      crawlSumW_ += crawlTapW_.back();
+      crawlSumC_ += crawlTapC_.back();
+      crawlSumS_ += crawlTapS_.back();
+    }
+    // Ein Sechzehntel Rand an jeder Seite, wie bei den anderen Messungen: dort
+    // liegen Austastung und Ueberabtastung, und beides steht still, ohne dass
+    // ein Traeger darin waere. Die Zeilen wechseln die Paritaet, damit beide
+    // Halbbilder gleich oft gefragt werden.
+    const int x0 = reach + w / 16;
+    const int x1 = w - reach - w / 16;
+    const int y0 = h / 16;
+    const int y1 = h - h / 16;
+    for (int j = 0; j < kCrawlSitesY; ++j) {
+      const int band = y0 + (int)((int64_t)(y1 - y0) * (2 * j + 1) / (2 * kCrawlSitesY));
+      for (int i = 0; i < kCrawlSitesX; ++i) {
+        int row = (band & ~1) | ((i + j) & 1);
+        if (row >= h) row = h - 1;
+        crawlSiteX_.push_back(x0 + (int)((int64_t)(x1 - x0) * (2 * i + 1) / (2 * kCrawlSitesX)));
+        crawlSiteY_.push_back(row);
+      }
+    }
+    crawlRing_.assign((size_t)kCrawlDepth * crawlSiteX_.size() * 3, 0.0f);
+    crawlRingSequence_.assign((size_t)kCrawlDepth, 0);
+    crawlPending_.assign(crawlSiteX_.size() * ((size_t)(2 * reach) * step + 1), 0);
+    crawlScratch_.reserve(crawlSiteX_.size());
+    crawlRecur_.reserve(crawlSiteX_.size());
+  }
+
+  // Dasselbe Bild zweimal ist kein Bild Abstand, und ein fehlendes dazwischen
+  // macht aus einem Abstand von eins einen von zwei. Deshalb liegt jedes Bild
+  // auf dem Platz seiner Nummer, und gemessen wird nur, wenn die Bilder, die
+  // es braucht, mit genau ihrer Nummer da sind. Ohne Nummer wird selbst
+  // gezaehlt; faengt die Zaehlung von vorn an, ist der Verlauf ungueltig.
+  const uint64_t sequence = frame.sequence != 0 ? frame.sequence : crawlLastSequence_ + 1;
+  if (sequence == crawlLastSequence_) return;
+  if (sequence < crawlLastSequence_) {
+    std::fill(crawlRingSequence_.begin(), crawlRingSequence_.end(), (uint64_t)0);
+  }
+  crawlLastSequence_ = sequence;
+
+  // Ein abgelegtes Bild, das noch niemand ausgewertet hat, wird ueberschrieben.
+  // Das fehlt dann wie ein uebersprungenes, siehe oben.
+  const size_t sites = crawlSiteX_.size();
+  const size_t span = (size_t)(2 * crawlReach_) * step + 1;
+  for (size_t s = 0; s < sites; ++s) {
+    const uint8_t* p = frame.data + offset +
+                       ((size_t)crawlSiteY_[s] * (size_t)w + (size_t)(crawlSiteX_[s] - crawlReach_)) * step;
+    memcpy(crawlPending_.data() + s * span, p, span);
+  }
+  crawlPendingSequence_ = sequence;
+}
+
+void VideoRenderer::AnalyzeAfterPresent() {
+  AnalyzeCrawl();
+}
+
+void VideoRenderer::AnalyzeCrawl() {
+  const uint64_t sequence = crawlPendingSequence_;
+  if (sequence == 0) return;
+  crawlPendingSequence_ = 0;
+
+  const size_t sites = crawlSiteX_.size();
+  const int taps = 2 * crawlReach_ + 1;
+  const size_t step = crawlStep_;
+  const size_t span = (size_t)(taps - 1) * step + 1;
+  const size_t now = (size_t)(sequence % (uint64_t)kCrawlDepth);
+  crawlRingSequence_[now] = sequence;
+  float* slot = crawlRing_.data() + now * sites * 3;
+  for (size_t s = 0; s < sites; ++s) {
+    const uint8_t* p = crawlPending_.data() + s * span;
+    float sw = 0.0f, sc = 0.0f, ss = 0.0f;
+    for (int t = 0; t < taps; ++t) {
+      const float v = (float)p[(size_t)t * step];
+      sw += crawlTapW_[(size_t)t] * v;
+      sc += crawlTapC_[(size_t)t] * v;
+      ss += crawlTapS_[(size_t)t] * v;
+    }
+    // Der Gleichanteil faellt vor dem Vergleich heraus. Das Fenster laesst von
+    // ihm einen kleinen Rest im Traegerband, und der wuerde sonst jeden
+    // Helligkeitsunterschied zwischen zwei Bildern als Traeger zaehlen.
+    const float mean = sw / crawlSumW_;
+    slot[s * 3 + 0] = sc - mean * crawlSumC_;
+    slot[s * 3 + 1] = ss - mean * crawlSumS_;
+    slot[s * 3 + 2] = mean;
+  }
+  // past[0..3] liegen eins bis vier Bilder zurueck, past[4] zwoelf.
+  const float* past[kCrawlLags + 1];
+  for (int k = 0; k <= kCrawlLags; ++k) {
+    const uint64_t back = k < kCrawlLags ? (uint64_t)(k + 1) : (uint64_t)kCrawlRecur;
+    if (sequence <= back) return;
+    const size_t at = (size_t)((sequence - back) % (uint64_t)kCrawlDepth);
+    if (crawlRingSequence_[at] != sequence - back) return;
+    past[k] = crawlRing_.data() + at * sites * 3;
+  }
+
+  // Erst der Mittelwert, dann der Median der Abstaende ueber zwoelf Bilder an
+  // den Stellen, die er durchlaesst. Die Stellen, die schon am Mittelwert
+  // scheitern, bleiben mit -1 markiert.
+  crawlScratch_.assign(sites, -1.0f);
+  std::vector<float>& recur = crawlRecur_;
+  recur.clear();
+  for (size_t s = 0; s < sites; ++s) {
+    const float* z = slot + s * 3;
+    float lo = z[2], hi = z[2];
+    for (int k = 0; k < kCrawlLags; ++k) {
+      const float m = past[k][s * 3 + 2];
+      lo = m < lo ? m : lo;
+      hi = m > hi ? m : hi;
+    }
+    if (hi - lo > kCrawlStillSpan) continue;
+    const float dr = z[0] - past[kCrawlLags][s * 3 + 0];
+    const float di = z[1] - past[kCrawlLags][s * 3 + 1];
+    crawlScratch_[s] = dr * dr + di * di;
+    recur.push_back(crawlScratch_[s]);
+  }
+  if (recur.empty()) return;
+  std::nth_element(recur.begin(), recur.begin() + recur.size() / 2, recur.end());
+  // Eine Stufe Amplitude ist ein Zeiger von der halben Fenstersumme.
+  const float least = kCrawlRecurFloor * crawlSumW_ * 0.5f;
+  const float limit = std::max(recur[recur.size() / 2] * kCrawlRecurSpread, least * least);
+
+  double diff[kCrawlLags + 1] = {};
+  uint64_t still = 0;
+  for (size_t s = 0; s < sites; ++s) {
+    const float e = crawlScratch_[s];
+    if (e < 0.0f || e > limit) continue;
+    const float* z = slot + s * 3;
+    for (int k = 0; k < kCrawlLags; ++k) {
+      const float dr = z[0] - past[k][s * 3 + 0];
+      const float di = z[1] - past[k][s * 3 + 1];
+      diff[k] += (double)(dr * dr + di * di);
+    }
+    diff[kCrawlLags] += (double)e;
+    ++still;
+  }
+  for (int k = 0; k <= kCrawlLags; ++k) crawlDiff_[k] += diff[k];
+  crawlStill_ += still;
+
+  if (++crawlFrames_ < kCrawlWindow) return;
+  JudgeCrawl();
+  crawlFrames_ = 0;
+  crawlStill_ = 0;
+  for (double& d : crawlDiff_) d = 0.0;
+}
+
+void VideoRenderer::JudgeCrawl() {
+  // Die Abstaende in Stufen, fuers Log: der Zeiger einer Sinuswelle der
+  // Amplitude A ist A mal die halbe Fenstersumme lang. d[4] ist der ueber
+  // zwoelf Bilder; er geht in die Vorlage ein, aber nicht in die Normierung.
+  double level[kCrawlLags + 1] = {};
+  double d[kCrawlLags + 1] = {};
+  const char* why = nullptr;
+  int verdict = 0;
+  double fit = 0.0;
+  if (crawlStill_ < kCrawlMinStill) {
+    why = "too little still picture";
+  } else {
+    double lo = 0.0, hi = 0.0;
+    for (int k = 0; k <= kCrawlLags; ++k) {
+      d[k] = crawlDiff_[k] / (double)crawlStill_;
+      level[k] = std::sqrt(d[k]) * 2.0 / (double)crawlSumW_;
+      if (k == kCrawlLags) break;
+      lo = k == 0 || d[k] < lo ? d[k] : lo;
+      hi = k == 0 || d[k] > hi ? d[k] : hi;
+    }
+    if (!(hi > lo * kCrawlContrast)) {
+      why = "no crawl above the noise";
+    } else {
+      double best = 0.0;
+      int bestCycle = 0;
+      for (int c = 0; c < 3; ++c) {
+        double err = 0.0;
+        for (int k = 0; k <= kCrawlLags; ++k) {
+          const double e = (d[k] - lo) / (hi - lo) - kCrawlTemplates[c][k];
+          err += e * e * (k == kCrawlLags ? kCrawlRecurWeight : 1.0);
+        }
+        if (bestCycle == 0 || err < best) {
+          best = err;
+          bestCycle = c + 2;
+        }
+      }
+      fit = best;
+      if (best <= kCrawlFitMax) {
+        verdict = bestCycle;
+      } else {
+        why = "no cycle fits";
+      }
+    }
+  }
+
+  // Ins Log kommt ein Fenster, wenn es etwas anderes sagt als das letzte, das
+  // dort steht. Ohne Urteil nur einmal: ein Spiel, das zwischen Stillstand und
+  // Bewegung wechselt, wuerde sonst alle zwei Sekunden eine Zeile schreiben.
+  if (verdict != 0 && verdict != crawlLogged_) {
+    CAP_LOG("Crawl cycle measured: %d frames (differences %.2f %.2f %.2f %.2f %.2f at 1..4 and "
+            "12 frames apart, fit %.3f, %llu still samples)",
+            verdict, level[0], level[1], level[2], level[3], level[4], fit,
+            (unsigned long long)crawlStill_);
+    crawlLogged_ = verdict;
+  } else if (verdict == 0 && crawlLogged_ == -1) {
+    if (crawlStill_ < kCrawlMinStill) {
+      CAP_LOG("Crawl cycle not measured yet: %s (%llu still samples)", why,
+              (unsigned long long)crawlStill_);
+    } else {
+      CAP_LOG("Crawl cycle not measured yet: %s (differences %.2f %.2f %.2f %.2f %.2f at 1..4 "
+              "and 12 frames apart, fit %.3f)",
+              why, level[0], level[1], level[2], level[3], level[4], fit);
+    }
+    crawlLogged_ = 0;
+  }
+
+  // Uebernommen wird ein Zyklus erst, wenn zwei Fenster mit Urteil hintereinander
+  // dasselbe sagen. Fenster ohne Urteil zaehlen nicht dagegen: dass gerade
+  // alles in Bewegung war, sagt nichts ueber den Traeger.
+  if (verdict == 0) return;
+  if (verdict == crawlCandidate_ && verdict != crawlCycle_) {
+    if (crawlCycle_ == 0 && verdict == 4) {
+      CAP_LOG("Crawl cycle: the temporal filter keeps averaging 4 frames, now as measured");
+    } else if (crawlCycle_ == 0) {
+      CAP_LOG("Crawl cycle: the temporal filter now averages %d frames instead of the default 4",
+              verdict);
+    } else {
+      CAP_LOG("Crawl cycle: the temporal filter now averages %d frames instead of %d", verdict,
+              crawlCycle_);
+    }
+    crawlCycle_ = verdict;
+  }
+  crawlCandidate_ = verdict;
+}
+
 bool VideoRenderer::UploadFrame(const FrameView& frame) {
   if (!frame.valid() || planeCount_ == 0) return false;
 
@@ -1530,6 +1925,8 @@ bool VideoRenderer::UploadFrame(const FrameView& frame) {
       break;
   }
   if (ok) hasFrame_ = true;
+  // Nach dem Hochladen, weil das Bild dann im Cache liegt; siehe AnalyzeCrawl.
+  if (ok) SampleCrawl(frame);
   return ok;
 }
 
@@ -2114,6 +2511,8 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   // the averaging above is switched off -- it works on what that one lets go.
   historyWanted_ = DeinterlaceNeedsHistory(deint) || image.temporalDenoise > 0.0f ||
                    image.motionCompensate;
+  // Der Kriechzyklus wird nur gebraucht, solange der zeitliche Filter an ist.
+  crawlWanted_ = image.temporalDenoise > 0.0f;
 
   const bool isYuv = kind_ != FormatKind::Rgb;
   const bool hd = croppedHeight_ >= 720;
@@ -2186,6 +2585,11 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   cb.compareSplit = image.compare ? Clamp(image.compareSplit, 0.0f, 1.0f) : -1.0f;
   cb.compareAxis = image.compareHorizontal ? 1 : 0;
   cb.coSitedPhase = coSitedFields_ ? coSitedPhase_ : -1;
+  // Ueber wie viele Bilder der zeitliche Filter mittelt: den an dieser Quelle
+  // gemessenen Zyklus, sonst vier. Eine digitale Quelle hat keinen Traeger, und
+  // ein Zyklus, der von einer analogen davor stehen geblieben ist, gilt fuer sie
+  // nicht.
+  cb.crawlCycle = analogueSource_ && crawlCycle_ >= 2 && crawlCycle_ <= 4 ? crawlCycle_ : 4;
   if (range == ColorRange::Limited) {
     cb.yOffset = 16.0f / 255.0f;
     cb.yScale = 255.0f / 219.0f;

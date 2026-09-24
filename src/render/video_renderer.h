@@ -48,6 +48,12 @@ class VideoRenderer {
   // `fieldIndex` picks the field when bob deinterlacing is on.
   void Draw(const ImageSettings& image, int fieldIndex);
 
+  // Was von den Messungen nicht vor dem Bild fertig sein muss. Einmal je
+  // Durchgang, nach dem Present: UploadFrame legt nur ab, was dafuer vom Bild
+  // gebraucht wird, und die Rechnung selbst kommt so nicht mehr zwischen
+  // Ankunft und Schirm. Ohne neues Bild kostet der Aufruf eine Abfrage.
+  void AnalyzeAfterPresent();
+
   bool hasFrame() const { return hasFrame_; }
   void DropFrame() { hasFrame_ = false; }
 
@@ -69,7 +75,14 @@ class VideoRenderer {
 
   // Samples per cycle of the colour subcarrier, for a full width line. Set from
   // the video standard; the dot crawl filter is built around it.
-  void SetCarrierSamples(double samples) { carrierSamples_ = samples; }
+  //
+  // Ein anderer Traeger ist eine andere Norm, und der gemessene Kriechzyklus
+  // gehoert zur alten. Dieselbe Zahl noch einmal gesetzt wirft nichts weg.
+  void SetCarrierSamples(double samples) {
+    if (samples == carrierSamples_) return;
+    carrierSamples_ = samples;
+    ResetCrawl();
+  }
 
   // Whether the picture arriving is one picture.
   //
@@ -377,6 +390,25 @@ class VideoRenderer {
   // use it twice.
   bool sourceCoSitedFields() const { return coSitedFields_; }
 
+  // Nach wie vielen Bildern das Punktkriechen wieder in derselben Phase steht,
+  // gemessen an dieser Quelle: 2, 3 oder 4. 0, solange nichts gemessen ist.
+  //
+  // Wofuer das da ist: der zeitliche Filter nimmt das Kriechen heraus, indem er
+  // ueber genau einen Umlauf der Traegerphase mittelt, und wie lang ein Umlauf
+  // ist, legt die Quelle fest und nicht die Norm. Das PAL-Signal, an dem die
+  // vier gemessen wurden, zeigt Bilddifferenzen von 1,91, 2,62, 1,90 und 0,78
+  // bei einem bis vier Bildern Abstand -- ein sauberer Zyklus von vier. Ein
+  // NTSC-Signal nach Lehrbuch kippt die Phase in jedem Bild und ist nach zweien
+  // zurueck, und eine Konsole, die ihren Takt nicht nach der Norm waehlt, kann
+  // bei drei landen. Ueber vier gemittelt bleibt von einem Zyklus aus drei ein
+  // Viertel des Musters stehen, und ueber zwei gemittelt von einem Zyklus aus
+  // vier sieben Zehntel.
+  //
+  // Solange nichts gemessen ist, mittelt der Filter ueber vier Bilder, wie vor
+  // dieser Messung fest eingebaut. Gemessen wird nur, solange er an ist und die
+  // Quelle analog -- ein Filter, den niemand eingeschaltet hat, kostet nichts.
+  int crawlCycle() const { return crawlCycle_; }
+
   // Where the picture sits inside the frame, in source pixels, edges inclusive.
   // False until something has been measured. This is what the automatic crop
   // reads: a console pillarboxed inside a 720 pixel line, or an overscan band
@@ -571,6 +603,10 @@ class VideoRenderer {
   void AnalyzeContentBounds(const FrameView& frame);
   void AnalyzeSignal(const FrameView& frame);
   void AnalyzeChroma(const FrameView& frame);
+  void SampleCrawl(const FrameView& frame);
+  void AnalyzeCrawl();
+  void JudgeCrawl();
+  void ResetCrawl();
   // Byte offset of the first luma sample and the distance to the next one.
   // False for formats this cannot read.
   bool LumaLayout(size_t* offset, size_t* step) const;
@@ -652,6 +688,46 @@ class VideoRenderer {
   // neighbouring pairs. On a line doubled picture the first is nearly zero.
   uint64_t pairInner_ = 0;
   uint64_t pairOuter_ = 0;
+
+  // Kriechzyklus, siehe crawlCycle() und AnalyzeCrawl.
+  bool crawlWanted_ = false;  // der zeitliche Filter ist an
+  int crawlCycle_ = 0;        // uebernommen; 0 = noch nichts gemessen
+  int crawlCandidate_ = 0;    // was das letzte eindeutige Fenster sagte
+  int crawlLogged_ = -1;      // letztes Fensterurteil im Log, -1 = keins
+  // Das Messraster, gebaut fuer eine Groesse und einen Traeger. Je Stelle
+  // Spalte und Zeile; je Abgriff das Fenstergewicht und dasselbe mal Kosinus
+  // und Sinus des Traegers.
+  int crawlWidth_ = 0;
+  int crawlHeight_ = 0;
+  float crawlPeriod_ = 0.0f;
+  size_t crawlStep_ = 0;  // Bytes von einem Lumawert zum naechsten
+  int crawlReach_ = 0;    // Abgriffe links und rechts der Stelle
+  std::vector<int> crawlSiteX_;
+  std::vector<int> crawlSiteY_;
+  std::vector<float> crawlTapW_, crawlTapC_, crawlTapS_;
+  float crawlSumW_ = 0.0f, crawlSumC_ = 0.0f, crawlSumS_ = 0.0f;
+  // Die letzten dreizehn Bilder: je Stelle der Zeiger im Traegerband (zwei
+  // Zahlen) und der Mittelwert des Fensters, abgelegt auf dem Platz Bildnummer
+  // modulo dreizehn, dazu je Platz die Bildnummer (0 = leer). Gebraucht werden
+  // die Abstaende eins bis vier, die der Shader mitteln kann, und zwoelf fuer
+  // den Ruhetest.
+  std::vector<float> crawlRing_;
+  std::vector<uint64_t> crawlRingSequence_;
+  uint64_t crawlLastSequence_ = 0;
+  // Was UploadFrame vom Bild abgelegt hat und AnalyzeAfterPresent noch
+  // auswerten muss: je Stelle die Bytes unter dem Fenster, wie sie im Bild
+  // stehen, dazu die Bildnummer (0 = nichts abgelegt).
+  std::vector<uint8_t> crawlPending_;
+  uint64_t crawlPendingSequence_ = 0;
+  // Je Stelle der Abstand ueber zwoelf Bilder im Quadrat, -1 = bewegt, und
+  // dieselben Zahlen ohne die bewegten, fuer den Median. Mitglieder nur, damit
+  // nicht jedes Bild neu anlegt.
+  std::vector<float> crawlScratch_;
+  std::vector<float> crawlRecur_;
+  // Das laufende Messfenster: Abstaende eins bis vier und zwoelf.
+  int crawlFrames_ = 0;
+  uint64_t crawlStill_ = 0;
+  double crawlDiff_[5] = {};
 
   // Signal presence. The previous sample set is kept rather than the previous
   // frame: the comparison only ever looks at the same sparse grid, so a few

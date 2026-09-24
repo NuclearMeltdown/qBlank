@@ -133,6 +133,9 @@ struct ConvertParams {
   float coef[4];
 
   int32_t compareAxis;  // 0 = divider upright, 1 = lying across
+  // How many frames the temporal average covers: 2, 3 or 4, one cycle of the
+  // source's dot crawl. VideoRenderer::crawlCycle() says where it comes from.
+  int32_t crawlCycle;
 };
 
 // The same for the scale pass, which the delivery pass reuses.

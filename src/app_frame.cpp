@@ -311,6 +311,10 @@ void App::RenderFrame() {
     if (ageMs >= 0.0) frameAgeMeter_.Sample(ageMs, TicksToSeconds(leaving));
   }
 
+  // Erst nach der Durchlaufzeit: was hier gerechnet wird, soll weder das Bild
+  // aufhalten noch in der Zahl stehen, die sagt, wie lange es aufgehalten wurde.
+  renderer_.AnalyzeAfterPresent();
+
   // ---- present rate ----
   ++presentCount_;
   if (fpsWindowQpc_ == 0) fpsWindowQpc_ = now;
