@@ -357,17 +357,18 @@ endif()
 # The filter rides inside the executable as a resource, and the executable lays
 # it down when the camera is installed. Shipping it as a loose second file meant
 # the two could be from different builds -- which happened, because Windows locks
-# the file while the camera is in use and replacing it failed silently.
-set(VCAM_DLL_PATH "${CMAKE_BINARY_DIR}/bin/qblank_vcam.dll")
-file(TO_NATIVE_PATH "${VCAM_DLL_PATH}" VCAM_DLL_NATIVE)
-string(REPLACE "\\" "\\\\" VCAM_DLL_ESCAPED "${VCAM_DLL_NATIVE}")
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/res/vcam_resource.rc.in"
-               "${CMAKE_BINARY_DIR}/vcam_resource.rc" @ONLY)
-# So the resource is rebuilt when the source changes rather than when the path does.
-set_source_files_properties("${CMAKE_BINARY_DIR}/vcam_resource.rc"
-                            PROPERTIES OBJECT_DEPENDS "${VCAM_DLL_PATH}")
-target_sources(qBlank PRIVATE "${CMAKE_BINARY_DIR}/vcam_resource.rc")
-add_dependencies(qBlank qblank_vcam)
+# the file while the camera is in use and replacing it failed silently. Packed,
+# like the shaders: it is half the size that way.
+set(vcam_header "${CMAKE_BINARY_DIR}/generated/vcam_packed.h")
+add_custom_command(
+  OUTPUT "${vcam_header}"
+  COMMAND "${CMAKE_COMMAND}" -DOUTPUT=${vcam_header} -DDIR=$<TARGET_FILE_DIR:qblank_vcam>
+          -DFILES=$<TARGET_FILE_NAME:qblank_vcam>=kVcamFilter
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
+  DEPENDS qblank_vcam "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
+  COMMENT "Packing the camera source"
+  VERBATIM)
+target_sources(qBlank PRIVATE "${vcam_header}")
 
 # The bridge out of the old name -- see src/migrate/migrator.cpp.
 #

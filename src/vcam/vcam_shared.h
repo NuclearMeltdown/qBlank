@@ -42,10 +42,6 @@ inline constexpr wchar_t kLegacySourceClsidString[] = L"{A1E4F2C7-6B3D-4A58-9E21
 // for the old wording to stay consistent with.
 inline constexpr wchar_t kFilterName[] = CAP_APP_NAME L" Virtual Camera";
 
-// The filter, carried inside qBlank.exe as a plain binary resource and written
-// out when the camera is installed. One file ships; the DLL comes out of it.
-inline constexpr int kFilterResourceId = 101;
-
 // -------------------------------------------------------------- object names
 
 // Local\ rather than Global\: both halves are the same user in the same session

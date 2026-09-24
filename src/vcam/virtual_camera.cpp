@@ -3,12 +3,15 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <vector>
 
 #include "common.h"
 #include "app_identity.h"
 #include "i18n.h"
+#include "inflate.h"
 #include "text_win32.h"
 #include "vcam/vcam_shared.h"
+#include "vcam_packed.h"
 
 #pragma comment(lib, "shell32.lib")
 
@@ -43,25 +46,13 @@ std::wstring DllPrefix(const wchar_t* appName) {
 
 const wchar_t kDllSuffix[] = L".dll";
 
-// The filter this executable carries, or nothing when it carries none.
-const uint8_t* FilterBytes(DWORD* size) {
-  *size = 0;
-  HRSRC found = ::FindResourceW(nullptr, MAKEINTRESOURCEW(vcam::kFilterResourceId), RT_RCDATA);
-  if (!found) return nullptr;
-  HGLOBAL loaded = ::LoadResource(nullptr, found);
-  const void* data = loaded ? ::LockResource(loaded) : nullptr;
-  if (!data) return nullptr;
-  *size = ::SizeofResource(nullptr, found);
-  return static_cast<const uint8_t*>(data);
-}
-
+// Hashes the packed bytes: packing is deterministic, so they change exactly
+// when the filter does, and naming the file needs no unpacking.
 std::wstring DllFileName() {
   static const std::wstring name = [] {
-    DWORD size = 0;
-    const uint8_t* data = FilterBytes(&size);
     uint64_t hash = 1469598103934665603ull;  // FNV-1a, as the shader cache uses
-    for (DWORD i = 0; i < size; ++i) {
-      hash = (hash ^ data[i]) * 1099511628211ull;
+    for (size_t i = 0; i < kVcamFilter.size; ++i) {
+      hash = (hash ^ kVcamFilter.data[i]) * 1099511628211ull;
     }
     wchar_t buffer[64] = {};
     ::swprintf(buffer, 64, L"%s%016llx%s", DllPrefix(kAppName).c_str(),
@@ -113,16 +104,16 @@ bool RegisteredPath(std::wstring* out) {
 // it -- but since the name follows the contents, a file that is already there
 // is already the right one and nothing needs replacing.
 bool WriteFilterDll(std::string* error) {
-  DWORD bytes = 0;
-  const uint8_t* data = FilterBytes(&bytes);
-  if (!data || bytes == 0) {
-    ReportError(error, CAP_SAID(T("Diese qBlank-Fassung enthält keine Kameraquelle.",
-                                  "This build of qBlank carries no camera source.")));
-    return false;
-  }
-
   const std::wstring target = DllPath();
   if (FileThere(target)) return true;
+
+  std::vector<uint8_t> data(kVcamFilter.unpackedSize);
+  if (!Inflate(kVcamFilter, data.data())) {
+    ReportError(error, CAP_SAID(T("Die Kameraquelle in dieser qBlank-Fassung ist beschädigt.",
+                                  "The camera source in this build of qBlank is damaged.")));
+    return false;
+  }
+  const DWORD bytes = (DWORD)data.size();
 
   HANDLE file = ::CreateFileW(target.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -132,7 +123,7 @@ bool WriteFilterDll(std::string* error) {
     return false;
   }
   DWORD written = 0;
-  const bool ok = ::WriteFile(file, data, bytes, &written, nullptr) && written == bytes;
+  const bool ok = ::WriteFile(file, data.data(), bytes, &written, nullptr) && written == bytes;
   ::CloseHandle(file);
   if (!ok) {
     ReportError(error, CAP_SAID(T("Die Kameraquelle wurde nicht vollständig geschrieben.",
