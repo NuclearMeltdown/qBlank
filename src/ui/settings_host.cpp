@@ -33,7 +33,10 @@ bool SettingsHost::OnWindowEvent(const WindowEvent& e) {
       Hide();
       return true;
     case WindowEvent::Kind::Resized:
-      if (!e.minimized) Resize();
+      if (!e.minimized) {
+        Resize();
+        resized_ = true;
+      }
       return true;
     case WindowEvent::Kind::ModalFrame:
       PumpModalFrame();
@@ -103,7 +106,8 @@ bool SettingsHost::Create(float uiScale, bool allowTearing, const Placement& whe
   spec.role = WindowRole::Tool;
   spec.id = "SettingsWindow";
   spec.title = AppNameUtf8();
-  spec.width = where.width > 200 ? where.width : (int)(720 * uiScale_);
+  widenPending_ = where.width <= 200;
+  spec.width = widenPending_ ? (int)(720 * uiScale_) : where.width;
   spec.height = where.height > 200 ? where.height : (int)(640 * uiScale_);
   spec.hasPosition = where.x != -1 || where.y != -1;
   spec.x = where.x;
@@ -250,6 +254,7 @@ bool SettingsHost::BeginFrame(bool darkMode, unsigned accentColor) {
   lastDrawTick_ = now;
 
   if (!themeApplied_) ApplyTheme(darkMode, accentColor);
+  resized_ = false;
 
   previous_ = ImGui::GetCurrentContext();
   ImGui::SetCurrentContext(imgui_);
@@ -274,6 +279,15 @@ void SettingsHost::EndFrame() {
 
   ImGui::SetCurrentContext(previous_);
   previous_ = nullptr;
+}
+
+void SettingsHost::WidenOnce(int clientWidth) {
+  if (!widenPending_) return;
+  widenPending_ = false;
+  const int height = surface_.height();
+  if (clientWidth > surface_.width() && window_.ClientSizeFits(clientWidth, height)) {
+    window_.SetClientSize(clientWidth, height);
+  }
 }
 
 SettingsHost::Placement SettingsHost::placement() const {

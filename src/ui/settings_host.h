@@ -91,6 +91,14 @@ class SettingsHost {
   int width() const { return surface_.width(); }
   int height() const { return surface_.height(); }
 
+  // Only when Create had no size to go by: widens the window once to this
+  // client width, if it is wider than now and still fits the screen. What the
+  // dialog needs is known only once it has been drawn.
+  void WidenOnce(int clientWidth);
+
+  // The size changed since the last frame, so what is on screen no longer fits.
+  bool resized() const { return resized_; }
+
   // Re-applies colours after a theme change.
   void ApplyTheme(bool darkMode, unsigned accentColor);
 
@@ -109,6 +117,8 @@ class SettingsHost {
   // comment on the implementation.
   void PumpModalFrame();
   bool themeApplied_ = false;
+  bool widenPending_ = false;
+  bool resized_ = false;
   bool inFrameCallback_ = false;
   uint32_t lastDrawTick_ = 0;
   std::function<void()> onFrame_;

@@ -330,6 +330,11 @@ void App::DrawSettingsWindowed() {
         lastRenderQpc_ = nowQpc;
         RenderFrame();
       }
+      // Resizing is the exception: then the content has to be laid out anew,
+      // or the old frame sits stretched across the new size until the mouse
+      // comes up. Only once the size has actually changed, so a move still
+      // costs nothing.
+      if (settingsHost_.resized()) DrawSettingsFrame();
       inModalFrame_ = false;
     });
   }
@@ -376,6 +381,10 @@ void App::DrawSettingsWindowed() {
   // gegenseitig auf das Present warten liessen; seit der Dialog sein eigenes
   // Geraet hat, geht ihn das nichts mehr an.
 
+  DrawSettingsFrame();
+}
+
+void App::DrawSettingsFrame() {
   if (!settingsHost_.BeginFrame(darkMode_, config_.app.accentColor)) return;
 
   settings_.SetFillsWindow(true);
@@ -383,6 +392,7 @@ void App::DrawSettingsWindowed() {
       settings_.Draw(capture_.running() ? &capture_.capabilities() : nullptr,
                      &recording_.ffmpeg());
   settingsHost_.EndFrame();
+  settingsHost_.WidenOnce((int)settings_.oneRowWidth());
 
   // Nothing to put back. This runs after the main window has presented, so the
   // targets it wants are set again by the next frame's first pass.

@@ -385,6 +385,118 @@ void SettingsWindow::PollFileDialog(FfmpegInfo* ffmpeg) {
   }
 }
 
+namespace {
+
+struct TabName {
+  int tab;
+  const char* de;
+  const char* en;
+};
+
+// In screen order.
+constexpr TabName kTabNames[] = {
+    {kTabGeneral, "Allgemein", "General"}, {kTabSource, "Quelle", "Source"},
+    {kTabPicture, "Bild", "Picture"},      {kTabHdr, "HDR", "HDR"},
+    {kTabAudio, "Ton", "Audio"},           {kTabDisplay, "Anzeige", "Display"},
+    {kTabRecord, "Aufnahme", "Recording"}, {kTabEncoder, "Encoder", "Encoder"},
+    {kTabKeys, "Tasten", "Keys"},          {kTabProfiles, "Profile", "Profiles"},
+    {kTabUpdates, "Updates", "Updates"},
+};
+static_assert(std::size(kTabNames) == kTabCount, "every tab needs a name");
+
+}  // namespace
+
+void SettingsWindow::MeasureTabs() {
+  const ImGuiStyle& style = ImGui::GetStyle();
+  // Ohne Gerät gibt es nur eine sinnvolle Handlung, und das ist eines
+  // auszuwählen. Acht weitere Reiter voller Regler, die alle auf ein Bild
+  // wirken sollen, das es nicht gibt, sind an dieser Stelle kein Angebot
+  // sondern eine Hürde. Sie kommen zurück, sobald die Karte läuft -- und dann
+  // gleich passend zu dem, was sie tatsächlich liefert.
+  const bool haveDevice = !cfg().active().capture.video.empty();
+  float row = -style.ItemInnerSpacing.x;
+  bool activeShown = false;
+  shownTabCount_ = 0;
+  for (int i = 0; i < (int)std::size(kTabNames); ++i) {
+    const TabName& t = kTabNames[i];
+    if (!haveDevice && SettingsTabNeedsDevice(t.tab)) continue;
+    const float width = ImGui::CalcTextSize(T(t.de, t.en)).x + style.FramePadding.x * 2.0f;
+    shownTabs_[shownTabCount_++] = {i, width};
+    row += width + style.ItemInnerSpacing.x;
+    activeShown |= t.tab == activeTab_;
+  }
+  if (!activeShown) activeTab_ = kTabNames[shownTabs_[0].name].tab;
+  oneRowWidth_ = std::ceil(row + style.WindowPadding.x * 2.0f);
+}
+
+// ImGui's own tab bar squeezes the labels down to "..." once they stop fitting
+// side by side. This one breaks them into as few rows as will do, spreads the
+// tabs evenly over them and stretches each row to the full width -- the way the
+// Windows tab control does it. One row keeps the labels' own widths.
+void SettingsWindow::DrawTabStrip() {
+  const ImGuiStyle& style = ImGui::GetStyle();
+  const float gap = style.ItemInnerSpacing.x;
+  const float avail = ImGui::GetContentRegionAvail().x;
+  const int n = shownTabCount_;
+  auto rowWidth = [&](int first, int last) {
+    float w = -gap;
+    for (int i = first; i < last; ++i) w += shownTabs_[i].width + gap;
+    return w;
+  };
+  auto fits = [&](int per) {
+    for (int first = 0; first < n; first += per) {
+      if (rowWidth(first, std::min(n, first + per)) > avail) return false;
+    }
+    return true;
+  };
+  int per = n;
+  for (int rows = 2; per > 1 && !fits(per); ++rows) per = (n + rows - 1) / rows;
+
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const float height = ImGui::GetFrameHeight();
+  const float rowStep = height + style.ItemInnerSpacing.y;
+  const ImU32 text = ImGui::GetColorU32(ImGuiCol_Text);
+  float y = origin.y;
+  for (int first = 0; first < n; first += per, y += rowStep) {
+    const int last = std::min(n, first + per);
+    const float extra = per < n ? (avail - rowWidth(first, last)) / (last - first) : 0.0f;
+    float x = origin.x;
+    for (int i = first; i < last; ++i) {
+      const TabName& t = kTabNames[shownTabs_[i].name];
+      const float left = std::floor(x);
+      x += shownTabs_[i].width + extra;
+      const float right = std::floor(x);
+      x += gap;
+      ImGui::SetCursorScreenPos(ImVec2(left, y));
+      ImGui::PushID(t.tab);
+      // Taken on the press, as ImGui's tabs and Windows' are.
+      ImGui::InvisibleButton("##tab", ImVec2(right - left, height), ImGuiButtonFlags_EnableNav);
+      ImGui::PopID();
+      if (ImGui::IsItemActivated()) activeTab_ = t.tab;
+      const ImGuiCol fill = t.tab == activeTab_     ? ImGuiCol_TabSelected
+                            : ImGui::IsItemHovered() ? ImGuiCol_TabHovered
+                                                     : ImGuiCol_Tab;
+      draw->AddRectFilled(ImVec2(left, y), ImVec2(right, y + height - style.TabBarBorderSize),
+                          ImGui::GetColorU32(fill), style.TabRounding, ImDrawFlags_RoundCornersTop);
+      const float label = shownTabs_[i].width - style.FramePadding.x * 2.0f;
+      draw->AddText(ImVec2(std::floor((left + right - label) * 0.5f), y + style.FramePadding.y),
+                    text, T(t.de, t.en));
+    }
+  }
+  // The line under the tabs, in the colour ImGui's tab bar gives it.
+  const float bottom = y - style.ItemInnerSpacing.y;
+  if (style.TabBarBorderSize > 0.0f) {
+    const float pad = std::floor(style.WindowPadding.x * 0.5f);
+    const ImGuiCol line = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+                              ? ImGuiCol_TabSelected
+                              : ImGuiCol_TabDimmedSelected;
+    draw->AddRectFilled(ImVec2(origin.x - pad, bottom - style.TabBarBorderSize),
+                        ImVec2(origin.x + avail + pad, bottom), ImGui::GetColorU32(line));
+  }
+  ImGui::SetCursorScreenPos(ImVec2(origin.x, bottom + style.ItemSpacing.y));
+}
+
 SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
                                             FfmpegInfo* ffmpeg) {
   if (!open_ || !live_) return Result::None;
@@ -392,6 +504,14 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
   if (!listsValid_) RefreshDeviceLists();
 
   Result result = Result::None;
+
+  // Once per run, the tab from the configuration; after that, whatever was last
+  // opened.
+  if (!tabRestored_) {
+    tabRestored_ = true;
+    activeTab_ = cfg().app.settingsTab;
+  }
+  MeasureTabs();
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   bool stayOpen = true;
@@ -426,8 +546,12 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
     //
     // The default goes first: ImGui keeps only the last size it is handed, so
     // after the restore below it used to replace the remembered size.
+    // Wide enough for the tabs in one row, if the picture has the room.
     const float scale = ImGui::GetStyle().FontScaleDpi;
-    ImGui::SetNextWindowSize(ImVec2(780.0f * scale, 660.0f * scale), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(
+        ImVec2(std::min(std::max(780.0f * scale, oneRowWidth_), viewport->WorkSize.x),
+               660.0f * scale),
+        ImGuiCond_FirstUseEver);
     if (restorePos_) {
       restorePos_ = false;
       const ImVec2 work = viewport->WorkPos;
@@ -518,135 +642,29 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
   const float footer =
       ImGui::GetFrameHeightWithSpacing() + style.ItemSpacing.y * 2.0f + style.SeparatorSize;
 
-  // Which tab is open is state ImGui keeps per *context*, and the settings are
-  // drawn into a different context depending on whether they live in a window
-  // of their own -- so switching between the two always landed back on the
-  // first tab. Remembered here instead, and asked for once whenever the context
-  // underneath changes.
-  // Once per run, the tab from the configuration; after that, whatever was last
-  // opened. The context check below covers the other case -- which tab is open
-  // is state ImGui keeps per context, and the settings are drawn into a
-  // different one depending on whether they live in a window of their own.
-  if (!tabRestored_) {
-    tabRestored_ = true;
-    activeTab_ = cfg().app.settingsTab;
-    wantTab_ = activeTab_;
-  }
-  ImGuiContext* nowContext = ImGui::GetCurrentContext();
-  if (nowContext != tabContext_) {
-    tabContext_ = nowContext;
-    wantTab_ = activeTab_;
-  }
-  auto tabFlags = [&](int tab) {
-    return wantTab_ == tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
-  };
-
   DrawSearchField();
   const bool searching = DrawSearchResults(footer);
 
-  if (!searching && ImGui::BeginTabBar("settings_tabs", ImGuiTabBarFlags_None)) {
-    if (ImGui::BeginTabItem(T("Allgemein###general", "General###general"), nullptr,
-                            tabFlags(kTabGeneral))) {
-      activeTab_ = kTabGeneral;
-      ImGui::BeginChild("scroll_general", ImVec2(0, -footer));
-      DrawGeneralTab();
-      ImGui::EndChild();
-      ImGui::EndTabItem();
-    }
-    if (ImGui::BeginTabItem(T("Quelle###source", "Source###source"), nullptr,
-                            tabFlags(kTabSource))) {
-      activeTab_ = kTabSource;
-      ImGui::BeginChild("scroll_source", ImVec2(0, -footer));
-      DrawSourceTab(caps);
-      ImGui::EndChild();
-      ImGui::EndTabItem();
-    }
-    // Ohne Gerät gibt es nur eine sinnvolle Handlung, und das ist eines
-    // auszuwählen. Acht weitere Reiter voller Regler, die alle auf ein Bild
-    // wirken sollen, das es nicht gibt, sind an dieser Stelle kein Angebot
-    // sondern eine Hürde. Sie kommen zurück, sobald die Karte läuft -- und dann
-    // gleich passend zu dem, was sie tatsächlich liefert.
-    //
-    // Allgemein und Updates sind die Ausnahme und stehen deshalb ausserhalb:
-    // beide haben mit dem Bild nichts zu tun, und wer gerade *keins* hat, ist
-    // womoeglich genau deshalb hier -- weil eine neuere Fassung die Karte kennt.
-    if (!cfg().active().capture.video.empty()) {
-      if (ImGui::BeginTabItem(T("Bild###picture", "Picture###picture"), nullptr,
-                              tabFlags(kTabPicture))) {
-        activeTab_ = kTabPicture;
-        ImGui::BeginChild("scroll_image", ImVec2(0, -footer));
-        DrawImageTab();
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem(T("HDR###hdr", "HDR###hdr"), nullptr, tabFlags(kTabHdr))) {
-        activeTab_ = kTabHdr;
-        ImGui::BeginChild("scroll_hdr", ImVec2(0, -footer));
-        DrawHdrTab();
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem(T("Ton###audio", "Audio###audio"), nullptr, tabFlags(kTabAudio))) {
-        activeTab_ = kTabAudio;
-        ImGui::BeginChild("scroll_audio", ImVec2(0, -footer));
-        DrawAudioTab();
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem(T("Anzeige###display", "Display###display"), nullptr,
-                              tabFlags(kTabDisplay))) {
-        activeTab_ = kTabDisplay;
-        ImGui::BeginChild("scroll_display", ImVec2(0, -footer));
-        DrawDisplayTab();
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem(T("Aufnahme###recording", "Recording###recording"), nullptr,
-                              tabFlags(kTabRecord))) {
-        activeTab_ = kTabRecord;
-        ImGui::BeginChild("scroll_record", ImVec2(0, -footer));
-        DrawRecordTab(ffmpeg);
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem(T("Encoder###encoder", "Encoder###encoder"), nullptr,
-                              tabFlags(kTabEncoder))) {
-        activeTab_ = kTabEncoder;
-        ImGui::BeginChild("scroll_encoder", ImVec2(0, -footer));
-        DrawEncoderTab(ffmpeg);
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem(T("Tasten###keys", "Keys###keys"), nullptr, tabFlags(kTabKeys))) {
-        activeTab_ = kTabKeys;
-        ImGui::BeginChild("scroll_keys", ImVec2(0, -footer));
-        DrawHotkeysTab();
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-      }
-      if (ImGui::BeginTabItem(T("Profile###profiles", "Profiles###profiles"), nullptr,
-                              tabFlags(kTabProfiles))) {
-        activeTab_ = kTabProfiles;
-        ImGui::BeginChild("scroll_profiles", ImVec2(0, -footer));
-        DrawProfilesTab(caps);
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-      }
-    }  // Reiter, die ein Bild brauchen
-    if (ImGui::BeginTabItem(T("Updates###updates", "Updates###updates"), nullptr,
-                            tabFlags(kTabUpdates))) {
-      activeTab_ = kTabUpdates;
-      ImGui::BeginChild("scroll_updates", ImVec2(0, -footer));
-      DrawUpdatesTab();
-      ImGui::EndChild();
-      ImGui::EndTabItem();
-    }
-    ImGui::EndTabBar();
-  }
-  // Only once the tabs were actually drawn: a tab asked for while the results
-  // stand in their place would otherwise be forgotten unseen.
   if (!searching) {
-    wantTab_ = -1;
+    DrawTabStrip();
+    // One child per tab, so each keeps its own scroll position.
+    ImGui::PushID(activeTab_);
+    ImGui::BeginChild("scroll", ImVec2(0, -footer));
+    switch (activeTab_) {
+      case kTabGeneral: DrawGeneralTab(); break;
+      case kTabSource: DrawSourceTab(caps); break;
+      case kTabPicture: DrawImageTab(); break;
+      case kTabHdr: DrawHdrTab(); break;
+      case kTabAudio: DrawAudioTab(); break;
+      case kTabDisplay: DrawDisplayTab(); break;
+      case kTabRecord: DrawRecordTab(ffmpeg); break;
+      case kTabEncoder: DrawEncoderTab(ffmpeg); break;
+      case kTabKeys: DrawHotkeysTab(); break;
+      case kTabProfiles: DrawProfilesTab(caps); break;
+      case kTabUpdates: DrawUpdatesTab(); break;
+    }
+    ImGui::EndChild();
+    ImGui::PopID();
     // Hidden controls never draw their anchor -- whatever they hang on, the
     // source or another setting, says no right now. Better to say so than to
     // land on the tab and leave the reader searching it by eye.
@@ -663,13 +681,18 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
   cfg().app.settingsTab = activeTab_;
 
   ImGui::Separator();
-  ImGui::TextDisabled(T("Änderungen wirken sofort.", "Changes take effect immediately."));
-  ImGui::SameLine();
-
-  const float buttonWidth = 120.0f;
+  const float buttonWidth = Px(120.0f);
   const float spacing = style.ItemSpacing.x;
-  ImGui::SetCursorPosX(ImGui::GetWindowWidth() - style.WindowPadding.x - buttonWidth * 2.0f -
-                       spacing);
+  const float buttonsX =
+      ImGui::GetWindowWidth() - style.WindowPadding.x - buttonWidth * 2.0f - spacing;
+  // The hint goes when the window is too narrow for it, rather than running
+  // under the buttons.
+  const char* hint = T("Änderungen wirken sofort.", "Changes take effect immediately.");
+  if (ImGui::GetCursorPosX() + ImGui::CalcTextSize(hint).x + spacing <= buttonsX) {
+    ImGui::TextDisabled("%s", hint);
+    ImGui::SameLine();
+  }
+  ImGui::SetCursorPosX(buttonsX);
   if (ImGui::Button(T("Verwerfen", "Discard"), ImVec2(buttonWidth, 0))) {
     *live_ = snapshot_;
     result = Result::Close;
@@ -781,15 +804,15 @@ void SettingsWindow::PickSearchHit(int entry) {
   int tab = SearchTab(entry);
   const char* key = SearchKey(entry);
   jumpLabel_ = SearchLabel(entry);
-  // Without a device only Source and Updates exist. Pointing at the device
-  // list is the useful answer: that is the step between here and there.
+  // Without a device only General, Source and Updates exist. Pointing at the
+  // device list is the useful answer: that is the step between here and there.
   if (SettingsTabNeedsDevice(tab) && cfg().active().capture.video.empty()) {
     tab = kTabSource;
     key = "videodev";
     searchNote_ = T("Erst ein Videogerät wählen.", "Select a video device first.");
     searchNoteTime_ = ImGui::GetTime();
   }
-  wantTab_ = tab;
+  activeTab_ = tab;
   jumpKey_ = key;
   jumpWait_ = 0;
   flashKey_ = nullptr;

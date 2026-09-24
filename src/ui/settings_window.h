@@ -156,6 +156,9 @@ class SettingsWindow {
   // Draws the same contents filling the whole viewport, with no frame of its
   // own -- for when the dialog *is* the window rather than a panel inside one.
   void SetFillsWindow(bool on) { fillsWindow_ = on; }
+  // How wide the dialog has to be for all its tabs to fit in one row, as of the
+  // last Draw.
+  float oneRowWidth() const { return oneRowWidth_; }
 
   // Beim naechsten Zeichnen die gemerkte Lage wieder einnehmen. Wird beim
   // Wechsel zwischen eingebettet und freigestellt gerufen, damit das Feld dort
@@ -255,6 +258,8 @@ class SettingsWindow {
   // the tabs' place, and picking one opens its tab and scrolls to it.
   void DrawSearchField();
   bool DrawSearchResults(float footer);  // false when the query is empty
+  void MeasureTabs();
+  void DrawTabStrip();
   void PickSearchHit(int entry);
   // Placed right after a control the search can find. Scrolls to it and
   // flashes it when it is the one that was picked.
@@ -365,11 +370,21 @@ class SettingsWindow {
   uint64_t diskFree_ = 0;
   bool diskKnown_ = false;
   double diskBytesPerSecond_ = 0.0;
-  // Which tab is open, carried across the two ImGui contexts by hand.
-  ImGuiContext* tabContext_ = nullptr;
+  // Which tab is open. Kept here, not in an ImGui tab bar, which keeps it per
+  // context -- and the dialog changes context when it moves between the picture
+  // and a window of its own.
   int activeTab_ = 0;
   bool tabRestored_ = false;
-  int wantTab_ = -1;
+  // The tabs shown right now, in screen order: an index into the name table and
+  // the width the label needs. Measured before the window is begun, so its first
+  // size can fit them all in one row.
+  struct ShownTab {
+    int name;
+    float width;
+  };
+  ShownTab shownTabs_[kTabCount] = {};
+  int shownTabCount_ = 0;
+  float oneRowWidth_ = 0.0f;
   char searchBuf_[96] = {};
   std::string searchQuery_;  // what searchRows_ was computed for
   std::vector<int> searchRows_;  // entries in the order they are listed

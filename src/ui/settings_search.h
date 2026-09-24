@@ -21,6 +21,7 @@ enum SettingsTab {
   kTabProfiles,
   kTabUpdates,
   kTabGeneral,  // later than the rest, and first on screen
+  kTabCount,
 };
 
 // Everything but General, Source and Updates is only shown once a video device
