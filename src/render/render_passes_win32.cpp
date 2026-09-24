@@ -164,6 +164,7 @@ class D3D11Passes : public RenderPasses {
  public:
   ~D3D11Passes() override { Shutdown(); }
 
+  GraphicsApi api() const override { return GraphicsApi::D3D11; }
   bool Initialize(Display* display, std::string* error) override;
   void Shutdown() override;
 
@@ -1224,7 +1225,7 @@ bool D3D11Passes::ReadStillHalf(PassImage from, int rows, std::vector<uint16_t>*
 
 }  // namespace
 
-std::unique_ptr<RenderPasses> CreateRenderPasses() {
+std::unique_ptr<RenderPasses> CreateD3D11Passes() {
   return std::unique_ptr<RenderPasses>(new D3D11Passes());
 }
 

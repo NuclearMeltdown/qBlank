@@ -27,7 +27,7 @@ void MatrixCoefficients(ColorMatrix matrix, bool hd, float out[4]) {
 
 }  // namespace
 
-VideoRenderer::VideoRenderer() : passes_(CreateRenderPasses()) {}
+VideoRenderer::VideoRenderer() : passes_(CreateRenderPasses(GraphicsApi::D3D11)) {}
 
 VideoRenderer::~VideoRenderer() {
   Shutdown();
@@ -37,6 +37,18 @@ VideoRenderer::~VideoRenderer() {
 
 bool VideoRenderer::Initialize(Display* display, std::string* error) {
   display_ = display;
+  // The passes have to draw with the display's backend. Made again only when
+  // that is not the one the constructor assumed.
+  if (display && (!passes_ || passes_->api() != display->api())) {
+    std::unique_ptr<RenderPasses> passes = CreateRenderPasses(display->api());
+    if (!passes) {
+      return ReportError(error, CAP_SAID(std::string(T("Keine Render-Passes für ",
+                                                       "No render passes for ")) +
+                                         GraphicsApiName(display->api())));
+    }
+    if (passes_) passes_->Shutdown();
+    passes_ = std::move(passes);
+  }
   return passes_->Initialize(display, error);
 }
 

@@ -1,9 +1,12 @@
 #pragma once
 
 // The main window's picture on the screen: a back buffer to draw into and the
-// presentation that takes it to the panel. The Windows half is
-// display_win32.cpp, Direct3D 11 and DXGI; display_win32.h hands the device to
-// the renderer's passes, the only other code that draws into it.
+// presentation that takes it to the panel. There are two backends behind it,
+// chosen when the display is initialised: Direct3D 11 and DXGI in
+// display_win32.cpp, and Vulkan in display_vulkan.cpp where the build found
+// the Vulkan SDK. display_backend.h is what they share; display_win32.h and
+// display_vulkan.h hand each device to the renderer's passes, the only other
+// code that draws into it.
 //
 // What presenting has to mean. This is not a detail of one backend but the
 // point of the program -- the picture reaches the screen as early as the
@@ -18,8 +21,11 @@
 //     picture is not copied into anybody else's buffer on the way.
 //   - With vsync, one present per vertical blank and no more.
 //
-// Checked on paper against Vulkan: two swapchain images, IMMEDIATE present mode
-// (MAILBOX where that is missing), FIFO with vsync, one frame in flight.
+// In Direct3D 11 that is a FLIP_DISCARD chain of two buffers, tearing allowed,
+// and a frame latency of one. In Vulkan it is a swapchain of two images (more
+// only where the driver's minimum is higher), IMMEDIATE present mode (MAILBOX
+// where that is missing) or FIFO with vsync, and one frame in flight behind
+// one fence.
 
 #include <cstdint>
 #include <memory>
@@ -36,6 +42,12 @@ class Window;
 // machine's hardware changed since the encoder test was cached -- a saved
 // result from someone's old card is worse than no result at all.
 std::string GraphicsAdapterSignature();
+
+// The graphics interface the main window draws with. Direct3D 11 is the
+// default and every build has it; Vulkan only where the build found the SDK.
+enum class GraphicsApi { D3D11, Vulkan };
+const char* GraphicsApiName(GraphicsApi api);
+bool GraphicsApiBuilt(GraphicsApi api);
 
 // A picture for Dear ImGui to draw, made once from pixels and never changed.
 // Empty when it could not be made.
@@ -55,9 +67,15 @@ class Display {
   Display(const Display&) = delete;
   Display& operator=(const Display&) = delete;
 
-  bool Initialize(const Window& window, std::string* error);
+  // Fails where the backend is not built or cannot promise what the top of
+  // this file asks; the display is then as if never initialised, and another
+  // backend can be tried.
+  bool Initialize(const Window& window, std::string* error,
+                  GraphicsApi api = GraphicsApi::D3D11);
   void Shutdown();
   bool initialized() const;
+  // The backend Initialize was given. D3D11 before that.
+  GraphicsApi api() const;
 
   // Recreates the back buffer for the window's current client size. Safe to
   // call on every resize message.
@@ -113,7 +131,7 @@ class Display {
   // RGBA, premultiplied, `width` * 4 bytes a row.
   UiImage CreateUiImage(const uint8_t* rgba, int width, int height);
 
-  // The platform half behind it, for the renderer's passes. Defined there.
+  // The backend behind it, for the renderer's passes. display_backend.h.
   struct Impl;
   const Impl* impl() const { return impl_.get(); }
 

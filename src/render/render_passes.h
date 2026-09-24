@@ -21,14 +21,14 @@
 // backend either compiles or does not; what the interface promises is the shape
 // of the pipeline, not the language it is written in.
 //
-// Checked on paper against Vulkan: every pass is one full screen triangle into
+// Two backends: render_passes_win32.cpp for Direct3D 11 and
+// render_passes_vulkan.cpp for Vulkan, each drawing with the device of the
+// display it is given. In Vulkan every pass is one full screen triangle into
 // one colour attachment with one uniform block and at most twelve sampled
-// images, which is a single render pass with a single subpass each; the plane
-// uploads are host visible linear images, the readbacks are transfers into host
-// visible buffers. Nothing here needs a feature that a backend would have to
-// invent. The paper check is the whole check: no second backend is being built.
-//
-// The Windows half is render_passes_win32.cpp, Direct3D 11.
+// images, begun and ended as its own dynamic rendering; the plane uploads go
+// through host visible buffers into images on the device, the readbacks are
+// copies into host visible buffers. The HLSL is the same file for both: the
+// Vulkan build compiles it to SPIR-V with dxc (CMakeLists.txt).
 
 #include <cstdint>
 #include <memory>
@@ -38,6 +38,7 @@
 namespace cap {
 
 class Display;
+enum class GraphicsApi;
 
 // How one uploaded plane is read. Named by what a sample holds rather than by
 // any one API's spelling of it.
@@ -183,8 +184,12 @@ class RenderPasses {
   // enough to map without stalling.
   static const int kReadbackSlots = 3;
 
+  // The display backend this one draws with.
+  virtual GraphicsApi api() const = 0;
+
   // Draws into the same back buffer the display presents, so it uses that
-  // display's device. Fails when there is none.
+  // display's device. Fails when there is none, or when the display runs on
+  // another backend.
   virtual bool Initialize(Display* display, std::string* error) = 0;
   virtual void Shutdown() = 0;
 
@@ -285,7 +290,12 @@ class RenderPasses {
                              int* strideBytes) = 0;
 };
 
-// The backend this build was compiled with.
-std::unique_ptr<RenderPasses> CreateRenderPasses();
+// The passes for a display backend. Null when this build does not have them.
+std::unique_ptr<RenderPasses> CreateRenderPasses(GraphicsApi api);
+
+// The backends' own factories, for CreateRenderPasses. The Vulkan one only
+// exists where the build has Vulkan (QBLANK_VULKAN).
+std::unique_ptr<RenderPasses> CreateD3D11Passes();
+std::unique_ptr<RenderPasses> CreateVulkanPasses();
 
 }  // namespace cap

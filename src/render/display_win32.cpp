@@ -1,5 +1,7 @@
 #include "render/display_win32.h"
 
+#include "render/display_backend.h"
+
 #include <dxgi1_6.h>
 
 #include "backends/imgui_impl_dx11.h"
@@ -63,15 +65,23 @@ bool QueryTearingSupport(IDXGIFactory2* factory) {
 
 }  // namespace
 
-struct Display::Impl {
-  bool Initialize(const Window& window, std::string* error);
-  void Shutdown();
-  void Resize();
-  void RefreshDisplayCapability();
-  bool SetHdrOutput(bool enabled, std::string* error);
-  bool BeginFrame(const float clearColor[4]);
-  void EndFrame(bool vsync);
-  bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height);
+struct D3D11Display final : Display::Impl {
+  GraphicsApi api() const override { return GraphicsApi::D3D11; }
+  bool Initialize(const Window& window, std::string* error) override;
+  void Shutdown() override;
+  bool initialized() const override { return device_.Get() != nullptr; }
+  void Resize() override;
+  void RefreshDisplayCapability() override;
+  bool SetHdrOutput(bool enabled, std::string* error) override;
+  bool BeginFrame(const float clearColor[4]) override;
+  void EndFrame(bool vsync) override;
+  bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) override;
+
+  bool InitUi() override;
+  void ShutdownUi() override;
+  void NewUiFrame() override;
+  void RenderUi(ImDrawData* data) override;
+  UiImage CreateUiImage(const uint8_t* rgba, int width, int height) override;
 
   bool CreateRenderTarget();
   void ReleaseRenderTarget();
@@ -80,18 +90,13 @@ struct Display::Impl {
   ComPtr<ID3D11Device> device_;
   ComPtr<ID3D11DeviceContext> context_;
   ComPtr<IDXGISwapChain1> swapchain_;
-  DisplayCapability display_;
-  bool hdrOutput_ = false;
   ComPtr<ID3D11RenderTargetView> rtv_;
 
-  int width_ = 0;
-  int height_ = 0;
-  bool tearingSupported_ = false;
   bool occluded_ = false;
   UINT swapchainFlags_ = 0;
 };
 
-bool Display::Impl::Initialize(const Window& window, std::string* error) {
+bool D3D11Display::Initialize(const Window& window, std::string* error) {
   hwnd_ = NativeWindow(window);
 
   UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
@@ -195,7 +200,7 @@ bool Display::Impl::Initialize(const Window& window, std::string* error) {
   return true;
 }
 
-void Display::Impl::Shutdown() {
+void D3D11Display::Shutdown() {
   ReleaseRenderTarget();
   swapchain_.Reset();
   if (context_) {
@@ -207,7 +212,7 @@ void Display::Impl::Shutdown() {
   hwnd_ = nullptr;
 }
 
-bool Display::Impl::CreateRenderTarget() {
+bool D3D11Display::CreateRenderTarget() {
   ComPtr<ID3D11Texture2D> backbuffer;
   if (FAILED(CAP_HR(swapchain_->GetBuffer(0, IID_PPV_ARGS(&backbuffer))))) return false;
   if (FAILED(CAP_HR(device_->CreateRenderTargetView(backbuffer.Get(), nullptr, &rtv_)))) {
@@ -220,11 +225,11 @@ bool Display::Impl::CreateRenderTarget() {
   return true;
 }
 
-void Display::Impl::ReleaseRenderTarget() {
+void D3D11Display::ReleaseRenderTarget() {
   rtv_.Reset();
 }
 
-void Display::Impl::Resize() {
+void D3D11Display::Resize() {
   if (!swapchain_) return;
 
   RECT rc{};
@@ -242,7 +247,7 @@ void Display::Impl::Resize() {
   CreateRenderTarget();
 }
 
-bool Display::Impl::BeginFrame(const float clearColor[4]) {
+bool D3D11Display::BeginFrame(const float clearColor[4]) {
   if (!rtv_ || width_ <= 0 || height_ <= 0) return false;
 
   if (occluded_) {
@@ -263,7 +268,7 @@ bool Display::Impl::BeginFrame(const float clearColor[4]) {
   return true;
 }
 
-bool Display::Impl::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
+bool D3D11Display::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
   if (!rgba || !swapchain_ || !context_ || !device_) return false;
   if (hdrOutput_) return false;  // scRGB-Float, siehe Kommentar in der Kopfdatei
   if (width_ <= 0 || height_ <= 0) return false;
@@ -310,7 +315,7 @@ bool Display::Impl::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* 
   return true;
 }
 
-void Display::Impl::EndFrame(bool vsync) {
+void D3D11Display::EndFrame(bool vsync) {
   if (!swapchain_) return;
 
   UINT interval = vsync ? 1u : 0u;
@@ -326,8 +331,8 @@ void Display::Impl::EndFrame(bool vsync) {
 }
 
 
-void Display::Impl::RefreshDisplayCapability() {
-  display_ = DisplayCapability();
+void D3D11Display::RefreshDisplayCapability() {
+  display_ = Display::DisplayCapability();
   if (!swapchain_) return;
 
   // The output the window mostly sits on. Asking the swapchain rather than
@@ -346,7 +351,7 @@ void Display::Impl::RefreshDisplayCapability() {
   display_.minNits = desc.MinLuminance;
 }
 
-bool Display::Impl::SetHdrOutput(bool enabled, std::string* error) {
+bool D3D11Display::SetHdrOutput(bool enabled, std::string* error) {
   if (enabled == hdrOutput_) return true;
   if (!swapchain_ || !device_) return false;
 
@@ -396,59 +401,19 @@ bool Display::Impl::SetHdrOutput(bool enabled, std::string* error) {
   return true;
 }
 
-// ---- Display ----
-
-Display::Display() : impl_(new Impl) {}
-
-Display::~Display() {
-  Shutdown();
+bool D3D11Display::InitUi() {
+  return ImGui_ImplDX11_Init(device_.Get(), context_.Get());
 }
 
-bool Display::Initialize(const Window& window, std::string* error) {
-  return impl_->Initialize(window, error);
-}
+void D3D11Display::ShutdownUi() { ImGui_ImplDX11_Shutdown(); }
 
-void Display::Shutdown() { impl_->Shutdown(); }
+void D3D11Display::NewUiFrame() { ImGui_ImplDX11_NewFrame(); }
 
-bool Display::initialized() const { return impl_->device_.Get() != nullptr; }
+void D3D11Display::RenderUi(ImDrawData* data) { ImGui_ImplDX11_RenderDrawData(data); }
 
-void Display::Resize() { impl_->Resize(); }
-
-Display::DisplayCapability Display::displayCapability() const { return impl_->display_; }
-
-void Display::RefreshDisplayCapability() { impl_->RefreshDisplayCapability(); }
-
-bool Display::SetHdrOutput(bool enabled, std::string* error) {
-  return impl_->SetHdrOutput(enabled, error);
-}
-
-bool Display::hdrOutput() const { return impl_->hdrOutput_; }
-
-bool Display::BeginFrame(const float clearColor[4]) { return impl_->BeginFrame(clearColor); }
-
-void Display::EndFrame(bool vsync) { impl_->EndFrame(vsync); }
-
-bool Display::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
-  return impl_->GrabBackBuffer(rgba, width, height);
-}
-
-int Display::width() const { return impl_->width_; }
-int Display::height() const { return impl_->height_; }
-bool Display::tearingSupported() const { return impl_->tearingSupported_; }
-
-bool Display::InitUi() {
-  return ImGui_ImplDX11_Init(impl_->device_.Get(), impl_->context_.Get());
-}
-
-void Display::ShutdownUi() { ImGui_ImplDX11_Shutdown(); }
-
-void Display::NewUiFrame() { ImGui_ImplDX11_NewFrame(); }
-
-void Display::RenderUi(ImDrawData* data) { ImGui_ImplDX11_RenderDrawData(data); }
-
-UiImage Display::CreateUiImage(const uint8_t* rgba, int width, int height) {
+UiImage D3D11Display::CreateUiImage(const uint8_t* rgba, int width, int height) {
   UiImage image;
-  if (!impl_->device_) return image;
+  if (!device_) return image;
 
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = (UINT)width;
@@ -465,23 +430,42 @@ UiImage Display::CreateUiImage(const uint8_t* rgba, int width, int height) {
   init.SysMemPitch = (UINT)width * 4;
 
   ComPtr<ID3D11Texture2D> tex;
-  if (FAILED(impl_->device_->CreateTexture2D(&td, &init, &tex))) return image;
+  if (FAILED(device_->CreateTexture2D(&td, &init, &tex))) return image;
   ID3D11ShaderResourceView* srv = nullptr;
-  if (FAILED(impl_->device_->CreateShaderResourceView(tex.Get(), nullptr, &srv))) return image;
+  if (FAILED(device_->CreateShaderResourceView(tex.Get(), nullptr, &srv))) return image;
   image.texture.reset(srv, [](void* p) { ((ID3D11ShaderResourceView*)p)->Release(); });
   return image;
 }
 
+std::unique_ptr<Display::Impl> CreateD3D11Display() {
+  return std::make_unique<D3D11Display>();
+}
+
+namespace {
+
+// Null unless the display runs on this backend: the passes of the other one
+// must not find a device here by accident.
+const D3D11Display* AsD3D11(const Display& display) {
+  const Display::Impl* impl = display.impl();
+  if (!impl || impl->api() != GraphicsApi::D3D11) return nullptr;
+  return static_cast<const D3D11Display*>(impl);
+}
+
+}  // namespace
+
 ID3D11Device* NativeDevice(const Display& display) {
-  return display.impl()->device_.Get();
+  const D3D11Display* d = AsD3D11(display);
+  return d ? d->device_.Get() : nullptr;
 }
 
 ID3D11DeviceContext* NativeContext(const Display& display) {
-  return display.impl()->context_.Get();
+  const D3D11Display* d = AsD3D11(display);
+  return d ? d->context_.Get() : nullptr;
 }
 
 ID3D11RenderTargetView* NativeBackBuffer(const Display& display) {
-  return display.impl()->rtv_.Get();
+  const D3D11Display* d = AsD3D11(display);
+  return d ? d->rtv_.Get() : nullptr;
 }
 
 }  // namespace cap
