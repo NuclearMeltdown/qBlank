@@ -27,6 +27,7 @@
 #include "update/updater.h"
 #include "camera_sink.h"
 #include "ui/settings_window.h"
+#include "ui/startup_notices.h"
 #include "ui/toolbar.h"
 #include "ui/tray_menu.h"
 #include "tray.h"
@@ -201,13 +202,6 @@ class App {
   // Copies the settings window's position into the configuration, so it comes
   // back where it was left rather than wherever Windows decides.
   void RememberSettingsWindow();
-  // The one-off notice when the check made at startup finds something. Shown in
-  // the picture, because a tab nobody opened is not a notice.
-  void DrawUpdatePrompt();
-  // Once, when the log's previous session never got its end line.
-  void DrawCrashNotice();
-  // On the very first start: shortcuts in the start menu and on the desktop?
-  void DrawWelcome();
 
   void OpenDeviceConfig();
   // Waehlt das Profil, das zur erkannten Videonorm passt.
@@ -235,11 +229,7 @@ class App {
   // Runs every frame because both ends can change underneath it: a console
   // switches to HDR, or the window is dragged onto another screen.
   void UpdateHdr();
-  // Opens the release in the browser, at the address the server gave for it --
-  // which stays right even after the project has been renamed. Falls back to
-  // the built-in one when there is no answer to take an address from.
-  void OpenReleasePage(const UpdateStatus& status);
-  // Same, for the website.
+  // Opens the website.
   void OpenWebsite();
 
   // `file`, if given, makes the toast clickable: a click shows that file in
@@ -424,23 +414,26 @@ class App {
   CropHost cropHost_{*this};
   CropTool cropTool_{config_, renderer_, cropHost_};
 
+  // The notices around a start, and what they ask of the rest of the program.
+  class NoticesHost final : public StartupNotices::Host {
+   public:
+    explicit NoticesHost(App& app) : app_(app) {}
+    float UiScale() const override;
+    void Toast(const std::string& text) override;
+    void Quit() override;
+
+   private:
+    App& app_;
+  };
+  NoticesHost noticesHost_{*this};
+  StartupNotices notices_{updater_, noticesHost_};
+
   // What woke the main loop last time round, and when it last drew. Together
   // they keep the preview paced by the picture rather than by the message
   // queue -- see the comment at the call to RenderFrame.
   WaitResult lastWake_ = WaitResult::Timeout;
   int64_t lastRenderQpc_ = 0;
   int hdrDisplayPoll_ = 0;
-  bool updatePromptQueued_ = false;   // waiting to be opened
-  bool updatePromptRaised_ = false;   // already shown once this session
-  UnfinishedSession unfinishedSession_;  // what the crash notice reports
-  bool crashNoticeQueued_ = false;
-  // The first start's question: which shortcuts are missing, and which of
-  // those are ticked.
-  bool welcomeQueued_ = false;
-  bool welcomeStartMenu_ = false;
-  bool welcomeDesktop_ = false;
-  bool welcomeWantStartMenu_ = true;
-  bool welcomeWantDesktop_ = true;
   bool devicePagesWereBusy_ = false;
   // Guards the frame drawn from inside a window drag against re-entering itself.
   bool inModalFrame_ = false;
