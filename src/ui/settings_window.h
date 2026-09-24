@@ -197,6 +197,13 @@ class SettingsWindow {
     diskBytesPerSecond_ = bytesPerSecond;
   }
 
+  // Whether the build has Vulkan, and whether the window is on it right now.
+  // The checkbox only matters at the next start, so the one running is shown
+  // next to it when the two differ.
+  void SetGraphicsBackend(bool vulkanBuilt, bool vulkanRunning) {
+    vulkanBuilt_ = vulkanBuilt;
+    vulkanRunning_ = vulkanRunning;
+  }
   void SetHdrState(bool displayCapable, bool outputActive, float displayPeak, int sourceTransfer) {
     hdrDisplayCapable_ = displayCapable;
     hdrOutputActive_ = outputActive;
@@ -319,6 +326,8 @@ class SettingsWindow {
   bool probeAllowed_ = true;
   Updater* updater_ = nullptr;
   bool restartRequested_ = false;
+  bool vulkanBuilt_ = false;
+  bool vulkanRunning_ = false;
   bool coSitedFields_ = false;
   int signalLocked_ = -1;
   StandardSearch standardSearch_ = StandardSearch::Off;

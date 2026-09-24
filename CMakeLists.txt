@@ -169,6 +169,155 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 target_include_directories(qBlank PRIVATE "${CMAKE_BINARY_DIR}/generated")
 target_compile_definitions(qBlank PRIVATE QBLANK_SHADERS_WITHOUT_COMMENTS)
 
+# The Vulkan renderer, next to Direct3D 11 -- see src/render/display_vulkan.cpp.
+# Which of the two runs is a setting; Direct3D 11 stays the default and the
+# fallback when Vulkan does not start.
+#
+# Building it needs the Vulkan SDK: the headers, the loader's import library and
+# a dxc that writes SPIR-V. Without them the build goes on with Direct3D 11
+# alone and the setting does not appear -- with a warning, because a build that
+# quietly lost a renderer looks exactly like one that has it.
+# -DQBLANK_VULKAN=OFF leaves it out on purpose.
+option(QBLANK_VULKAN "Build the Vulkan renderer (needs the Vulkan SDK)" ON)
+set(qblank_vulkan_ready OFF)
+if(QBLANK_VULKAN)
+  find_package(Vulkan)
+  # The SDK's own dxc first: the one in the Windows SDK, which a developer
+  # prompt puts on PATH, is built without SPIR-V.
+  set(qblank_dxc_hints "$ENV{VULKAN_SDK}/Bin")
+  if(Vulkan_INCLUDE_DIR)
+    list(APPEND qblank_dxc_hints "${Vulkan_INCLUDE_DIR}/../Bin")
+  endif()
+  find_program(QBLANK_DXC dxc HINTS ${qblank_dxc_hints})
+
+  if(NOT Vulkan_FOUND)
+    message(WARNING "Vulkan SDK not found: building with Direct3D 11 only")
+  elseif(NOT QBLANK_DXC)
+    message(WARNING "dxc not found in the Vulkan SDK: building with Direct3D 11 only")
+  else()
+    # Found is not enough -- it has to write SPIR-V, so it is asked to.
+    set(probe "${CMAKE_BINARY_DIR}/dxc_probe")
+    file(WRITE "${probe}.hlsl" "float4 main() : SV_Target { return 0; }\n")
+    execute_process(
+      COMMAND "${QBLANK_DXC}" -spirv -T ps_6_0 -E main "${probe}.hlsl" -Fo "${probe}.spv"
+      RESULT_VARIABLE probe_result OUTPUT_QUIET ERROR_QUIET)
+    if(probe_result EQUAL 0 AND EXISTS "${probe}.spv")
+      set(qblank_vulkan_ready ON)
+    else()
+      message(WARNING "${QBLANK_DXC} does not write SPIR-V: building with Direct3D 11 only")
+    endif()
+    file(REMOVE "${probe}.hlsl" "${probe}.spv")
+  endif()
+endif()
+
+if(qblank_vulkan_ready)
+  message(STATUS "Vulkan renderer: on (dxc: ${QBLANK_DXC})")
+
+  # The shaders are the ones Direct3D 11 compiles at startup, from the same
+  # shaders.h, compiled to SPIR-V here instead. A small program writes them out
+  # as files, since dxc reads files -- and it includes shaders.h, so a change
+  # there rebuilds it and everything after it.
+  add_executable(qblank_hlsl_dump src/tools/hlsl_dump.cpp)
+  target_include_directories(qblank_hlsl_dump PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  if(MSVC)
+    target_compile_options(qblank_hlsl_dump PRIVATE /W3 /permissive- /Zc:__cplusplus /utf-8)
+    set_property(TARGET qblank_hlsl_dump PROPERTY MSVC_RUNTIME_LIBRARY
+                 "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  endif()
+
+  # file : profile : the array in shaders_spirv.h
+  set(qblank_spirv_shaders
+    fullscreen_vs:vs_6_0:kSpirvFullscreenVS
+    clean_ps:ps_6_0:kSpirvClean
+    convert_ps:ps_6_0:kSpirvConvert
+    scale_ps:ps_6_0:kSpirvScale
+    hdr_record_ps:ps_6_0:kSpirvHdrRecord
+    ui_composite_ps:ps_6_0:kSpirvUiComposite
+  )
+  set(spirv_dir "${CMAKE_BINARY_DIR}/spirv")
+  set(hlsl_files)
+  set(spirv_files)
+  set(spirv_names)
+  foreach(shader IN LISTS qblank_spirv_shaders)
+    string(REPLACE ":" ";" parts "${shader}")
+    list(GET parts 0 file)
+    list(GET parts 1 profile)
+    list(GET parts 2 array)
+    list(APPEND hlsl_files "${spirv_dir}/${file}.hlsl")
+    list(APPEND spirv_files "${spirv_dir}/${file}.spv")
+    list(APPEND spirv_names "${file}=${array}")
+  endforeach()
+
+  add_custom_command(
+    OUTPUT ${hlsl_files}
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${spirv_dir}"
+    COMMAND qblank_hlsl_dump "${spirv_dir}"
+    DEPENDS qblank_hlsl_dump
+    COMMENT "Writing the shaders out for dxc"
+    VERBATIM)
+
+  # The flags keep the shaders what they are under Direct3D 11:
+  #   -HV 2018          the HLSL version fxc speaks, including its scoping of a
+  #                     for loop's variable -- which is also why the warning
+  #                     about a loop redeclaring one is off: two loops in a row
+  #                     each declaring their own counter is what was meant.
+  #   -fvk-invert-y     clip space points up under Direct3D and down under
+  #                     Vulkan; the vertex shader turns it around.
+  #   -fvk-?-shift      textures, samplers and constant buffers share the
+  #                     register numbers t0, s0, b0 in HLSL and would collide
+  #                     as Vulkan bindings, so each kind gets its own range:
+  #                     textures from 0, samplers from 16, buffers from 32 --
+  #                     see src/render/render_passes_vulkan.cpp.
+  set(qblank_dxc_flags -spirv -HV 2018 -O3 -E main -fspv-target-env=vulkan1.1
+      -fvk-t-shift 0 0 -fvk-s-shift 16 0 -fvk-b-shift 32 0 -Wno-for-redefinition)
+  foreach(shader IN LISTS qblank_spirv_shaders)
+    string(REPLACE ":" ";" parts "${shader}")
+    list(GET parts 0 file)
+    list(GET parts 1 profile)
+    set(stage_flags)
+    if(profile MATCHES "^vs_")
+      set(stage_flags -fvk-invert-y)
+    endif()
+    add_custom_command(
+      OUTPUT "${spirv_dir}/${file}.spv"
+      COMMAND "${QBLANK_DXC}" ${qblank_dxc_flags} -T ${profile} ${stage_flags}
+              "${spirv_dir}/${file}.hlsl" -Fo "${spirv_dir}/${file}.spv"
+      DEPENDS "${spirv_dir}/${file}.hlsl"
+      COMMENT "Compiling ${file} to SPIR-V"
+      VERBATIM)
+  endforeach()
+
+  string(REPLACE ";" "," spirv_names "${spirv_names}")
+  set(spirv_header "${CMAKE_BINARY_DIR}/generated/shaders_spirv.h")
+  add_custom_command(
+    OUTPUT "${spirv_header}"
+    COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${spirv_header}" "-DSPIRV_DIR=${spirv_dir}"
+            "-DSHADERS=${spirv_names}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_spirv.cmake"
+    DEPENDS ${spirv_files} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_spirv.cmake"
+    COMMENT "Embedding the SPIR-V"
+    VERBATIM)
+
+  target_sources(qBlank PRIVATE
+    src/render/display_vulkan.cpp
+    src/render/display_vulkan_win32.cpp
+    src/render/render_passes_vulkan.cpp
+    src/render/vulkan_device.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
+    "${spirv_header}"
+  )
+  target_compile_definitions(qBlank PRIVATE QBLANK_VULKAN)
+  target_link_libraries(qBlank PRIVATE Vulkan::Vulkan)
+  # vulkan-1.dll comes with the graphics driver, not with Windows, and a
+  # machine without it must still start qBlank on Direct3D 11. So the DLL is
+  # loaded on first use rather than with the executable, and nothing uses it
+  # before src/render/display_vulkan_win32.cpp has checked that it is there.
+  if(MSVC)
+    target_link_libraries(qBlank PRIVATE delayimp)
+    target_link_options(qBlank PRIVATE /DELAYLOAD:vulkan-1.dll)
+  endif()
+endif()
+
 target_link_libraries(qBlank PRIVATE
   d3d11 dxgi d3dcompiler dxguid
   strmiids ole32 oleaut32 uuid

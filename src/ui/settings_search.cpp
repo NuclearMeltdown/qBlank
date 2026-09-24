@@ -232,6 +232,9 @@ const Entry kEntries[] = {
     {Kind::Control, kTabDisplay, "vsync", "VSync", "VSync",
      "Tearing|Bildriss|V-Sync|Vertical sync|Vertikale Synchronisation|G-Sync|FreeSync|Lag|"
      "Input lag|Eingabeverzögerung"},
+    {Kind::Control, kTabDisplay, "vulkan", "Vulkan statt Direct3D 11",
+     "Vulkan instead of Direct3D 11",
+     "Vulkan|Direct3D|D3D11|DirectX|Grafik-API|Graphics API|Renderer|Backend|Grafikschnittstelle"},
     {Kind::Control, kTabDisplay, "ontop", "Immer im Vordergrund", "Always on top",
      "Topmost|Oben halten|Pin|Anheften"},
     {Kind::Control, kTabDisplay, "borderless", "Rahmenlos", "Borderless",

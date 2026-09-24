@@ -674,6 +674,9 @@ struct AppSettings {
   // window background are all derived from this one colour. 0xRRGGBB.
   unsigned accentColor = 0x8B5CF6;  // violet
   bool vsync = false;  // off means "allow tearing" -- the biggest latency lever
+  // The main window on Vulkan instead of Direct3D 11. Read once at start; where
+  // Vulkan does not come up the program runs on Direct3D 11 all the same.
+  bool vulkan = false;
   bool alwaysOnTop = false;
   // The window without title bar and frame, only the picture; moved by dragging
   // the picture, sized at its edges. It keeps its taskbar button.

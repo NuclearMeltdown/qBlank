@@ -772,6 +772,8 @@ void App::DrawUi() {
                                                : 0);
   settings_.SetProbeAllowed(captureState_ != CaptureState::Reconnecting);
   settings_.SetUpdater(&updater_);
+  settings_.SetGraphicsBackend(GraphicsApiBuilt(GraphicsApi::Vulkan),
+                               display_.api() == GraphicsApi::Vulkan);
   // Auto means: analogue when the card has a decoder for it. A card that only
   // does one of the two therefore needs nobody to say which.
   // Dieselbe Quelle der Wahrheit, die auch entscheidet, was ueberhaupt noch

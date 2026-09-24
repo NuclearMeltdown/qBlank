@@ -125,16 +125,7 @@ bool App::Initialize() {
 
   if (!CreateMainWindow()) return false;
 
-  std::string error;
-  if (!display_.Initialize(window_, &error)) {
-    ShowErrorMessage(error);
-    return false;
-  }
-  if (!InitImGui()) return false;
-  if (!renderer_.Initialize(&display_, &error)) {
-    ShowErrorMessage(error);
-    return false;
-  }
+  if (!StartGraphics()) return false;
 
   LoadIdleIcon();
 
@@ -148,6 +139,7 @@ bool App::Initialize() {
   // welche Taste die Einstellungen oeffnet. Ab dem zweiten Start ist es wieder
   // die Abkuerzung, denn dann ist "kein Geraet" keine Begruessung mehr, sondern
   // ein Problem.
+  std::string error;
   if (firstRun_) {
     CAP_LOG("First start: welcome screen instead of settings");
     // Asked only for what is not there yet: a copy unpacked a second time, with
@@ -302,6 +294,40 @@ void App::ToggleFullscreen() {
   SetFullscreen(!fullscreen_);
 }
 
+// ------------------------------------------------------------------ graphics
+
+// Display, ImGui's renderer and the video passes, on Vulkan when the settings
+// ask for it and the build has it. Anything on the way that does not come up
+// sends the whole stack back to Direct3D 11: a driver without a usable Vulkan
+// costs the setting, never the picture.
+bool App::StartGraphics() {
+  std::string error;
+  if (config_.app.vulkan && GraphicsApiBuilt(GraphicsApi::Vulkan)) {
+    if (display_.Initialize(window_, &error, GraphicsApi::Vulkan) && InitImGui() &&
+        renderer_.Initialize(&display_, &error)) {
+      CAP_LOG("Graphics: Vulkan");
+      return true;
+    }
+    CAP_WARN("Vulkan did not start (%s), using Direct3D 11", error.c_str());
+    renderer_.Shutdown();
+    ShutdownImGui();
+    display_.Shutdown();
+    error.clear();
+  }
+
+  if (!display_.Initialize(window_, &error)) {
+    ShowErrorMessage(error);
+    return false;
+  }
+  if (!InitImGui()) return false;
+  if (!renderer_.Initialize(&display_, &error)) {
+    ShowErrorMessage(error);
+    return false;
+  }
+  CAP_LOG("Graphics: Direct3D 11");
+  return true;
+}
+
 // --------------------------------------------------------------------- ImGui
 
 bool App::InitImGui() {
@@ -316,11 +342,17 @@ bool App::InitImGui() {
   LoadUiFont();
   ApplyImGuiTheme(darkMode_, config_.app.accentColor, uiScale_);
 
-  if (!window_.AttachUi(nullptr)) return false;
+  // On failure the context goes as well, so StartGraphics can begin again on
+  // another backend.
+  if (!window_.AttachUi(nullptr)) {
+    ImGui::DestroyContext();
+    return false;
+  }
   if (!display_.InitUi()) {
     // Messages went to ImGui only once both halves were up; the window must not
     // go on feeding them to half of it.
     window_.DetachUi();
+    ImGui::DestroyContext();
     return false;
   }
   imguiReady_ = true;

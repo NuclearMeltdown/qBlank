@@ -89,6 +89,7 @@ class App {
   bool OnWindowEvent(const WindowEvent& e);
   bool InitImGui();
   void ShutdownImGui();
+  bool StartGraphics();
 
   void Tick();
   void RenderFrame();

@@ -3034,6 +3034,21 @@ void SettingsWindow::DrawDisplayTab() {
   HelpMarker(T("Aus ist der größte Latenzgewinn, kann aber Tearing zeigen.",
                "Off is the biggest latency win, but can show tearing."));
 
+  if (vulkanBuilt_) {
+    ImGui::Checkbox(T("Vulkan statt Direct3D 11", "Vulkan instead of Direct3D 11"), &app.vulkan);
+    Anchor("vulkan");
+    ImGui::SameLine();
+    HelpMarker(T("Gilt ab dem nächsten Start. Kommt Vulkan nicht hoch, läuft qBlank mit "
+                 "Direct3D 11 weiter.",
+                 "Takes effect on the next start. If Vulkan does not come up, qBlank carries on "
+                 "with Direct3D 11."));
+    if (app.vulkan != vulkanRunning_) {
+      ImGui::SameLine();
+      ImGui::TextDisabled(T("läuft gerade mit %s", "running on %s now"),
+                          vulkanRunning_ ? "Vulkan" : "Direct3D 11");
+    }
+  }
+
   ImGui::Checkbox(T("Immer im Vordergrund", "Always on top"), &app.alwaysOnTop);
   Anchor("ontop");
   ImGui::Checkbox(T("Rahmenlos", "Borderless"), &app.borderless);
