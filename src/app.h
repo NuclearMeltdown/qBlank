@@ -203,6 +203,9 @@ class App {
   // Der Hinweis mit "Anpassen" und "Ignorieren", solange er offen ist. Gibt
   // seine Hoehe zurueck, damit ein Toast darueber steht, sonst 0.
   float DrawResolutionNotice();
+  // Der Hinweis der Nachkontrolle, dass die Videonorm nicht passen koennte.
+  // Steht an derselben Stelle, also nur, wenn der zur Aufloesung nicht steht.
+  float DrawColourNotice();
 
   // Dasselbe fuer den Wertebereich: das Urteil steht, bis sich das Bildformat
   // aendert, und eine Option im Treiber der Karte aendert es nicht. Wirft nur

@@ -76,6 +76,11 @@ class VideoStandardSearch {
   bool sweptWithoutLock() const { return standardSweeps_ >= 1 && !standardPatientPass_; }
   // The standard whose colour check is decided, 0 while it is not.
   long colourCheckedStandard() const { return colourCheckedStandard_; }
+  // What the passive re-check says about the settled standard, empty while it
+  // has nothing to say. The app shows it as a notice with two answers: search
+  // (true) or leave it be (false).
+  const std::string& colourNotice() const { return colourNotice_; }
+  void AnswerColourNotice(bool search);
   // How long a manual search's result stays up, and how long it has been up.
   static double ResultSeconds();
   double ResultAgeSeconds() const;
@@ -138,10 +143,28 @@ class VideoStandardSearch {
   enum class ColourDoubt {
     None,    // kein Rundgang
     Pale,    // zu wenig Farbe fuer eine Norm, die stimmen koennte
-    Tinted,  // Farbe da, aber sie steht auch im Schwarzen
-    Manual,  // von Hand ausgeloest, ohne dass etwas dagegen sprach
+    Tinted,    // Farbe da, aber sie steht auch im Schwarzen
+    Flipping,  // Farbe da, aber sie kippt von Zeile zu Zeile
+    Manual,    // von Hand ausgeloest, ohne dass etwas dagegen sprach
   };
   ColourDoubt colourDoubt_ = ColourDoubt::None;
+  // Die Nachkontrolle einer entschiedenen Norm. Siehe kChromaPale.
+  //
+  // Bewiesen heisst: kraeftige Farbe, neutrale Tiefen, kein Kippen -- einmal
+  // gemessen. Nur eine unbewiesene Norm darf fuer blasses Bild verdaechtigt
+  // werden; eine bewiesene zeigt auf einem blassen Bild einfach ein blasses
+  // Bild.
+  bool colourProven_ = false;
+  enum class ColourWatch {
+    Watching,  // liest mit, darf die Pruefung einmal neu eroeffnen
+    Reopened,  // hat das getan, darf nur noch hinweisen
+    Notice,    // der Hinweis steht
+    Done,      // nichts mehr zu tun, bis zum naechsten Lock
+  };
+  ColourWatch colourWatch_ = ColourWatch::Watching;
+  long colourWatchStandard_ = 0;  // die Norm, deren Fenster gerade gelesen wird
+  int colourWatchStrikes_ = 0;    // verdaechtige Fenster in Folge
+  std::string colourNotice_;
   // Bis zu diesem Zeitpunkt wird der Rundgang gegangen, auch wenn die
   // anliegende Norm kraeftig Farbe zeigt. Setzt RescanVideoStandard.
   //

@@ -341,6 +341,14 @@ void VideoStandardSearch::StandardSearchText(std::string* headline, std::string*
               "(the first one twice)"),
             norms, lines);
         break;
+      case ColourDoubt::Flipping:
+        *detail = Format(
+            T("Farbe kippt von Zeile zu Zeile — die %d Normen mit %d Zeilen werden verglichen "
+              "(die erste zweimal)",
+              "Colour flips from line to line — comparing the %d standards with %d lines "
+              "(the first one twice)"),
+            norms, lines);
+        break;
       case ColourDoubt::Manual:
         *detail = Format(
             T("Von Hand ausgelöst — die %d Normen mit %d Zeilen werden verglichen "
@@ -447,6 +455,20 @@ void VideoStandardSearch::RescanVideoStandard() {
   standardManualSearch_ = true;
   standardResultUntilQpc_ = 0;
   host_.Toast(T("Videonorm wird gesucht", "Scanning for the video standard"));
+}
+
+// Die Antwort auf den Hinweis der Nachkontrolle. Suchen ist dieselbe Suche wie
+// von Hand -- sie setzt dabei auch die Nachkontrolle zurueck, und der Hinweis
+// verschwindet mit. Ignorieren gilt bis zum naechsten Lock.
+void VideoStandardSearch::AnswerColourNotice(bool search) {
+  if (colourNotice_.empty()) return;
+  colourNotice_.clear();
+  colourWatch_ = ColourWatch::Done;
+  if (search) {
+    RescanVideoStandard();
+    return;
+  }
+  CAP_LOG("Video standard: colour hint dismissed");
 }
 
 // Die Antwort auf den Tastendruck festhalten.
@@ -963,6 +985,11 @@ void VideoStandardSearch::UpdateVideoStandard() {
 //
 // Einmal je Norm. Danach ist die Sache entschieden, und eine Messung, die sich
 // jede Minute neu meldet, waere ein Schalter, der von selbst umspringt.
+//
+// Entschieden heisst aber nicht blind. Die Messung laeuft ohnehin weiter, und
+// die Nachkontrolle liest sie mit, ohne die Norm anzufassen -- siehe
+// kChromaPale. Einmal je Lock darf sie die Pruefung neu eroeffnen, danach
+// bleibt ihr nur noch der Hinweis.
 void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   // Unterhalb davon ist das Bild grau. Bewusst etwas ueber Null: an einem
   // Composite-Eingang rauscht auch ein totgeschalteter Farbkanal noch ein
@@ -1282,9 +1309,50 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   // vorbei, und wer wartet, verbraucht keinen Anlauf.
   static const float kChromaLitWanted = 0.10f;
 
+  // Die Nachkontrolle, und warum es sie gibt.
+  //
+  // Alles oben entscheidet einmal je Norm, und das war an genau einer Stelle
+  // zu wenig: wenn diese eine Gelegenheit auf ein Bild faellt, an dem nichts
+  // zu entscheiden ist. Double Dash nach dem Wechsel von 50 auf 60 Hz zeigt
+  // lange fast nur Schwarz um einen Lakitu herum -- genug beleuchtet, um
+  // kChromaLitWanted zu passieren, zu wenig Farbe, um irgendetwas zu trennen.
+  // Drei Anlaeufe gehen ins Leere, die Pruefung gibt auf ("wohl schwarzweiss"),
+  // und die Karte bleibt auf NTSC stehen, auch wenn zehn Sekunden spaeter das
+  // bunteste Rennen laeuft.
+  //
+  // Die Messung, die das zeigen wuerde, laeuft aber ohnehin weiter, jedes
+  // achte Bild, fuer die Statistik und fuer genau diese Pruefung. Sie
+  // mitzulesen kostet nichts -- kein Normwechsel, kein dichter Takt, ein paar
+  // Vergleiche je drei Sekunden. Gelesen wird deshalb weiter, und zwar nach
+  // drei Befunden, von denen jeder fuer sich einer falschen Norm gehoert:
+  //
+  //   - die Farbe klappt von Zeile zu Zeile um (kAltFlipping),
+  //   - kraeftige Farbe steht bis ins Schwarze (kDarkTinted),
+  //   - ein gut beleuchtetes Bild bleibt blass, und die Norm hat noch nie
+  //     bewiesen, dass sie Farbe dekodieren kann.
+  //
+  // Die dritte Bedingung ist die heikle, und deshalb gilt sie nur fuer eine
+  // Norm, die nie kraeftige, plausible Farbe gezeigt hat. Wer einmal richtig
+  // dekodiert hat, ist auf einer Schneepiste nicht falsch.
+  //
+  // Die Schwelle liegt unter kChromaSuspect, weil die Nachkontrolle nicht
+  // fragt "ist das verdaechtig", sondern "ist das eindeutig". Am 29.08. mass
+  // die falsche Norm 0,024 (Schnee) und 0,013 (Wueste), die richtige auf dem
+  // Schnee 0,037. Das Band zwischen 0,025 und 0,035 bleibt der Pruefung selbst.
+  static const float kChromaPale = 0.025f;
+  // Und "gut beleuchtet" heisst hier ein gewoehnliches Spielbild, nicht der
+  // Rest um einen Lakitu. Gemessen wurden 54 % auf laufendem Spielinhalt,
+  // siehe kChromaLitWanted.
+  static const float kWatchLitWanted = 0.30f;
+  // So viele Fenster in Folge, knapp sechs Sekunden. Eines allein ist ein
+  // Bild, zwei sind ein Zustand.
+  static const int kWatchStrikes = 2;
+
   auto darkText = [&](float d) {
     return d < 0.0f ? std::string("no dark areas") : Format("%.3f", d);
   };
+  // Siehe kAltFlipping. Ohne Messung (-1) klappt nichts.
+  auto flips = [&](float v, float u) { return v >= kAltFlipping && v > u * kAltAxisRatio; };
 
   // Waehrend eines Vergleichs wird dicht abgetastet, sonst duenn.
   //
@@ -1350,7 +1418,110 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   }
 
   const bool walking = !colourCandidates_.empty();
-  if (!walking && current == colourCheckedStandard_) return;
+  if (!walking && current == colourCheckedStandard_) {
+    // Die Nachkontrolle, siehe kChromaPale. Sie liest nur mit: jedes volle
+    // Messfenster wird einmal angesehen und dann verworfen, damit das naechste
+    // nur neue Bilder enthaelt.
+    if (colourWatch_ == ColourWatch::Done) return;
+    if (colourWatchStandard_ != current) {
+      // Neu hier -- und was bisher im Fenster steht, stammt womoeglich noch
+      // aus der Pruefung davor. Ein Hinweis galt der alten Norm.
+      colourWatchStandard_ = current;
+      colourWatchStrikes_ = 0;
+      if (colourWatch_ == ColourWatch::Notice) {
+        colourNotice_.clear();
+        colourWatch_ = ColourWatch::Reopened;
+      }
+      renderer_.ResetChroma();
+      return;
+    }
+    if (renderer_.detectedSignal() == VideoRenderer::SignalVerdict::Flat) {
+      colourWatchStrikes_ = 0;
+      renderer_.ResetChroma();
+      return;
+    }
+    const float e = renderer_.chromaEnergy();
+    if (e < 0.0f) return;
+    const float d = renderer_.darkChromaEnergy();
+    const float lit = renderer_.chromaLitFraction();
+    const float v = renderer_.chromaAltV();
+    const float u = renderer_.chromaAltU();
+    const bool flipping = flips(v, u);
+    const char* name = VideoStandardName(VideoStandardIndexOf(current));
+
+    if (e >= kChromaConfident && d < kDarkTinted && !flipping) {
+      // Kraeftige, plausible Farbe: die Norm hat sich bewiesen. Auch nach
+      // einem Aufgeben -- dann stand die Antwort nur noch aus.
+      if (!colourProven_) {
+        CAP_LOG("Video standard: %s shows clear colour afterwards (%.3f, dark areas %s) -- "
+                "confirmed",
+                name, e, darkText(d).c_str());
+        colourProven_ = true;
+      }
+      if (colourWatch_ == ColourWatch::Notice) {
+        colourNotice_.clear();
+        colourWatch_ = ColourWatch::Done;
+      }
+      colourWatchStrikes_ = 0;
+      renderer_.ResetChroma();
+      return;
+    }
+    const bool tinted = e >= kChromaConfident && d >= kDarkTinted;
+    const bool pale = !colourProven_ && lit >= kWatchLitWanted && e < kChromaPale;
+    if (!flipping && !tinted && !pale) {
+      colourWatchStrikes_ = 0;
+      renderer_.ResetChroma();
+      return;
+    }
+    if (++colourWatchStrikes_ < kWatchStrikes || colourWatch_ == ColourWatch::Notice) {
+      renderer_.ResetChroma();
+      return;
+    }
+    colourWatchStrikes_ = 0;
+    const char* why = flipping ? "flips the colour from line to line"
+                      : tinted ? "shows colour in the dark areas"
+                               : "stays pale on a lit picture";
+
+    if (colourWatch_ == ColourWatch::Watching) {
+      // Einmal je Lock die Pruefung von vorn, und zwar mit genau diesem
+      // Fenster: es wird nicht verworfen, der erste Durchgang liest es sofort.
+      // Nicht ResetStandardColourCheck -- das setzte auch diese Nachkontrolle
+      // zurueck, und aus dem einen Mal wuerde ein Kreislauf.
+      CAP_LOG("Video standard: %s %s (colour %.3f, dark areas %s, %.0f %% lit, line alternation "
+              "V %.4f U %.4f) -- checking the colour again",
+              name, why, e, darkText(d).c_str(), lit * 100.0f, v, u);
+      colourWatch_ = ColourWatch::Reopened;
+      colourCheckedStandard_ = 0;
+      colourWatchStandard_ = 0;
+      colourProven_ = false;
+      colourAttempts_ = 0;
+      colourStartedQpc_ = 0;
+      colourRetryQpc_ = 0;
+      colourWaitingForPicture_ = false;
+      return;
+    }
+
+    // Die Wiederholung hat es nicht geklaert. Umschalten darf die Automatik
+    // jetzt nicht mehr -- also sagen, was sie sieht, und die Suche anbieten.
+    // Eingefaerbte Tiefen allein reichen dafuer nicht: sie sind der weichste
+    // der drei Befunde, und eine Runde, die danach dieselbe Norm bestaetigt,
+    // hat ihn gerade widerlegt.
+    renderer_.ResetChroma();
+    if (!flipping && !pale) return;
+    CAP_LOG("Video standard: %s %s even after the second check (colour %.3f, dark areas %s, "
+            "%.0f %% lit, line alternation V %.4f U %.4f) -- hint shown",
+            name, why, e, darkText(d).c_str(), lit * 100.0f, v, u);
+    colourWatch_ = ColourWatch::Notice;
+    const std::string picker = VideoStandardPickerName(current);
+    colourNotice_ =
+        flipping ? Format(T("Die Farbe kippt von Zeile zu Zeile — %s passt wohl nicht",
+                            "The colour flips from line to line — %s is probably wrong"),
+                          picker.c_str())
+                 : Format(T("Kaum Farbe unter %s — die Videonorm passt womöglich nicht",
+                            "Hardly any colour under %s — the video standard may be wrong"),
+                          picker.c_str());
+    return;
+  }
   // Ein unentschiedener Versuch wartet, bevor er sich wiederholt.
   if (colourRetryQpc_ != 0 && now < colourRetryQpc_) return;
   colourRetryQpc_ = 0;
@@ -1408,9 +1579,11 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     // damit erledigt -- es gibt nichts zu vergleichen. Im Rundgang zaehlt es
     // als "weiss nicht", wird als solches eingetragen und der naechste
     // Kandidat ist dran.
+    // Die Nachkontrolle haette dieselbe Messung, also auch nichts.
     if (!walking) {
       colourCheckedStandard_ = current;
       colourStartedQpc_ = 0;
+      colourWatch_ = ColourWatch::Done;
       return;
     }
   }
@@ -1490,15 +1663,24 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     // wer ihn drueckt, sieht etwas, das keine dieser beiden Zahlen misst --
     // einen Farbstich, Gesichter in der falschen Farbe --, und die Abkuerzung
     // waere hier die eine Antwort, die er schon hat.
+    //
+    // Und eine dritte, die beide Zahlen nicht sehen: kippt die Farbe von Zeile
+    // zu Zeile? Am 31.08. mass NTSC 4.43 auf einem PAL-60-Signal 0,099 Farbe
+    // bei 0,031 in den Tiefen -- beide Tests bestanden, und das Bild hatte die
+    // Jalousie, die ein fehlender PAL-Phasenwechsel macht. Der Rundgang kennt
+    // das Merkmal laengst (siehe kAltFlipping); der erste Durchgang las es
+    // bisher nur nicht.
     const bool forced =
         standardForceColourUntilQpc_ != 0 && now < standardForceColourUntilQpc_;
-    if (!forced && energy >= kChromaConfident && dark < kDarkTinted) {
+    const bool flipping = flips(renderer_.chromaAltV(), renderer_.chromaAltU());
+    if (!forced && !flipping && energy >= kChromaConfident && dark < kDarkTinted) {
       CAP_LOG("Video standard: %s has clear colour (%.3f), dark areas neutral (%s)",
               VideoStandardName(VideoStandardIndexOf(current)), energy, darkText(dark).c_str());
       colourCheckedStandard_ = current;
       colourStartedQpc_ = 0;
       colourAttempts_ = 0;
       colourWaitingForPicture_ = false;
+      colourProven_ = true;
       // Hierher kommt ein Suchlauf von Hand nur, wenn seine Frist abgelaufen
       // ist, bevor ein Bild zum Vergleichen da war -- und dann ist das hier
       // die Antwort: gemessen wurde, es sprach nichts dagegen.
@@ -1532,7 +1714,8 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     // toten Eingang, damit die erste Messung nach dem Warten nicht durch das
     // Schwarze davor verduennt wird.
     const float lit = renderer_.chromaLitFraction();
-    if (lit >= 0.0f && lit < kChromaLitWanted && dark >= 0.0f && dark < kDarkTinted) {
+    if (!flipping && lit >= 0.0f && lit < kChromaLitWanted && dark >= 0.0f &&
+        dark < kDarkTinted) {
       if (!colourWaitingForPicture_) {
         colourWaitingForPicture_ = true;
         CAP_LOG("Video standard: %s is doubtful (colour %.3f), but only %.0f %% of the picture is "
@@ -1559,10 +1742,12 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     // Der Rundgang beginnt bei der jetzigen Norm, die ja gerade gemessen wurde.
     // Steht sie nicht vorn, hat die Karte etwas gemeldet, das sie laut eigener
     // Auskunft gar nicht kann -- dann lieber nichts tun als raten.
+    // Einen Hinweis gaebe es hier auch nicht: "Norm suchen" faende nichts.
     if (colourCandidates_.size() < 2 || colourCandidates_.front() != current) {
       colourCandidates_.clear();
       colourCheckedStandard_ = current;
       colourStartedQpc_ = 0;
+      colourWatch_ = ColourWatch::Done;
       standardForceColourUntilQpc_ = 0;
       FinishManualStandardSearch(
           current, Format(T("Keine andere Norm mit %d Zeilen — es bleibt dabei",
@@ -1615,13 +1800,15 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     // kraeftig falschen Farben bis ins Schwarze hinein. Wer davorsitzt, sieht
     // genau einen der beiden Faelle und erkennt seinen wieder.
     colourDoubt_ = forced                ? ColourDoubt::Manual
+                   : flipping            ? ColourDoubt::Flipping
                    : dark >= kDarkTinted ? ColourDoubt::Tinted
                                          : ColourDoubt::Pale;
     standardForceColourUntilQpc_ = 0;
-    CAP_LOG("Video standard: %s is doubtful (colour %.3f, dark areas %s, %.0f %% lit) -- "
-            "comparing the %d standards with %d lines%s",
+    CAP_LOG("Video standard: %s is doubtful (colour %.3f, dark areas %s, %.0f %% lit, line "
+            "alternation V %.4f U %.4f) -- comparing the %d standards with %d lines%s",
             VideoStandardName(VideoStandardIndexOf(current)), energy, darkText(dark).c_str(),
-            lit < 0.0f ? 0.0f : lit * 100.0f, count, VideoStandardLines(current),
+            lit < 0.0f ? 0.0f : lit * 100.0f, renderer_.chromaAltV(), renderer_.chromaAltU(),
+            count, VideoStandardLines(current),
             colourDoubt_ == ColourDoubt::Manual ? " (started by hand)" : "");
   }
 
@@ -1782,7 +1969,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   enum class Verdict { Unjudged, Plausible, Tinted, Flipping };
   std::vector<Verdict> verdicts(colourCandidates_.size(), Verdict::Unjudged);
   for (size_t i = 0; i < colourCandidates_.size(); ++i) {
-    if (colourAltV_[i] >= kAltFlipping && colourAltV_[i] > colourAltU_[i] * kAltAxisRatio) {
+    if (flips(colourAltV_[i], colourAltU_[i])) {
       verdicts[i] = Verdict::Flipping;
       CAP_LOG("Video standard: %s flips the colour from line to line (V %.4f, U %.4f) -- the "
               "decoder does not undo the phase alternation, the standard is out",
@@ -1903,6 +2090,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   const float secondDark = runnerUp >= 0 ? colourDarks_[(size_t)runnerUp] : -1.0f;
   const float originEnergy = colourEnergies_.front();
   const float originDark = colourDarks_.front();
+  const bool originFlips = verdicts.front() == Verdict::Flipping;
 
   colourCandidates_.clear();
   colourEnergies_.clear();
@@ -1940,6 +2128,10 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     colourCheckedStandard_ = chosen;
     standardLastGood_ = chosen;
     colourAttempts_ = 0;
+    // Bewiesen hat sich der Sieger nur mit einem Befund: sauberen Tiefen oder
+    // kraeftiger Farbe. Ein knapper Sieg auf einem flauen Bild ist bloss der
+    // beste Kandidat, und den behaelt die Nachkontrolle im Auge.
+    colourProven_ = byDarks || winner >= kChromaConfident;
     // Wer gefragt hat, bekommt die Antwort dort, wo er die Frage gestellt hat.
     // Der Toast bleibt der Automatik: er ist die Nachricht ueber etwas, das
     // von selbst geschehen ist, und beides zugleich zu zeigen, hiesse
@@ -1978,7 +2170,10 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   // muesste sie kraeftig Farbe *und* neutrale Tiefen zeigen, und das ist die
   // Beschreibung einer richtigen -- ein falsch dekodiertes SECAM lag in den
   // Tiefen bei 0,353 gegen eine Schwelle von 0,18.
-  if (sceneChanged && originEnergy >= kChromaConfident && originDark >= 0.0f &&
+  //
+  // Dazu gehoert inzwischen auch, dass ihre Farbe nicht von Zeile zu Zeile
+  // kippt -- dieselbe Luecke wie im ersten Durchgang, siehe dort.
+  if (sceneChanged && !originFlips && originEnergy >= kChromaConfident && originDark >= 0.0f &&
       originDark < kDarkTinted) {
     CAP_LOG("Video standard: comparison discarded, but %s stands on its own (colour %.3f, dark "
             "areas %s) -- no change",
@@ -1987,6 +2182,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     colourCheckedStandard_ = origin;
     standardLastGood_ = origin;
     colourAttempts_ = 0;
+    colourProven_ = true;
     FinishManualStandardSearch(
         origin, T("Der Vergleich war unbrauchbar, die Farbe stimmt für sich — es bleibt dabei",
                   "The comparison was unusable, but the colour stands on its own — no change"));
@@ -2015,7 +2211,10 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
               colourAttempts_, VideoStandardName(VideoStandardIndexOf(origin)), originEnergy,
               darkText(originDark).c_str());
     }
+    // Aufgegeben ist nicht bestaetigt: die Nachkontrolle schaut weiter hin,
+    // und ein spaeteres buntes Bild kann die Frage noch beantworten.
     colourCheckedStandard_ = origin;
+    colourProven_ = false;
     FinishManualStandardSearch(
         origin, sceneChanged
                     ? T("Das Bild war jedesmal in Bewegung — kein verlässlicher Vergleich",
@@ -2060,6 +2259,11 @@ void VideoStandardSearch::ResetStandardColourCheck() {
   colourAttempts_ = 0;
   colourWaitingForPicture_ = false;
   colourDoubt_ = ColourDoubt::None;
+  colourProven_ = false;
+  colourWatch_ = ColourWatch::Watching;
+  colourWatchStandard_ = 0;
+  colourWatchStrikes_ = 0;
+  colourNotice_.clear();
   // Der Wunsch nach einem Rundgang von Hand bleibt dagegen stehen. Ein
   // Graphenumbau setzt hier alles zurueck, und genau einer laeuft haeufig
   // gerade dann, wenn die Taste gedrueckt wird -- der Wunsch waere weg, bevor

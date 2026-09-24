@@ -79,7 +79,7 @@ double App::IdleFloorMs() const {
   const bool toastUp = !toastText_.empty() && now - toastStart_ <= 2.5;
   const bool osdUp = now - volumeOsdStart_ <= kVolumeOsdSeconds;
   // Der Hinweis mit Knoepfen will auf die Maus antworten wie jeder andere.
-  const bool noticeUp = resolutionNoticeLines_ > 0;
+  const bool noticeUp = resolutionNoticeLines_ > 0 || !standardSearch_.colourNotice().empty();
   if (embeddedPanel || cropTool_.active() || toastUp || osdUp || noticeUp) return 16.0;
   return 200.0;
 }
@@ -181,6 +181,18 @@ float App::DrawResolutionNotice() {
     resolutionIgnoredLines_ = resolutionNoticeLines_;
     resolutionNoticeLines_ = 0;
   }
+  return height > 0.0f ? height + 8.0f : 0.0f;
+}
+
+// "Norm suchen" ist dieselbe Suche wie von Hand, "Ignorieren" gilt bis zum
+// naechsten Lock. Beides entscheidet die Suche selbst.
+float App::DrawColourNotice() {
+  const std::string& text = standardSearch_.colourNotice();
+  if (text.empty()) return 0.0f;
+  float height = 0.0f;
+  const NoticeAnswer answer = DrawNotice(text, T("Norm suchen", "Find standard"),
+                                         T("Ignorieren", "Ignore"), &height);
+  if (answer != NoticeAnswer::None) standardSearch_.AnswerColourNotice(answer == NoticeAnswer::Primary);
   return height > 0.0f ? height + 8.0f : 0.0f;
 }
 
@@ -689,7 +701,8 @@ void App::DrawUi() {
   }
 
   // ---- toast ----
-  DrawToastStrip(DrawResolutionNotice());
+  const float noticeLift = DrawResolutionNotice();
+  DrawToastStrip(noticeLift > 0.0f ? noticeLift : DrawColourNotice());
 
   DrawContextMenu();
 
