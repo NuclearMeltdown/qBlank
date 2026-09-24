@@ -81,6 +81,8 @@ class App {
   bool Initialize();
   int Run();
   void Shutdown();
+  // Asked for from inside: start the program again once this one is gone.
+  bool restartAfterExit() const { return restartAfterExit_; }
 
  private:
   enum class CaptureState { Idle, Running, Reconnecting, NeedsSetup };
@@ -136,6 +138,9 @@ class App {
   void SyncConfigChanges();
   void CaptureAppliedState();
   void MaybeSaveConfig();
+  // Saves, ends the main loop and has RunProgram start the program again after
+  // the shutdown -- after, so the new one finds the card and the files free.
+  void QuitAndRestart();
 
   void SwitchProfile(int index);
   void ToggleFullscreen();
@@ -262,6 +267,7 @@ class App {
 
   Window window_;
   bool running_ = false;
+  bool restartAfterExit_ = false;
   bool minimized_ = false;
   bool fullscreen_ = false;
   bool imguiReady_ = false;
@@ -446,7 +452,7 @@ class App {
     explicit NoticesHost(App& app) : app_(app) {}
     float UiScale() const override;
     void Toast(const std::string& text) override;
-    void Quit() override;
+    void Restart() override;
 
    private:
     App& app_;

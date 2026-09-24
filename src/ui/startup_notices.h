@@ -19,8 +19,8 @@ class StartupNotices {
     virtual ~Host() = default;
     virtual float UiScale() const = 0;
     virtual void Toast(const std::string& text) = 0;
-    // Ends the main loop, after the update has started the new build.
-    virtual void Quit() = 0;
+    // Ends the main loop; the program starts again once it is fully shut down.
+    virtual void Restart() = 0;
   };
 
   StartupNotices(Updater& updater, Host& host);

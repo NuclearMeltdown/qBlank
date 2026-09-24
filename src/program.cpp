@@ -4,6 +4,7 @@
 
 #include "app.h"
 #include "app_files.h"
+#include "child_process.h"
 #include "common.h"
 #include "config.h"
 #include "files.h"
@@ -12,6 +13,7 @@
 #include "record/ffmpeg_download.h"
 #include "record/ffmpeg_locator.h"
 #include "ui/startup_dialog.h"
+#include "window.h"
 
 namespace {
 
@@ -174,16 +176,26 @@ int RunProgram(const std::vector<std::string>& arguments) {
   BeginPreciseTiming();
 
   int result = 1;
+  bool restart = false;
   {
     App app;
     if (app.Initialize()) {
       result = app.Run();
     }
     app.Shutdown();
+    restart = app.restartAfterExit();
   }
 
   EndPreciseTiming();
   LogEnd();
+  // Only now that the card, the settings and the log are free: any earlier and
+  // the new instance could find the device still taken.
+  if (restart) {
+    const std::filesystem::path exe = OwnProgramFile();
+    if (!StartAndLetGo(exe, exe.parent_path())) {
+      ShowErrorMessage(T("Neustart fehlgeschlagen.", "Restart failed."));
+    }
+  }
   return result;
 }
 

@@ -76,11 +76,7 @@ void StartupNotices::DrawUpdatePrompt() {
 
   if (st.state == UpdateStatus::State::Ready) {
     if (ImGui::Button(T("Jetzt neu starten", "Restart now"), ImVec2(buttonWidth, 0))) {
-      if (updater_.RestartIntoNewBuild()) {
-        host_.Quit();
-      } else {
-        host_.Toast(T("Neustart fehlgeschlagen.", "Restart failed."));
-      }
+      host_.Restart();
       ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();

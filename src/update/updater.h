@@ -95,10 +95,6 @@ class Updater {
   UpdateStatus status() const;
   bool busy() const { return busy_.load(std::memory_order_relaxed); }
 
-  // Starts the freshly installed build and asks the caller to quit. False when
-  // nothing is waiting.
-  bool RestartIntoNewBuild() const;
-
  private:
   void SetStatus(const UpdateStatus& s);
   void Run(bool install);

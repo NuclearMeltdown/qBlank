@@ -764,6 +764,12 @@ void App::SaveConfig() {
   if (!config_.Save(&error)) Toast(error);
 }
 
+void App::QuitAndRestart() {
+  SaveConfig();
+  restartAfterExit_ = true;
+  running_ = false;
+}
+
 void App::SwitchProfile(int index) {
   if (index < 0 || index >= (int)config_.profiles.size()) return;
   if (index == config_.activeProfile) return;

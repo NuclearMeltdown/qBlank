@@ -1,7 +1,6 @@
 #include "update/updater.h"
 
 #include "app_files.h"
-#include "child_process.h"
 #include "common.h"
 #include "files.h"
 #include "i18n.h"
@@ -256,12 +255,6 @@ void Updater::Run(bool install) {
   s.percent = 100;
   SetStatus(s);
   busy_.store(false, std::memory_order_release);
-}
-
-bool Updater::RestartIntoNewBuild() const {
-  if (status().state != UpdateStatus::State::Ready) return false;
-  const std::filesystem::path exe = OwnProgramFile();
-  return StartAndLetGo(exe, exe.parent_path());
 }
 
 }  // namespace cap

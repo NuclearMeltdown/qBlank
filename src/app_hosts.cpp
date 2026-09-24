@@ -7,7 +7,7 @@ namespace cap {
 
 float App::NoticesHost::UiScale() const { return app_.uiScale_; }
 void App::NoticesHost::Toast(const std::string& text) { app_.Toast(text); }
-void App::NoticesHost::Quit() { app_.running_ = false; }
+void App::NoticesHost::Restart() { app_.QuitAndRestart(); }
 
 void App::CropHost::Toast(const std::string& text) { app_.Toast(text); }
 void App::CropHost::OpenSettings() { app_.OpenSettings({}); }

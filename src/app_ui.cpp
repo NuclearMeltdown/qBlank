@@ -907,15 +907,7 @@ void App::DrawUi() {
   notices_.DrawWelcome();
   notices_.DrawCrashNotice();
   notices_.DrawUpdatePrompt();
-  if (settings_.takeRestartRequest()) {
-    if (updater_.RestartIntoNewBuild()) {
-      // The new build is coming up; this one gets out of its way so the window
-      // position and the configuration are written before it reads them.
-      running_ = false;
-    } else {
-      Toast(T("Neustart fehlgeschlagen.", "Restart failed."));
-    }
-  }
+  if (settings_.takeRestartRequest()) QuitAndRestart();
 
   // Everything above may have edited the configuration in place, so act on it
   // here in one spot rather than sprinkling apply calls through the UI code.
