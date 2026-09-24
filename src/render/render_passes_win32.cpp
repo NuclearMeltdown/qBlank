@@ -10,7 +10,13 @@
 #include "common_win32.h"
 #include "i18n.h"
 #include "render/display_win32.h"
+// The build compiles in a copy without the comments (CMakeLists.txt); check.bat
+// and anything else that compiles this file on its own takes the original.
+#ifdef QBLANK_SHADERS_WITHOUT_COMMENTS
+#include "shaders_nocomments.h"
+#else
 #include "render/shaders.h"
+#endif
 
 namespace cap {
 namespace {

@@ -155,6 +155,18 @@ target_compile_definitions(qBlank PRIVATE
   IMGUI_DISABLE_OBSOLETE_FUNCTIONS
 )
 
+# The shaders go into the executable without their comments -- see
+# tools/strip_shader_comments.cmake. The copy is made when CMake configures, and
+# a change to shaders.h makes it configure again.
+include("${CMAKE_CURRENT_SOURCE_DIR}/tools/strip_shader_comments.cmake")
+qblank_strip_comments("${CMAKE_CURRENT_SOURCE_DIR}/src/render/shaders.h"
+                      "${CMAKE_BINARY_DIR}/generated/shaders_nocomments.h")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_SOURCE_DIR}/src/render/shaders.h"
+             "${CMAKE_CURRENT_SOURCE_DIR}/tools/strip_shader_comments.cmake")
+target_include_directories(qBlank PRIVATE "${CMAKE_BINARY_DIR}/generated")
+target_compile_definitions(qBlank PRIVATE QBLANK_SHADERS_WITHOUT_COMMENTS)
+
 target_link_libraries(qBlank PRIVATE
   d3d11 dxgi d3dcompiler dxguid
   strmiids ole32 oleaut32 uuid
