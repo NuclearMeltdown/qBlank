@@ -10,6 +10,7 @@
 #include <ksmedia.h>
 #include <olectl.h>
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -23,9 +24,11 @@
 #include "audio/audio_devices.h"
 #include "capture/dshow_util.h"
 #include "capture/video_capture.h"
+#include "capture/video_standard.h"
 #include "common.h"
 #include "record/ffmpeg_locator.h"
 #include "text_win32.h"
+#include "tools/field_parity.h"
 #include "tools/mf_probe.h"
 
 using namespace cap;
@@ -1390,6 +1393,319 @@ void TestHistogram(const std::string& subtypeWanted, int framesWanted,
   std::printf("\n");
 }
 
+// ---------------------------------------------------------------- fields
+
+// One sample as it came in.
+struct FieldSample {
+  std::vector<uint8_t> luma;  // width x height, top row first
+  uint64_t sequence = 0;      // the sink's count; a jump is a sample this tool missed
+  int64_t arrival = 0;        // ClockTicks when the driver handed it over, 0 when unsure
+};
+
+const char* FieldVerdictText(FieldVerdict verdict) {
+  switch (verdict) {
+    case FieldVerdict::Alternating:
+      return "jedes Halbbild, oben und unten im Wechsel";
+    case FieldVerdict::AlternatingGaps:
+      return "oben und unten im Wechsel, aber ab und zu ein Halbbild doppelt oder gar nicht";
+    case FieldVerdict::SameLines:
+      return "immer dieselben Zeilen";
+    case FieldVerdict::Mixed:
+      return "kein klares Bild";
+    case FieldVerdict::TooLittle:
+      break;
+  }
+  return "zu wenig stehendes Bild mit waagerechten Kanten";
+}
+
+// Asks a card for single fields -- 720x288 at 50 Hz, 720x240 at 59.94 -- and
+// answers what has to be known before qBlank offers such a format: how many
+// samples a second arrive, and whether they are the top and the bottom field
+// in turn or the same lines every time (field_parity.h).
+//
+// Every field gives 50 or 59.94 samples a second, each half a line off the one
+// before, down and up in turn. A card that keeps one field and drops the other
+// gives 25 or 29.97 on the same lines; one that scales the whole frame down to
+// half height gives the full rate, also on the same lines.
+//
+// Wants a normal 576i or 480i source showing a still picture with fine
+// horizontal edges: a menu, text, a test screen. 240p and 288p carry the same
+// picture in both fields and cannot answer the parity question.
+void TestFields(int widthWanted, int heightWanted, const std::string& subtypeWanted,
+                int samplesWanted, const std::string& nameWanted) {
+  std::vector<VideoDeviceInfo> devices = EnumerateVideoDevices();
+  const VideoDeviceInfo* found = nullptr;
+  for (const VideoDeviceInfo& d : devices) {
+    if (d.name.find(nameWanted) != std::string::npos) {
+      found = &d;
+      break;
+    }
+  }
+  if (!found) {
+    std::printf("Kein Videogerät gefunden, dessen Name '%s' enthält.\n", nameWanted.c_str());
+    for (const VideoDeviceInfo& d : devices) std::printf("  vorhanden: %s\n", d.name.c_str());
+    return;
+  }
+  const VideoDeviceInfo& device = *found;
+
+  std::printf("== Halbbilder ==\n");
+  std::printf("  Gerät: %s\n", device.name.c_str());
+
+  // The field height of the standard the card is set to, unless one was asked
+  // for; and what the card lists at half height, since a size it does not
+  // list may still lie inside the ranges it reports.
+  const DeviceProbeResult probed = VideoCapture::Probe(DeviceRef{device.name, device.id});
+  const long standard = probed.ok ? probed.currentStandard : 0;
+  const int standardLines = VideoStandardLines(standard);
+  if (standardLines > 0) {
+    std::printf("  Norm laut Karte: %s, %d Zeilen\n",
+                VideoStandardName(VideoStandardIndexOf(standard)), standardLines);
+  } else {
+    std::printf("  Die Karte nennt keine Norm.\n");
+  }
+  const int width = widthWanted > 0 ? widthWanted : 720;
+  const int height = heightWanted > 0 ? heightWanted : (standardLines == 525 ? 240 : 288);
+  if (probed.ok) {
+    int listed = 0;
+    for (const CapsEntry& e : probed.caps.entries()) {
+      if (e.subtypeLabel != subtypeWanted || e.height <= 0 || e.height > kHalfHeightLines) {
+        continue;
+      }
+      if (listed++ == 0) {
+        std::printf("  Die Karte nennt bei halber Höhe in %s:\n", subtypeWanted.c_str());
+      }
+      std::printf("    %dx%d  %.2f fps (%.2f-%.2f)\n", e.width, e.height, e.defaultFps, e.minFps,
+                  e.maxFps);
+    }
+    if (listed == 0) {
+      std::printf("  Die Karte nennt in %s nichts mit halber Höhe.\n", subtypeWanted.c_str());
+    }
+  }
+
+  CaptureSettings settings;
+  settings.video = DeviceRef{device.name, device.id};
+  settings.audioSource = AudioSource::None;
+  settings.format.subtype = subtypeWanted;
+  settings.format.width = width;
+  settings.format.height = height;
+  // The field rate: a card that sends single fields has to reach it.
+  settings.format.fps = kFpsNative;
+
+  std::printf("  Gefragt: %s %dx%d zur Halbbildrate\n", subtypeWanted.c_str(), width, height);
+
+  VideoCapture capture;
+  std::string error;
+  if (!capture.Start(settings, &error)) {
+    std::printf("  Start fehlgeschlagen: %s\n\n", error.c_str());
+    return;
+  }
+
+  FrameBuffer* sink = capture.sink();
+  if (!sink) {
+    std::printf("  Kein Sink.\n\n");
+    return;
+  }
+
+  VideoFormatInfo format = sink->format();
+  for (int i = 0; i < 50 && !format.valid(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    format = sink->format();
+  }
+  if (!format.valid()) {
+    std::printf("  Kein Format zustande gekommen.\n\n");
+    capture.Stop();
+    return;
+  }
+
+  const FormatSel& connected = capture.connectedFormat();
+  std::printf("  Verbunden: %s %dx%d @ %.3f fps\n", connected.subtype.c_str(), connected.width,
+              connected.height, connected.fps);
+  std::printf("  Kommt an:  %s %dx%d @ %.3f fps, Zeilenlänge %d Byte%s%s\n",
+              format.subtypeLabel.c_str(), format.width, format.height, format.fps, format.stride,
+              format.interlaced ? ", verschränkt" : "",
+              format.interlaced ? (format.fieldOneFirst ? ", oberes zuerst" : ", unteres zuerst")
+                                : "");
+  if (format.height > kHalfHeightLines) {
+    std::printf("  Das sind keine Halbbilder: die Karte hat %dx%d nicht angenommen.\n\n", width,
+                height);
+    capture.Stop();
+    return;
+  }
+
+  const LumaPlan plan = PlanFor(format.subtypeLabel);
+  if (!plan.ok()) {
+    std::printf("  %s wird hier nicht ausgewertet.\n\n", format.subtypeLabel.c_str());
+    capture.Stop();
+    return;
+  }
+
+  const size_t stride =
+      format.stride > 0 ? (size_t)format.stride : (size_t)format.width * plan.step;
+  const size_t rowBytes = (size_t)format.width * plan.step;
+  const size_t needed = stride * (size_t)(format.height - 1) + rowBytes;
+
+  // Brightness only, copied out as each sample comes and looked at after the
+  // capture, so the tool is back at the sink well within a field.
+  std::vector<FieldSample> taken;
+  taken.reserve((size_t)samplesWanted);
+  int shortFrames = 0;
+  uint64_t lastSequence = 0;
+  int seen = 0;
+  const int kSkip = 8;
+  const DWORD deadline = ::GetTickCount() + 5000 + (DWORD)samplesWanted * 80;
+  while ((int)taken.size() < samplesWanted && ::GetTickCount() < deadline) {
+    sink->frameReady().Wait(200);
+    // The arrival is that of the newest frame. Read on both sides of taking
+    // it: when the two differ, another frame came in meanwhile and it is not
+    // known which of them was taken.
+    const int64_t before = sink->lastArrivalTicks();
+    FrameView view;
+    if (!sink->AcquireFrame(&view) || !view.valid()) continue;
+    const int64_t after = sink->lastArrivalTicks();
+    if (view.sequence == lastSequence) continue;
+    lastSequence = view.sequence;
+    if (++seen <= kSkip) continue;
+    if (view.size < needed) {
+      ++shortFrames;
+      continue;
+    }
+
+    FieldSample sample;
+    sample.sequence = view.sequence;
+    sample.arrival = before == after ? after : 0;
+    sample.luma.resize((size_t)format.width * (size_t)format.height);
+    for (int y = 0; y < format.height; ++y) {
+      const int from = format.bottomUp ? format.height - 1 - y : y;
+      const uint8_t* in = view.data + (size_t)from * stride + plan.offset;
+      uint8_t* out = sample.luma.data() + (size_t)y * (size_t)format.width;
+      for (int x = 0; x < format.width; ++x) out[x] = in[(size_t)x * plan.step];
+    }
+    taken.push_back(std::move(sample));
+  }
+  const SinkStats stats = sink->stats();
+  capture.Stop();
+
+  const int count = (int)taken.size();
+  if (shortFrames > 0) std::printf("  %d Proben waren kürzer als das Format.\n", shortFrames);
+  if (count < 4) {
+    std::printf("  Zu wenige Proben (%d).\n\n", count);
+    return;
+  }
+
+  // How many a second: over the sink's count, which includes samples this
+  // tool missed, from the first to the last sample with a known arrival.
+  int first = 0;
+  while (first < count && taken[first].arrival == 0) ++first;
+  int last = count - 1;
+  while (last > first && taken[last].arrival == 0) --last;
+  double rate = 0.0;
+  double span = 0.0;
+  if (last > first) {
+    span = TicksToSeconds(taken[last].arrival - taken[first].arrival);
+    if (span > 0.0) rate = (double)(taken[last].sequence - taken[first].sequence) / span;
+  }
+  const double fieldRate = VideoStandardFieldRate(standard);
+  const double expected = fieldRate > 0.0 ? fieldRate : format.fps;
+
+  int missed = 0;
+  std::vector<double> gapsMs(count, -1.0);  // to the sample before, -1 when not known
+  std::vector<double> known;
+  for (int i = 1; i < count; ++i) {
+    const uint64_t step = taken[i].sequence - taken[i - 1].sequence;
+    if (step > 1) missed += (int)(step - 1);
+    if (step != 1 || taken[i].arrival == 0 || taken[i - 1].arrival == 0) continue;
+    gapsMs[i] = TicksToSeconds(taken[i].arrival - taken[i - 1].arrival) * 1000.0;
+    known.push_back(gapsMs[i]);
+  }
+
+  std::printf("  %d Proben", count);
+  if (span > 0.0) std::printf(" über %.2f s", span);
+  std::printf("\n");
+  if (rate > 0.0) {
+    std::printf("  Beim Treiber: %.2f Proben je Sekunde", rate);
+    if (expected > 0.0) std::printf(" (Halbbildrate %.2f)", expected);
+    std::printf(", der Sink misst %.2f\n", stats.sourceFps);
+  }
+  if (missed > 0) std::printf("  Nicht abgeholt: %d (Lücken in der Folge)\n", missed);
+
+  double median = 0.0;
+  bool bursty = false;
+  if (!known.empty()) {
+    std::vector<double> sorted = known;
+    std::sort(sorted.begin(), sorted.end());
+    median = sorted[sorted.size() / 2];
+    std::printf("  Abstand in ms: kleinster %.1f, Median %.1f, größter %.1f\n", sorted.front(),
+                median, sorted.back());
+    if (expected > 0.0) {
+      // In fields of the standard: 2 is one left out, or single frames.
+      const double period = 1000.0 / expected;
+      int bins[4] = {};
+      for (double ms : known) {
+        const double f = ms / period;
+        ++bins[f < 0.75 ? 0 : f < 1.5 ? 1 : f < 2.5 ? 2 : 3];
+      }
+      std::printf("  In Halbbildern zu %.2f ms: unter 0,75: %d, um 1: %d, um 2: %d, "
+                  "2,5 und mehr: %d\n",
+                  period, bins[0], bins[1], bins[2], bins[3]);
+      // Samples that come in bursts say nothing about single ones left out.
+      bursty = bins[0] * 10 > (int)known.size();
+      if (bursty) std::printf("  Die Proben kommen in Schüben; Lücken zählen nur an der Folge.\n");
+    }
+  }
+
+  // A pair counts only if the second followed the first: not across a sample
+  // this tool missed, nor across one the driver left out, seen by its time.
+  FieldParityMeter meter;
+  int late = 0;
+  for (int i = 0; i < count; ++i) {
+    if (i > 0) {
+      const bool jumped = taken[i].sequence - taken[i - 1].sequence != 1;
+      const bool slow = !bursty && median > 0.0 && gapsMs[i] > 1.5 * median;
+      if (slow) ++late;
+      if (jumped || slow) meter.Break();
+    }
+    meter.Add(taken[i].luma.data(), format.width, format.height);
+  }
+  if (late > 0) {
+    std::printf("  Später als 1,5 Abstände nach dem vorigen, dort fehlt ein Halbbild: %d\n", late);
+  }
+
+  const FieldSummary sum = meter.Summary();
+  const int* o = sum.perOffset;
+  std::printf("  Paare: %d, davon bitgleich %d, entschieden %d\n", sum.pairs, sum.identical,
+              sum.decided);
+  std::printf("  Versatz in halben Zeilen: -3: %d  -1: %d  0: %d  +1: %d  +3: %d\n", o[0], o[2],
+              o[3], o[4], o[6]);
+  std::printf("  Wechsel im Takt: %d, aus dem Takt: %d\n", sum.inStep, sum.outOfStep);
+  // The meter only sees pairs that followed each other; a field left out
+  // before one of them is known from the time alone.
+  FieldVerdict verdict = sum.verdict;
+  if (verdict == FieldVerdict::Alternating && late > 0) verdict = FieldVerdict::AlternatingGaps;
+  std::printf("  Ergebnis: %s.\n", FieldVerdictText(verdict));
+  switch (verdict) {
+    case FieldVerdict::Alternating:
+    case FieldVerdict::AlternatingGaps:
+      if (o[0] + o[6] > o[2] + o[4]) {
+        std::printf("  Eines der Halbbilder liegt eine Zeile versetzt (±3 statt ±1).\n");
+      }
+      break;
+    case FieldVerdict::SameLines:
+      if (rate > 0.0 && expected > 0.0 && rate < 0.75 * expected) {
+        std::printf("  Bei halber Rate: die Karte schickt nur jedes zweite Halbbild.\n");
+      } else {
+        std::printf("  Bei voller Rate: ein auf halbe Höhe verkleinertes Vollbild oder zweimal\n"
+                    "  dasselbe Halbbild. Mit einer 240p- oder 288p-Quelle ist das immer so.\n");
+      }
+      break;
+    case FieldVerdict::Mixed:
+    case FieldVerdict::TooLittle:
+      std::printf("  Mit einem stehenden, fein gezeichneten Bild wiederholen: Menü, Text, "
+                  "Testbild.\n");
+      break;
+  }
+  std::printf("\n");
+}
+
 int main(int argc, char** argv) {
   ::SetConsoleOutputCP(CP_UTF8);
   ComScope com(COINIT_MULTITHREADED);
@@ -1474,6 +1790,29 @@ int main(int argc, char** argv) {
       TestHistogram("RGB32", frames, name);
       TestHistogram("YUY2", frames, name);
     }
+    return 0;
+  }
+
+  if (argc > 1 && std::string(argv[1]) == "fields") {
+    // [lines or WxH] [pixel format] [samples] [device name], "-" for the default.
+    int width = 0;
+    int height = 0;
+    if (argc > 2 && std::string(argv[2]) != "-") {
+      const std::string size = argv[2];
+      const size_t x = size.find('x');
+      if (x == std::string::npos) {
+        height = std::atoi(size.c_str());
+      } else {
+        width = std::atoi(size.substr(0, x).c_str());
+        height = std::atoi(size.c_str() + x + 1);
+      }
+    }
+    const std::string subtype = argc > 3 && std::string(argv[3]) != "-" ? argv[3] : "YUY2";
+    const int asked = argc > 4 ? (int)std::strtol(argv[4], nullptr, 10) : 0;
+    // 1000 fields of 720x288 hold about 200 MB of brightness.
+    const int samples = asked > 0 ? (asked < 1000 ? asked : 1000) : 250;
+    const std::string name = argc > 5 ? argv[5] : "SA7160";
+    TestFields(width, height, subtype, samples, name);
     return 0;
   }
 
