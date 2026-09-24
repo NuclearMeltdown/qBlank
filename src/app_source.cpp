@@ -373,6 +373,31 @@ int App::ResolutionMismatchLines() const {
   return active;
 }
 
+// Dasselbe wie der Knopf im Reiter Quelle, nur von hier aus. Der Neubau folgt
+// von selbst: SyncConfigChanges sieht das andere Format.
+//
+// Nichts zu tun, wenn die passende Groesse schon eingestellt ist. Dann liefert
+// die Karte trotzdem etwas anderes, und ein zweiter Versuch mit denselben
+// Zahlen braechte nur denselben Neubau noch einmal.
+bool App::ApplyFittingResolution(int activeLines) {
+  const ResolutionOption fit = capture_.capabilities().caps.FittingResolution(
+      capture_.connectedFormat().subtype, activeLines);
+  FormatSel& f = config_.active().capture.format;
+  if (fit.width <= 0 || (f.width == fit.width && f.height == fit.height)) return false;
+  CAP_LOG("Resolution %s -> %dx%d to fit %d active lines", f.Label().c_str(), fit.width,
+          fit.height, activeLines);
+  f.width = fit.width;
+  f.height = fit.height;
+  // Wie in ReleaseStandardBoundFormat: eine feste Rate war unter der falschen
+  // Groesse gewaehlt, die Norm sagt selbst, welche richtig ist.
+  if (f.fps > 0.0) f.fps = kFpsNative;
+  f.forced = false;
+  Toast(Format(T("Auflösung an die Videonorm angepasst: %dx%d",
+                 "Resolution matched to the video standard: %dx%d"),
+               fit.width, fit.height));
+  return true;
+}
+
 bool App::SourceLooksInterlaced(const Profile& profile) const {
   if (!profile.image.deinterlaceAuto) return true;
   // The media type is believed when it claims interlaced -- a card that bothers

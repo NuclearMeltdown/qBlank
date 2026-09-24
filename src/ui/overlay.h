@@ -119,8 +119,18 @@ struct ToastResult {
   bool hovered = false;
   bool clicked = false;
 };
+// `lift` hebt ihn um so viele Pixel an, damit er ueber einem Hinweis steht
+// statt darauf.
 ToastResult DrawToast(const std::string& text, double age, double duration,
-                      bool clickable = false, const char* hint = nullptr);
+                      bool clickable = false, const char* hint = nullptr, float lift = 0.0f);
+
+// Ein Hinweis mit zwei Knoepfen, an der Stelle der Toasts. Er blendet nicht
+// aus: was hier steht, braucht eine Antwort, und ein Toast, der nach zwei
+// Sekunden weg ist, bekommt keine. `height` bekommt die Hoehe, damit ein Toast
+// darueber Platz findet.
+enum class NoticeAnswer { None, Primary, Dismiss };
+NoticeAnswer DrawNotice(const std::string& text, const char* primary, const char* dismiss,
+                        float* height);
 
 // Standard search, shown on the picture itself while it runs.
 //

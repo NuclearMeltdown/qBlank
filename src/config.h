@@ -677,6 +677,10 @@ struct AppSettings {
   // The main window on Vulkan instead of Direct3D 11. Read once at start; where
   // Vulkan does not come up the program runs on Direct3D 11 all the same.
   bool vulkan = false;
+  // Passt die Aufloesung nicht zur Videonorm (720x480 an PAL), stellt qBlank
+  // die passende selbst ein und sagt es kurz. Aus heisst: es fragt, mit
+  // "Anpassen" und "Ignorieren" auf dem Bild.
+  bool matchResolution = true;
   bool alwaysOnTop = false;
   // The window without title bar and frame, only the picture; moved by dragging
   // the picture, sized at its edges. It keeps its taskbar button.

@@ -78,7 +78,9 @@ double App::IdleFloorMs() const {
   const double now = ImGui::GetTime();
   const bool toastUp = !toastText_.empty() && now - toastStart_ <= 2.5;
   const bool osdUp = now - volumeOsdStart_ <= kVolumeOsdSeconds;
-  if (embeddedPanel || cropTool_.active() || toastUp || osdUp) return 16.0;
+  // Der Hinweis mit Knoepfen will auf die Maus antworten wie jeder andere.
+  const bool noticeUp = resolutionNoticeLines_ > 0;
+  if (embeddedPanel || cropTool_.active() || toastUp || osdUp || noticeUp) return 16.0;
   return 200.0;
 }
 
@@ -122,7 +124,7 @@ void App::Toast(const std::string& text, const std::filesystem::path& file) {
 // hinzeigt, will ihn noch lesen oder gleich anklicken. Aber nur, wenn sie sich
 // dort auch bewegt hat. Eine Maus, die zufaellig unten in der Mitte parkt,
 // hielte ihn sonst fuer immer ueber dem Bild.
-void App::DrawToastStrip() {
+void App::DrawToastStrip(float lift) {
   if (toastText_.empty()) return;
   const bool clickable = !toastFile_.empty();
   const double duration = clickable ? kFileToastSeconds : kToastSeconds;
@@ -136,7 +138,8 @@ void App::DrawToastStrip() {
   const ToastResult result =
       DrawToast(toastText_, age, duration, clickable,
                 toastHint_ ? T("Klicken zeigt die Datei im Ordner", "Click to show the file in its folder")
-                           : nullptr);
+                           : nullptr,
+                lift);
   if (!result.hovered) return;
 
   const ImVec2 delta = ImGui::GetIO().MouseDelta;
@@ -154,6 +157,31 @@ void App::DrawToastStrip() {
     toastText_.clear();
     toastFile_.clear();
   }
+}
+
+// Die Frage zur Aufloesung, wenn nicht automatisch angepasst wird. Sie steht,
+// bis sie beantwortet ist: "Anpassen" tut dasselbe wie der Automatismus und
+// sagt es genauso, "Ignorieren" nimmt sie vom Bild. Der Hinweis im Reiter
+// Quelle bleibt in beiden Faellen, solange es nicht passt.
+float App::DrawResolutionNotice() {
+  if (resolutionNoticeLines_ <= 0) return 0.0f;
+  float height = 0.0f;
+  const NoticeAnswer answer = DrawNotice(resolutionNoticeText_, T("Anpassen", "Fix"),
+                                         T("Ignorieren", "Ignore"), &height);
+  if (answer == NoticeAnswer::Primary) {
+    const int lines = resolutionNoticeLines_;
+    resolutionNoticeLines_ = 0;
+    ApplyFittingResolution(lines);
+  } else if (answer == NoticeAnswer::Dismiss) {
+    const VideoFormatInfo fmt = renderer_.sourceFormat();
+    CAP_LOG("Resolution %dx%d ignored for %d active lines", fmt.width, fmt.height,
+            resolutionNoticeLines_);
+    resolutionIgnoredWidth_ = fmt.width;
+    resolutionIgnoredHeight_ = fmt.height;
+    resolutionIgnoredLines_ = resolutionNoticeLines_;
+    resolutionNoticeLines_ = 0;
+  }
+  return height > 0.0f ? height + 8.0f : 0.0f;
 }
 
 void App::DrawToolbarStrip() {
@@ -651,7 +679,7 @@ void App::DrawUi() {
   }
 
   // ---- toast ----
-  DrawToastStrip();
+  DrawToastStrip(DrawResolutionNotice());
 
   DrawContextMenu();
 
@@ -752,27 +780,56 @@ void App::DrawUi() {
   }
 
   // Eine Aufloesung neben dem Raster der Norm, siehe ResolutionMismatchLines.
-  // Toast einmal beim Eintreten, der Hinweis im Reiter Quelle, solange es so
-  // bleibt -- mit dem Knopf, der die passende Groesse einstellt.
+  // Einmal beim Eintreten: angepasst und gesagt, oder -- mit dem Haken aus --
+  // gefragt, auf dem Bild und bis jemand antwortet. Der Hinweis im Reiter
+  // Quelle steht, solange es so bleibt, auch nach "Ignorieren".
   {
     const int active = ResolutionMismatchLines();
     int shown = 0;
     if (active <= 0) {
       resolutionMismatchSince_ = -1.0;
       resolutionMismatchToasted_ = false;
+      resolutionNoticeLines_ = 0;
     } else if (resolutionMismatchSince_ < 0.0) {
       resolutionMismatchSince_ = ImGui::GetTime();
     } else if (ImGui::GetTime() - resolutionMismatchSince_ >= 3.0) {
       shown = active;
+      // Der Haken, waehrend die Frage offen ist: dann gilt er als Antwort.
+      if (resolutionNoticeLines_ > 0 && config_.app.matchResolution) {
+        resolutionNoticeLines_ = 0;
+        ApplyFittingResolution(active);
+      }
       if (!resolutionMismatchToasted_) {
         resolutionMismatchToasted_ = true;
         const VideoFormatInfo fmt = renderer_.sourceFormat();
-        CAP_LOG("Resolution %dx%d does not fit the video standard (%d active lines) -- hint shown",
-                fmt.width, fmt.height, active);
-        Toast(Format(T("%dx%d passt nicht zur Videonorm (%d Zeilen) — bitte prüfen (Reiter Quelle)",
-                       "%dx%d does not fit the video standard (%d lines) — please check (Source "
-                       "tab)"),
-                     fmt.width, fmt.height, active));
+        const bool ignored = fmt.width == resolutionIgnoredWidth_ &&
+                             fmt.height == resolutionIgnoredHeight_ &&
+                             active == resolutionIgnoredLines_;
+        const ResolutionOption fit = capture_.capabilities().caps.FittingResolution(
+            capture_.connectedFormat().subtype, active);
+        const FormatSel& want = config_.active().capture.format;
+        const bool canFix =
+            fit.width > 0 && (want.width != fit.width || want.height != fit.height);
+        if (canFix && config_.app.matchResolution) {
+          ApplyFittingResolution(active);
+        } else if (canFix && !ignored) {
+          CAP_LOG("Resolution %dx%d does not fit the video standard (%d active lines) -- asking",
+                  fmt.width, fmt.height, active);
+          resolutionNoticeLines_ = active;
+          resolutionNoticeText_ =
+              Format(T("%dx%d passt nicht zur Videonorm (%d Zeilen)",
+                       "%dx%d does not fit the video standard (%d lines)"),
+                     fmt.width, fmt.height, active);
+        } else if (!ignored) {
+          // Die passende Groesse steht schon drin, und die Karte liefert
+          // trotzdem etwas anderes: nichts, was ein Knopf beheben koennte.
+          CAP_LOG("Resolution %dx%d does not fit the video standard (%d active lines) -- hint shown",
+                  fmt.width, fmt.height, active);
+          Toast(Format(T("%dx%d passt nicht zur Videonorm (%d Zeilen) — bitte prüfen (Reiter Quelle)",
+                         "%dx%d does not fit the video standard (%d lines) — please check (Source "
+                         "tab)"),
+                       fmt.width, fmt.height, active));
+        }
       }
     }
     settings_.SetResolutionMismatch(shown);

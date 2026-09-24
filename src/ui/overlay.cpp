@@ -389,14 +389,14 @@ void DrawStatusCard(const std::string& title, const std::string& detail, bool sp
 }
 
 ToastResult DrawToast(const std::string& text, double age, double duration, bool clickable,
-                      const char* hint) {
+                      const char* hint, float lift) {
   ToastResult result;
   if (age >= duration) return result;
   const float fade = (float)Clamp((duration - age) / 0.4, 0.0, 1.0);
 
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(
-      ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 48.0f),
+      ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 48.0f - lift),
       ImGuiCond_Always, ImVec2(0.5f, 1.0f));
   ImGui::SetNextWindowBgAlpha(0.82f * fade);
   ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fade);
@@ -417,6 +417,40 @@ ToastResult DrawToast(const std::string& text, double age, double duration, bool
   ImGui::End();
   ImGui::PopStyleVar();
   return result;
+}
+
+NoticeAnswer DrawNotice(const std::string& text, const char* primary, const char* dismiss,
+                        float* height) {
+  NoticeAnswer answer = NoticeAnswer::None;
+  const ImGuiViewport* vp = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(
+      ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 48.0f),
+      ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+  ImGui::SetNextWindowBgAlpha(0.90f);
+  // Die Maus gehoert ihm, wie einem Toast zu einer Datei: ein Klick auf einen
+  // Knopf soll nicht auch als Klick aufs Bild zaehlen.
+  if (ImGui::Begin("##notice", nullptr, kOverlayFlags & ~ImGuiWindowFlags_NoInputs)) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.2f);
+    // Die Knoepfe im Grundton gehen auf dem dunklen Grund unter. Der eine, der
+    // etwas tut, in der Akzentfarbe, der andere wenigstens mit Rand.
+    const ImVec4* colors = ImGui::GetStyle().Colors;
+    const ImVec4 accent = colors[ImGuiCol_CheckMark];
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(accent.x, accent.y, accent.z, 0.80f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, accent);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors[ImGuiCol_SliderGrabActive]);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    if (ImGui::Button(primary)) answer = NoticeAnswer::Primary;
+    ImGui::PopStyleColor(4);
+    ImGui::SameLine();
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    if (ImGui::Button(dismiss)) answer = NoticeAnswer::Dismiss;
+    ImGui::PopStyleVar();
+    if (height) *height = ImGui::GetWindowHeight();
+  }
+  ImGui::End();
+  return answer;
 }
 
 void DrawSearchIndicator(const std::string& text, const std::string& detail) {

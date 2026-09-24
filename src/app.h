@@ -192,6 +192,12 @@ class App {
   // nicht dazu passt und die Karte eine passende anbietet; sonst 0. Siehe die
   // Umsetzung.
   int ResolutionMismatchLines() const;
+  // Stellt die Groesse ein, die zu `activeLines` passt, und sagt es per Toast.
+  // False, wenn es keine gibt oder sie schon eingestellt ist.
+  bool ApplyFittingResolution(int activeLines);
+  // Der Hinweis mit "Anpassen" und "Ignorieren", solange er offen ist. Gibt
+  // seine Hoehe zurueck, damit ein Toast darueber steht, sonst 0.
+  float DrawResolutionNotice();
 
   // Dasselbe fuer den Wertebereich: das Urteil steht, bis sich das Bildformat
   // aendert, und eine Option im Treiber der Karte aendert es nicht. Wirft nur
@@ -243,7 +249,8 @@ class App {
   // `file`, if given, makes the toast clickable: a click shows that file in
   // Explorer.
   void Toast(const std::string& text, const std::filesystem::path& file = {});
-  void DrawToastStrip();
+  // `lift`: so viel hoeher, damit er ueber einem offenen Hinweis steht.
+  void DrawToastStrip(float lift = 0.0f);
   void UpdatePowerRequest();
   void SaveWindowPlacement();
   void SaveConfig();
@@ -384,6 +391,17 @@ class App {
   // Umschalten nicht im selben Bild ankommen.
   double resolutionMismatchSince_ = -1.0;
   bool resolutionMismatchToasted_ = false;
+  // Der offene Hinweis mit Knoepfen, wenn nicht automatisch angepasst wird:
+  // sein Text und die Zeilen, zu denen er passen soll (0: keiner offen).
+  std::string resolutionNoticeText_;
+  int resolutionNoticeLines_ = 0;
+  // Was mit "Ignorieren" weggeklickt wurde, bis zum Ende der Sitzung. Dieselbe
+  // Groesse an derselben Norm fragt dann nicht noch einmal -- ein GameCube
+  // wechselt zwischen 50 und 60 Hz, und jeder Wechsel waere sonst eine neue
+  // Frage. Der Hinweis im Reiter Quelle bleibt.
+  int resolutionIgnoredWidth_ = 0;
+  int resolutionIgnoredHeight_ = 0;
+  int resolutionIgnoredLines_ = 0;
   DevicePropertyPages devicePages_;
   SettingsHost settingsHost_;
   Updater updater_;

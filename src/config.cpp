@@ -930,6 +930,7 @@ bool Config::Load(std::string* error) {
   app.wheelVolume = a["wheelVolume"].AsBool(true);
   app.vsync = a["vsync"].AsBool(false);
   app.vulkan = a["vulkan"].AsBool(false);
+  app.matchResolution = a["matchResolution"].AsBool(true);
   app.alwaysOnTop = a["alwaysOnTop"].AsBool(false);
   app.borderless = a["borderless"].AsBool(false);
   app.trayIcon = a["trayIcon"].AsBool(true);
@@ -1089,6 +1090,7 @@ std::string Config::Serialize() const {
   a["wheelVolume"] = app.wheelVolume;
   a["vsync"] = app.vsync;
   a["vulkan"] = app.vulkan;
+  a["matchResolution"] = app.matchResolution;
   a["alwaysOnTop"] = app.alwaysOnTop;
   a["borderless"] = app.borderless;
   a["trayIcon"] = app.trayIcon;

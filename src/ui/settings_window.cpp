@@ -1401,6 +1401,19 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
       }
     }
   }
+  // Nur an einem analogen Eingang: nur dort gibt es eine Norm, an der die
+  // Groesse zu messen waere.
+  if (analogueSource_) {
+    ImGui::Checkbox(T("Auflösung an die Videonorm anpassen",
+                      "Match the resolution to the video standard"),
+                    &cfg().app.matchResolution);
+    Anchor("matchresolution");
+    ImGui::SameLine();
+    HelpMarker(T("Passt die Auflösung nicht zur Norm (etwa 720x480 an PAL), stellt qBlank die "
+                 "passende selbst ein. Aus: es fragt auf dem Bild.",
+                 "If the resolution does not fit the standard (say 720x480 on PAL), qBlank sets "
+                 "the right one itself. Off: it asks on the picture."));
+  }
 
   const std::vector<FpsOption> fpsOptions = caps.caps.FpsList(fmt.subtype, fmt.width, fmt.height);
   // Was die beiden Betriebsarten gerade bedeuten. Aufgeloest wird erst beim
