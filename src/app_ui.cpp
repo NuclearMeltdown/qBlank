@@ -95,6 +95,18 @@ constexpr int kFileToastHints = 3;
 }  // namespace
 
 void App::Toast(const std::string& text, const std::filesystem::path& file) {
+  // Zwei Meldungen kurz nacheinander stehen untereinander, statt dass die
+  // zweite die erste verdraengt, bevor jemand sie lesen konnte. So kommt nach
+  // dem Anpassen der Aufloesung der Neubau mit seiner eigenen Meldung zum
+  // Zuschnitt. Nur zwei Zeilen, und nicht bei einem Toast zu einer Datei:
+  // dessen Klick gehoert zu genau einer Meldung.
+  const double now = ImGui::GetTime();
+  if (file.empty() && toastFile_.empty() && !toastText_.empty() && toastText_ != text &&
+      toastText_.find('\n') == std::string::npos && now - toastStart_ < 1.5) {
+    toastText_ += "\n" + text;
+    toastStart_ = now;
+    return;
+  }
   toastText_ = text;
   toastFile_ = file;
   toastTouched_ = false;
