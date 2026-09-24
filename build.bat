@@ -19,6 +19,15 @@ if errorlevel 1 exit /b 1
 
 set "NINJA=%VSPATH%\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
 
+rem Das Vulkan SDK fuer den Vulkan-Renderer: aus der Umgebung, sonst ein SDK,
+rem das nur hineinkopiert wurde (Installer mit copy_only=1, ohne Registry und
+rem Umgebungsvariable) und neben dem Repo in VulkanSDK\<Version> liegt -- die
+rem hoechste Version gewinnt. Ohne SDK baut CMake mit Direct3D 11 allein.
+if defined VULKAN_SDK goto :vulkanset
+for /d %%d in ("%ROOT%\..\VulkanSDK\*") do if exist "%%~fd\Include\vulkan\vulkan.h" set "VULKAN_SDK=%%~fd"
+:vulkanset
+if defined VULKAN_SDK echo === Vulkan SDK: %VULKAN_SDK% ===
+
 echo === Konfiguriere (%CFG%) ===
 if not exist "%NINJA%" goto :nonijna
 "%VSCMAKE%" -S "%ROOT%" -B "%ROOT%\build" -G Ninja -DCMAKE_MAKE_PROGRAM="%NINJA%" -DCMAKE_BUILD_TYPE=%CFG%
