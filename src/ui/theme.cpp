@@ -229,6 +229,9 @@ void LoadUiFont() {
     if (io.Fonts->AddFontFromFileTTF(path.c_str(), kUiFontSize)) return;
   }
   CAP_WARN("Segoe UI not found, using the built-in font");
+  // Named here because ImGui's own fallback may pick the vector font, which
+  // the build leaves out.
+  io.Fonts->AddFontDefaultBitmap();
 }
 
 }  // namespace cap

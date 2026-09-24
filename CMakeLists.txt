@@ -155,6 +155,12 @@ target_compile_definitions(qBlank PRIVATE
   NOMINMAX
   _CRT_SECURE_NO_WARNINGS
   IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+  # Segoe UI is the font; the bitmap one stays as the fallback -- see
+  # src/ui/theme.cpp. The vector one would be 14 KB for nothing.
+  IMGUI_DISABLE_DEFAULT_FONT_VECTOR
+  # The metrics window and its hooks. qBlank never opens it, and without it
+  # the debug checks in every frame are compiled out as well.
+  IMGUI_DISABLE_DEBUG_TOOLS
 )
 
 # The shaders go into the executable without their comments -- see
