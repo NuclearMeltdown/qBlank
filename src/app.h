@@ -18,6 +18,7 @@
 #include "common.h"
 #include "config.h"
 #include "record/recorder.h"
+#include "recording_control.h"
 #include "render/display.h"
 #include "render/video_renderer.h"
 #include "ui/overlay.h"
@@ -142,17 +143,6 @@ class App {
   void ToggleMute();
   void ShowVolumeOsd();
 
-  // Test encodes take seconds and must never run on the UI thread -- doing so
-  // froze the window long enough to drop displayed frames.
-  void StartEncoderProbe(bool full);
-  // Graphics hardware plus ffmpeg build. A cached encoder test only counts when
-  // this still matches.
-  std::string EncoderSignature() const;
-  void LoadCachedEncoders();
-  void SaveCachedEncoders();
-  void CollectEncoderProbe();
-
-  void ToggleRecording();
   // Grabs the next rendered frame and writes it to disk, or puts it on the
   // clipboard instead. Both take the same shot at the same moment; only the
   // destination differs.
@@ -176,21 +166,8 @@ class App {
   void ToastCompareSide();
   void ChooseCompare(bool horizontal);
   void ToggleBypass();
-  // Fragt den freien Platz auf dem Aufnahmelaufwerk ab, hoechstens einmal je
-  // Sekunde. Die Einstellungen zeigen ihn an, die laufende Aufnahme haengt
-  // daran.
-  void UpdateDiskSpace();
   void DrawToolbarStrip();
   void ShowOutputFolder(std::string* configured, const std::filesystem::path& fallback);
-  // Starts or stops the microphone to match the settings and what is going on.
-  // `aboutToRecord` starts it for a recording that has not begun yet -- the
-  // sample rate has to be known before ffmpeg is given its command line.
-  void SyncMicrophone(bool aboutToRecord = false);
-  // What SyncMicrophone last acted on, so a failure is reported once instead of
-  // once per frame. Cleared when the settings change.
-  DeviceRef micApplied_;
-  bool micAttempted_ = false;
-  bool micFailed_ = false;
   // Whether the deinterlacer should run at all. Only interesting when
   // "interlaced sources only" is ticked, and then it is the measurement that
   // decides, not the media type.
@@ -255,10 +232,6 @@ class App {
   // falls back to the default when even that fails.
   std::filesystem::path ResolveOutputFolder(std::string* configured,
                                             const std::filesystem::path& fallback);
-  void StartRecording();
-  void StopRecording();
-  // Hands the readback frame to the recorder, if one is running.
-  void FeedRecorder();
   // One place decides whether the GPU has to hand pictures back, and one place
   // hands them out -- the recorder and the camera both want the same frame, and
   // fetching it twice would give each of them every second one.
@@ -316,13 +289,6 @@ class App {
   SettingsWindow settings_;
   FrameDelayLine delayLine_;
   Recorder recorder_;
-  // Located once at startup; encoder tests run on probeThread_ and are handed
-  // over through probeResult_ once probeDone_ flips.
-  FfmpegInfo ffmpeg_;
-  FfmpegInfo probeResult_;
-  std::thread probeThread_;
-  std::atomic<bool> probing_{false};
-  std::atomic<bool> probeDone_{false};
 
   CaptureState captureState_ = CaptureState::Idle;
   std::string captureError_;
@@ -439,6 +405,23 @@ class App {
   CameraSink virtualCamera_;
   // Refilled once a frame rather than allocated once a frame.
   std::vector<CameraSink::Consumer> virtualCameraConsumers_;
+
+  // Recording, and what it asks of the rest of the program.
+  class RecordingHost final : public RecordingControl::Host {
+   public:
+    explicit RecordingHost(App& app) : app_(app) {}
+    bool CaptureRunning() const override;
+    std::filesystem::path ResolveOutputFolder(std::string* configured,
+                                              const std::filesystem::path& fallback) override;
+    void DropViewAids() override;
+    void Toast(const std::string& text, const std::filesystem::path& file) override;
+
+   private:
+    App& app_;
+  };
+  RecordingHost recordingHost_{*this};
+  RecordingControl recording_{config_, recorder_, renderer_, capture_,       audio_,
+                              mic_,    settings_, virtualCamera_, recordingHost_};
   // What woke the main loop last time round, and when it last drew. Together
   // they keep the preview paced by the picture rather than by the message
   // queue -- see the comment at the call to RenderFrame.
@@ -510,33 +493,6 @@ class App {
   bool toastTouched_ = false;  // the mouse has moved over it since it appeared
   double toastStart_ = 0.0;
   double volumeOsdStart_ = -1000.0;
-  double lastSplitCheck_ = 0.0;
-  // Die Bildrate der Quelle, wie sie beim Start der Aufnahme gemessen wurde --
-  // ungedoppelt, also ohne das Bobbing eingerechnet. Verglichen wird die rohe
-  // Rate, damit ein Deinterlacer, den jemand mitten in der Aufnahme umstellt,
-  // die Datei nicht schneidet: das ist eine Einstellung, keine andere Quelle.
-  // Die Bildgroesse steht im Recorder selbst (`frameWidth`, `frameHeight`).
-  double recordSourceFps_ = 0.0;
-  // Was die Quelle gerade zeigt, seit wann sie es unveraendert zeigt, und ob
-  // das ueberhaupt von der laufenden Datei abweicht. Ein Normsuchlauf geht
-  // durch mehrere Zeilenzahlen; geschnitten wird erst, wenn eine davon stehen
-  // bleibt. `pendingSince_ < 0` heisst: passt zusammen, nichts zu tun.
-  int pendingWidth_ = 0;
-  int pendingHeight_ = 0;
-  double pendingFps_ = 0.0;
-  double pendingSince_ = -1.0;
-  // Platz auf dem Ziellaufwerk. Nachgesehen wird im Sekundentakt und nicht je
-  // Bild: die Zahl aendert sich langsam, der Systemaufruf geht auf die Platte.
-  // Siehe UpdateDiskSpace, und den Wachdienst in FeedRecorder.
-  double lastDiskCheck_ = -1000.0;
-  uint64_t diskFreeBytes_ = 0;
-  bool diskFreeKnown_ = false;
-  // Was eine Sekunde Aufnahme nach den Einstellungen kostet. Geschaetzt, solange
-  // nichts laeuft; waehrend einer Aufnahme gewinnt die gemessene Schreibrate.
-  double diskBytesPerSecond_ = 0.0;
-  // Ob vor dem knappen Platz schon gewarnt wurde. Je Aufnahme einmal -- eine
-  // Meldung je Sekunde waere keine Warnung mehr, sondern ein Dauerzustand.
-  bool diskWarned_ = false;
 
   uint32_t lastPowerPokeTick_ = 0;
   // Es gab noch keine Konfigurationsdatei, als dieser Lauf begann. Entscheidet
