@@ -6,8 +6,10 @@ taskbar, which is where this icon is seen most of the time. Deliberately not a
 record dot -- qBlank does not record, and promising that in the icon would be
 the first bug report.
 
-Pure standard library: writes uncompressed 32-bit BGRA icon images, which every
-Windows version reads, so there is no Pillow dependency to install.
+Pure standard library, so there is no Pillow dependency to install. The small
+sizes are uncompressed 32-bit BGRA, the large ones PNG: Windows reads PNG icon
+images since Vista, and as bitmaps the three largest were 93 per cent of the
+file -- 355 KB carried inside the executable for a flat two-shape mark.
 
     python tools/make_icon.py
 """
@@ -22,6 +24,10 @@ ACCENT_BRIGHT = (0xC4, 0xA6, 0xFF)
 SCREEN_BG = (0x1A, 0x14, 0x2E)   # near black with a violet cast
 
 SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
+# From this size up the image goes into the icon as PNG. The sizes below stay
+# bitmaps: they are what the taskbar, the tray and the title bar load, they are
+# small either way, and a bitmap is the one form every icon API reads.
+PNG_FROM = 64
 SS = 4  # supersampling factor per axis
 
 
@@ -173,9 +179,10 @@ def to_bmp_image(pixels, size):
     return bytes(header) + bytes(body) + mask
 
 
-def write_png(pixels, size, path):
-    """Writes 8-bit RGBA PNG. Standard library only, same as the rest of this
-    file: the README needs a format GitHub will render, and .ico is not one."""
+def png_bytes(pixels, size):
+    """Encodes 8-bit RGBA PNG. Standard library only, same as the rest of this
+    file. Filter type 0 on every line: on this mark it compresses better than
+    choosing a filter per line."""
     raw = bytearray()
     for y in range(size):
         raw.append(0)  # filter type 0 for every scanline
@@ -193,12 +200,16 @@ def write_png(pixels, size, path):
                 struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
     header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)  # 8-bit RGBA
-    blob = (b"\x89PNG\r\n\x1a\n" +
+    return (b"\x89PNG\r\n\x1a\n" +
             chunk(b"IHDR", header) +
             chunk(b"IDAT", zlib.compress(bytes(raw), 9)) +
             chunk(b"IEND", b""))
+
+
+def write_png(pixels, size, path):
+    """The README needs a format GitHub will render, and .ico is not one."""
     with open(path, "wb") as f:
-        f.write(blob)
+        f.write(png_bytes(pixels, size))
 
 
 def main():
@@ -214,7 +225,8 @@ def main():
         pixels = render(size)
         if size == SIZES[-1]:
             largest = pixels
-        images.append((size, to_bmp_image(pixels, size)))
+        image = png_bytes(pixels, size) if size >= PNG_FROM else to_bmp_image(pixels, size)
+        images.append((size, image))
 
     # The same mark as a PNG, for the README. Transparent background, so it
     # reads on both the light and the dark GitHub theme.
