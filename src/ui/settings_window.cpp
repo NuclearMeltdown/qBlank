@@ -545,6 +545,14 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
   const bool searching = DrawSearchResults(footer);
 
   if (!searching && ImGui::BeginTabBar("settings_tabs", ImGuiTabBarFlags_None)) {
+    if (ImGui::BeginTabItem(T("Allgemein###general", "General###general"), nullptr,
+                            tabFlags(kTabGeneral))) {
+      activeTab_ = kTabGeneral;
+      ImGui::BeginChild("scroll_general", ImVec2(0, -footer));
+      DrawGeneralTab();
+      ImGui::EndChild();
+      ImGui::EndTabItem();
+    }
     if (ImGui::BeginTabItem(T("Quelle###source", "Source###source"), nullptr,
                             tabFlags(kTabSource))) {
       activeTab_ = kTabSource;
@@ -559,9 +567,9 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
     // sondern eine Hürde. Sie kommen zurück, sobald die Karte läuft -- und dann
     // gleich passend zu dem, was sie tatsächlich liefert.
     //
-    // Updates ist die Ausnahme und steht deshalb ausserhalb: der Reiter hat mit
-    // dem Bild nichts zu tun, und wer gerade *keins* hat, ist womoeglich genau
-    // deshalb hier -- weil eine neuere Fassung die Karte kennt.
+    // Allgemein und Updates sind die Ausnahme und stehen deshalb ausserhalb:
+    // beide haben mit dem Bild nichts zu tun, und wer gerade *keins* hat, ist
+    // womoeglich genau deshalb hier -- weil eine neuere Fassung die Karte kennt.
     if (!cfg().active().capture.video.empty()) {
       if (ImGui::BeginTabItem(T("Bild###picture", "Picture###picture"), nullptr,
                               tabFlags(kTabPicture))) {
@@ -2950,7 +2958,9 @@ void SettingsWindow::DrawHdrBlock() {
   }
 }
 
-void SettingsWindow::DrawDisplayTab() {
+// -------------------------------------------------------------- general tab
+
+void SettingsWindow::DrawGeneralTab() {
   AppSettings& app = cfg().app;
   ImGui::Spacing();
 
@@ -3038,121 +3048,6 @@ void SettingsWindow::DrawDisplayTab() {
                       (unsigned)(Clamp(custom[2], 0.0f, 1.0f) * 255.0f + 0.5f);
   }
   Anchor("customcolour");
-
-  ImGui::Spacing();
-  ImGui::SeparatorText(T("Verhalten", "Behaviour"));
-  ImGui::Checkbox("VSync", &app.vsync);
-  Anchor("vsync");
-  ImGui::SameLine();
-  HelpMarker(T("Aus ist der größte Latenzgewinn, kann aber Tearing zeigen.",
-               "Off is the biggest latency win, but can show tearing."));
-
-  if (vulkanBuilt_) {
-    ImGui::Checkbox(T("Vulkan statt Direct3D 11", "Vulkan instead of Direct3D 11"), &app.vulkan);
-    Anchor("vulkan");
-    ImGui::SameLine();
-    HelpMarker(T("Gilt ab dem nächsten Start. Kommt Vulkan nicht hoch, läuft qBlank mit "
-                 "Direct3D 11 weiter.",
-                 "Takes effect on the next start. If Vulkan does not come up, qBlank carries on "
-                 "with Direct3D 11."));
-    if (app.vulkan != vulkanRunning_) {
-      ImGui::SameLine();
-      ImGui::TextDisabled(T("läuft gerade mit %s", "running on %s now"),
-                          vulkanRunning_ ? "Vulkan" : "Direct3D 11");
-    }
-  }
-
-  ImGui::Checkbox(T("Immer im Vordergrund", "Always on top"), &app.alwaysOnTop);
-  Anchor("ontop");
-  ImGui::Checkbox(T("Rahmenlos", "Borderless"), &app.borderless);
-  Anchor("borderless");
-  ImGui::SameLine();
-  HelpMarker(T("Ohne Titelleiste und Rahmen. Verschieben durch Ziehen am Bild, Größe an den Rändern.",
-               "No title bar or frame. Drag the picture to move, the edges to resize."));
-  ImGui::Checkbox(T("Mauszeiger im Vollbild ausblenden", "Hide cursor in fullscreen"),
-                  &app.hideCursorFullscreen);
-  Anchor("hidecursor");
-  ImGui::SameLine();
-  HelpMarker(T("Zeiger nach kurzer Ruhe ausblenden.", "Hides the pointer after a short idle."));
-
-  ImGui::Checkbox(T("Bildschirmschoner und Standby verhindern", "Prevent screensaver and sleep"),
-                  &app.preventSleep);
-  Anchor("nosleep");
-  ImGui::SameLine();
-  HelpMarker(Format(T("Hält den Bildschirm wach, solange %s läuft -- beim Zusehen drückt "
-                      "niemand eine Taste.",
-                      "Keeps the screen awake while %s is running -- nobody presses a key "
-                      "while watching."),
-                    AppNameUtf8().c_str())
-                 .c_str());
-
-  // The toolbar's own Hide button was the only way to turn it off, and the
-  // right-click menu the only way back. A setting that can be reached from one
-  // place and undone from another is a setting people lose.
-  ImGui::Checkbox(T("Werkzeugleiste anzeigen", "Show toolbar"), &app.showToolbar);
-  Anchor("toolbar");
-
-  ImGui::Checkbox(T("Statistik einblenden", "Show statistics"), &app.showStats);
-  Anchor("stats");
-  ImGui::SameLine();
-  // Read from the binding rather than written out, so rebinding the key is
-  // visible here instead of leaving a stale "(F1)" behind.
-  ImGui::TextDisabled("(%s)", HotkeyText(cfg().hotkeys[HotkeyAction::Stats]).c_str());
-
-  ImGui::BeginDisabled(!app.showStats);
-  int detail = (int)app.statsDetail;
-  ImGui::SetNextItemWidth(-260.0f);
-  if (ComboEnum(T("Umfang", "Detail"), &detail, 3, StatsDetailName)) {
-    app.statsDetail = (StatsDetail)detail;
-  }
-  Anchor("statsdetail");
-  ImGui::EndDisabled();
-  ImGui::SameLine();
-  HelpMarker(T("Kompakt: Bildraten und Durchlaufzeit. Normal: zusätzlich Format und Ton. "
-               "Vollständig: alles.",
-               "Compact: frame rates and pipeline delay. Normal: adds format and audio. "
-               "Full: everything."));
-
-  ImGui::Spacing();
-  ImGui::SeparatorText(T("Lautstärke-Anzeige", "Volume readout"));
-  Anchor("volosdsec");
-  ImGui::Checkbox(T("Bei Änderung einblenden", "Show on change"), &app.showVolumeOsd);
-  Anchor("volosd");
-  ImGui::BeginDisabled(!app.showVolumeOsd);
-  int corner = (int)app.osdCorner;
-  ImGui::SetNextItemWidth(-260.0f);
-  if (ComboEnum(T("Ecke", "Corner"), &corner, 4, OsdCornerName)) {
-    app.osdCorner = (OsdCorner)corner;
-  }
-  Anchor("osdcorner");
-  ImGui::EndDisabled();
-  ImGui::Checkbox(T("Mausrad über dem Bild ändert die Lautstärke",
-                    "Mouse wheel over the picture changes the volume"),
-                  &app.wheelVolume);
-  Anchor("wheelvolume");
-
-  ImGui::Spacing();
-  ImGui::SeparatorText(T("Vollbild", "Fullscreen"));
-  std::string monitorPreview = T("Monitor des Fensters", "Whichever monitor the window is on");
-  for (const MonitorInfoEntry& m : monitors_) {
-    if (m.index == app.fullscreenMonitor) monitorPreview = m.name;
-  }
-  ImGui::SetNextItemWidth(-1.0f);
-  if (ImGui::BeginCombo("##fsmonitor", monitorPreview.c_str())) {
-    if (ImGui::Selectable(T("Monitor des Fensters", "Whichever monitor the window is on"),
-                          app.fullscreenMonitor < 0)) {
-      app.fullscreenMonitor = -1;
-    }
-    for (const MonitorInfoEntry& m : monitors_) {
-      const bool selected = (m.index == app.fullscreenMonitor);
-      if (ImGui::Selectable(m.name.c_str(), selected)) app.fullscreenMonitor = m.index;
-      if (selected) ImGui::SetItemDefaultFocus();
-    }
-    ImGui::EndCombo();
-  }
-  Anchor("fsmonitor");
-  ImGui::Checkbox(T("Beim Start im Vollbild öffnen", "Start in fullscreen"), &app.startFullscreen);
-  Anchor("startfs");
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Infobereich", "Notification area"));
@@ -3270,6 +3165,136 @@ void SettingsWindow::DrawDisplayTab() {
                   &keep.olderVersions);
   ImGui::Unindent();
   ImGui::EndDisabled();
+}
+
+// -------------------------------------------------------------- display tab
+
+void SettingsWindow::DrawDisplayTab() {
+  AppSettings& app = cfg().app;
+  ImGui::Spacing();
+
+  ImGui::SeparatorText(T("Grafik", "Graphics"));
+  if (vulkanBuilt_) {
+    // Die Zahl ist kein Konfigurationswert, nur die Stelle in dieser Liste;
+    // gespeichert wird weiter der Schalter `vulkan`.
+    static const char* const kRenderers[] = {"Direct3D 11", "Vulkan"};
+    int renderer = app.vulkan ? 1 : 0;
+    ImGui::SetNextItemWidth(-260.0f);
+    if (ImGui::Combo(T("Grafikschnittstelle", "Graphics API"), &renderer, kRenderers, 2)) {
+      app.vulkan = renderer == 1;
+    }
+    Anchor("vulkan");
+    ImGui::SameLine();
+    HelpMarker(T("Gilt ab dem nächsten Start. Kommt Vulkan nicht hoch, läuft qBlank mit "
+                 "Direct3D 11 weiter.",
+                 "Takes effect on the next start. If Vulkan does not come up, qBlank carries on "
+                 "with Direct3D 11."));
+    if (app.vulkan != vulkanRunning_) {
+      if (ImGui::Button(T("Jetzt neu starten", "Restart now"))) restartRequested_ = true;
+      ImGui::SameLine();
+      ImGui::TextDisabled(T("läuft gerade mit %s", "running on %s now"),
+                          vulkanRunning_ ? "Vulkan" : "Direct3D 11");
+    }
+  }
+  ImGui::Checkbox("VSync", &app.vsync);
+  Anchor("vsync");
+  ImGui::SameLine();
+  HelpMarker(T("Aus ist der größte Latenzgewinn, kann aber Tearing zeigen.",
+               "Off is the biggest latency win, but can show tearing."));
+
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Verhalten", "Behaviour"));
+  ImGui::Checkbox(T("Immer im Vordergrund", "Always on top"), &app.alwaysOnTop);
+  Anchor("ontop");
+  ImGui::Checkbox(T("Rahmenlos", "Borderless"), &app.borderless);
+  Anchor("borderless");
+  ImGui::SameLine();
+  HelpMarker(T("Ohne Titelleiste und Rahmen. Verschieben durch Ziehen am Bild, Größe an den Rändern.",
+               "No title bar or frame. Drag the picture to move, the edges to resize."));
+  ImGui::Checkbox(T("Mauszeiger im Vollbild ausblenden", "Hide cursor in fullscreen"),
+                  &app.hideCursorFullscreen);
+  Anchor("hidecursor");
+  ImGui::SameLine();
+  HelpMarker(T("Zeiger nach kurzer Ruhe ausblenden.", "Hides the pointer after a short idle."));
+
+  ImGui::Checkbox(T("Bildschirmschoner und Standby verhindern", "Prevent screensaver and sleep"),
+                  &app.preventSleep);
+  Anchor("nosleep");
+  ImGui::SameLine();
+  HelpMarker(Format(T("Hält den Bildschirm wach, solange %s läuft -- beim Zusehen drückt "
+                      "niemand eine Taste.",
+                      "Keeps the screen awake while %s is running -- nobody presses a key "
+                      "while watching."),
+                    AppNameUtf8().c_str())
+                 .c_str());
+
+  // The toolbar's own Hide button was the only way to turn it off, and the
+  // right-click menu the only way back. A setting that can be reached from one
+  // place and undone from another is a setting people lose.
+  ImGui::Checkbox(T("Werkzeugleiste anzeigen", "Show toolbar"), &app.showToolbar);
+  Anchor("toolbar");
+
+  ImGui::Checkbox(T("Statistik einblenden", "Show statistics"), &app.showStats);
+  Anchor("stats");
+  ImGui::SameLine();
+  // Read from the binding rather than written out, so rebinding the key is
+  // visible here instead of leaving a stale "(F1)" behind.
+  ImGui::TextDisabled("(%s)", HotkeyText(cfg().hotkeys[HotkeyAction::Stats]).c_str());
+
+  ImGui::BeginDisabled(!app.showStats);
+  int detail = (int)app.statsDetail;
+  ImGui::SetNextItemWidth(-260.0f);
+  if (ComboEnum(T("Umfang", "Detail"), &detail, 3, StatsDetailName)) {
+    app.statsDetail = (StatsDetail)detail;
+  }
+  Anchor("statsdetail");
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  HelpMarker(T("Kompakt: Bildraten und Durchlaufzeit. Normal: zusätzlich Format und Ton. "
+               "Vollständig: alles.",
+               "Compact: frame rates and pipeline delay. Normal: adds format and audio. "
+               "Full: everything."));
+
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Lautstärke-Anzeige", "Volume readout"));
+  Anchor("volosdsec");
+  ImGui::Checkbox(T("Bei Änderung einblenden", "Show on change"), &app.showVolumeOsd);
+  Anchor("volosd");
+  ImGui::BeginDisabled(!app.showVolumeOsd);
+  int corner = (int)app.osdCorner;
+  ImGui::SetNextItemWidth(-260.0f);
+  if (ComboEnum(T("Ecke", "Corner"), &corner, 4, OsdCornerName)) {
+    app.osdCorner = (OsdCorner)corner;
+  }
+  Anchor("osdcorner");
+  ImGui::EndDisabled();
+  ImGui::Checkbox(T("Mausrad über dem Bild ändert die Lautstärke",
+                    "Mouse wheel over the picture changes the volume"),
+                  &app.wheelVolume);
+  Anchor("wheelvolume");
+
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Vollbild", "Fullscreen"));
+  std::string monitorPreview = T("Monitor des Fensters", "Whichever monitor the window is on");
+  for (const MonitorInfoEntry& m : monitors_) {
+    if (m.index == app.fullscreenMonitor) monitorPreview = m.name;
+  }
+  ImGui::SetNextItemWidth(-1.0f);
+  if (ImGui::BeginCombo("##fsmonitor", monitorPreview.c_str())) {
+    if (ImGui::Selectable(T("Monitor des Fensters", "Whichever monitor the window is on"),
+                          app.fullscreenMonitor < 0)) {
+      app.fullscreenMonitor = -1;
+    }
+    for (const MonitorInfoEntry& m : monitors_) {
+      const bool selected = (m.index == app.fullscreenMonitor);
+      if (ImGui::Selectable(m.name.c_str(), selected)) app.fullscreenMonitor = m.index;
+      if (selected) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  Anchor("fsmonitor");
+  ImGui::Checkbox(T("Beim Start im Vollbild öffnen", "Start in fullscreen"), &app.startFullscreen);
+  Anchor("startfs");
 }
 
 // --------------------------------------------------------------- record tab

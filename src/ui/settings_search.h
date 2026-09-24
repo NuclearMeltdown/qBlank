@@ -20,10 +20,14 @@ enum SettingsTab {
   kTabKeys,
   kTabProfiles,
   kTabUpdates,
+  kTabGeneral,  // later than the rest, and first on screen
 };
 
-// Everything but Source and Updates is only shown once a video device is picked.
-inline bool SettingsTabNeedsDevice(int tab) { return tab != kTabSource && tab != kTabUpdates; }
+// Everything but General, Source and Updates is only shown once a video device
+// is picked.
+inline bool SettingsTabNeedsDevice(int tab) {
+  return tab != kTabGeneral && tab != kTabSource && tab != kTabUpdates;
+}
 
 struct SettingsSearchHit {
   int entry;

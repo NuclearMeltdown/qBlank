@@ -85,7 +85,8 @@ class SettingsWindow {
   // The updater lives in the app; the dialog only drives it and shows what it
   // reports.
   void SetUpdater(Updater* updater) { updater_ = updater; }
-  // Set when the user asked to restart into a freshly installed build.
+  // Set when the user asked to restart: into a freshly installed build, or onto
+  // the other renderer.
   bool takeRestartRequest();
   // 1 locked, 0 not, -1 unknown. Shown next to the video standard, because that
   // is the one number that says whether the setting is the right one.
@@ -225,6 +226,7 @@ class SettingsWindow {
   void DrawSourceTab(const DeviceProbeResult& caps);
   void DrawImageTab();
   void DrawAudioTab();
+  void DrawGeneralTab();
   void DrawDisplayTab();
   void DrawHdrBlock();
   void DrawRecordTab(FfmpegInfo* ffmpeg);
