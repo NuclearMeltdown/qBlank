@@ -3040,6 +3040,10 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   // of standards, which is what makes them work on NTSC, PAL, PAL M, PAL N and
   // SECAM without knowing which one is in front of them.
   cb.motionComp = image.motionCompensate ? 1 : 0;
+  // Auf einem aus zwei Halbbildern verwobenen Bild liegt die naechste Zeile
+  // desselben Halbbilds zwei Zeilen weiter; die dazwischen ist aus dem anderen
+  // und zeitlich versetzt. Solange die Messung noch laeuft, gilt eins.
+  cb.motionRows = interlaced ? 2 : 1;
   cb.bandwidth = image.bandwidthRestore < 0.0f   ? 0.0f
                  : image.bandwidthRestore > 1.0f ? 1.0f
                                                  : image.bandwidthRestore;

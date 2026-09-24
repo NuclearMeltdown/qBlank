@@ -107,6 +107,9 @@ cbuffer ConvertCB : register(b0) {
   // How many frames the temporal average covers, 2..4: one cycle of the dot
   // crawl, as measured on this source. Four until something is measured.
   int   gCrawlCycle;
+  // Rows between two lines of the same field: 2 on a woven interlaced frame,
+  // 1 otherwise. The motion search moves up and down in steps of this.
+  int   gMotionRows;
 };
 
 struct VSOut {
@@ -671,17 +674,51 @@ float3 MatchPatch(int x, int row, float width) {
 }
 
 // The mean of the three, so the number means the same thing whatever is asked
-// of it and one threshold can be written down for all of them.
-float MatchCost(float3 cur, int x, int row, int d, int frame, float width) {
-  return (abs(cur.x - BoxLuma(x - 4 - d, row, frame, width))
-        + abs(cur.y - BoxLuma(x - d, row, frame, width))
-        + abs(cur.z - BoxLuma(x + 4 - d, row, frame, width))) * 0.3333333;
+// of it and one threshold can be written down for all of them. The shift is in
+// samples along the line and in rows of the frame.
+float MatchCost(float3 cur, int x, int row, int2 d, int frame, float width) {
+  int r = row - d.y;
+  return (abs(cur.x - BoxLuma(x - 4 - d.x, r, frame, width))
+        + abs(cur.y - BoxLuma(x - d.x, r, frame, width))
+        + abs(cur.z - BoxLuma(x + 4 - d.x, r, frame, width))) * 0.3333333;
 }
 
-// Horizontal only, and by a logarithmic search: start at standing still, then
+// A match this good is a match, not the best of several poor ones. The right
+// shift on a card's usual noise, two levels in 255, costs about half a
+// hundredth; this sits a little above that.
+static const float kMatchGood = 0.007;
+
+// A match this poor is none at all. The right shift on that noise scatters by
+// about a quarter of a hundredth from pixel to pixel, and this sits three times
+// that above it, so a picture that only shivers with noise almost never gets
+// here. It has to: pixels are shaded in groups that run the loop together, and
+// a group pays for one pixel searching further as if all of them did. With the
+// line drawn at kMatchGood instead, nearly every group on a picture standing
+// still or moving sideways paid for the search up and down and found nothing.
+static const float kMatchPoor = 0.012;
+
+// Along the line first, by a logarithmic search: start at standing still, then
 // halve the step three times. Seven candidates cover plus or minus seven
 // samples, which at fifty or sixty frames a second is a faster scroll than
 // anything a console produces.
+//
+// Up and down only where that found no match at all. A picture moving
+// vertically has no shift along the line that fits it, but over any texture
+// one of seven candidates fits a little better than standing still by
+// accident, and following that averages the wrong lines together: with the
+// search along the line alone, a vertical scroll over fine detail came out
+// noisier than it went in. So the same search runs up and down from wherever
+// the first one ended, in lines of one field -- two rows of a woven frame,
+// because the row between belongs to the other field and to another moment.
+// Starting there rather than at standing still also finds a diagonal.
+//
+// A shift up or down is followed only when it is good by the measure above.
+// The lines of one field lie twice as far apart as the samples of a line,
+// detail changes more from one to the next, and a near miss up or down costs
+// more than one sideways. A vertical answer that is merely the best of poor
+// ones is taken as movement the search cannot follow, and then nothing is
+// corrected at all -- the accidental shift along the line included, which is
+// what made such a scroll noisier before.
 //
 // Only the nearest frame is searched, and the two behind it are then asked
 // separately whether the answer fits them too. That is one search instead of
@@ -692,17 +729,28 @@ float MatchCost(float3 cur, int x, int row, int d, int frame, float width) {
 // against each other: taking the first improvement and stepping off it turns
 // the search into a greedy walk that can wander away from the minimum it was
 // closing in on.
-int SearchShift(float3 cur, int x, int row, float width, out float cost) {
-  int best = 0;
-  cost = MatchCost(cur, x, row, 0, 1, width);
-  for (int step = 4; step >= 1; step = step >> 1) {
-    int base = best;
-    for (int s = -1; s <= 1; s += 2) {
-      int d = base + s * step;
+//
+// The six passes run in one loop with one call of the cost function, rather
+// than as two searches written out: every call inlines three BoxLuma, and the
+// startup compile grows with each copy (see BoxLuma).
+int2 SearchShift(float3 cur, int x, int row, float width, float still, out float cost) {
+  int2 best = int2(0, 0);
+  cost = still;
+  [loop] for (int pass = 0; pass < 6; ++pass) {
+    if (pass == 3 && cost <= kMatchPoor) break;
+    // Steps 4, 2, 1 along the line, then 4, 2, 1 field lines up and down.
+    int step = int(4) >> (pass < 3 ? pass : pass - 3);
+    int2 dir = pass < 3 ? int2(1, 0) : int2(0, gMotionRows);
+    int2 base = best;
+    [loop] for (int s = -1; s <= 1; s += 2) {
+      int2 d = base + dir * (s * step);
       float c = MatchCost(cur, x, row, d, 1, width);
       if (c < cost) { cost = c; best = d; }
     }
   }
+  // Moved up or down, and not good enough to follow: reported as no better
+  // than standing still, which the caller drops.
+  if (best.y != 0 && cost > kMatchGood) cost = still;
   return best;
 }
 
@@ -733,9 +781,12 @@ float3 MotionCompDelta(int x, int row) {
   float width = max(gCarrierPeriod, 2.0);
   float3 cur = MatchPatch(x, row, width);
 
-  float still = MatchCost(cur, x, row, 0, 1, width);
+  // Where standing still already fits within the margin, no shift can beat it
+  // by the margin, and the search is skipped rather than asked to fail.
+  float still = MatchCost(cur, x, row, int2(0, 0), 1, width);
+  if (still <= kMatchMargin) return float3(0.0, 0.0, 0.0);
   float cost;
-  int d = SearchShift(cur, x, row, width, cost);
+  int2 d = SearchShift(cur, x, row, width, still, cost);
   if (cost > still - kMatchMargin) return float3(0.0, 0.0, 0.0);
 
   // Each frame is then asked on its own whether that shift explains it, rather
@@ -752,11 +803,12 @@ float3 MotionCompDelta(int x, int row) {
   // moves, which is the only place this filter runs at all.
   //
   // Measuring each frame costs two more cost functions and settles all of it at
-  // once. Acceleration drops the far frames and keeps the near one. Vertical or
-  // diagonal movement has no horizontal shift that fits any frame, so all three
-  // drop -- which is the honest answer, since a horizontal search cannot follow
-  // it. An edge that uncovers background drops whichever frames were still
-  // covered, because there no shift can be right: the pixel was not in them.
+  // once. Acceleration drops the far frames and keeps the near one. A turn has
+  // no shift that fits the frames behind, so they drop. An edge that uncovers
+  // background drops whichever frames were still covered, because there no
+  // shift can be right: the pixel was not in them. A vertical shift stays in
+  // step with the fields at every frame, since f times an even number of rows
+  // is still even.
   float3 w;
   w.x = saturate(1.0 - cost / kMatchGiveUp);
   w.y = saturate(1.0 - MatchCost(cur, x, row, 2 * d, 2, width) / kMatchGiveUp);
@@ -776,10 +828,11 @@ float3 MotionCompDelta(int x, int row) {
   float n = 0.0;
   for (int k = -(whole + 1); k <= whole + 1; ++k) {
     float wk = (abs(k) <= whole) ? 1.0 : frac;
-    float3 f0 = FetchRgbAt(int2(x + k, row));
-    float3 acc = f0 + FetchRgbFrame(int2(x + k - d, row), 1) * w.x
-                    + FetchRgbFrame(int2(x + k - 2 * d, row), 2) * w.y
-                    + FetchRgbFrame(int2(x + k - 3 * d, row), 3) * w.z;
+    int2 q = int2(x + k, row);
+    float3 f0 = FetchRgbAt(q);
+    float3 acc = f0 + FetchRgbFrame(q - d, 1) * w.x
+                    + FetchRgbFrame(q - 2 * d, 2) * w.y
+                    + FetchRgbFrame(q - 3 * d, 3) * w.z;
     sum += (acc / (1.0 + wsum) - f0) * wk;
     n += wk;
   }
@@ -1140,8 +1193,9 @@ float4 main(VSOut i) : SV_Target {
     // gets (1 - handled), which is what is moving, and it is band limited away
     // from the carrier, so the part it does take cannot disturb the crawl work
     // on either side of it. Where the picture stands still `handled` is one and
-    // this does nothing, which is right -- there the free filter has won.
-    if (gMotionComp != 0 && gHistCount >= 3) {
+    // this does nothing, which is right -- there the free filter has won -- and
+    // is then not worked out at all.
+    if (gMotionComp != 0 && gHistCount >= 3 && handled < 1.0) {
       rgb += MotionCompDelta(p.x, p.y) * (1.0 - handled);
     }
 

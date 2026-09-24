@@ -136,6 +136,10 @@ struct ConvertParams {
   // How many frames the temporal average covers: 2, 3 or 4, one cycle of the
   // source's dot crawl. VideoRenderer::crawlCycle() says where it comes from.
   int32_t crawlCycle;
+  // How many rows of the source one line of the same field is apart: 2 on a
+  // frame woven from two fields, 1 otherwise. The motion search steps up and
+  // down by this, so a vertical shift never pairs lines of different fields.
+  int32_t motionRows;
 };
 
 // The same for the scale pass, which the delivery pass reuses.

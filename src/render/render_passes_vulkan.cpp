@@ -45,7 +45,7 @@ namespace {
 // passes: the parameters, then the padding to sixteen bytes.
 struct ConvertCB {
   ConvertParams params;
-  int32_t pad[2];
+  int32_t pad[1];
 };
 static_assert(sizeof(ConvertCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 

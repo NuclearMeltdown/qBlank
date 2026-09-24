@@ -26,7 +26,7 @@ namespace {
 // same fields in the same order, so this is a copy and not a conversion.
 struct ConvertCB {
   ConvertParams params;
-  int32_t pad[2];
+  int32_t pad[1];
 };
 static_assert(sizeof(ConvertCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
