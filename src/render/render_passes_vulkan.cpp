@@ -33,9 +33,10 @@
 
 #include "common.h"
 #include "i18n.h"
+#include "inflate.h"
 #include "render/display.h"
 #include "render/display_vulkan.h"
-// Made by the build from the HLSL in shaders.h (CMakeLists.txt).
+// Made and packed by the build from the HLSL in shaders.h (CMakeLists.txt).
 #include "shaders_spirv.h"
 
 namespace cap {
@@ -195,7 +196,8 @@ class VulkanPasses : public RenderPasses {
     int height = 0;
   };
 
-  bool CreateModule(const uint32_t* code, size_t size, VkShaderModule* out);
+  // `words` is only room to unpack into, handed around so the six share it.
+  bool CreateModule(const Packed& packed, std::vector<uint32_t>* words, VkShaderModule* out);
   VkPipeline PipelineFor(VkShaderModule fs, VkFormat format, bool blend);
   Arena* ArenaFor(VkDeviceSize need);
   VkDescriptorSet AllocateSet(VulkanImage* const* images, const void* constants, size_t size);
@@ -276,10 +278,18 @@ class VulkanPasses : public RenderPasses {
 
 // ------------------------------------------------------------------- lifetime
 
-bool VulkanPasses::CreateModule(const uint32_t* code, size_t size, VkShaderModule* out) {
+bool VulkanPasses::CreateModule(const Packed& packed, std::vector<uint32_t>* words,
+                                VkShaderModule* out) {
+  // Unpacked into words: that is how Vulkan takes SPIR-V, aligned as such.
+  words->resize(packed.unpackedSize / 4);
+  if (!Inflate(packed, reinterpret_cast<uint8_t*>(words->data()))) {
+    *out = VK_NULL_HANDLE;
+    CAP_ERR("Vulkan: a shader did not unpack");
+    return false;
+  }
   VkShaderModuleCreateInfo info = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-  info.codeSize = size;
-  info.pCode = code;
+  info.codeSize = packed.unpackedSize;
+  info.pCode = words->data();
   const VkResult result = vkCreateShaderModule(vk_->device(), &info, nullptr, out);
   if (result != VK_SUCCESS) {
     *out = VK_NULL_HANDLE;
@@ -299,33 +309,28 @@ bool VulkanPasses::Initialize(Display* display, std::string* error) {
   VkDevice device = device_;
 
   struct Module {
-    const uint32_t* code;
-    size_t size;
+    const Packed& code;
     VkShaderModule* out;
     const char* de;
     const char* en;
   };
   const Module modules[] = {
-      {kSpirvFullscreenVS, sizeof(kSpirvFullscreenVS), &vs_,
-       "Vertex-Shader konnte nicht erstellt werden", "The vertex shader could not be created"},
-      {kSpirvClean, sizeof(kSpirvClean), &fsClean_,
-       "Aufbereitungs-Shader konnte nicht erstellt werden",
+      {kSpirvFullscreenVS, &vs_, "Vertex-Shader konnte nicht erstellt werden",
+       "The vertex shader could not be created"},
+      {kSpirvClean, &fsClean_, "Aufbereitungs-Shader konnte nicht erstellt werden",
        "The cleanup shader could not be created"},
-      {kSpirvConvert, sizeof(kSpirvConvert), &fsConvert_,
-       "Konvertierungs-Shader konnte nicht erstellt werden",
+      {kSpirvConvert, &fsConvert_, "Konvertierungs-Shader konnte nicht erstellt werden",
        "The conversion shader could not be created"},
-      {kSpirvScale, sizeof(kSpirvScale), &fsScale_,
-       "Skalierungs-Shader konnte nicht erstellt werden",
+      {kSpirvScale, &fsScale_, "Skalierungs-Shader konnte nicht erstellt werden",
        "The scaling shader could not be created"},
-      {kSpirvHdrRecord, sizeof(kSpirvHdrRecord), &fsRecord_,
-       "Aufnahme-Shader konnte nicht erstellt werden",
+      {kSpirvHdrRecord, &fsRecord_, "Aufnahme-Shader konnte nicht erstellt werden",
        "The recording shader could not be created"},
-      {kSpirvUiComposite, sizeof(kSpirvUiComposite), &fsUi_,
-       "Oberflächen-Shader konnte nicht erstellt werden",
+      {kSpirvUiComposite, &fsUi_, "Oberflächen-Shader konnte nicht erstellt werden",
        "The interface shader could not be created"},
   };
+  std::vector<uint32_t> words;
   for (const Module& module : modules) {
-    if (!CreateModule(module.code, module.size, module.out)) {
+    if (!CreateModule(module.code, &words, module.out)) {
       Shutdown();
       return ReportError(error, CAP_SAID(T(module.de, module.en)));
     }

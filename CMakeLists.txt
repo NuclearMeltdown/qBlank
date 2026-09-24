@@ -167,7 +167,62 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
              "${CMAKE_CURRENT_SOURCE_DIR}/src/render/shaders.h"
              "${CMAKE_CURRENT_SOURCE_DIR}/tools/strip_shader_comments.cmake")
 target_include_directories(qBlank PRIVATE "${CMAKE_BINARY_DIR}/generated")
-target_compile_definitions(qBlank PRIVATE QBLANK_SHADERS_WITHOUT_COMMENTS)
+
+# ...and packed -- see src/inflate.h. A small program writes each shader out as
+# a file, and tools/embed_packed.cmake deflates the files into a header, which
+# Direct3D 11 unpacks its source from when it starts. The program includes the
+# copy without comments, so a change to shaders.h rebuilds it and everything
+# after it. The Vulkan renderer below compiles the same files to SPIR-V.
+add_executable(qblank_hlsl_dump src/tools/hlsl_dump.cpp)
+target_include_directories(qblank_hlsl_dump PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_BINARY_DIR}/generated")
+target_compile_definitions(qblank_hlsl_dump PRIVATE
+  QBLANK_SHADERS_WITHOUT_COMMENTS _CRT_SECURE_NO_WARNINGS)
+if(MSVC)
+  target_compile_options(qblank_hlsl_dump PRIVATE /W3 /permissive- /Zc:__cplusplus /utf-8)
+  set_property(TARGET qblank_hlsl_dump PROPERTY MSVC_RUNTIME_LIBRARY
+               "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+# file : dxc profile : its source in shaders_hlsl.h : its SPIR-V in shaders_spirv.h
+set(qblank_shaders
+  fullscreen_vs:vs_6_0:kFullscreenVS:kSpirvFullscreenVS
+  clean_ps:ps_6_0:kCleanPS:kSpirvClean
+  convert_ps:ps_6_0:kConvertPS:kSpirvConvert
+  scale_ps:ps_6_0:kScalePS:kSpirvScale
+  hdr_record_ps:ps_6_0:kHdrRecordPS:kSpirvHdrRecord
+  ui_composite_ps:ps_6_0:kUiCompositePS:kSpirvUiComposite
+)
+set(shader_dir "${CMAKE_BINARY_DIR}/shaders")
+set(hlsl_files)
+set(hlsl_names)
+foreach(shader IN LISTS qblank_shaders)
+  string(REPLACE ":" ";" parts "${shader}")
+  list(GET parts 0 file)
+  list(GET parts 2 name)
+  list(APPEND hlsl_files "${shader_dir}/${file}.hlsl")
+  list(APPEND hlsl_names "${file}.hlsl=${name}")
+endforeach()
+add_custom_command(
+  OUTPUT ${hlsl_files}
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${shader_dir}"
+  COMMAND qblank_hlsl_dump "${shader_dir}"
+  DEPENDS qblank_hlsl_dump
+  COMMENT "Writing the shaders out"
+  VERBATIM)
+
+string(REPLACE ";" "," hlsl_names "${hlsl_names}")
+set(hlsl_header "${CMAKE_BINARY_DIR}/generated/shaders_hlsl.h")
+add_custom_command(
+  OUTPUT "${hlsl_header}"
+  COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${hlsl_header}" "-DDIR=${shader_dir}"
+          "-DFILES=${hlsl_names}"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
+  DEPENDS ${hlsl_files} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
+  COMMENT "Packing the shaders"
+  VERBATIM)
+target_sources(qBlank PRIVATE src/inflate.cpp "${hlsl_header}")
+target_compile_definitions(qBlank PRIVATE QBLANK_SHADERS_PACKED)
 
 # The Vulkan renderer, next to Direct3D 11 -- see src/render/display_vulkan.cpp.
 # Which of the two runs is a setting; Direct3D 11 stays the default and the
@@ -213,49 +268,9 @@ endif()
 if(qblank_vulkan_ready)
   message(STATUS "Vulkan renderer: on (dxc: ${QBLANK_DXC})")
 
-  # The shaders are the ones Direct3D 11 compiles at startup, from the same
-  # shaders.h, compiled to SPIR-V here instead. A small program writes them out
-  # as files, since dxc reads files -- and it includes shaders.h, so a change
-  # there rebuilds it and everything after it.
-  add_executable(qblank_hlsl_dump src/tools/hlsl_dump.cpp)
-  target_include_directories(qblank_hlsl_dump PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-  if(MSVC)
-    target_compile_options(qblank_hlsl_dump PRIVATE /W3 /permissive- /Zc:__cplusplus /utf-8)
-    set_property(TARGET qblank_hlsl_dump PROPERTY MSVC_RUNTIME_LIBRARY
-                 "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-  endif()
-
-  # file : profile : the array in shaders_spirv.h
-  set(qblank_spirv_shaders
-    fullscreen_vs:vs_6_0:kSpirvFullscreenVS
-    clean_ps:ps_6_0:kSpirvClean
-    convert_ps:ps_6_0:kSpirvConvert
-    scale_ps:ps_6_0:kSpirvScale
-    hdr_record_ps:ps_6_0:kSpirvHdrRecord
-    ui_composite_ps:ps_6_0:kSpirvUiComposite
-  )
-  set(spirv_dir "${CMAKE_BINARY_DIR}/spirv")
-  set(hlsl_files)
-  set(spirv_files)
-  set(spirv_names)
-  foreach(shader IN LISTS qblank_spirv_shaders)
-    string(REPLACE ":" ";" parts "${shader}")
-    list(GET parts 0 file)
-    list(GET parts 1 profile)
-    list(GET parts 2 array)
-    list(APPEND hlsl_files "${spirv_dir}/${file}.hlsl")
-    list(APPEND spirv_files "${spirv_dir}/${file}.spv")
-    list(APPEND spirv_names "${file}=${array}")
-  endforeach()
-
-  add_custom_command(
-    OUTPUT ${hlsl_files}
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${spirv_dir}"
-    COMMAND qblank_hlsl_dump "${spirv_dir}"
-    DEPENDS qblank_hlsl_dump
-    COMMENT "Writing the shaders out for dxc"
-    VERBATIM)
-
+  # The shaders are the ones Direct3D 11 compiles at startup, from the files
+  # written out above, compiled to SPIR-V here instead -- and packed the same way.
+  #
   # The flags keep the shaders what they are under Direct3D 11:
   #   -HV 2018          the HLSL version fxc speaks, including its scoping of a
   #                     for loop's variable -- which is also why the warning
@@ -270,32 +285,37 @@ if(qblank_vulkan_ready)
   #                     see src/render/render_passes_vulkan.cpp.
   set(qblank_dxc_flags -spirv -HV 2018 -O3 -E main -fspv-target-env=vulkan1.1
       -fvk-t-shift 0 0 -fvk-s-shift 16 0 -fvk-b-shift 32 0 -Wno-for-redefinition)
-  foreach(shader IN LISTS qblank_spirv_shaders)
+  set(spirv_files)
+  set(spirv_names)
+  foreach(shader IN LISTS qblank_shaders)
     string(REPLACE ":" ";" parts "${shader}")
     list(GET parts 0 file)
     list(GET parts 1 profile)
+    list(GET parts 3 name)
     set(stage_flags)
     if(profile MATCHES "^vs_")
       set(stage_flags -fvk-invert-y)
     endif()
     add_custom_command(
-      OUTPUT "${spirv_dir}/${file}.spv"
+      OUTPUT "${shader_dir}/${file}.spv"
       COMMAND "${QBLANK_DXC}" ${qblank_dxc_flags} -T ${profile} ${stage_flags}
-              "${spirv_dir}/${file}.hlsl" -Fo "${spirv_dir}/${file}.spv"
-      DEPENDS "${spirv_dir}/${file}.hlsl"
+              "${shader_dir}/${file}.hlsl" -Fo "${shader_dir}/${file}.spv"
+      DEPENDS "${shader_dir}/${file}.hlsl"
       COMMENT "Compiling ${file} to SPIR-V"
       VERBATIM)
+    list(APPEND spirv_files "${shader_dir}/${file}.spv")
+    list(APPEND spirv_names "${file}.spv=${name}")
   endforeach()
 
   string(REPLACE ";" "," spirv_names "${spirv_names}")
   set(spirv_header "${CMAKE_BINARY_DIR}/generated/shaders_spirv.h")
   add_custom_command(
     OUTPUT "${spirv_header}"
-    COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${spirv_header}" "-DSPIRV_DIR=${spirv_dir}"
-            "-DSHADERS=${spirv_names}"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_spirv.cmake"
-    DEPENDS ${spirv_files} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_spirv.cmake"
-    COMMENT "Embedding the SPIR-V"
+    COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${spirv_header}" "-DDIR=${shader_dir}"
+            "-DFILES=${spirv_names}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
+    DEPENDS ${spirv_files} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
+    COMMENT "Packing the SPIR-V"
     VERBATIM)
 
   target_sources(qBlank PRIVATE

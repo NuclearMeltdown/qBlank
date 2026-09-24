@@ -10,10 +10,11 @@
 #include "common_win32.h"
 #include "i18n.h"
 #include "render/display_win32.h"
-// The build compiles in a copy without the comments (CMakeLists.txt); check.bat
+// The build packs the shaders without their comments (CMakeLists.txt); check.bat
 // and anything else that compiles this file on its own takes the original.
-#ifdef QBLANK_SHADERS_WITHOUT_COMMENTS
-#include "shaders_nocomments.h"
+#ifdef QBLANK_SHADERS_PACKED
+#include "inflate.h"
+#include "shaders_hlsl.h"
 #else
 #include "render/shaders.h"
 #endif
@@ -57,10 +58,10 @@ DXGI_FORMAT PlaneDxgiFormat(PlaneFormat format) {
 // shader or changing the profile simply misses the cache rather than loading
 // something stale. A miss costs what it always cost; there is nothing to
 // invalidate by hand.
-std::wstring ShaderCachePath(const char* source, const char* target) {
+std::wstring ShaderCachePath(const uint8_t* source, size_t size, const char* target) {
   uint64_t hash = 1469598103934665603ull;  // FNV-1a
-  for (const char* p = source; *p; ++p) {
-    hash = (hash ^ (unsigned char)*p) * 1099511628211ull;
+  for (size_t i = 0; i < size; ++i) {
+    hash = (hash ^ source[i]) * 1099511628211ull;
   }
   for (const char* p = target; *p; ++p) {
     hash = (hash ^ (unsigned char)*p) * 1099511628211ull;
@@ -132,16 +133,51 @@ void PruneShaderCache() {
   if (removed > 0) CAP_LOG("Shader cache: %d stale file(s) removed", removed);
 }
 
-ComPtr<ID3DBlob> CompileShader(const char* source, const char* target, std::string* error) {
-  const std::wstring cachePath = ShaderCachePath(source, target);
+// A shader as this file has it: packed by the build, or as the plain text when
+// the file is compiled on its own. The cache is named after the packed bytes,
+// which stay the same as long as the source does -- so the usual start, from
+// the cache, never unpacks anything.
+#ifdef QBLANK_SHADERS_PACKED
+using ShaderSource = Packed;
+const uint8_t* SourceKey(const Packed& source, size_t* size) {
+  *size = source.size;
+  return source.data;
+}
+bool SourceText(const Packed& source, std::string* text) {
+  text->resize(source.unpackedSize);
+  return Inflate(source, reinterpret_cast<uint8_t*>(&(*text)[0]));
+}
+#else
+using ShaderSource = const char*;
+const uint8_t* SourceKey(const char* source, size_t* size) {
+  *size = strlen(source);
+  return reinterpret_cast<const uint8_t*>(source);
+}
+bool SourceText(const char* source, std::string* text) {
+  *text = source;
+  return true;
+}
+#endif
+
+ComPtr<ID3DBlob> CompileShader(const ShaderSource& source, const char* target, std::string* error) {
+  size_t keySize = 0;
+  const uint8_t* key = SourceKey(source, &keySize);
+  const std::wstring cachePath = ShaderCachePath(key, keySize, target);
   ShaderCacheInUse().push_back(cachePath);
   if (ComPtr<ID3DBlob> cached = LoadCachedShader(cachePath)) return cached;
 
+  std::string text;
+  if (!SourceText(source, &text)) {
+    ReportError(error, CAP_SAID(T("Shader (", "Shader (") + std::string(target) +
+                          T(") ist beschädigt", ") is damaged")));
+    CAP_ERR("Shader %s: unpacking failed", target);
+    return nullptr;
+  }
   UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_ENABLE_STRICTNESS;
   ComPtr<ID3DBlob> code;
   ComPtr<ID3DBlob> errors;
   const DWORD started = ::GetTickCount();
-  HRESULT hr = ::D3DCompile(source, strlen(source), nullptr, nullptr, nullptr, "main", target,
+  HRESULT hr = ::D3DCompile(text.data(), text.size(), nullptr, nullptr, nullptr, "main", target,
                             flags, 0, &code, &errors);
   if (SUCCEEDED(hr)) {
     CAP_LOG("Shader %s compiled in %lu ms, cached", target,

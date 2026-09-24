@@ -1,16 +1,22 @@
 // Writes the HLSL from src/render/shaders.h out as files, one per shader.
 //
-// A build step, not a tool anyone runs: the Vulkan renderer needs the shaders
-// as SPIR-V, compiled ahead of time by dxc, and dxc reads files. The source
-// stays the one in shaders.h that Direct3D 11 compiles at startup, so the two
-// renderers cannot drift apart -- see CMakeLists.txt.
+// A build step, not a tool anyone runs: the build packs the files into the
+// executable for Direct3D 11, which compiles them at startup, and compiles them
+// to SPIR-V with dxc for Vulkan -- one source for both, so the two renderers
+// cannot drift apart. See CMakeLists.txt.
 //
 //   qblank_hlsl_dump.exe <output directory>
 
 #include <cstdio>
 #include <string>
 
+// The build hands this the copy without comments, which is what goes into the
+// executable.
+#ifdef QBLANK_SHADERS_WITHOUT_COMMENTS
+#include "shaders_nocomments.h"
+#else
 #include "render/shaders.h"
+#endif
 
 namespace {
 
