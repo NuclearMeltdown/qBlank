@@ -77,11 +77,13 @@ class VideoRenderer {
   // the video standard; the dot crawl filter is built around it.
   //
   // Ein anderer Traeger ist eine andere Norm, und der gemessene Kriechzyklus
-  // gehoert zur alten. Dieselbe Zahl noch einmal gesetzt wirft nichts weg.
+  // gehoert zur alten, der Farbversatz auch: eine andere Norm geht im Decoder
+  // einen anderen Weg. Dieselbe Zahl noch einmal gesetzt wirft nichts weg.
   void SetCarrierSamples(double samples) {
     if (samples == carrierSamples_) return;
     carrierSamples_ = samples;
     ResetCrawl();
+    ResetChromaDelay();
   }
 
   // Whether the picture arriving is one picture.
@@ -607,6 +609,10 @@ class VideoRenderer {
   void AnalyzeCrawl();
   void JudgeCrawl();
   void ResetCrawl();
+  void SampleChromaDelay(const FrameView& frame);
+  void AnalyzeChromaDelay();
+  void JudgeChromaDelay();
+  void ResetChromaDelay();
   // Byte offset of the first luma sample and the distance to the next one.
   // False for formats this cannot read.
   bool LumaLayout(size_t* offset, size_t* step) const;
@@ -728,6 +734,67 @@ class VideoRenderer {
   int crawlFrames_ = 0;
   uint64_t crawlStill_ = 0;
   double crawlDiff_[5] = {};
+
+  // Farbversatz, siehe AnalyzeChromaDelay. Laeuft bei jeder analogen Quelle
+  // mit, gleich welche Filter an sind.
+  int delayFramesSeen_ = 0;
+  int delayBand_ = 0;  // welches Band als naechstes abgelegt wird
+  // Die Aufteilung, gebaut fuer eine Groesse, ein Format und einen Traeger.
+  int delayWidth_ = 0;
+  int delayHeight_ = 0;
+  FormatKind delayKind_ = FormatKind::Yuy2;
+  size_t delayRgbStep_ = 0;  // 0 ausser bei RGB
+  bool delayBottomUp_ = false;
+  bool delayUvSwapped_ = false;
+  int delayBox_ = 0;        // Laenge der Glaettung, eine Traegerperiode
+  int delayFieldStep_ = 1;  // 2, wenn das Bild zwei Halbbilder verwebt
+  int delayReach_ = 0;      // gesuchte Verschiebung waagerecht, je Seite
+  bool delayRgb_ = false;
+  bool delayVertical_ = false;  // die Farbe hat jede Zeile, senkrecht messbar
+  // Je Zeile ein bis drei Stuecke am Block, so wie sie im Bild stehen: gepackt
+  // und RGB eins, NV12 und P010 zwei, I420 drei.
+  struct DelayPiece {
+    size_t start = 0;  // Anfang der Ebene im Bild
+    size_t pitch = 0;
+    int yShift = 0;
+    size_t at = 0;  // Anfang im abgelegten Datensatz einer Zeile
+  };
+  DelayPiece delayPiece_[3];
+  int delayPieces_ = 0;
+  // Je Kanal (Y, U, V oder B, G, R) die Lage im Datensatz einer Zeile.
+  struct DelayChannel {
+    size_t at = 0;
+    size_t step = 1;
+    int xShift = 0;
+  };
+  DelayChannel delayChannel_[3];
+  size_t delayRecord_ = 0;  // Bytes je abgelegter Zeile, 0 = nicht gebaut
+  // Was UploadFrame abgelegt hat und AnalyzeAfterPresent noch auswerten muss.
+  std::vector<uint8_t> delayPending_;
+  bool delayPendingValid_ = false;
+  // Die geglaetteten Zeilen eines Bandes je Kanal, eine Rohzeile je Kanal und
+  // die Farbgradienten einer Zeile. Mitglieder nur, damit nicht jedes Band neu
+  // anlegt.
+  std::vector<float> delayRows_;
+  std::vector<float> delayRaw_;
+  std::vector<float> delayGrad_;
+  // Das laufende Messfenster.
+  int delayWindowSamples_ = 0;
+  std::vector<double> delayAccH_;
+  double delayAccV_[5] = {};
+  uint64_t delayEdgesH_ = 0;
+  uint64_t delayEdgesV_ = 0;
+  // Je Richtung: der uebernommene Wert, das letzte Fenster mit Urteil und ob
+  // schon etwas im Log steht.
+  struct DelayAxis {
+    bool adopted = false;
+    double value = 0.0;
+    bool candidate = false;
+    double candidateValue = 0.0;
+    bool logged = false;
+  };
+  DelayAxis delayH_;
+  DelayAxis delayV_;
 
   // Signal presence. The previous sample set is kept rather than the previous
   // frame: the comparison only ever looks at the same sparse grid, so a few

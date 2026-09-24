@@ -561,6 +561,7 @@ void VideoRenderer::ResetAnalysis() {
 
   ResetChroma();
   ResetCrawl();
+  ResetChromaDelay();
 }
 
 bool VideoRenderer::ChromaLayout(ChromaPlanes* planes) const {
@@ -1713,6 +1714,7 @@ void VideoRenderer::SampleCrawl(const FrameView& frame) {
 
 void VideoRenderer::AnalyzeAfterPresent() {
   AnalyzeCrawl();
+  AnalyzeChromaDelay();
 }
 
 void VideoRenderer::AnalyzeCrawl() {
@@ -1889,6 +1891,465 @@ void VideoRenderer::JudgeCrawl() {
   crawlCandidate_ = verdict;
 }
 
+// Farbversatz: wie weit die Farbe neben der Helligkeit sitzt, waagerecht in
+// Abtastungen, senkrecht in Halbbildzeilen.
+//
+// Ein Composite-Decoder trennt Helligkeit und Farbe und schickt beide durch
+// verschiedene Filter. Die Farbe durch einen schmalen Tiefpass, und der
+// verzoegert sie; welcher Decoder das wie weit wieder ausgleicht, ist seine
+// Sache. PAL mittelt die Farbe dazu ueber zwei Zeilen desselben Halbbilds
+// (die Verzoegerungsleitung), und das schiebt sie um eine halbe Zeile nach
+// unten. Beides sieht man als Farbsaum an einer Kante, der auf einer Seite
+// uebersteht.
+//
+// Gemessen wird an Kanten. Wo die Helligkeit springt, springt meist auch die
+// Farbe, denn eine Kante ist fast immer die Grenze zwischen zwei Dingen. Also
+// wird fuer jede kraeftige Helligkeitskante nachgesehen, wie stark die Farbe
+// ein Stueck daneben springt, und das fuer jede Verschiebung aufsummiert. Wo
+// die Summe am groessten ist, sitzt die Farbkante im Mittel. Gewichtet mit der
+// Staerke der Helligkeitskante: eine Kreuzkorrelation der Gradientenbetraege.
+// Eine graue Kante steuert dazu nur Rauschen bei, gleich viel an jeder
+// Verschiebung, und hebt den Boden, ohne die Spitze zu verschieben.
+//
+// Vorher wird jeder Kanal ueber eine Traegerperiode geglaettet. Das nimmt den
+// Rest des Traegers heraus, der in der Helligkeit als Punktkriechen steht und
+// jede Kante verrauschen wuerde, und weil alle drei Kanaele dasselbe Fenster
+// sehen, verschiebt es keinen gegen den anderen.
+//
+// Gemessen wird in Baendern aus neun Zeilen desselben Halbbilds, jedes vierte
+// Bild eins, reihum ueber zweiunddreissig Lagen im Bild. Wie beim Kriechzyklus
+// in zwei Teilen: SampleChromaDelay kopiert in UploadFrame nur die Zeilen
+// heraus, am Stueck, solange das Bild im Cache liegt; AnalyzeChromaDelay
+// rechnet nach dem Present.
+//
+// Bei 4:2:2 steht die Farbe fuer zwei Bildpunkte auf dem ersten, so wie BT.601
+// es vorsieht. Eine Karte, die sie dazwischen setzt, misst sich damit eine
+// halbe Abtastung weiter rechts, als sie ist. Bei RGB hat die Karte selbst
+// umgerechnet; dieselben BT.601-Gewichte holen Y, Cb und Cr zurueck.
+//
+// Gemessen, nicht korrigiert. Das Ergebnis steht bislang nur im Log.
+static const int kDelaySampleEvery = 4;
+// Senkrecht zaehlen die Kanten zwischen den drei mittleren Zeilen. Um sie wird
+// bis zu zwei Zeilen je Seite gesucht, und jeder Farbgradient braucht die
+// Zeile darueber und darunter.
+static const int kDelayRows = 9;
+static const int kDelayReachV = 2;
+// Senkrecht sieht ein Band nur die wenigen Kanten in seinen Zeilen, darum viele
+// Lagen: mit 32 statt 16 trifft ein Fenster doppelt so viele verschiedene, und
+// die Messung streut halb so weit, bei gleichen Kosten je Band.
+static const int kDelayBands = 32;
+// 32 Baender sind 128 Bilder, gut zweieinhalb Sekunden bei PAL, und jede
+// Lage kommt darin einmal vor.
+static const int kDelayWindow = 32;
+// Ab diesem Helligkeitsgradienten nach der Glaettung (waagerecht die Differenz
+// ueber zwei Abtastungen, senkrecht die zwischen zwei Zeilen) ist es eine Kante.
+// Rauschen von zwei Stufen landet nach der Glaettung bei gut anderthalb, das
+// hier ist das Fuenffache.
+static const float kDelayEdge = 8.0f;
+// Weniger Kanten im Fenster, und es sagt nichts: ein dunkles Menue oder ein
+// graues Bild. Senkrecht zaehlt jede Kante einmal je Bildpunkt, waagerecht
+// auf jeder der neun Zeilen, die sie kreuzt. Im Test lag die senkrechte
+// Messung schon mit 350 bis 900 Kanten auf 0,05 Zeilen genau.
+static const uint64_t kDelayMinEdgesH = 2000;
+static const uint64_t kDelayMinEdgesV = 500;
+// Die Spitze muss den Boden um so viel uebertreffen.
+static const double kDelayContrast = 1.3;
+// Zwei Fenster stimmen ueberein, wenn sie so nah beieinander liegen.
+static const double kDelayAgreeH = 0.3;
+static const double kDelayAgreeV = 0.2;
+// Mehr Verschiebung sucht die waagerechte Suche nicht ab, gleich wie breit.
+static const int kDelayReachMax = 40;
+
+void VideoRenderer::ResetChromaDelay() {
+  static_assert(sizeof(delayAccV_) / sizeof(delayAccV_[0]) == 2 * kDelayReachV + 1,
+                "delayAccV_ holds one sum per vertical shift");
+  delayFramesSeen_ = 0;
+  delayBand_ = 0;
+  delayWidth_ = 0;
+  delayHeight_ = 0;
+  delayRgbStep_ = 0;
+  delayBox_ = 0;
+  delayReach_ = 0;
+  delayPieces_ = 0;
+  delayRecord_ = 0;
+  delayPending_.clear();
+  delayPendingValid_ = false;
+  delayRows_.clear();
+  delayRaw_.clear();
+  delayGrad_.clear();
+  delayWindowSamples_ = 0;
+  delayAccH_.clear();
+  for (double& a : delayAccV_) a = 0.0;
+  delayEdgesH_ = 0;
+  delayEdgesV_ = 0;
+  delayH_ = DelayAxis{};
+  delayV_ = DelayAxis{};
+}
+
+void VideoRenderer::SampleChromaDelay(const FrameView& frame) {
+  if (!analogueSource_) return;
+  if (++delayFramesSeen_ % kDelaySampleEvery != 0) return;
+
+  const int w = source_.width;
+  const int h = source_.height;
+  // Ungerade Groessen gibt es bei keinem der Formate mit halber Farbe, und die
+  // Aufteilung unten verlaesst sich darauf.
+  if (w < 64 || h < 64 || (w & 1) || (h & 1)) return;
+  const bool rgb = kind_ == FormatKind::Rgb;
+  const size_t rgbStep = rgb ? (source_.layout == PixelLayout::Bgr24 ? 3 : 4) : 0;
+  ChromaPlanes cp;
+  if (rgb) {
+    if ((size_t)w * rgbStep * (size_t)h > frame.size) return;
+  } else {
+    if (!ChromaLayout(&cp) || cp.needed > frame.size) return;
+  }
+  const float period = effectiveCarrierPeriod();
+  // Die Glaettung bleibt kuerzer als der Rand, den die Auswertung auslaesst.
+  const int box = std::min(w / 16, period >= kCrawlPeriodMin && period <= kCrawlPeriodMax
+                                       ? (int)std::lround(period)
+                                       : std::max(1, (int)std::lround(3.0 * w / 720.0)));
+
+  if (delayRecord_ == 0 || w != delayWidth_ || h != delayHeight_ || kind_ != delayKind_ ||
+      rgbStep != delayRgbStep_ || box != delayBox_ || source_.bottomUp != delayBottomUp_ ||
+      planarUvSwapped_ != delayUvSwapped_) {
+    ResetChromaDelay();
+    delayFramesSeen_ = kDelaySampleEvery;
+    delayWidth_ = w;
+    delayHeight_ = h;
+    delayKind_ = kind_;
+    delayRgbStep_ = rgbStep;
+    delayBottomUp_ = source_.bottomUp;
+    delayUvSwapped_ = planarUvSwapped_;
+    delayBox_ = box;
+    // Ab 400 Zeilen verwebt die Karte zwei Halbbilder, und die Zeilen eines
+    // Halbbilds liegen zwei auseinander. Darunter ist jede Zeile eine.
+    delayFieldStep_ = h >= 400 ? 2 : 1;
+    delayReach_ = std::min(kDelayReachMax, std::max(2, (int)std::lround(10.0 * w / 720.0)));
+    delayRgb_ = rgb;
+    delayVertical_ = rgb || cp.cyShift == 0;
+
+    // Je Kanal, wo er steht. Ein Stueck je Ebene und Zeile, am Stueck kopiert:
+    // der Kanal steht darin um `lead` versetzt und mit seiner Schrittweite. Bei
+    // geraden Groessen ist `lead` genau der Rest zur Schrittweite.
+    struct Src {
+      size_t off, pitch, step;
+      int xs, ys;
+    } src[3];
+    if (rgb) {
+      const size_t pitch = (size_t)w * rgbStep;
+      for (int c = 0; c < 3; ++c) src[c] = {(size_t)c, pitch, rgbStep, 0, 0};  // B, G, R
+    } else {
+      src[0] = {cp.yOff, cp.yPitch, cp.yStep, 0, 0};
+      src[1] = {cp.uOff, cp.uPitch, cp.uStep, cp.cxShift, cp.cyShift};
+      src[2] = {cp.vOff, cp.vPitch, cp.vStep, cp.cxShift, cp.cyShift};
+    }
+    size_t record = 0;
+    for (int c = 0; c < 3; ++c) {
+      const size_t lead = src[c].off % src[c].step;
+      const size_t start = src[c].off - lead;
+      int p = 0;
+      while (p < delayPieces_ && delayPiece_[p].start != start) ++p;
+      if (p == delayPieces_) {
+        delayPiece_[p].start = start;
+        delayPiece_[p].pitch = src[c].pitch;
+        delayPiece_[p].yShift = src[c].ys;
+        delayPiece_[p].at = record;
+        record += src[c].pitch;
+        ++delayPieces_;
+      }
+      delayChannel_[c].at = delayPiece_[p].at + lead;
+      delayChannel_[c].step = src[c].step;
+      delayChannel_[c].xShift = src[c].xs;
+    }
+    delayRecord_ = record;
+    delayPending_.assign(record * kDelayRows, 0);
+    delayRows_.assign((size_t)3 * kDelayRows * (size_t)w, 0.0f);
+    delayRaw_.assign((size_t)3 * (size_t)w, 0.0f);
+    delayGrad_.assign((size_t)w, 0.0f);
+    delayAccH_.assign((size_t)(2 * delayReach_ + 1), 0.0);
+  }
+
+  // Die Lagen verteilen sich zwischen dem oberen und unteren Zehntel, wie bei
+  // der Farbstaerke: dort steht bei einer analogen Quelle der Rand. Die
+  // Halbbilder wechseln sich ab.
+  const int fs = delayFieldStep_;
+  const int span = (kDelayRows - 1) * fs + 1;
+  const int y0 = h / 10;
+  const int y1 = h - h / 10 - span - 1;
+  if (y1 <= y0) return;
+  const int band = delayBand_;
+  delayBand_ = (delayBand_ + 1) % kDelayBands;
+  int top = y0 + (int)((int64_t)(y1 - y0) * band / (kDelayBands - 1));
+  if (fs == 2) top = (top & ~1) | (band & 1);
+
+  // Ein Band, das noch niemand ausgewertet hat, wird ueberschrieben.
+  for (int k = 0; k < kDelayRows; ++k) {
+    const size_t y = (size_t)(top + k * fs);
+    uint8_t* rec = delayPending_.data() + (size_t)k * delayRecord_;
+    for (int p = 0; p < delayPieces_; ++p) {
+      const DelayPiece& piece = delayPiece_[p];
+      memcpy(rec + piece.at, frame.data + piece.start + (y >> piece.yShift) * piece.pitch,
+             piece.pitch);
+    }
+  }
+  delayPendingValid_ = true;
+}
+
+namespace {
+
+// Summe ueber `box` Werte ab jeder Stelle, out[i] = in[i] + ... + in[i+box-1].
+// Versatz fuer Versatz ueber die ganze Zeile und nicht als laufende Summe: die
+// haengt an jedem Schritt am vorigen und kostete das Doppelte.
+void BoxRow(const float* in, float* out, int n, int box) {
+  for (int i = 0; i < n; ++i) out[i] = in[i];
+  for (int t = 1; t < box; ++t)
+    for (int i = 0; i < n; ++i) out[i] += in[i + t];
+}
+
+// Die Spitze einer Summe ueber die Verschiebungen -n/2..n/2, durch sie und ihre
+// Nachbarn auf Bruchteile genau. nullptr, wenn es eine gibt, sonst warum nicht.
+//
+// Waagerecht ist eine Kante bandbegrenzt und die Spitze rund: eine Parabel.
+// Senkrecht springt eine Kante von einer Zeile zur naechsten, und eine Farbe,
+// die um einen Bruchteil versetzt ist, steht anteilig in zwei Zeilen. Die
+// Korrelation ist dann ein Dreieck, und die Parabel zieht zur ganzen Zeile
+// hin: 0,17 statt 0,25. Zwei Geraden mit derselben Steigung (`tent`) treffen
+// das Dreieck genau.
+const char* DelayPeak(const double* acc, int n, bool tent, double* at, double* contrast) {
+  int best = 0;
+  double least = acc[0];
+  for (int i = 1; i < n; ++i) {
+    if (acc[i] > acc[best]) best = i;
+    if (acc[i] < least) least = acc[i];
+  }
+  *contrast = least > 0.0 ? acc[best] / least : 0.0;
+  if (best == 0 || best == n - 1) return "the peak lies at the end of the search range";
+  if (least > 0.0 && acc[best] < least * kDelayContrast) return "no clear peak";
+  const double a = acc[best - 1], b = acc[best], c = acc[best + 1];
+  double frac = 0.0;
+  if (tent) {
+    const double slope = b - std::min(a, c);
+    if (slope > 0.0) frac = 0.5 * (c - a) / slope;
+  } else {
+    const double den = a - 2.0 * b + c;
+    if (den < 0.0) frac = 0.5 * (a - c) / den;
+  }
+  *at = (double)(best - n / 2) + frac;
+  return nullptr;
+}
+
+}  // namespace
+
+void VideoRenderer::AnalyzeChromaDelay() {
+  if (!delayPendingValid_) return;
+  delayPendingValid_ = false;
+
+  const int w = delayWidth_;
+  const size_t wz = (size_t)w;
+  // Ausgewertet wird zwischen dem sechzehnten Teil links und rechts, also wird
+  // nur dort geglaettet: ueber `box` Werte, `lead` davon links. Bei gerader
+  // Laenge sitzt der Mittelwert eine halbe Abtastung daneben, aber bei allen
+  // Kanaelen gleich. Roh gebraucht werden dafuer `lead` Werte davor und der
+  // Rest dahinter; SampleChromaDelay haelt die Glaettung kuerzer als den Rand,
+  // also liegt das alles im Bild. Das Teilen steckt schon in den Gewichten.
+  const int box = delayBox_;
+  const int lead = box / 2;
+  const int xs = w / 16;
+  const int xe = w - w / 16;
+  const int ra = xs - lead;
+  const int re = xe + box - 1 - lead;
+  const float inv = 1.0f / (float)box;
+  float* rawY = delayRaw_.data();
+  float* rawB = rawY + wz;
+  float* rawR = rawB + wz;
+  // Zeile k von Kanal c (0 = Y, 1 = Cb, 2 = Cr), geglaettet.
+  auto row = [&](int c, int k) {
+    return delayRows_.data() + ((size_t)c * kDelayRows + (size_t)k) * wz;
+  };
+
+  for (int k = 0; k < kDelayRows; ++k) {
+    const uint8_t* rec = delayPending_.data() + (size_t)k * delayRecord_;
+    if (delayRgb_) {
+      const DelayChannel& cb = delayChannel_[0];
+      const DelayChannel& cg = delayChannel_[1];
+      const DelayChannel& cr = delayChannel_[2];
+      const float yr = 0.299f * inv, yg = 0.587f * inv, yb = 0.114f * inv;
+      const float br = -0.169f * inv, bg = -0.331f * inv, bb = 0.5f * inv;
+      const float rr = 0.5f * inv, rg = -0.419f * inv, rb = -0.081f * inv;
+      for (int x = ra; x < re; ++x) {
+        const float b = (float)rec[cb.at + (size_t)x * cb.step];
+        const float g = (float)rec[cg.at + (size_t)x * cg.step];
+        const float r = (float)rec[cr.at + (size_t)x * cr.step];
+        rawY[x] = yr * r + yg * g + yb * b;
+        rawB[x] = br * r + bg * g + bb * b;
+        rawR[x] = rr * r + rg * g + rb * b;
+      }
+    } else {
+      const DelayChannel& cy = delayChannel_[0];
+      for (int x = ra; x < re; ++x) rawY[x] = inv * (float)rec[cy.at + (size_t)x * cy.step];
+      for (int c = 1; c < 3; ++c) {
+        const DelayChannel& ch = delayChannel_[c];
+        float* out = c == 1 ? rawB : rawR;
+        if (ch.xShift == 0) {
+          for (int x = ra; x < re; ++x)
+            out[x] = inv * ((float)rec[ch.at + (size_t)x * ch.step] - 128.0f);
+        } else {
+          // Halbe Farbe: die Probe gilt fuer den geraden Bildpunkt, der
+          // ungerade liegt zwischen ihr und der naechsten.
+          const int cw = w / 2;
+          for (int i = ra / 2; 2 * i < re; ++i) {
+            const float v = inv * ((float)rec[ch.at + (size_t)i * ch.step] - 128.0f);
+            const float next =
+                i + 1 < cw ? inv * ((float)rec[ch.at + (size_t)(i + 1) * ch.step] - 128.0f) : v;
+            out[2 * i] = v;
+            out[2 * i + 1] = 0.5f * (v + next);
+          }
+        }
+      }
+    }
+    BoxRow(rawY + ra, row(0, k) + xs, xe - xs, box);
+    BoxRow(rawB + ra, row(1, k) + xs, xe - xs, box);
+    BoxRow(rawR + ra, row(2, k) + xs, xe - xs, box);
+  }
+
+  // Waagerecht, an allen neun Zeilen. Der Rand bleibt aussen vor wie ueberall.
+  const int reach = delayReach_;
+  const int lags = 2 * reach + 1;
+  const int xa = w / 16 + reach + 1;
+  const int xb = w - w / 16 - reach - 1;
+  float acc[2 * kDelayReachMax + 1] = {};
+  uint64_t edges = 0;
+  float* grad = delayGrad_.data();
+  for (int k = 0; k < kDelayRows; ++k) {
+    const float* sy = row(0, k);
+    const float* sb = row(1, k);
+    const float* sr = row(2, k);
+    for (int x = xs + 1; x < xe - 1; ++x) {
+      grad[x] = std::fabs(sb[x + 1] - sb[x - 1]) + std::fabs(sr[x + 1] - sr[x - 1]);
+    }
+    for (int x = xa; x < xb; ++x) {
+      const float gy = std::fabs(sy[x + 1] - sy[x - 1]);
+      if (gy < kDelayEdge) continue;
+      ++edges;
+      const float* g = grad + x - reach;
+      for (int l = 0; l < lags; ++l) acc[l] += gy * g[l];
+    }
+  }
+  for (int l = 0; l < lags; ++l) delayAccH_[(size_t)l] += (double)acc[l];
+  delayEdgesH_ += edges;
+
+  // Senkrecht, in Zeilen desselben Halbbilds. Gezaehlt werden die Kanten
+  // zwischen den drei mittleren Zeilen, jede ganz: ihr Farbgradient an beiden
+  // Zeilen, die sie beruehrt. Ueber die Zeilen genommen, wie waagerecht,
+  // zaehlte eine Kante am Rand nur halb, auf einer Seite; das streute doppelt.
+  if (delayVertical_) {
+    const int lagsV = 2 * kDelayReachV + 1;
+    float accV[2 * kDelayReachV + 1] = {};
+    uint64_t edgesV = 0;
+    for (int j = kDelayReachV + 1; j < kDelayRows - kDelayReachV - 2; ++j) {
+      const float* up = row(0, j);
+      const float* down = row(0, j + 1);
+      for (int x = xs; x < xe; ++x) {
+        const float gy = std::fabs(down[x] - up[x]);
+        if (gy < kDelayEdge) continue;
+        ++edgesV;
+        float gc[2 * kDelayReachV + 2];
+        for (int i = 0; i <= lagsV; ++i) {
+          const int m = j - kDelayReachV + i;
+          gc[i] = std::fabs(row(1, m + 1)[x] - row(1, m - 1)[x]) +
+                  std::fabs(row(2, m + 1)[x] - row(2, m - 1)[x]);
+        }
+        for (int l = 0; l < lagsV; ++l) accV[l] += gy * (gc[l] + gc[l + 1]);
+      }
+    }
+    for (int l = 0; l < lagsV; ++l) delayAccV_[l] += (double)accV[l];
+    delayEdgesV_ += edgesV;
+  }
+
+  if (++delayWindowSamples_ < kDelayWindow) return;
+  JudgeChromaDelay();
+  delayWindowSamples_ = 0;
+  std::fill(delayAccH_.begin(), delayAccH_.end(), 0.0);
+  for (double& a : delayAccV_) a = 0.0;
+  delayEdgesH_ = 0;
+  delayEdgesV_ = 0;
+}
+
+void VideoRenderer::JudgeChromaDelay() {
+  // Uebernommen wird ein Wert, wenn zwei Fenster mit Urteil hintereinander
+  // nah genug beieinander liegen, und zwar ihr Mittel. Fenster ohne Urteil
+  // zaehlen nicht dagegen. Ins Log kommt jede Uebernahme, die den Wert um mehr
+  // als diese Naehe bewegt, und einmal, dass noch nichts gemessen ist.
+  auto adopt = [](DelayAxis& axis, double value, double agree) {
+    bool changed = false;
+    if (axis.candidate && std::fabs(value - axis.candidateValue) <= agree) {
+      const double both = 0.5 * (value + axis.candidateValue);
+      if (!axis.adopted || std::fabs(both - axis.value) > agree) {
+        axis.adopted = true;
+        axis.value = both;
+        changed = true;
+      }
+    }
+    axis.candidate = true;
+    axis.candidateValue = value;
+    return changed;
+  };
+
+  {
+    double at = 0.0, contrast = 0.0;
+    const char* why =
+        delayEdgesH_ < kDelayMinEdgesH
+            ? "too few edges"
+            : DelayPeak(delayAccH_.data(), (int)delayAccH_.size(), false, &at, &contrast);
+    if (why == nullptr) {
+      if (adopt(delayH_, at, kDelayAgreeH)) {
+        const double v = delayH_.value;
+        // 720 Abtastungen je Zeile sind 13,5 MHz, eine also gut 74 ns.
+        CAP_LOG("Chroma delay: colour sits %.2f samples %s of the brightness, about %.0f ns "
+                "(%llu edges, contrast %.2f)",
+                std::fabs(v), v < 0.0 ? "left" : "right",
+                std::fabs(v) * 720.0 / (double)delayWidth_ * 1000.0 / 13.5,
+                (unsigned long long)delayEdgesH_, contrast);
+        delayH_.logged = true;
+      }
+    } else if (!delayH_.logged) {
+      CAP_LOG("Chroma delay not measured yet, horizontal: %s (%llu edges, contrast %.2f)", why,
+              (unsigned long long)delayEdgesH_, contrast);
+      delayH_.logged = true;
+    }
+  }
+
+  if (!delayVertical_) {
+    if (!delayV_.logged) {
+      CAP_LOG("Chroma delay, vertical: not measured, the format has colour on every second line "
+              "only");
+      delayV_.logged = true;
+    }
+    return;
+  }
+  double at = 0.0, contrast = 0.0;
+  const char* why = delayEdgesV_ < kDelayMinEdgesV
+                        ? "too few edges"
+                        : DelayPeak(delayAccV_, 2 * kDelayReachV + 1, true, &at, &contrast);
+  if (why == nullptr) {
+    // Gezaehlt wird in der Reihenfolge im Speicher. Liegt das Bild unten
+    // zuerst, ist weiter hinten weiter oben.
+    if (delayBottomUp_) at = -at;
+    if (adopt(delayV_, at, kDelayAgreeV)) {
+      const double v = delayV_.value;
+      CAP_LOG("Chroma delay, vertical: colour sits %.2f field lines %s the brightness "
+              "(%llu edges, contrast %.2f)",
+              std::fabs(v), v < 0.0 ? "above" : "below", (unsigned long long)delayEdgesV_,
+              contrast);
+      delayV_.logged = true;
+    }
+  } else if (!delayV_.logged) {
+    CAP_LOG("Chroma delay not measured yet, vertical: %s (%llu edges, contrast %.2f)", why,
+            (unsigned long long)delayEdgesV_, contrast);
+    delayV_.logged = true;
+  }
+}
+
 bool VideoRenderer::UploadFrame(const FrameView& frame) {
   if (!frame.valid() || planeCount_ == 0) return false;
 
@@ -1927,6 +2388,7 @@ bool VideoRenderer::UploadFrame(const FrameView& frame) {
   if (ok) hasFrame_ = true;
   // Nach dem Hochladen, weil das Bild dann im Cache liegt; siehe AnalyzeCrawl.
   if (ok) SampleCrawl(frame);
+  if (ok) SampleChromaDelay(frame);
   return ok;
 }
 
