@@ -17,6 +17,7 @@
 #include "capture/video_capture.h"
 #include "common.h"
 #include "config.h"
+#include "crop_tool.h"
 #include "record/recorder.h"
 #include "recording_control.h"
 #include "render/display.h"
@@ -209,16 +210,9 @@ class App {
   void DrawWelcome();
 
   void OpenDeviceConfig();
-  void DetectCrop();
-  // Wirft den Zuschnitt weg, wenn die Quelle ihre Groesse gewechselt hat --
-  // oder holt den fuer die neue Groesse gemerkten hervor.
-  void UpdateCropForFormat();
   // Waehlt das Profil, das zur erkannten Videonorm passt.
   void UpdateProfileForStandard();
 
-  void BeginCropPick();
-  void EndCropPick(bool apply);
-  void DrawCropPicker();
   // Moves the A/B divider when it is dragged on the picture.
   void DragCompareDivider();
   // Fullscreen on a double click on the picture.
@@ -226,7 +220,7 @@ class App {
   // Borderless window: dragging the picture moves the window.
   void DragBorderlessWindow();
  public:
-  bool cropPickActive() const { return cropPick_.active; }
+  bool cropPickActive() const { return cropTool_.active(); }
  private:
   // Makes sure an output folder exists. Recreates it when it was deleted, and
   // falls back to the default when even that fails.
@@ -370,13 +364,6 @@ class App {
   // Whether the bar was drawn this frame; the picture layout follows it.
   bool toolbarVisible_ = false;
 
-  // Dragging the crop edges on the picture instead of typing four numbers.
-  struct CropPick {
-    bool active = false;
-    ImageSettings saved;              // restored on cancel
-    int left = 0, right = 0, top = 0, bottom = 0;  // source pixels
-    int drag = -1;                    // 0 left, 1 right, 2 top, 3 bottom
-  } cropPick_;
   // Filled from the renderer each frame; the settings dialog reads it.
   const char* detectedRangeText_ = nullptr;
   // Die Zahlen unter dem Urteil, schon gesetzt. Leer, solange nichts gemessen
@@ -420,8 +407,23 @@ class App {
     App& app_;
   };
   RecordingHost recordingHost_{*this};
-  RecordingControl recording_{config_, recorder_, renderer_, capture_,       audio_,
-                              mic_,    settings_, virtualCamera_, recordingHost_};
+  RecordingControl recording_{config_, recorder_, renderer_, capture_, audio_,
+                              mic_, settings_, virtualCamera_, recordingHost_};
+
+  // Cropping, and what it asks of the rest of the program.
+  class CropHost final : public CropTool::Host {
+   public:
+    explicit CropHost(App& app) : app_(app) {}
+    void Toast(const std::string& text) override;
+    void OpenSettings() override;
+    void CloseSettings() override;
+
+   private:
+    App& app_;
+  };
+  CropHost cropHost_{*this};
+  CropTool cropTool_{config_, renderer_, cropHost_};
+
   // What woke the main loop last time round, and when it last drew. Together
   // they keep the preview paced by the picture rather than by the message
   // queue -- see the comment at the call to RenderFrame.
@@ -469,13 +471,6 @@ class App {
   };
   StandardSearchHost standardSearchHost_{*this};
   VideoStandardSearch standardSearch_{config_, capture_, renderer_, standardSearchHost_};
-
-  // Die Quellgroesse, fuer die der gespeicherte Zuschnitt gemessen wurde.
-  // 0x0 heisst: in dieser Sitzung noch kein Bild gesehen, das erste zaehlt
-  // dann als der Stand, auf den sich die Zahlen beziehen. Siehe
-  // UpdateCropForFormat.
-  int cropFormatWidth_ = 0;
-  int cropFormatHeight_ = 0;
   // Die Zeilenzahl, unter der das laufende Format ausgesucht wurde. Aus der
   // Karte beim Graphenbau, nicht aus dem Profil -- dort kann "automatisch"
   // stehen. Siehe ReleaseStandardBoundFormat.

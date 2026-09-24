@@ -74,6 +74,7 @@ add_executable(qBlank WIN32
   src/app.cpp
   src/video_standard_search.cpp
   src/recording_control.cpp
+  src/crop_tool.cpp
   src/config.cpp
   src/hotkeys.cpp
   src/keys.cpp
