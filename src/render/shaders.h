@@ -736,11 +736,12 @@ static const float kMatchPoor = 0.012;
 int2 SearchShift(float3 cur, int x, int row, float width, float still, out float cost) {
   int2 best = int2(0, 0);
   cost = still;
-  [loop] for (int pass = 0; pass < 6; ++pass) {
-    if (pass == 3 && cost <= kMatchPoor) break;
+  // Not "pass": that is a keyword to fxc, though dxc takes it.
+  [loop] for (int stage = 0; stage < 6; ++stage) {
+    if (stage == 3 && cost <= kMatchPoor) break;
     // Steps 4, 2, 1 along the line, then 4, 2, 1 field lines up and down.
-    int step = int(4) >> (pass < 3 ? pass : pass - 3);
-    int2 dir = pass < 3 ? int2(1, 0) : int2(0, gMotionRows);
+    int step = int(4) >> (stage < 3 ? stage : stage - 3);
+    int2 dir = stage < 3 ? int2(1, 0) : int2(0, gMotionRows);
     int2 base = best;
     [loop] for (int s = -1; s <= 1; s += 2) {
       int2 d = base + dir * (s * step);
