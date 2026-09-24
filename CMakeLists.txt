@@ -72,6 +72,7 @@ add_executable(qBlank WIN32
   src/wake_signal_win32.cpp
   src/i18n.cpp
   src/app.cpp
+  src/video_standard_search.cpp
   src/config.cpp
   src/hotkeys.cpp
   src/keys.cpp
