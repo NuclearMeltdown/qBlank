@@ -2,6 +2,13 @@
 
 // Ties everything together: window, message loop, capture graph, audio engine,
 // renderer and UI.
+//
+// The class is spread over several files by topic: app.cpp (start, window,
+// capture, settings), app_frame.cpp (main loop and frame), app_source.cpp
+// (what the source is), app_ui.cpp (overlay and menus), app_input.cpp (keys and
+// window messages), app_tray.cpp and app_hosts.cpp. The parts with their own
+// state are classes of their own: VideoStandardSearch, RecordingControl,
+// CropTool and StartupNotices.
 
 #include <atomic>
 #include <cstdint>

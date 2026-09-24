@@ -72,6 +72,12 @@ add_executable(qBlank WIN32
   src/wake_signal_win32.cpp
   src/i18n.cpp
   src/app.cpp
+  src/app_frame.cpp
+  src/app_hosts.cpp
+  src/app_input.cpp
+  src/app_source.cpp
+  src/app_tray.cpp
+  src/app_ui.cpp
   src/video_standard_search.cpp
   src/recording_control.cpp
   src/crop_tool.cpp
