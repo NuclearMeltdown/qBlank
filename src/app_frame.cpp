@@ -20,8 +20,20 @@ int App::Run() {
     Tick();
 
     if (minimized_) {
-      // Nothing to draw; block on messages so we use no CPU at all.
-      WaitForEvents();
+      // No preview to draw. The settings window and the icon's menu are windows
+      // of their own, though, drawn by this loop and nowhere else -- blocking
+      // here without them froze the settings for as long as the viewer was
+      // minimised. So they are drawn, on the same short wait as below while
+      // either is on screen; otherwise the loop blocks and costs nothing. The
+      // settings embedded in the picture are minimised along with it and do not
+      // count.
+      DrawSettingsWindowed();
+      DrawTrayMenu();
+      if (settingsHost_.visible() || trayPopup_.isOpen()) {
+        lastWake_ = WaitForEventsOr(nullptr, 16);
+      } else {
+        WaitForEvents();
+      }
       continue;
     }
 
