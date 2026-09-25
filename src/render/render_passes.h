@@ -47,8 +47,8 @@ enum class PlaneFormat {
   Rg8,    // two of them: NV12's interleaved chroma
   R16,    // sixteen bit luma, ten of them used in a P010 container
   Rg16,   // the matching chroma
-  Rgba8,  // four bytes, R first: packed YUV read two pixels at a time, or RGB24
-  Bgra8,  // four bytes, B first: RGB32 as the card sends it
+  Rgba8,  // four bytes, R first: packed YUV read two pixels at a time
+  Bgra8,  // four bytes, B first: RGB32 as the card sends it, RGB24 with alpha added
 };
 
 // The pictures the passes keep between them, as far as anything outside needs

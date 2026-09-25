@@ -157,10 +157,8 @@ bool VideoRenderer::CreateSourceTextures(std::string* error) {
       break;
     case FormatKind::Rgb:
     default:
-      // RGB24 is expanded to RGBA on upload; RGB32 goes in as BGRA directly.
-      ok = makePlane(0, w, h,
-                     source_.layout == PixelLayout::Bgr24 ? PlaneFormat::Rgba8
-                                                          : PlaneFormat::Bgra8);
+      // BGRA for both: RGB32 goes in as it is, RGB24 gains its alpha on upload.
+      ok = makePlane(0, w, h, PlaneFormat::Bgra8);
       planeCount_ = 1;
       break;
   }
@@ -2516,19 +2514,20 @@ bool VideoRenderer::UploadRgb24(const FrameView& frame) {
   MappedPlane mapped;
   if (!passes_->MapPlane(0, &mapped)) return false;
 
-  // DirectShow delivers BGR; the texture is RGBA, so expand and swap per pixel.
-  uint8_t* out = mapped.data;
+  // DirectShow delivers B G R and the texture is BGRA, so a pixel is its three
+  // bytes plus alpha: one four byte read, whose fourth byte is the next pixel's
+  // blue and gets covered by the alpha, and one four byte write. The row's last
+  // pixel reads its three alone, so nothing past the row is touched.
   for (int y = 0; y < h; ++y) {
     const uint8_t* src = frame.data + (size_t)y * srcPitch;
-    uint8_t* dst = out + (size_t)y * mapped.rowPitch;
-    for (int x = 0; x < w; ++x) {
-      dst[0] = src[2];
-      dst[1] = src[1];
-      dst[2] = src[0];
-      dst[3] = 255;
-      src += 3;
-      dst += 4;
+    uint32_t* dst = reinterpret_cast<uint32_t*>(mapped.data + (size_t)y * mapped.rowPitch);
+    int x = 0;
+    for (; x < w - 1; ++x, src += 3) {
+      uint32_t v;
+      memcpy(&v, src, 4);
+      dst[x] = v | 0xFF000000u;
     }
+    dst[x] = 0xFF000000u | src[0] | (uint32_t)src[1] << 8 | (uint32_t)src[2] << 16;
   }
   passes_->UnmapPlane(0);
   return true;
