@@ -261,10 +261,10 @@ float3 FetchYuvCur(int2 p) {
     } else {
       return float3(odd ? t.z : t.x, t.w, t.y);
     }
-  } else if (gFormatKind == 3) {
+  } else if (gFormatKind == 3 || gFormatKind == 7) {
     float y  = tex0.Load(int3(p, 0)).x;
     float2 c = tex1.Load(int3(p.x >> 1, p.y >> 1, 0)).xy;
-    return float3(y, c.x, c.y);
+    return float3(y, c.x, c.y) * gPixelScale;
   } else {
     int3 ac = int3(p.x >> 1, p.y >> 1, 0);
     return float3(tex0.Load(int3(p, 0)).x, tex1.Load(ac).x, tex2.Load(ac).x);
