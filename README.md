@@ -138,6 +138,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 
 **The main window** · [wiki](../../wiki/The-main-window)
 - 1×, 2× or 3× the source's lines from the context menu.
+- Statistics level — compact, normal or full — from the context menu too.
 - **Shift** while resizing keeps the picture's shape.
 - Borderless keeps its taskbar button, Alt+Tab and Snap; drag the picture to move it.
 - A red dot on the taskbar button while recording.
