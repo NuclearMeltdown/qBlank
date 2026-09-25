@@ -158,6 +158,10 @@ class VideoStandardSearch {
   // werden; eine bewiesene zeigt auf einem blassen Bild einfach ein blasses
   // Bild.
   bool colourProven_ = false;
+  // Auf diesem Lock ist ein Vergleich schon zu Ende gegangen. Dann hat er
+  // "Farbe im Schwarzen" bei allen Kandidaten gesehen, und die Nachkontrolle
+  // darf ihn dafuer nicht wieder eroeffnen -- am 25.09. sechs Runden.
+  bool colourCompared_ = false;
   enum class ColourWatch {
     Watching,  // liest mit, darf die Pruefung einmal neu eroeffnen
     Reopened,  // hat das getan, darf nur noch hinweisen

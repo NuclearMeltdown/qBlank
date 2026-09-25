@@ -90,7 +90,13 @@ static const double kStandardSettleSeconds = 1.25;
 // -- dieselbe Zeile wie oben. Steht davor "fast pass" und liegt der Wert
 // dicht unter 0,6, ist die Grenze zu eng; landen umgekehrt Faelle mit
 // anliegendem Signal regelmaessig erst im zweiten Durchgang, ebenso.
-static const double kStandardFastSeconds = 0.6;
+//
+// Am 25.09.2026 trat genau das ein, an einer laufenden Switch nach einem
+// Eingangswechsel: PAL B nach 0,60 s im schnellen Durchgang verworfen und im
+// geduldigen nach 0,68 s eingerastet, in der naechsten Sitzung SECAM B nach
+// 0,60 s. Also 0,8 s -- ueber allen neun Messungen, und ein verpasster Lock
+// kostet einen ganzen zweiten Durchgang, die zwei Zehntel je Kandidat nicht.
+static const double kStandardFastSeconds = 0.8;
 // Die vorgezogenen Kandidaten nach einem verlorenen Lock -- der Partner der
 // zuletzt guten Norm und sie selbst -- bekommen deutlich mehr. Eine Konsole,
 // die gerade neu startet oder von 50 auf 60 Hz umschaltet, braucht ein paar
@@ -646,6 +652,7 @@ void VideoStandardSearch::UpdateVideoStandard() {
     // Woran nach dem naechsten Aussetzer zuerst gedacht wird. Auch dann
     // gemerkt, wenn gar nicht gesucht wurde: eine Norm, die von selbst
     // eingerastet ist, ist genauso ein guter Hinweis wie eine gefundene.
+    const long lastGoodBefore = standardLastGood_;
     standardLastGood_ = capture_.currentStandard();
     // Und der Farbtraeger dazu, weil er allein an der Norm haengt und die genau
     // hier neu ist. Der Neubau darunter setzt ihn auch, laeuft aber nur, wenn
@@ -658,6 +665,28 @@ void VideoStandardSearch::UpdateVideoStandard() {
       // A candidate just proved itself. The line count may have changed with
       // it, so the graph has to be rebuilt around the new format.
       standardCandidate_ = -1;
+      // Der Lock beweist die Zeilenzahl, nicht die Norm. Wer davor in der Liste
+      // steht und dieselben Zeilen hat, ist nur an der Frist gescheitert --
+      // am 25.09. fiel PAL B nach 0,60 s durch, und SECAM B rastete danach
+      // ein. Also die Norm, die bei dieser Zeilenzahl vorn steht; die Farbe
+      // prueft danach ohnehin, ob sie stimmt.
+      const std::vector<long> ranked =
+          AutoStandardCandidates(capture_.capabilities().availableStandards,
+                                 config_.app.videoRegion, lastGoodBefore, nullptr);
+      const int lines = VideoStandardLines(standardLastGood_);
+      for (long c : ranked) {
+        if (VideoStandardLines(c) != lines) continue;
+        if (c != standardLastGood_) {
+          CAP_LOG("Video standard: %s locked, which only proves %d lines -- %s ranks first "
+                  "among them and is set instead",
+                  VideoStandardName(VideoStandardIndexOf(standardLastGood_)), lines,
+                  VideoStandardName(VideoStandardIndexOf(c)));
+          capture_.SetStandard(c);
+          standardSeqAtSet_ = signalSeq_.load(std::memory_order_acquire);
+          standardLastGood_ = c;
+        }
+        break;
+      }
       const long settled = standardLastGood_;
       // Mit der Einfangzeit daneben. Sie sagt, ob die Wartefrist gereicht hat
       // oder ob sie nur knapp gereicht hat -- und was eine Norm braucht, die
@@ -1246,6 +1275,27 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   // Reihenfolge der Wohnregion.
   static const float kDarkTinted = 0.18f;
 
+  // Wenn alle kraeftigen Kandidaten Farbe im Schwarzen zeigen.
+  //
+  // Dann ist es die Szene: am 25.09. ein blauer Hintergrund an der Switch in
+  // PAL B, und jede Norm stand ueber kDarkTinted. Nichts entschied, die
+  // Nachkontrolle eroeffnete neu, sechs Runden lang, und einmal blieb SECAM B
+  // stehen -- dessen Blaustich passt zu einem blauen Bild. Paarweise auf
+  // derselben Szene trennt die Tiefe aber weiter:
+  //
+  //   Norm             Farbe          Tiefen
+  //   PAL B (richtig)  0,297 - 0,315  0,221 - 0,266
+  //   SECAM B          0,412 - 0,426  0,397 - 0,405
+  //
+  // Der falsche Traeger hat mindestens 1,48-mal so viel im Schwarzen, und sein
+  // Mehr an Tiefe ist mindestens 1,48-mal so gross wie sein Mehr an Farbe --
+  // die zusaetzliche Farbe sitzt also gerade dort, wo keine hingehoert. Beides
+  // wird verlangt, mit Abstand zu den gemessenen 1,48. NTSC 4.43 gegen PAL 60
+  // faellt nicht darunter: dort zeigt die falsche Norm ueberall weniger, das
+  // Verhaeltnis liegt bei 1,0.
+  static const float kTintedCleanerBy = 1.3f;
+  static const float kTintedExtraInShadows = 1.25f;
+
   // Woran ein NTSC-Dekoder auf einem PAL-Signal zu erkennen ist.
   //
   // Farbmenge und Tiefen trennen PAL 60 und NTSC 4.43 nicht. Beide haben
@@ -1470,7 +1520,9 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
       renderer_.ResetChroma();
       return;
     }
-    const bool tinted = e >= kChromaConfident && d >= kDarkTinted;
+    // Farbe im Schwarzen zaehlt nur, solange kein Vergleich gelaufen ist. Der
+    // hat sie dann bei allen Kandidaten gesehen, also ist es die Szene.
+    const bool tinted = e >= kChromaConfident && d >= kDarkTinted && !colourCompared_;
     const bool pale = !colourProven_ && lit >= kWatchLitWanted && e < kChromaPale;
     if (!flipping && !tinted && !pale) {
       colourWatchStrikes_ = 0;
@@ -2051,6 +2103,40 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     byDarks = true;
   }
 
+  // Vor Stufe zwei, die Eingefaerbte ausschliesst: alle kraeftigen sind
+  // eingefaerbt. Dann gewinnt, wer deutlich
+  // am wenigsten Farbe im Schwarzen hat und sein Mehr an Farbe nicht gerade
+  // dort -- die Messreihe steht bei kTintedCleanerBy. Wer unbeurteilt blieb,
+  // muss deutlich weniger Farbe haben, sonst koennte er der richtige sein.
+  bool byTinted = false;
+  if (dark1 < 0 && !sceneChanged) {
+    int w = -1;
+    for (size_t i = 0; i < colourCandidates_.size(); ++i) {
+      if (verdicts[i] == Verdict::Tinted &&
+          (w < 0 || colourDarks_[i] < colourDarks_[(size_t)w]))
+        w = (int)i;
+    }
+    int rival = -1;
+    bool holds = w >= 0;
+    for (size_t i = 0; holds && i < colourCandidates_.size(); ++i) {
+      if ((int)i == w || colourEnergies_[i] < 0.0f) continue;
+      const float ew = colourEnergies_[(size_t)w], dw = colourDarks_[(size_t)w];
+      const float er = colourEnergies_[i], dr = colourDarks_[i];
+      if (verdicts[i] == Verdict::Unjudged) {
+        holds = ew > er * kChromaBetterBy;
+      } else if (er >= kChromaConfident && dr >= 0.0f) {
+        holds = dr >= dw * kTintedCleanerBy &&
+                (er <= ew || dr - dw >= (er - ew) * kTintedExtraInShadows);
+        if (rival < 0 || dr < colourDarks_[(size_t)rival]) rival = (int)i;
+      }
+    }
+    if (holds && rival >= 0) {
+      best = w;
+      runnerUp = rival;
+      byTinted = true;
+    }
+  }
+
   // Stufe zwei: geben die Tiefen nichts her -- weil niemand kraeftig genug
   // Farbe hatte oder weil zwei gleich sauber sind --, bleibt es beim alten
   // Verfahren, wer am meisten Farbe hat. Fuer eine wirklich schwarzweisse
@@ -2086,7 +2172,8 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   // einmal -- ist derselbe wie bei einer zu farbarmen Szene.
   const bool decided =
       !sceneChanged &&
-      (byDarks || (best >= 0 && !alone && winner >= kChromaFloor && winner > second * needed));
+      (byDarks || byTinted ||
+       (best >= 0 && !alone && winner >= kChromaFloor && winner > second * needed));
 
   const long chosen = best >= 0 ? colourCandidates_[(size_t)best] : origin;
   const long runnerUpStandard = runnerUp >= 0 ? colourCandidates_[(size_t)runnerUp] : 0;
@@ -2103,6 +2190,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   colourAltU_.clear();
   colourIndex_ = 0;
   colourStartedQpc_ = 0;
+  if (!sceneChanged) colourCompared_ = true;
 
   // Die Karte steht jetzt auf dem zuletzt gemessenen Kandidaten. In jedem Fall
   // muss sie da weg -- entweder auf den Sieger oder zurueck auf den Anfang.
@@ -2118,6 +2206,12 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
       CAP_LOG("Video standard: %s is the only one strongly coloured with neutral shadows (colour "
               "%.3f, shadows %s) -- set",
               VideoStandardName(VideoStandardIndexOf(chosen)), winner, darkText(winnerDark).c_str());
+    } else if (byTinted) {
+      CAP_LOG("Video standard: every strongly coloured standard shows colour in the dark areas, %s "
+              "the least (%s against %s for %s) -- set",
+              VideoStandardName(VideoStandardIndexOf(chosen)), darkText(winnerDark).c_str(),
+              darkText(secondDark).c_str(),
+              VideoStandardName(VideoStandardIndexOf(runnerUpStandard)));
     } else if (byDarks) {
       CAP_LOG("Video standard: %s has more neutral shadows than %s (%s against %s, both coloured) "
               "-- set",
@@ -2264,6 +2358,7 @@ void VideoStandardSearch::ResetStandardColourCheck() {
   colourWaitingForPicture_ = false;
   colourDoubt_ = ColourDoubt::None;
   colourProven_ = false;
+  colourCompared_ = false;
   colourWatch_ = ColourWatch::Watching;
   colourWatchStandard_ = 0;
   colourWatchStrikes_ = 0;
