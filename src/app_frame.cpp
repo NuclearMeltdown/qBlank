@@ -314,6 +314,11 @@ void App::RenderFrame() {
   // Erst nach der Durchlaufzeit: was hier gerechnet wird, soll weder das Bild
   // aufhalten noch in der Zahl stehen, die sagt, wie lange es aufgehalten wurde.
   renderer_.AnalyzeAfterPresent();
+  // Likewise the config: the check for changes serialises all of it, and the
+  // save that follows one writes a file. Before the present that was up to a
+  // tenth of a millisecond on every fifteenth picture, and a disk write now and
+  // then, for nothing the picture needs.
+  MaybeSaveConfig();
 
   // ---- present rate ----
   ++presentCount_;

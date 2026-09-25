@@ -934,8 +934,8 @@ void App::DrawUi() {
 
   // Everything above may have edited the configuration in place, so act on it
   // here in one spot rather than sprinkling apply calls through the UI code.
+  // Saving it waits until after the present: see RenderFrame.
   SyncConfigChanges();
-  MaybeSaveConfig();
 }
 
 void App::DrawContextMenu() {
