@@ -44,10 +44,7 @@ namespace {
 
 // The constant buffers as the shaders declare them, as in the Direct3D 11
 // passes: the parameters, then the padding to sixteen bytes.
-struct ConvertCB {
-  ConvertParams params;
-  int32_t pad[1];
-};
+using ConvertCB = ConvertParams;  // fills its last register exactly
 static_assert(sizeof(ConvertCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
 struct ScaleCB {
@@ -1043,8 +1040,7 @@ void VulkanPasses::CleanAndConvert(const ConvertParams& params, int srcWidth, in
                                    int outWidth, int outHeight, int historyWrite) {
   if (!vk_ || !clean_ || !intermediate_) return;
 
-  ConvertCB cb = {};
-  cb.params = params;
+  const ConvertCB& cb = params;
 
   // ---- pass 1: decode the planes and clean the signal, in source geometry ----
   //

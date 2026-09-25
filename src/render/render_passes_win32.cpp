@@ -25,10 +25,8 @@ namespace {
 // The constant buffers as the shaders declare them: the interface's parameters
 // followed by the padding a sixteen byte register needs. The parameters are the
 // same fields in the same order, so this is a copy and not a conversion.
-struct ConvertCB {
-  ConvertParams params;
-  int32_t pad[1];
-};
+// ConvertParams fills its last register exactly and needs none.
+using ConvertCB = ConvertParams;
 static_assert(sizeof(ConvertCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
 struct ScaleCB {
@@ -815,12 +813,9 @@ void D3D11Passes::CleanAndConvert(const ConvertParams& params, int srcWidth, int
                                   int outWidth, int outHeight, int historyWrite) {
   ID3D11DeviceContext* dc = NativeContext(*display_);
 
-  ConvertCB cb = {};
-  cb.params = params;
-
   D3D11_MAPPED_SUBRESOURCE mapped = {};
   if (SUCCEEDED(dc->Map(cbConvert_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    memcpy(mapped.pData, &cb, sizeof(cb));
+    memcpy(mapped.pData, &params, sizeof(ConvertCB));
     dc->Unmap(cbConvert_.Get(), 0);
   }
 

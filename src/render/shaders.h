@@ -110,6 +110,7 @@ cbuffer ConvertCB : register(b0) {
   // Rows between two lines of the same field: 2 on a woven interlaced frame,
   // 1 otherwise. The motion search moves up and down in steps of this.
   int   gMotionRows;
+  int   gChromaLinear;    // 1 = digital source, see FetchYuvCur
 };
 
 struct VSOut {
@@ -250,28 +251,45 @@ float3 FetchRgbIn(int2 p, int frame) {
 // four branches for a decision that is a constant here. That expansion is
 // nobody's runtime cost, but it is very much the shader compiler's -- and the
 // compiler runs while the user waits for the window to appear.
-float3 FetchYuvCur(int2 p) {
-  if (gFormatKind == 0 || gFormatKind == 1 || gFormatKind == 2) {
-    float4 t = tex0.Load(int3(p.x >> 1, p.y, 0));
-    bool odd = (p.x & 1) != 0;
-    if (gFormatKind == 0) {
-      return float3(odd ? t.z : t.x, t.y, t.w);
-    } else if (gFormatKind == 1) {
-      return float3(odd ? t.w : t.y, t.x, t.z);
-    } else {
-      return float3(odd ? t.z : t.x, t.w, t.y);
-    }
-  } else if (gFormatKind == 3 || gFormatKind == 7) {
-    float y  = tex0.Load(int3(p, 0)).x;
-    float2 c = tex1.Load(int3(p.x >> 1, p.y >> 1, 0)).xy;
-    return float3(y, c.x, c.y) * gPixelScale;
-  } else {
-    int3 ac = int3(p.x >> 1, p.y >> 1, 0);
-    return float3(tex0.Load(int3(p, 0)).x, tex1.Load(ac).x, tex2.Load(ac).x);
+//
+// Each colour sample sits on the even pixel of its pair, so the odd pixel lies
+// halfway between two of them. A digital source has colour edges as sharp as
+// its brightness, and copying the left sample there moves every such edge half
+// a pixel and turns it into a step; the midpoint of the two is where it
+// belongs. Composite colour has no edges that sharp, and everything in the clean
+// pass was measured on the copy, so an analogue source keeps it -- and since a
+// digital one runs none of the filters, only main asks for the midpoint, and
+// every other caller compiles without it.
+float2 PackedChroma(float4 t) {
+  if (gFormatKind == 0) return t.yw;   // YUY2: Y0 U Y1 V
+  if (gFormatKind == 1) return t.xz;   // UYVY: U Y0 V Y1
+  return t.wy;                         // YVYU: Y0 V Y1 U
+}
+float3 FetchYuvCur(int2 p, bool between) {
+  const bool odd = (p.x & 1) != 0;
+  const bool mid = odd && between;
+  const int cx = p.x >> 1;
+  const int nx = min(cx + 1, ((gSrcWidth + 1) >> 1) - 1);
+  if (gFormatKind <= 2) {
+    float4 t = tex0.Load(int3(cx, p.y, 0));
+    float y = gFormatKind == 1 ? (odd ? t.w : t.y) : (odd ? t.z : t.x);
+    float2 c = PackedChroma(t);
+    if (mid) c = (c + PackedChroma(tex0.Load(int3(nx, p.y, 0)))) * 0.5;
+    return float3(y, c);
   }
+  const int cy = p.y >> 1;
+  float2 c;
+  if (gFormatKind == 3 || gFormatKind == 7) {
+    c = tex1.Load(int3(cx, cy, 0)).xy;
+    if (mid) c = (c + tex1.Load(int3(nx, cy, 0)).xy) * 0.5;
+    return float3(tex0.Load(int3(p, 0)).x, c) * gPixelScale;
+  }
+  c = float2(tex1.Load(int3(cx, cy, 0)).x, tex2.Load(int3(cx, cy, 0)).x);
+  if (mid) c = (c + float2(tex1.Load(int3(nx, cy, 0)).x, tex2.Load(int3(nx, cy, 0)).x)) * 0.5;
+  return float3(tex0.Load(int3(p, 0)).x, c);
 }
 
-float3 FetchRgbAt(int2 p) {
+float3 FetchRgbAtL(int2 p, bool linearChroma) {
   p.x = clamp(p.x, 0, gSrcWidth - 1);
   p.y = clamp(p.y, 0, gSrcHeight - 1);
   int2 q = p;
@@ -279,13 +297,14 @@ float3 FetchRgbAt(int2 p) {
 
   float3 rgb;
   if (gIsYuv != 0) {
-    rgb = YuvToRgb(FetchYuvCur(q));
+    rgb = YuvToRgb(FetchYuvCur(q, linearChroma));
   } else {
     rgb = tex0.Load(int3(q, 0)).rgb;
     rgb = (rgb - gYOffset) * gYScale;
   }
   return rgb;
 }
+float3 FetchRgbAt(int2 p) { return FetchRgbAtL(p, false); }
 float3 FetchRgbPrev(int2 p) { return FetchRgbIn(p, 1); }
 float3 FetchRgbFrame(int2 p, int frame) { return FetchRgbIn(p, frame); }
 
@@ -1146,7 +1165,7 @@ float4 main(VSOut i) : SV_Target {
   // Source coordinates, already the right way up: FetchRgbAt resolves a bottom
   // up layout, so everything downstream of this pass can forget about it.
   int2 p = int2(i.pos.xy);
-  float3 rgb = FetchRgbAt(p);
+  float3 rgb = FetchRgbAtL(p, gChromaLinear != 0);
 
   // The A/B divider, and the only place it can sit. Everything that moves the
   // picture around -- cropping, rotation, scaling -- happens in the passes after

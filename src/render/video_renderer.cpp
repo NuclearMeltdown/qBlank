@@ -3046,6 +3046,7 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   // desselben Halbbilds zwei Zeilen weiter; die dazwischen ist aus dem anderen
   // und zeitlich versetzt. Solange die Messung noch laeuft, gilt eins.
   cb.motionRows = interlaced ? 2 : 1;
+  cb.chromaLinear = analogueSource_ ? 0 : 1;
   cb.bandwidth = image.bandwidthRestore < 0.0f   ? 0.0f
                  : image.bandwidthRestore > 1.0f ? 1.0f
                                                  : image.bandwidthRestore;

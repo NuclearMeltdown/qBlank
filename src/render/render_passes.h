@@ -140,6 +140,9 @@ struct ConvertParams {
   // frame woven from two fields, 1 otherwise. The motion search steps up and
   // down by this, so a vertical shift never pairs lines of different fields.
   int32_t motionRows;
+  // 1 = a digital source: the odd pixel's colour is interpolated between its
+  // two colour samples instead of copied from the left one. See FetchYuvCur.
+  int32_t chromaLinear;
 };
 
 // The same for the scale pass, which the delivery pass reuses.
