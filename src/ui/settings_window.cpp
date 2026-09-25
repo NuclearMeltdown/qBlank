@@ -2151,8 +2151,9 @@ void SettingsWindow::DrawImageTab() {
     ImGui::EndDisabled();
     ImGui::SameLine();
     // Derselbe Filter, zwei Beschreibungen, und das ist keine Schoenfaerberei.
-    // Er mittelt vier Bilder; auf Composite loescht das den Farbtraeger, weil
-    // dessen Phase ueber genau vier Bilder umlaeuft, und nebenbei das Rauschen.
+    // Er mittelt einen Umlauf des Farbtraegers (je Quelle gemessen, siehe
+    // VideoRenderer::crawlCycle); auf Composite loescht das den Traeger, und
+    // nebenbei das Rauschen.
     // Ohne Traeger bleibt die zweite Haelfte uebrig, und nur die. Ein Hilfetext,
     // der hier weiter von Punktkriechen redet, beschriebe einen Fehler, den
     // dieser Eingang nicht hat -- und genau daran sah die Liste aus, als sei der
@@ -2165,17 +2166,19 @@ void SettingsWindow::DrawImageTab() {
                    "nothing is moving, at no cost in sharpness at all. Where something moves "
                    "it lets go; the box below picks that up."));
     } else {
-      HelpMarker(T("Mittelt über vier Bilder und entfernt das Punktkriechen dort vollständig, "
-                   "wo sich nichts bewegt -- ohne einen Deut Schärfe zu kosten. Vier, weil der "
-                   "Farbträger eine Folge über vier Bilder durchläuft: bei zwei bliebe alles "
-                   "stehen.\n\n"
+      HelpMarker(T("Mittelt über einen vollen Umlauf des Farbträgers und entfernt das "
+                   "Punktkriechen dort vollständig, wo sich nichts bewegt -- ohne einen Deut "
+                   "Schärfe zu kosten. Der Umlauf wird je Quelle gemessen: vier Bilder bei PAL, "
+                   "zwei bei NTSC nach Lehrbuch, drei bei Konsolen mit eigenem Takt. Über die "
+                   "falsche Zahl gemittelt, bliebe ein Teil des Musters stehen.\n\n"
                    "Fest angehakt, sobald der Regler darunter über null steht: sonst "
                    "bezahlt der Demodulator auch an ruhenden Stellen Schärfe für etwas, "
                    "das hier umsonst ist.",
-                   "Averages over four frames and removes the crawl entirely wherever nothing "
-                   "is moving, at no cost in sharpness at all. Four, because the colour "
-                   "subcarrier walks through a four frame sequence; two would cancel "
-                   "nothing.\n\n"
+                   "Averages over one full cycle of the colour subcarrier and removes the "
+                   "crawl entirely wherever nothing is moving, at no cost in sharpness at all. "
+                   "The cycle is measured per source: four frames for PAL, two for NTSC by "
+                   "the book, three on consoles with a clock of their own. Averaged over the "
+                   "wrong number, part of the pattern would stay.\n\n"
                    "Held on whenever the slider below is above zero: otherwise the "
                    "demodulator pays sharpness on the still parts too, for something that "
                    "is free here."));
