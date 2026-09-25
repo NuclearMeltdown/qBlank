@@ -3110,7 +3110,8 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   sc.maskStrength = Clamp(image.maskStrength, 0.0f, 1.0f);
   // Only meaningful when it is actually below what the card delivers; asking to
   // "recover" a grid wider than the samples there are would invent detail.
-  sc.nativeWidth = image.nativeWidth > 0 && image.nativeWidth < srcW
+  // Without snapping the number only shapes the picture (TargetAspect).
+  sc.nativeWidth = image.nativeSnap && image.nativeWidth > 0 && image.nativeWidth < srcW
                        ? (int32_t)Clamp(image.nativeWidth, 64, 4096)
                        : 0;
 

@@ -588,6 +588,7 @@ json::Value WriteProfile(const Profile& p) {
   img["hue"] = p.image.hue;
   img["procAmpToOutput"] = p.image.procAmpToOutput;
   img["nativeWidth"] = p.image.nativeWidth;
+  img["nativeSnap"] = p.image.nativeSnap;
   img["sourceLines"] = p.image.sourceLines;
   img["scanlines"] = p.image.scanlines;
   img["mask"] = p.image.mask;
@@ -681,6 +682,7 @@ Profile ReadProfile(const json::Value& v) {
   // 16384 rather than a round number: it is the longest texture edge D3D11
   // can address, so nothing this program could draw fits above it anyway.
   p.image.nativeWidth = Clamp(i["nativeWidth"].AsInt(0), 0, 16384);
+  p.image.nativeSnap = i["nativeSnap"].AsBool(true);
   p.image.sourceLines = Clamp(i["sourceLines"].AsInt(0), 0, 16384);
   p.image.scanlines = (float)Clamp(i["scanlines"].AsNumber(0.0), 0.0, 0.5);
   p.image.mask = Clamp(i["mask"].AsInt(0), 0, 2);

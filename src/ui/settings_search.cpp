@@ -156,6 +156,9 @@ const Entry kEntries[] = {
     {Kind::Control, kTabPicture, "nativewidth", "Breite der Quelle", "Source width",
      "SNES|Super Nintendo|NES|PS1|PlayStation|PSX|Mega Drive|Genesis|Amiga|GameCube|PS2|"
      "Dreamcast|N64|256|320|512|640|Konsole|Console|horizontale Auflösung"},
+    {Kind::Control, kTabPicture, "nativesnap", "Kanten aufs Raster einrasten",
+     "Snap edges to the grid",
+     "Pixelraster|Pixel grid|Quadratische Pixel|Square pixels|Breite der Quelle|Source width"},
     {Kind::Section, kTabPicture, "composite", "Rauschen", "Noise",
      "Denoise|Entrauschen|Rauschfilter|Noise reduction|Grieseln|Grain|Körnung"},
     {Kind::Section, kTabPicture, "composite", "Composite-Filter", "Composite filter",

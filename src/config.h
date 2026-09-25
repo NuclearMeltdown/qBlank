@@ -431,6 +431,10 @@ struct ImageSettings {
   // What the source really has across, when the card is sampling it at some
   // other rate. 0 leaves it alone. Display only, like the two below it.
   int nativeWidth = 0;
+  // Ob die Kanten auf dieses Raster einrasten. Aus heisst: die Zahl gilt nur
+  // fuer das Seitenverhaeltnis "Quadratische Pixel", und das Bild geht durch
+  // den Skalierfilter wie ohne Angabe.
+  bool nativeSnap = true;
   // Wie viele Bildzeilen die Quelle wirklich hat, wenn mehr ankommen als sie
   // gezeichnet hat. 0 heisst: selbst herausfinden, so wie es immer war.
   //

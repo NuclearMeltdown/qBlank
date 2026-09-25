@@ -2060,6 +2060,19 @@ void SettingsWindow::DrawImageTab() {
                "The \"Square pixels\" aspect ratio uses the same number: there it sets the "
                "shape of the picture, here the position of the edges."));
 
+  // Die Zahl hat zwei Aufgaben, und nicht jeder will beide: wer nur die Form
+  // fuer "Quadratische Pixel" braucht, will die Kanten nicht mitgezogen haben.
+  // Ausgegraut statt ausgeblendet, damit darunter nichts springt.
+  ImGui::BeginDisabled(img.nativeWidth == 0);
+  ImGui::Checkbox(T("Kanten aufs Raster einrasten", "Snap edges to the grid"), &img.nativeSnap);
+  Anchor("nativesnap");
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  HelpMarker(T("Aus: die Breite gilt nur für die Form bei „Quadratische Pixel“, und das Bild "
+               "geht durch den Filter oben wie ohne Angabe.",
+               "Off: the width only sets the shape for \"Square pixels\", and the picture "
+               "goes through the filter above as if none were given."));
+
   }  // natives Pixelraster, nur analog und nur im Standardraster
 
   if (analogueSource_) {
