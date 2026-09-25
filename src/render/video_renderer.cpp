@@ -3023,17 +3023,14 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   // Kriechen zuerst, oder Ghosting zuerst -- derselbe Ausdruck an zwei
   // Arbeitspunkten.
   //
-  // Das Spiel ist kein Empfindlichkeitsregler, sondern der Rauschboden der
-  // Messung. Wer ihn wegnimmt, laesst den Filter auf ruhendem Bild an- und
-  // abschalten und hat nichts gewonnen. Fuenf von 255 Stufen, beim frueheren
-  // Loslassen vier: das Gatter mittelt ueber drei Zeilen, damit liegt der Boden
-  // niedriger, und die eine Stufe weniger kostet dort weniger Kriechen, als sie
-  // an Fahne spart. Die Flanke ist der eigentliche Unterschied: ganz zu nach 18 Stufen
-  // oder schon nach 9. Dazwischen liegen genau die langsamen, kontrastarmen
-  // Bewegungen, an denen die Fahne sichtbar wird. Gemessen und begruendet am
-  // Gatter selbst, TemporalGate im Shader.
-  cb.motionSlack = image.avoidGhosting ? 0.015f : 0.02f;
-  cb.motionSlope = image.avoidGhosting ? 48.0f : 20.0f;
+  // Das Spiel bleibt in beiden Faellen bei fuenf von 255 Stufen, und zwar
+  // absichtlich: das ist nicht die Empfindlichkeit, sondern der Rauschboden der
+  // Karte. Wer den wegnimmt, laesst den Filter auf ruhendem Bild an- und
+  // abschalten und hat nichts gewonnen. Verschoben wird nur die Flanke: ganz
+  // zu nach 26 Stufen oder schon nach 9. Dazwischen liegen genau die langsamen,
+  // kontrastarmen Bewegungen, an denen die Fahne sichtbar wird.
+  cb.motionSlack = 0.02f;
+  cb.motionSlope = image.avoidGhosting ? 64.0f : 12.0f;
   cb.dotNotch = image.dotNotch < 0.0f   ? 0.0f
                 : image.dotNotch > 1.0f ? 1.0f
                                         : image.dotNotch;

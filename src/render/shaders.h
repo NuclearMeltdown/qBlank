@@ -465,36 +465,9 @@ float TemporalGate(int x, int row) {
   // What separates them is not amount but scale. The shimmer is a fine pattern,
   // a few pixels across -- that is what makes it look like dots -- while a
   // picture that is really moving moves in broad shapes. So the decision is made
-  // on a smoothed picture, where the shimmer has averaged itself away before it
-  // is ever asked about and real movement comes through untouched.
-  //
-  // Across the line the window is exactly two cycles of the subcarrier wide,
-  // edges weighted by how much of them it covers, the same as BoxLuma below: a
-  // box that wide has a null right on the carrier, on every standard. It used to
-  // be seven samples, taken for "a little over two cycles", and that is the
-  // trouble: two cycles are 6.09 samples on PAL, and seven let 14 % of the crawl
-  // through (9 % on NTSC). Down the picture it takes three lines, because the
-  // crawl has no correlation from one line to the next and movement does, so
-  // what leaks at all is cut again.
-  //
-  // But three lines on their own are blind to the thinnest things there are: a
-  // line one pixel high that appears or goes shows at a third of its contrast,
-  // where one line saw all of it. That is what left the rim of a menu's
-  // selection ring standing for three frames after the ring had moved on -- top
-  // and bottom, where the rim runs along the line, which the seven samples had
-  // caught. So the centre line is asked on its own as well, at 0.7 of what it
-  // says: nearly all of a thin line, and little enough of the crawl a single
-  // line lets through that the three lines keep most of their gain.
-  //
-  // The leak was worst with Avoid Ghosting on, and worst on the most detailed
-  // parts of a still picture: the steep gate read the leaked crawl as movement
-  // and let go exactly where the crawl was strongest. Measured on 152 frames of
-  // a PAL menu from this card, a held picture next to a scrolling background:
-  // of the correction the hardest crawling 5 % of the held picture should get,
-  // the seven samples withheld 14 % and this withholds 10 % -- off, 3.2 % and
-  // now 2 %. And it ghosts less for it: the area where the average smears more
-  // than six levels into something that moved goes from 0.93 % to 0.61 % (off,
-  // 3.1 % to 1.9 %), the worst smear from 34 levels to 20 (off, 35 to 27).
+  // on a horizontally smoothed picture, over seven samples, which is a little
+  // over two cycles of the colour subcarrier: the shimmer averages itself away
+  // before it is ever asked about, and real movement comes through untouched.
   //
   // And it is asked of the colour as well as the brightness, which it was not
   // at first. Written on brightness alone this missed the one thing it most
@@ -512,54 +485,38 @@ float TemporalGate(int x, int row) {
   // from 3.8 % to 0.8 %, at a cost of 0.95 to 0.92 in how much of the
   // correction a standing picture keeps. That last number is the one to watch:
   // it is the crawl removal this filter exists for, and it barely moved.
-  //
-  // Seven samples on three lines over four frames on PAL, 84 loads where there
-  // were 28, all in the pass that already runs; nine a line on NTSC. The centre
-  // line's reading is kept aside on the way and costs no load of its own. The
-  // width is capped so that a composite picture some scaler has spread over a
-  // wide raster does not multiply that.
-  float reach = clamp(gCarrierPeriod, 1.0, 6.0);
-  int whole = (int)floor(reach - 0.5 + 1e-4);
-  float frac = reach - 0.5 - float(whole);
   float3 s0 = float3(0.0, 0.0, 0.0), s1 = s0, s2 = s0, s3 = s0;
-  float3 c0 = s0, c1 = s0, c2 = s0, c3 = s0;
-  for (int dy = -1; dy <= 1; ++dy) {
-    float3 r0 = float3(0.0, 0.0, 0.0), r1 = r0, r2 = r0, r3 = r0;
-    for (int dx = -whole - 1; dx <= whole + 1; ++dx) {
-      float w = (abs(dx) <= whole) ? 1.0 : frac;
-      int2 q = int2(x + dx, row + dy);
+  for (int dx = -3; dx <= 3; ++dx) {
+    int2 q = int2(x + dx, row);
 )HLSL"
-R"HLSL(      r0 += GateSampleAt(q, 0) * w;
-      r1 += GateSampleAt(q, 1) * w;
-      if (gCrawlCycle >= 3) r2 += GateSampleAt(q, 2) * w;
-      if (gCrawlCycle >= 4) r3 += GateSampleAt(q, 3) * w;
-    }
-    s0 += r0; s1 += r1; s2 += r2; s3 += r3;
-    if (dy == 0) { c0 = r0; c1 = r1; c2 = r2; c3 = r3; }
+R"HLSL(    s0 += GateSampleAt(q, 0);
+    s1 += GateSampleAt(q, 1);
+    if (gCrawlCycle >= 3) s2 += GateSampleAt(q, 2);
+    if (gCrawlCycle >= 4) s3 += GateSampleAt(q, 3);
   }
   // Only the frames the average takes in. One it leaves out may move all it
   // likes; standing in for it, the current frame changes neither end of the
   // range.
-  if (gCrawlCycle < 3) { s2 = s0; c2 = c0; }
-  if (gCrawlCycle < 4) { s3 = s0; c3 = c0; }
-  float width = float(2 * whole + 1) + 2.0 * frac;
-  float3 d = (max(max(s0, s1), max(s2, s3)) - min(min(s0, s1), min(s2, s3))) / (3.0 * width);
-  float3 e = (max(max(c0, c1), max(c2, c3)) - min(min(c0, c1), min(c2, c3))) * (0.7 / width);
+  if (gCrawlCycle < 3) s2 = s0;
+  if (gCrawlCycle < 4) s3 = s0;
+  float3 chi = max(max(s0, s1), max(s2, s3)) * 0.142857;
+  float3 clo = min(min(s0, s1), min(s2, s3)) * 0.142857;
   // Whichever of the three moved furthest, not their sum: a shift that shows
   // in one channel is a shift, and averaging it with two that stood still
   // would talk it back down to nothing.
-  float moved = max(max(d.x, max(d.y, d.z)), max(e.x, max(e.y, e.z)));
+  float3 d = chi - clo;
+  float moved = max(d.x, max(d.y, d.z));
   // Where the gate lets go, which is the whole trade and therefore a setting.
   //
-  // Held on: five levels out of 255 of slack, fully let go at 18. That is
-  // deliberately late, because the artefact this filter exists for moves by
-  // itself -- let go early and the filter switches off exactly where the crawl
-  // is. The price is that a slowly moving edge is averaged with three older
-  // copies of itself, which is the ghosting.
+  // Held on: five levels out of 255 of slack, then full suppression twenty-odd
+  // levels later. That is deliberately late, because the artefact this filter
+  // exists for moves by itself -- let go early and the filter switches off
+  // exactly where the crawl is. The price is that a slowly moving edge is
+  // averaged with three older copies of itself, which is the ghosting.
   //
-  // Let go early: from four levels, fully let go at nine. Moving edges come out
-  // clean; slow parts of the picture keep some of their crawl, where the
-  // demodulator below picks the work back up.
+  // Let go early: no slack at all and gone within four levels. Moving edges
+  // come out clean; slow parts of the picture keep some of their crawl,
+  // where the demodulator below picks the work back up.
   return 1.0 - saturate((moved - gMotionSlack) * gMotionSlope);
 }
 

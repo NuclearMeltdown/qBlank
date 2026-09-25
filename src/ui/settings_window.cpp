@@ -2242,16 +2242,16 @@ void SettingsWindow::DrawImageTab() {
                    "nie.\n\n"
                    "Aus: das Gatter hält lange fest, entrauscht auch noch langsame Bewegung "
                    "und zieht dafür eine Fahne hinter wandernden Kanten her.\n\n"
-                   "An: das Gatter lässt ab vier von 255 Stufen los, bei neun ganz. "
-                   "Bewegte Kanten bleiben sauber, dafür bleibt ihr Rauschen stehen -- das nimmt der Haken darunter "
+                   "An: das Gatter lässt nach vier von 255 Stufen los. Bewegte Kanten bleiben "
+                   "sauber, dafür bleibt ihr Rauschen stehen -- das nimmt der Haken darunter "
                    "auf.",
                    "Where the averaging lets go of moving parts. Averaging across movement is "
                    "smearing -- this only moves where the trade happens, it never removes "
                    "it.\n\n"
                    "Off: the gate holds on late, denoises slow movement as well, and drags a "
                    "trail behind travelling edges for it.\n\n"
-                   "On: the gate starts letting go at four levels out of 255 and is gone by "
-                   "nine. Moving edges stay clean, their noise stays with them -- and the box below picks that up."));
+                   "On: the gate lets go within four levels out of 255. Moving edges stay "
+                   "clean, their noise stays with them -- and the box below picks that up."));
     } else {
       HelpMarker(T("Wo die Mittelung bei Bewegung loslässt. Mitteln über Bewegung ist "
                    "Schmieren -- der Haken verschiebt den Tausch also nur, weg ist er "
@@ -2260,8 +2260,8 @@ void SettingsWindow::DrawImageTab() {
                    "empfindliches Gatter schaltet den Filter also genau dort ab, wo das "
                    "Artefakt sitzt. Der Preis ist die Fahne hinter langsam wandernden "
                    "Kanten.\n\n"
-                   "An: das Gatter lässt ab vier von 255 Stufen los, bei neun ganz. "
-                   "Bewegte Kanten bleiben sauber, an langsamen Stellen bleibt etwas Kriechen stehen -- dort nimmt "
+                   "An: das Gatter lässt nach vier von 255 Stufen los. Bewegte Kanten bleiben "
+                   "sauber, an langsamen Stellen bleibt etwas Kriechen stehen -- dort nimmt "
                    "der Regler darunter die Arbeit wieder auf.",
                    "Where the averaging lets go of moving parts. Averaging across movement is "
                    "smearing -- this only moves where the trade happens, it never removes "
@@ -2269,8 +2269,8 @@ void SettingsWindow::DrawImageTab() {
                    "Off: the gate holds on late. Dot crawl crawls, so a sensitive gate "
                    "switches the filter off exactly where the artefact is. The price is the "
                    "trail behind slowly travelling edges.\n\n"
-                   "On: the gate starts letting go at four levels out of 255 and is gone by "
-                   "nine. Moving edges stay clean, slow parts keep some crawl -- and there the slider below picks "
+                   "On: the gate lets go within four levels out of 255. Moving edges stay "
+                   "clean, slow parts keep some crawl -- and there the slider below picks "
                    "the work back up."));
     }
 
