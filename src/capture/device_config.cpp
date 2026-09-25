@@ -42,4 +42,10 @@ void DevicePropertyPages::Run() {
   running_.store(false, std::memory_order_release);
 }
 
+void DevicePropertyPages::Reap() {
+  if (running_.load(std::memory_order_acquire)) return;
+  if (thread_.joinable()) thread_.join();
+  show_ = nullptr;
+}
+
 }  // namespace cap

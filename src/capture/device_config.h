@@ -30,6 +30,12 @@ class DevicePropertyPages {
 
   bool busy() const { return running_.load(std::memory_order_relaxed); }
 
+  // Drops the device once the dialog is closed. Until then `show_` keeps the
+  // filter alive, and a card that is never fully closed is never set up afresh
+  // by its driver either. Call before the device goes down; does nothing while
+  // the dialog is still up.
+  void Reap();
+
  private:
   void Run();
 

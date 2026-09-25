@@ -199,7 +199,6 @@ void App::Shutdown() {
   settingsHost_.Destroy();
   StopCapture();
   mic_.Stop();
-  audio_.Stop();
   renderer_.Shutdown();
   ShutdownImGui();
   display_.Shutdown();
@@ -486,6 +485,15 @@ bool App::StartCapture(std::string* error) {
 
 void App::StopCapture() {
   standardSearch_.StopSignalWatch();
+  // Der Ton zuerst, und zwar immer. Er kommt meist von derselben Karte, und
+  // solange sein Filter offen ist, wird die Karte nie ganz geschlossen -- der
+  // Treiber richtet sie dann beim naechsten Oeffnen nicht neu ein. Am 25.09.
+  // blieb HDMI nach dem Wechsel von Composite gruen, durch jedes Neueinlesen
+  // hindurch, und erst ein Neustart von qBlank half: der einzige Weg, auf dem
+  // bis dahin auch der Ton zuging. StartAudio macht ihn nach dem Neubau wieder
+  // auf, wie vorher auch; er geht nur etwas frueher aus.
+  audio_.Stop();
+  devicePages_.Reap();
   capture_.Stop();
   renderer_.DropFrame();
   delayLine_.Clear();
