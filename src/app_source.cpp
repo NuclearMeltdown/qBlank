@@ -101,9 +101,18 @@ bool App::SourceIsAnalogue() const {
   const SignalKind kind = config_.active().capture.signalKind;
   if (kind == SignalKind::Analog) return true;
   if (kind == SignalKind::Digital) return false;
-  const bool hasDecoder = capture_.running() && capture_.capabilities().availableStandards != 0;
+  const DeviceProbeResult& caps = capture_.capabilities();
+  if (!capture_.running() || caps.availableStandards == 0) return false;
+  // Der Eingang weiss es besser als die Bildhoehe: HDMI in 720x576 ist
+  // digital, und genau so lief die Normsuche am 25.09. auf dem HDMI-Eingang
+  // der SA7160 los.
+  int index = config_.active().capture.crossbarInput;
+  if (index < 0) index = caps.currentInput;
+  if (index >= 0 && index < (int)caps.crossbarInputs.size() &&
+      caps.crossbarInputs[(size_t)index].kind == ConnectorKind::Digital)
+    return false;
   const VideoFormatInfo fmt = renderer_.sourceFormat();
-  return hasDecoder && (!fmt.valid() || fmt.height <= 576);
+  return !fmt.valid() || fmt.height <= 576;
 }
 
 // Welcher Anschluss, wenn die Einstellung auf Automatisch steht.

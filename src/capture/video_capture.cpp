@@ -52,6 +52,14 @@ long NativeStandardOf(const DeviceProbeResult& caps, int chosenInput, bool digit
   return caps.currentStandard;
 }
 
+// Ob der gewaehlte Eingang -- oder, wo keiner gewaehlt ist, der, auf dem die
+// Karte steht -- digital ist. Dieselbe Reihenfolge wie oben.
+bool InputIsDigital(const DeviceProbeResult& caps, int chosenInput) {
+  const int index = chosenInput >= 0 ? chosenInput : caps.currentInput;
+  return index >= 0 && index < (int)caps.crossbarInputs.size() &&
+         caps.crossbarInputs[(size_t)index].kind == ConnectorKind::Digital;
+}
+
 std::vector<FormatSel> BuildFormatCandidates(const FormatSel& wanted, const CapsModel& caps,
                                              const CaptureDevice& device) {
   // Cost of one frame in bytes, used to order fallbacks from cheapest upwards.
@@ -180,25 +188,8 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
   // Before the formats are read, not after: the standard decides how many lines
   // the card will produce, and therefore which formats it advertises at all.
   capabilities_.availableStandards = device_->AvailableStandards();
-  // Eine Videonorm gehoert dem Analogdekoder. Eine Karte, die beides kann, hat
-  // ihn trotzdem und meldet die Normen weiterhin -- auf einem HDMI-Eingang sagt
-  // das aber nichts ueber das Signal, und PAL dort zu setzen legt die Karte auf
-  // 720x576 bei 50 Hz fest, obwohl an der Buchse etwas ganz anderes anliegt.
-  //
-  // Wer die Quelle ausdruecklich als digital angegeben hat, meint genau das.
-  const bool digital = settings.signalKind == SignalKind::Digital;
-  if (digital && settings.videoStandard > 0) {
-    CAP_LOG("Source is marked digital, video standard not set");
-  }
-  if (!digital && settings.videoStandard > 0 &&
-      (capabilities_.availableStandards & settings.videoStandard) != 0) {
-    device_->SetStandard(settings.videoStandard);
-  }
-  capabilities_.currentStandard = device_->CurrentStandard();
 
-  capabilities_.caps.Build(device_->Caps());
-
-  // Vorlaeufig, fuer die Formatwahl gleich darunter: ein privater Selektor
+  // Vorlaeufig, fuer Norm und Formatwahl gleich darunter: ein privater Selektor
   // antwortet ohne Graphen, ein Crossbar erst, wenn der Capture-Pin verbunden
   // ist -- und verbunden wird der erst, wenn das Format steht. Wo hier schon
   // etwas zu holen ist, wird es geholt; sonst bleibt stehen, was der vorige Lauf
@@ -209,6 +200,25 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
     capabilities_.crossbarInputs = std::move(earlyInputs);
     capabilities_.currentInput = device_->CurrentInput();
   }
+
+  // Eine Videonorm gehoert dem Analogdekoder. Eine Karte, die beides kann, hat
+  // ihn trotzdem und meldet die Normen weiterhin -- auf einem HDMI-Eingang sagt
+  // das aber nichts ueber das Signal, und PAL dort zu setzen legt die Karte auf
+  // 720x576 bei 50 Hz fest, obwohl an der Buchse etwas ganz anderes anliegt.
+  //
+  // Digital ist, was der Nutzer so angegeben hat, und jeder digitale Eingang.
+  const bool digital = settings.signalKind == SignalKind::Digital ||
+                       InputIsDigital(capabilities_, settings.crossbarInput);
+  if (digital && settings.videoStandard > 0) {
+    CAP_LOG("Digital source, video standard not set");
+  }
+  if (!digital && settings.videoStandard > 0 &&
+      (capabilities_.availableStandards & settings.videoStandard) != 0) {
+    device_->SetStandard(settings.videoStandard);
+  }
+  capabilities_.currentStandard = device_->CurrentStandard();
+
+  capabilities_.caps.Build(device_->Caps());
   capabilities_.caps.SetNativeStandard(
       NativeStandardOf(capabilities_, settings.crossbarInput, digital));
   capabilities_.ok = true;
@@ -352,13 +362,6 @@ bool VideoCapture::PumpEvents(std::string* message) {
     if (message) *message = said.shown;
   }
   return fatal;
-}
-
-bool VideoCapture::SetCrossbarInput(int index) {
-  if (!device_) return false;
-  const bool ok = device_->RouteInput(index);
-  capabilities_.currentInput = device_->CurrentInput();
-  return ok;
 }
 
 }  // namespace cap

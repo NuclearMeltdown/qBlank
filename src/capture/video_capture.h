@@ -82,9 +82,6 @@ class VideoCapture {
   // condition (device lost, abort); `message` then describes it.
   bool PumpEvents(std::string* message);
 
-  // Switches the crossbar input on a running device, no restart needed.
-  bool SetCrossbarInput(int index);
-
   // 1 locked, 0 not, -1 when the card cannot say. Polled by the automatic
   // standard selection; cheap enough to ask a few times a second.
   int signalLocked() const { return device_ ? device_->SignalLocked() : -1; }

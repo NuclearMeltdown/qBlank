@@ -527,6 +527,10 @@ void VideoStandardSearch::UpdateSignalWatch() {
     return;
   }
   StopSignalWatch();
+  SourceChanged();
+}
+
+void VideoStandardSearch::SourceChanged() {
   // Eine halb gelaufene Suche darf nicht liegen bleiben. Kommt spaeter doch
   // eine analoge Quelle, faengt sie von vorne an statt in der Mitte der Liste.
   standardCandidate_ = -1;

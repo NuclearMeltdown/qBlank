@@ -21,6 +21,24 @@ const int kRetryBackoffAfter = 5;
 // Hide the pointer after this much stillness in fullscreen.
 const double kCursorIdleSeconds = 2.0;
 
+// Aufloesung wieder suchen lassen, das Pixelformat nicht. Eine Karte, die eben
+// noch RGB32 konnte, kann es danach immer noch, und wer es ausgewaehlt hat, will
+// es nicht jedes Mal neu auswaehlen. Kann sie es wirklich nicht mehr, faellt die
+// Auswahl beim Start zurueck.
+//
+// Dieselbe Unterscheidung wie in ReleaseStandardBoundFormat: eine Zahl haengt an
+// dem Format, das gerade weggeworfen wird, eine Betriebsart nicht. "Die des
+// Signals" ist keine Messung, die neu gemacht werden muesste, sondern die
+// Anweisung, wie danach zu antworten ist -- sonst stuende hinterher wieder
+// "hoechste verfuegbare" da, obwohl niemand das ausgesucht hat.
+void DropResolution(FormatSel& f) {
+  std::string subtype = std::move(f.subtype);
+  const double fps = f.fps <= 0.0 ? f.fps : kFpsNative;
+  f = FormatSel{};
+  f.subtype = std::move(subtype);
+  f.fps = fps;
+}
+
 }  // namespace
 
 // ------------------------------------------------------------ FrameDelayLine
@@ -558,23 +576,10 @@ void App::ReinitialiseCard() {
 
   CaptureSettings& c = config_.active().capture;
   const bool hadStandard = c.videoStandard > 0;
-  const std::string keptSubtype = c.format.subtype;
-  // Dieselbe Unterscheidung wie in ReleaseStandardBoundFormat: eine Zahl haengt
-  // an dem Format, das gerade weggeworfen wird, eine Betriebsart nicht. "Die des
-  // Signals" ist keine Messung, die neu gemacht werden muesste, sondern die
-  // Anweisung, wie nach dem Neueinlesen zu antworten ist -- und die soll das
-  // Neueinlesen nicht loeschen. Sonst steht hinterher wieder "hoechste
-  // verfuegbare" da, obwohl niemand das ausgesucht hat.
-  const double keptFps = c.format.fps <= 0.0 ? c.format.fps : kFpsNative;
   c.videoStandard = -1;  // wieder suchen lassen
-
-  // Aufloesung wieder suchen lassen, das Pixelformat nicht. Eine Karte, die eben
-  // noch RGB32 konnte, kann es nach dem Neueinlesen immer noch, und wer es
-  // ausgewaehlt hat, will es nicht jedes Mal neu auswaehlen. Kann sie es
-  // wirklich nicht mehr, faellt die Auswahl beim Start zurueck.
-  c.format = FormatSel{};
-  c.format.subtype = keptSubtype;
-  c.format.fps = keptFps;
+  DropResolution(c.format);
+  const std::string& keptSubtype = c.format.subtype;
+  standardSearch_.SourceChanged();
 
   // Die Geraeteliste ebenfalls, denn eine umgesteckte Karte kann unter einem
   // anderen Pfad auftauchen als der, den wir uns gemerkt haben.
@@ -661,6 +666,21 @@ void App::SyncConfigChanges() {
   // rebuilt. Everything else is applied without interrupting the picture.
   const bool profileChanged = config_.activeProfile != applied_.activeProfile;
   const bool deviceChanged = !(p.capture.video == applied_.video);
+  // Ein anderer Eingang ist eine andere Quelle, nicht nur ein anderer Weg.
+  // Umgeschaltet wurde frueher nur das Routing, und dann blieb das alte Format
+  // stehen: am 25.09. lief HDMI in 720x576, die Normsuche lief auf dem
+  // HDMI-Eingang, und Composite danach blieb ohne Bild, bis die Karte von Hand
+  // neu eingelesen wurde. Also derselbe Weg wie dort, nur ohne eine
+  // festgelegte Norm anzufassen -- die hat jemand ausgesucht.
+  const bool inputChanged = !profileChanged && !deviceChanged &&
+                            p.capture.crossbarInput != applied_.crossbarInput;
+  if (inputChanged) {
+    CAP_LOG("Input changed: %d -> %d, rebuilding the graph, resolution searched again",
+            applied_.crossbarInput, p.capture.crossbarInput);
+    DropResolution(config_.active().capture.format);
+    standardSearch_.SourceChanged();
+    renderer_.ResetAnalysis();
+  }
   const bool formatChanged = !p.capture.format.SameFormat(applied_.format) ||
                              std::abs(p.capture.format.fps - applied_.format.fps) > 0.01;
   // A different standard usually means a different number of lines, so the graph
@@ -697,7 +717,7 @@ void App::SyncConfigChanges() {
     standardSearch_.StartOver();
   }
 
-  if (profileChanged || deviceChanged || formatChanged || standardChanged) {
+  if (profileChanged || deviceChanged || inputChanged || formatChanged || standardChanged) {
     std::string error;
     if (!StartCapture(&error)) {
       // Keep the dialog open on the failing setting instead of closing over it.
@@ -707,13 +727,6 @@ void App::SyncConfigChanges() {
     CaptureAppliedState();
     UpdatePowerRequest();
     return;
-  }
-
-  if (p.capture.crossbarInput != applied_.crossbarInput) {
-    capture_.SetCrossbarInput(p.capture.crossbarInput);
-    // A different input is a different signal on the same format: levels, field
-    // structure and where the picture sits all have to be measured again.
-    renderer_.ResetAnalysis();
   }
 
   const bool audioRouteChanged = p.capture.audioSource != applied_.audioSource ||

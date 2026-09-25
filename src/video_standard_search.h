@@ -87,6 +87,9 @@ class VideoStandardSearch {
   // Back to the first candidate, for a switch from a fixed standard back to
   // automatic.
   void StartOver();
+  // Anderer Eingang oder neu initialisierte Karte: was die Suche ueber die
+  // alte Quelle wusste, gilt nicht mehr. Die Uhr des Signalwaechters bleibt.
+  void SourceChanged();
 
  private:
   void ResetStandardColourCheck();
