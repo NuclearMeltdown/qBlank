@@ -85,6 +85,8 @@ class SettingsWindow {
   // The updater lives in the app; the dialog only drives it and shows what it
   // reports.
   void SetUpdater(Updater* updater) { updater_ = updater; }
+  // The same for ffmpeg: the check at startup and its popup use it too.
+  void SetFfmpegDownloader(FfmpegDownloader* downloader) { downloader_ = downloader; }
   // Set when the user asked to restart: into a freshly installed build, or onto
   // the other renderer.
   bool takeRestartRequest();
@@ -305,7 +307,7 @@ class SettingsWindow {
   int renameTarget_ = -1;
 
   // Recording tab.
-  FfmpegDownloader downloader_;
+  FfmpegDownloader* downloader_ = nullptr;
   Remuxer remuxer_;
 
   // One dialog at a time, tagged so the result finds its way back. The tags are

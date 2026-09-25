@@ -6,10 +6,12 @@
 #include "i18n.h"
 #include "imgui.h"
 #include "platform.h"
+#include "record/ffmpeg_locator.h"
 
 namespace cap {
 
-StartupNotices::StartupNotices(Updater& updater, Host& host) : updater_(updater), host_(host) {}
+StartupNotices::StartupNotices(Updater& updater, FfmpegDownloader& ffmpeg, Host& host)
+    : updater_(updater), ffmpeg_(ffmpeg), host_(host) {}
 
 void StartupNotices::QueueCrashNotice(const UnfinishedSession& session) {
   unfinishedSession_ = session;
@@ -38,7 +40,7 @@ void StartupNotices::DrawUpdatePrompt() {
   // Not over the crash notice or the welcome: opened at the same level, it
   // would replace them.
   if (updatePromptQueued_ && !ImGui::IsPopupOpen("###crash_notice") &&
-      !ImGui::IsPopupOpen("###welcome")) {
+      !ImGui::IsPopupOpen("###welcome") && !ImGui::IsPopupOpen("###ffmpeg_update")) {
     ImGui::OpenPopup(id);
     updatePromptQueued_ = false;
   }
@@ -98,6 +100,97 @@ void StartupNotices::DrawUpdatePrompt() {
     // something that fits; the page has the whole of them, the file, and the
     // history above it.
     OpenReleasePage(st);
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::EndPopup();
+}
+
+void StartupNotices::DrawFfmpegPrompt() {
+  // Same rules as for qBlank itself: from the check at startup only, and once.
+  if (!ffmpegPromptRaised_ && ffmpeg_.announced() && ffmpeg_.updateAvailable() &&
+      ffmpeg_.state() == FfmpegDownloader::State::Done) {
+    ffmpegPromptRaised_ = true;
+    ffmpegPromptQueued_ = true;
+  }
+
+  const char* id = T("ffmpeg-Update verfügbar###ffmpeg_update",
+                     "ffmpeg update available###ffmpeg_update");
+  if (ffmpegPromptQueued_ && !ImGui::IsPopupOpen("###crash_notice") &&
+      !ImGui::IsPopupOpen("###welcome") && !ImGui::IsPopupOpen("###app_update")) {
+    ImGui::OpenPopup(id);
+    ffmpegPromptQueued_ = false;
+  }
+
+  if (ffmpegUpdating_ && !ffmpeg_.busy() && !ImGui::IsPopupOpen(id)) {
+    ffmpegUpdating_ = false;
+    host_.Toast(ffmpeg_.message());
+  }
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                 viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+                          ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  const std::string remote = ffmpeg_.remoteVersion();
+  const FfmpegDownloader::State state = ffmpeg_.state();
+  const bool busy = ffmpeg_.busy();
+  const bool installed = ffmpegUpdating_ && state == FfmpegDownloader::State::Done;
+  const float buttonWidth = 130.0f * host_.UiScale();
+
+  if (!installed) {
+    const std::string current = ffmpeg_.installedVersion();
+    ImGui::Text(T("ffmpeg %s ist verfügbar.", "ffmpeg %s is available."), remote.c_str());
+    ImGui::TextDisabled(T("Installiert ist %s.", "%s is installed."), current.c_str());
+    if (IsMajorFfmpegStep(remote, current)) {
+      ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+      ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.35f, 1.0f), "%s",
+                         T("Neue Hauptversion: Dort fallen manchmal Optionen weg. Danach "
+                           "einmal kurz zur Probe aufnehmen.",
+                           "A new major version: options sometimes go away there. Make a "
+                           "short test recording afterwards."));
+      ImGui::PopTextWrapPos();
+    }
+  }
+  ImGui::Spacing();
+
+  if (busy) {
+    const float p = ffmpeg_.progress();
+    // As wide as the two buttons: a window that sizes itself has no width of
+    // its own for the bar to fill.
+    if (p >= 0.0f) {
+      ImGui::ProgressBar(p, ImVec2(buttonWidth * 2.0f + ImGui::GetStyle().ItemSpacing.x, 0.0f));
+    }
+    ImGui::TextDisabled("%s", ffmpeg_.message().c_str());
+  } else if (ffmpegUpdating_) {
+    const bool failed = state == FfmpegDownloader::State::Failed;
+    ImGui::TextColored(failed ? ImVec4(0.95f, 0.5f, 0.35f, 1.0f) : ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
+                       "%s", ffmpeg_.message().c_str());
+  }
+
+  ImGui::Spacing();
+
+  if (installed) {
+    if (ImGui::Button("OK", ImVec2(buttonWidth, 0))) {
+      ffmpegUpdating_ = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+    return;
+  }
+
+  ImGui::BeginDisabled(busy);
+  if (ImGui::Button(T("Aktualisieren", "Update"), ImVec2(buttonWidth, 0))) {
+    // The one being replaced may be running; the download steps round it.
+    if (ffmpeg_.Start(OwnFfmpegFolder())) ffmpegUpdating_ = true;
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  // While it runs, "Later" only closes the window: the download carries on and
+  // says how it went when it is done.
+  if (ImGui::Button(busy ? T("Ausblenden", "Hide") : T("Später", "Later"),
+                    ImVec2(buttonWidth, 0))) {
+    if (!busy) ffmpegUpdating_ = false;
     ImGui::CloseCurrentPopup();
   }
   ImGui::EndPopup();

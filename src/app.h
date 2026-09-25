@@ -25,6 +25,7 @@
 #include "common.h"
 #include "config.h"
 #include "crop_tool.h"
+#include "record/ffmpeg_download.h"
 #include "record/recorder.h"
 #include "recording_control.h"
 #include "render/display.h"
@@ -415,6 +416,10 @@ class App {
   DevicePropertyPages devicePages_;
   SettingsHost settingsHost_;
   Updater updater_;
+  FfmpegDownloader ffmpegDownloader_;
+  // A download finished while a recording or an encoder test ran; ffmpeg is
+  // looked for again once they are over.
+  bool ffmpegRelocate_ = false;
   CameraSink virtualCamera_;
   // Refilled once a frame rather than allocated once a frame.
   std::vector<CameraSink::Consumer> virtualCameraConsumers_;
@@ -462,7 +467,7 @@ class App {
     App& app_;
   };
   NoticesHost noticesHost_{*this};
-  StartupNotices notices_{updater_, noticesHost_};
+  StartupNotices notices_{updater_, ffmpegDownloader_, noticesHost_};
 
   // What woke the main loop last time round, and when it last drew. Together
   // they keep the preview paced by the picture rather than by the message

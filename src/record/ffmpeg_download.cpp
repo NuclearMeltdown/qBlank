@@ -5,6 +5,7 @@
 #include "files.h"
 #include "http.h"
 #include "i18n.h"
+#include "record/ffmpeg_locator.h"
 
 namespace cap {
 namespace {
@@ -54,6 +55,22 @@ std::string DownloadText(const char* url) {
 
 }  // namespace
 
+std::filesystem::path OwnFfmpegFolder() { return ExeFolder() / "ffmpeg"; }
+
+bool IsOwnFfmpeg(const std::string& path) {
+  return !path.empty() && Utf8ToPath(path) == OwnFfmpegFolder() / "ffmpeg.exe";
+}
+
+void FfmpegDownloader::CleanUp(const std::filesystem::path& targetFolder) {
+  const std::filesystem::path old = targetFolder / "ffmpeg.exe.old";
+  if (IsFile(old)) RemoveFile(old);
+  const std::filesystem::path staging = targetFolder / "new";
+  if (PathExists(staging)) {
+    RemoveFile(staging / "ffmpeg.exe");
+    RemoveFile(staging);  // takes an empty folder as well
+  }
+}
+
 FfmpegDownloader::~FfmpegDownloader() {
   Cancel();
   if (thread_.joinable()) thread_.join();
@@ -78,6 +95,11 @@ std::string FfmpegDownloader::resultPath() const {
   return resultPath_;
 }
 
+std::string FfmpegDownloader::installedVersion() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return installedVersion_;
+}
+
 void FfmpegDownloader::SetMessage(const std::string& text) {
   std::lock_guard<std::mutex> lock(mutex_);
   message_ = text;
@@ -93,9 +115,14 @@ bool FfmpegDownloader::Start(const std::filesystem::path& targetFolder) {
   return true;
 }
 
-bool FfmpegDownloader::StartVersionCheck() {
+bool FfmpegDownloader::StartVersionCheck(const std::string& installed, bool announce) {
   if (busy()) return false;
   if (thread_.joinable()) thread_.join();
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    installedVersion_ = installed;
+  }
+  announce_.store(announce, std::memory_order_relaxed);
   cancel_.store(false, std::memory_order_relaxed);
   state_.store(State::Running, std::memory_order_relaxed);
   thread_ = std::thread(&FfmpegDownloader::Run, this, std::filesystem::path(), true);
@@ -118,6 +145,19 @@ void FfmpegDownloader::Run(std::filesystem::path targetFolder, bool versionOnly)
   if (versionOnly) {
     if (version.empty()) {
       finish(false, CAP_SAID(T("Version konnte nicht ermittelt werden.", "Could not determine the version.")));
+      return;
+    }
+    const std::string installed = installedVersion();
+    const bool newer = IsNewerFfmpeg(version, installed);
+    updateAvailable_.store(newer, std::memory_order_relaxed);
+    if (newer) {
+      CAP_LOG("ffmpeg update available: %s (installed %s)", version.c_str(), installed.c_str());
+      finish(true, CAP_SAID(Format(T("ffmpeg %s ist verfügbar, installiert ist %s.",
+                                     "ffmpeg %s is available, %s is installed."),
+                                   version.c_str(), installed.c_str())));
+    } else if (!installed.empty()) {
+      finish(true, CAP_SAID(Format(T("Aktuell (neueste ist %s).", "Up to date (newest is %s)."),
+                                   version.c_str())));
     } else {
       finish(true, CAP_SAID(T("Neueste Version: ", "Latest version: ") + version));
     }
@@ -189,29 +229,62 @@ void FfmpegDownloader::Run(std::filesystem::path targetFolder, bool versionOnly)
   }
 
   // --- extract ---
+  // Into a folder of its own first, and only then over the old one. ffmpeg.exe
+  // may be running -- a recording, a remux -- and a running program cannot be
+  // written over. It can be renamed, though: the old one steps aside, the new
+  // one takes its name, and the old file goes once nothing has it open.
   SetMessage(T("Entpacke ...", "Extracting ..."));
-  EnsureFolder(targetFolder);
+  CleanUp(targetFolder);
+  const std::filesystem::path staging = targetFolder / "new";
+  EnsureFolder(staging);
   std::string extractError;
   // Two folders deep in every one of these archives: ffmpeg-<version>/bin/.
-  if (!ExtractFromZip(archive, "*/bin/ffmpeg.exe", 2, targetFolder, &extractError)) {
+  if (!ExtractFromZip(archive, "*/bin/ffmpeg.exe", 2, staging, &extractError)) {
     RemoveFile(archive);
+    CleanUp(targetFolder);
     finish(false, Relayed(extractError));
     return;
   }
   RemoveFile(archive);
 
-  const std::filesystem::path exe = targetFolder / "ffmpeg.exe";
-  if (!IsFile(exe)) {
+  const std::filesystem::path fresh = staging / "ffmpeg.exe";
+  if (!IsFile(fresh)) {
+    CleanUp(targetFolder);
     finish(false, CAP_SAID(T("ffmpeg.exe war nicht im Archiv.", "ffmpeg.exe was not in the archive.")));
     return;
   }
+  const std::filesystem::path exe = targetFolder / "ffmpeg.exe";
+  const std::filesystem::path old = targetFolder / "ffmpeg.exe.old";
+  const bool replacing = IsFile(exe);
+  if (replacing && !RenameOver(exe, old)) {
+    CleanUp(targetFolder);
+    finish(false, CAP_SAID(T("Das bisherige ffmpeg.exe ließ sich nicht ersetzen.",
+                             "The existing ffmpeg.exe could not be replaced.")));
+    return;
+  }
+  if (!RenameOver(fresh, exe)) {
+    if (replacing) RenameOver(old, exe);
+    CleanUp(targetFolder);
+    finish(false, CAP_SAID(T("Das neue ffmpeg.exe ließ sich nicht einsetzen.",
+                             "The new ffmpeg.exe could not be put in place.")));
+    return;
+  }
+  // Fails while the old one still runs; the next start or download takes it.
+  CleanUp(targetFolder);
+
   {
     std::lock_guard<std::mutex> lock(mutex_);
     resultPath_ = PathToUtf8(exe);
+    installedVersion_ = version;
   }
+  updateAvailable_.store(false, std::memory_order_relaxed);
+  installed_.store(true, std::memory_order_relaxed);
   progress_.store(1.0f);
   CAP_LOG("ffmpeg downloaded: %s (version %s)", PathToUtf8(exe).c_str(), version.c_str());
-  finish(true, CAP_SAID(T("ffmpeg ist bereit.", "ffmpeg is ready.")));
+  finish(true, CAP_SAID(version.empty()
+                            ? std::string(T("ffmpeg ist bereit.", "ffmpeg is ready."))
+                            : Format(T("ffmpeg %s ist bereit.", "ffmpeg %s is ready."),
+                                     version.c_str())));
 }
 
 }  // namespace cap

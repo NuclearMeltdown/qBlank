@@ -181,7 +181,16 @@ bool App::Initialize() {
   // is sorted out and the settings are read -- both of which would otherwise
   // work on the wrong file.
   CameraSink::CleanUpOldInstalls();
-  if (config_.app.checkUpdatesOnStart) updater_.CheckAsync(true);
+  FfmpegDownloader::CleanUp(OwnFfmpegFolder());
+  if (config_.app.checkUpdatesOnStart) {
+    updater_.CheckAsync(true);
+    // ffmpeg as well, but only the one a download put there: that is the one an
+    // update can replace. A git build has no release number to compare with.
+    const FfmpegInfo& ffmpeg = recording_.ffmpeg();
+    if (ffmpeg.found && !ffmpeg.number.empty() && IsOwnFfmpeg(ffmpeg.path)) {
+      ffmpegDownloader_.StartVersionCheck(ffmpeg.number, true);
+    }
+  }
 
   running_ = true;
   return true;
@@ -1062,6 +1071,8 @@ void App::UpdateProfileForStandard() {
 void App::Tick() {
   UpdatePowerRequest();
   recording_.CollectEncoderProbe();
+  if (ffmpegDownloader_.TakeInstalled()) ffmpegRelocate_ = true;
+  if (ffmpegRelocate_ && recording_.RelocateFfmpeg()) ffmpegRelocate_ = false;
   // Erst entscheiden, ob der Decoder ueberhaupt befragt wird, dann das
   // Ergebnis benutzen. Beim Start der Aufnahme steht das Format noch nicht
   // fest, der Wachthread laeuft also zunaechst an und wird hier ein Bild

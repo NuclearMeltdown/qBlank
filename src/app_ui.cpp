@@ -864,6 +864,7 @@ void App::DrawUi() {
                                                : 0);
   settings_.SetProbeAllowed(captureState_ != CaptureState::Reconnecting);
   settings_.SetUpdater(&updater_);
+  settings_.SetFfmpegDownloader(&ffmpegDownloader_);
   settings_.SetGraphicsBackend(GraphicsApiBuilt(GraphicsApi::Vulkan),
                                display_.api() == GraphicsApi::Vulkan);
   // Auto means: analogue when the card has a decoder for it. A card that only
@@ -930,6 +931,7 @@ void App::DrawUi() {
   notices_.DrawWelcome();
   notices_.DrawCrashNotice();
   notices_.DrawUpdatePrompt();
+  notices_.DrawFfmpegPrompt();
   if (settings_.takeRestartRequest()) QuitAndRestart();
 
   // Everything above may have edited the configuration in place, so act on it

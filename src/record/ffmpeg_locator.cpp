@@ -47,7 +47,63 @@ std::string FirstLine(const std::string& text) {
   return end == std::string::npos ? text : text.substr(0, end);
 }
 
+// "9.0.1" -> {9, 0, 1}. Stops at the first thing that is not a number.
+std::vector<int> NumberParts(const std::string& number) {
+  std::vector<int> parts;
+  size_t i = 0;
+  while (i < number.size() && isdigit((unsigned char)number[i])) {
+    int value = 0;
+    while (i < number.size() && isdigit((unsigned char)number[i])) {
+      value = value * 10 + (number[i] - '0');
+      ++i;
+    }
+    parts.push_back(value);
+    if (i < number.size() && number[i] == '.') ++i;
+  }
+  return parts;
+}
+
 }  // namespace
+
+std::string FfmpegReleaseNumber(const std::string& versionLine) {
+  const char kPrefix[] = "ffmpeg version ";
+  const size_t at = versionLine.find(kPrefix);
+  if (at == std::string::npos) return {};
+  size_t from = at + sizeof(kPrefix) - 1;
+  if (from < versionLine.size() && versionLine[from] == 'n') ++from;
+  size_t to = from;
+  while (to < versionLine.size() &&
+         (isdigit((unsigned char)versionLine[to]) || versionLine[to] == '.')) {
+    ++to;
+  }
+  std::string number = versionLine.substr(from, to - from);
+  while (!number.empty() && number.back() == '.') number.pop_back();
+  // A git build starts with a date, "2026-03-31-git-...", which would read as
+  // the number 2026. A release always has a dot in it; the date does not.
+  if (number.empty() || !isdigit((unsigned char)number[0]) ||
+      number.find('.') == std::string::npos) {
+    return {};
+  }
+  return number;
+}
+
+bool IsNewerFfmpeg(const std::string& remote, const std::string& installed) {
+  const std::vector<int> a = NumberParts(remote);
+  const std::vector<int> b = NumberParts(installed);
+  if (a.empty() || b.empty()) return false;
+  for (size_t i = 0; i < std::max(a.size(), b.size()); ++i) {
+    const int x = i < a.size() ? a[i] : 0;
+    const int y = i < b.size() ? b[i] : 0;
+    if (x != y) return x > y;
+  }
+  return false;
+}
+
+bool IsMajorFfmpegStep(const std::string& remote, const std::string& installed) {
+  const std::vector<int> a = NumberParts(remote);
+  const std::vector<int> b = NumberParts(installed);
+  return !a.empty() && !b.empty() && a[0] != b[0];
+}
 
 
 // ------------------------------------------------------------------ locating
@@ -91,6 +147,7 @@ FfmpegInfo LocateFfmpeg(const std::string& configuredPath) {
   info.found = true;
   info.path = PathToUtf8(found);
   info.version = FirstLine(output);
+  info.number = FfmpegReleaseNumber(info.version);
   CAP_LOG("ffmpeg found: %s (%s)", info.path.c_str(), info.version.c_str());
   return info;
 }

@@ -73,6 +73,16 @@ void RecordingControl::CollectEncoderProbe() {
   SaveCachedEncoders();
 }
 
+bool RecordingControl::RelocateFfmpeg() {
+  if (probing_.load(std::memory_order_relaxed) || probeDone_.load(std::memory_order_acquire) ||
+      recorder_.recording()) {
+    return false;
+  }
+  ffmpeg_ = LocateFfmpeg(config_.record.ffmpegPath);
+  LoadCachedEncoders();
+  return true;
+}
+
 std::string RecordingControl::EncoderSignature() const {
   // The ffmpeg build belongs in here as well as the hardware: a different build
   // can be missing an encoder the last one had, and would then be judged by a

@@ -1,12 +1,13 @@
 #pragma once
 
-// The three notices that can come up by themselves around a start: an update
-// is available, the previous session did not end normally, and the welcome on
-// the very first start.
+// The notices that can come up by themselves around a start: an update is
+// available, for qBlank or for its ffmpeg, the previous session did not end
+// normally, and the welcome on the very first start.
 
 #include <string>
 
 #include "common.h"
+#include "record/ffmpeg_download.h"
 #include "update/updater.h"
 
 namespace cap {
@@ -23,7 +24,7 @@ class StartupNotices {
     virtual void Restart() = 0;
   };
 
-  StartupNotices(Updater& updater, Host& host);
+  StartupNotices(Updater& updater, FfmpegDownloader& ffmpeg, Host& host);
 
   void QueueCrashNotice(const UnfinishedSession& session);
   // Only the shortcuts that are missing are offered.
@@ -32,6 +33,8 @@ class StartupNotices {
   // The one-off notice when the check made at startup finds something. Shown in
   // the picture, because a tab nobody opened is not a notice.
   void DrawUpdatePrompt();
+  // The same for the ffmpeg a download put next to qBlank.
+  void DrawFfmpegPrompt();
   // Once, when the log's previous session never got its end line.
   void DrawCrashNotice();
   // On the very first start: shortcuts in the start menu and on the desktop?
@@ -44,10 +47,16 @@ class StartupNotices {
   void OpenReleasePage(const UpdateStatus& status);
 
   Updater& updater_;
+  FfmpegDownloader& ffmpeg_;
   Host& host_;
 
   bool updatePromptQueued_ = false;   // waiting to be opened
   bool updatePromptRaised_ = false;   // already shown once this session
+  bool ffmpegPromptQueued_ = false;
+  bool ffmpegPromptRaised_ = false;
+  // Started from the prompt and not reported yet: closed with "Later" while it
+  // runs, the result still gets said.
+  bool ffmpegUpdating_ = false;
   UnfinishedSession unfinishedSession_;  // what the crash notice reports
   bool crashNoticeQueued_ = false;
   // The first start's question: which shortcuts are missing, and which of

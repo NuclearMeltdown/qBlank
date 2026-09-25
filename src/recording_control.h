@@ -54,6 +54,12 @@ class RecordingControl {
   void LoadCachedEncoders();
   void SaveCachedEncoders();
   void CollectEncoderProbe();
+  // A download has put a new ffmpeg in place: find it again, so the version
+  // shown is the one on disk and the old build's encoder test no longer counts
+  // for it. False while that has to wait -- an encoder test would bring the old
+  // one back when it lands, and during a recording the moment it takes to run
+  // "ffmpeg -version" belongs to the recording.
+  bool RelocateFfmpeg();
 
   void ToggleRecording();
   void StartRecording();

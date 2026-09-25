@@ -865,10 +865,12 @@ void SettingsWindow::DrawUpdatesTab() {
                   &app.checkUpdatesOnStart);
   Anchor("updatestartup");
   ImGui::SameLine();
-  HelpMarker(T("Fragt die Releases auf GitHub ab. Heruntergeladen wird nichts, solange du "
-               "es nicht verlangst.",
-               "Asks GitHub for the newest release. Nothing is downloaded until you ask "
-               "for it."));
+  HelpMarker(T("Fragt die Releases auf GitHub ab, und bei einem ffmpeg, das qBlank selbst "
+               "geladen hat, auch gyan.dev nach dessen neuester Version. Heruntergeladen wird "
+               "nichts, solange du es nicht verlangst.",
+               "Asks GitHub for the newest release, and gyan.dev for the newest ffmpeg when "
+               "qBlank downloaded the one in use. Nothing is downloaded until you ask for "
+               "it."));
 
   if (!updater_) return;
   const UpdateStatus st = updater_->status();
@@ -3402,11 +3404,11 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
 
 void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
   RecordSettings& rec = cfg().record;
-  const bool busy = downloader_.busy();
+  const bool found = ffmpeg && ffmpeg->found;
 
   ImGui::SeparatorText("ffmpeg");
   Anchor("ffmpeg");
-  if (ffmpeg && ffmpeg->found) {
+  if (found) {
     ImGui::TextWrapped("%s", ffmpeg->version.c_str());
     ImGui::TextDisabled("%s", ffmpeg->path.c_str());
   } else {
@@ -3415,32 +3417,66 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
           "No recording without ffmpeg. Screenshots work regardless."));
   }
 
-  ImGui::BeginDisabled(busy);
-  if (ImGui::Button(ffmpeg && ffmpeg->found ? T("Neu herunterladen", "Download again")
-                                            : T("ffmpeg herunterladen", "Download ffmpeg"))) {
-    downloader_.Start(ExeFolder() / "ffmpeg");
-  }
-  ImGui::SetItemTooltip(T("Statisches Build von gyan.dev, rund 106 MB, SHA-256 wird geprüft.",
-                          "Static build from gyan.dev, about 106 MB, SHA-256 is verified."));
-  ImGui::SameLine();
-  if (ImGui::Button(T("Auf Updates prüfen", "Check for updates"))) {
-    downloader_.StartVersionCheck();
-  }
-  ImGui::EndDisabled();
+  if (downloader_) {
+    FfmpegDownloader& dl = *downloader_;
+    const bool busy = dl.busy();
+    const FfmpegDownloader::State state = dl.state();
+    // Only what the check said about the ffmpeg shown above: after a new path
+    // or a download the comparison is with something that is no longer there.
+    const bool update = dl.updateAvailable() && found &&
+                        dl.installedVersion() == ffmpeg->number;
+    const bool own = found && IsOwnFfmpeg(ffmpeg->path);
+    const std::string remote = dl.remoteVersion();
 
-  if (busy) {
-    const float p = downloader_.progress();
-    if (p >= 0.0f) ImGui::ProgressBar(p, ImVec2(-1.0f, 0.0f));
-    ImGui::TextDisabled("%s", downloader_.message().c_str());
+    ImGui::BeginDisabled(busy);
+    std::string label = found ? T("Neu herunterladen", "Download again")
+                              : T("ffmpeg herunterladen", "Download ffmpeg");
+    if (update && own) label = Format(T("Aktualisieren auf %s", "Update to %s"), remote.c_str());
+    if (ImGui::Button((label + "##ffmpegget").c_str())) dl.Start(OwnFfmpegFolder());
+    ImGui::SetItemTooltip(T("Statisches Build von gyan.dev, rund 106 MB, SHA-256 wird geprüft.",
+                            "Static build from gyan.dev, about 106 MB, SHA-256 is verified."));
     ImGui::SameLine();
-    if (ImGui::SmallButton(T("Abbrechen", "Cancel"))) downloader_.Cancel();
-  } else if (downloader_.state() != FfmpegDownloader::State::Idle) {
-    const bool failed = downloader_.state() == FfmpegDownloader::State::Failed;
-    ImGui::TextColored(failed ? ImVec4(0.95f, 0.5f, 0.35f, 1.0f) : ImVec4(0.5f, 0.85f, 0.5f, 1.0f),
-                       "%s", downloader_.message().c_str());
-    // A fresh download only counts once the locator has confirmed it runs.
-    if (!failed && !downloader_.resultPath().empty() && ffmpeg && !ffmpeg->found) {
-      *ffmpeg = LocateFfmpeg(rec.ffmpegPath);
+    if (ImGui::Button(T("Auf Updates prüfen", "Check for updates"))) {
+      dl.StartVersionCheck(found ? ffmpeg->number : std::string());
+    }
+    ImGui::EndDisabled();
+
+    if (busy) {
+      const float p = dl.progress();
+      if (p >= 0.0f) ImGui::ProgressBar(p, ImVec2(-1.0f, 0.0f));
+      ImGui::TextDisabled("%s", dl.message().c_str());
+      ImGui::SameLine();
+      if (ImGui::SmallButton(T("Abbrechen", "Cancel"))) dl.Cancel();
+    } else if (update) {
+      // Amber rather than green: something to do, not something done.
+      const ImVec4 amber(0.95f, 0.72f, 0.35f, 1.0f);
+      ImGui::TextColored(amber, T("ffmpeg %s ist verfügbar, installiert ist %s.",
+                                  "ffmpeg %s is available, %s is installed."),
+                         remote.c_str(), ffmpeg->number.c_str());
+      ImGui::PushStyleColor(ImGuiCol_Text, amber);
+      if (IsMajorFfmpegStep(remote, ffmpeg->number)) {
+        ImGui::TextWrapped("%s",
+                           T("Neue Hauptversion: Dort fallen manchmal Optionen weg. Danach "
+                             "einmal kurz zur Probe aufnehmen.",
+                             "A new major version: options sometimes go away there. Make a "
+                             "short test recording afterwards."));
+      }
+      if (!own) {
+        ImGui::TextWrapped("%s", T("Dieses ffmpeg hat qBlank nicht selbst geladen. "
+                                   "Aktualisiert wird es dort, wo es herkommt.",
+                                   "qBlank did not download this ffmpeg. It is updated "
+                                   "wherever it came from."));
+      }
+      ImGui::PopStyleColor();
+      if (state == FfmpegDownloader::State::Failed) {
+        ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.35f, 1.0f), "%s", dl.message().c_str());
+      }
+    } else if (state != FfmpegDownloader::State::Idle &&
+               !(state == FfmpegDownloader::State::Done && dl.updateAvailable())) {
+      // The second half: an offer for an ffmpeg that is no longer the one shown.
+      const bool failed = state == FfmpegDownloader::State::Failed;
+      ImGui::TextColored(failed ? ImVec4(0.95f, 0.5f, 0.35f, 1.0f) : ImVec4(0.5f, 0.85f, 0.5f, 1.0f),
+                         "%s", dl.message().c_str());
     }
   }
 
@@ -3759,7 +3795,7 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                          "The saved encoder is not available here."));
   }
 
-  const bool busy = downloader_.busy();
+  const bool busy = downloader_ && downloader_->busy();
   ImGui::BeginDisabled(!ffmpeg || !ffmpeg->found || busy || probeBusy_);
   const char* testLabel = probeBusy_ ? T("Wird geprüft ...", "Testing ...")
                           : tested   ? T("Erneut testen", "Test again")
