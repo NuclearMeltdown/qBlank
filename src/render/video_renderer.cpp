@@ -732,6 +732,8 @@ static const int kChromaFramesWanted = 10;
 static const int kChromaFramesWantedDense = 3;
 
 void VideoRenderer::AnalyzeChroma(const FrameView& frame) {
+  // Gelesen wird das nur von der Normsuche, und die gibt es nur analog.
+  if (!analogueSource_) return;
   if (++chromaFramesSeen_ % chromaSampleEvery_ != 0) return;
 
   const int w = source_.width;
