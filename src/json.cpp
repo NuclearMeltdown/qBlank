@@ -1,5 +1,6 @@
 #include "json.h"
 
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -15,9 +16,18 @@ const Value& NullValue() {
 
 // ------------------------------------------------------------------- serialise
 
+// The config is dumped four times a second on the frame thread to see whether
+// anything changed, so this is written to be cheap: plain runs are appended in
+// one go, and only the characters that need escaping are handled one by one.
 void EncodeString(const std::string& s, std::string& out) {
   out += '"';
-  for (unsigned char c : s) {
+  const char* run = s.data();
+  const char* const end = run + s.size();
+  for (const char* p = run; p != end; ++p) {
+    const unsigned char c = (unsigned char)*p;
+    if (c >= 0x20 && c != '"' && c != '\\') continue;  // UTF-8 passes through untouched
+    out.append(run, p);
+    run = p + 1;
     switch (c) {
       case '"': out += "\\\""; break;
       case '\\': out += "\\\\"; break;
@@ -26,16 +36,14 @@ void EncodeString(const std::string& s, std::string& out) {
       case '\t': out += "\\t"; break;
       case '\b': out += "\\b"; break;
       case '\f': out += "\\f"; break;
-      default:
-        if (c < 0x20) {
-          char buf[8];
-          std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-          out += buf;
-        } else {
-          out += (char)c;  // UTF-8 passes through untouched
-        }
+      default: {
+        char buf[8];
+        std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+        out += buf;
+      }
     }
   }
+  out.append(run, end);
   out += '"';
 }
 
@@ -45,10 +53,11 @@ void EncodeNumber(double d, std::string& out) {
     return;
   }
   // Integers are written without a decimal point so the file stays readable.
+  // They are most of the numbers, and to_chars does them without the format
+  // parsing and locale lookup snprintf goes through.
   if (d == (double)(long long)d && std::fabs(d) < 1e15) {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%lld", (long long)d);
-    out += buf;
+    char buf[24];
+    out.append(buf, std::to_chars(buf, buf + sizeof(buf), (long long)d).ptr);
   } else {
     char buf[40];
     std::snprintf(buf, sizeof(buf), "%.10g", d);
@@ -56,16 +65,21 @@ void EncodeNumber(double d, std::string& out) {
   }
 }
 
+// A new line indented to `depth`. Appended in place: building the padding as a
+// string for every value cost more than all the rest of the dump.
+void NewLine(int indent, int depth, std::string& out) {
+  out += '\n';
+  out.append((size_t)(indent * depth), ' ');
+}
+
 void DumpValue(const Value& v, int indent, int depth, std::string& out) {
   const bool pretty = indent > 0;
-  const std::string pad = pretty ? std::string((size_t)(indent * (depth + 1)), ' ') : std::string();
-  const std::string padEnd = pretty ? std::string((size_t)(indent * depth), ' ') : std::string();
 
   switch (v.type()) {
     case Value::Type::Null: out += "null"; break;
     case Value::Type::Bool: out += v.AsBool() ? "true" : "false"; break;
     case Value::Type::Number: EncodeNumber(v.AsNumber(), out); break;
-    case Value::Type::String: EncodeString(v.AsString(), out); break;
+    case Value::Type::String: EncodeString(v.str(), out); break;
     case Value::Type::Array: {
       if (v.elements().empty()) {
         out += "[]";
@@ -76,16 +90,10 @@ void DumpValue(const Value& v, int indent, int depth, std::string& out) {
       for (const Value& e : v.elements()) {
         if (!first) out += ',';
         first = false;
-        if (pretty) {
-          out += '\n';
-          out += pad;
-        }
+        if (pretty) NewLine(indent, depth + 1, out);
         DumpValue(e, indent, depth + 1, out);
       }
-      if (pretty) {
-        out += '\n';
-        out += padEnd;
-      }
+      if (pretty) NewLine(indent, depth, out);
       out += ']';
       break;
     }
@@ -99,18 +107,12 @@ void DumpValue(const Value& v, int indent, int depth, std::string& out) {
       for (const auto& kv : v.items()) {
         if (!first) out += ',';
         first = false;
-        if (pretty) {
-          out += '\n';
-          out += pad;
-        }
+        if (pretty) NewLine(indent, depth + 1, out);
         EncodeString(kv.first, out);
         out += pretty ? ": " : ":";
         DumpValue(kv.second, indent, depth + 1, out);
       }
-      if (pretty) {
-        out += '\n';
-        out += padEnd;
-      }
+      if (pretty) NewLine(indent, depth, out);
       out += '}';
       break;
     }
@@ -475,7 +477,8 @@ Value Parse(const std::string& text, std::string* error) {
 
 std::string Dump(const Value& v, int indent) {
   std::string out;
-  out.reserve(4096);
+  // The config comes to about 7 KB; room for it to grow without a copy.
+  out.reserve(16384);
   DumpValue(v, indent, 0, out);
   out += '\n';
   return out;

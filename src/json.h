@@ -79,6 +79,8 @@ class Value {
 
   const std::vector<std::pair<std::string, Value>>& items() const { return object_; }
   const std::vector<Value>& elements() const { return array_; }
+  // The text without a copy; empty unless this is a string.
+  const std::string& str() const { return str_; }
 
  private:
   void Become(Type type);

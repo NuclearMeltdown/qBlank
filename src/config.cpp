@@ -577,7 +577,7 @@ json::Value WriteProfile(const Profile& p) {
   cap["signalKind"] = (int)p.capture.signalKind;
   cap["connector"] = (int)p.capture.connector;
   cap["format"] = WriteFormat(p.capture.format);
-  o["capture"] = cap;
+  o["capture"] = std::move(cap);
 
   json::Value img = json::Value::Object();
   img["filter"] = (int)p.image.filter;
@@ -626,13 +626,13 @@ json::Value WriteProfile(const Profile& p) {
       e["right"] = v.right;
       e["top"] = v.top;
       e["bottom"] = v.bottom;
-      list.Push(e);
+      list.Push(std::move(e));
     }
-    img["cropVariants"] = list;
+    img["cropVariants"] = std::move(list);
   }
   img["range"] = (int)p.image.range;
   img["matrix"] = (int)p.image.matrix;
-  o["image"] = img;
+  o["image"] = std::move(img);
 
   json::Value aud = json::Value::Object();
   aud["output"] = WriteDevice(p.audio.output);
@@ -645,7 +645,7 @@ json::Value WriteProfile(const Profile& p) {
   aud["micDevice"] = WriteDevice(p.audio.micDevice);
   aud["micGain"] = p.audio.micGain;
   aud["micTrackMode"] = (int)p.audio.micTrackMode;
-  o["audio"] = aud;
+  o["audio"] = std::move(aud);
 
   return o;
 }
@@ -1098,7 +1098,7 @@ std::string Config::Serialize() const {
   for (int k = 0; k < kTrayItemCount; ++k) {
     if (app.trayItems[(size_t)k]) tray.Push(json::Value(kTrayItemKeys[k]));
   }
-  a["trayItems"] = tray;
+  a["trayItems"] = std::move(tray);
   a["hideCursorFullscreen"] = app.hideCursorFullscreen;
   a["preventSleep"] = app.preventSleep;
   a["showStats"] = app.showStats;
@@ -1138,7 +1138,7 @@ std::string Config::Serialize() const {
   a["maximized"] = app.maximized;
   a["startFullscreen"] = app.startFullscreen;
   a["fullscreenMonitor"] = app.fullscreenMonitor;
-  root["app"] = a;
+  root["app"] = std::move(a);
 
   json::Value r = json::Value::Object();
   r["outputFolder"] = record.outputFolder;
@@ -1160,12 +1160,12 @@ std::string Config::Serialize() const {
   r["encoderProbeSignature"] = record.encoderProbeSignature;
   json::Value enc = json::Value::Array();
   for (int id : record.encodersAvailable) enc.Push(json::Value(id));
-  r["encodersAvailable"] = enc;
+  r["encodersAvailable"] = std::move(enc);
   r["screenshotFolder"] = record.screenshotFolder;
   r["screenshotFormat"] = (int)record.screenshotFormat;
   r["jpegQuality"] = record.jpegQuality;
   r["screenshotIncludeUi"] = record.screenshotIncludeUi;
-  root["record"] = r;
+  root["record"] = std::move(r);
 
   json::Value hk = json::Value::Object();
   for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
@@ -1177,13 +1177,13 @@ std::string Config::Serialize() const {
     entry["ctrl"] = b.ctrl;
     entry["shift"] = b.shift;
     entry["alt"] = b.alt;
-    hk[HotkeyActionKey((HotkeyAction)i)] = entry;
+    hk[HotkeyActionKey((HotkeyAction)i)] = std::move(entry);
   }
-  root["hotkeys"] = hk;
+  root["hotkeys"] = std::move(hk);
 
   json::Value list = json::Value::Array();
   for (const Profile& p : profiles) list.Push(WriteProfile(p));
-  root["profiles"] = list;
+  root["profiles"] = std::move(list);
   root["activeProfile"] = activeProfile;
 
   return json::Dump(root, 2);
