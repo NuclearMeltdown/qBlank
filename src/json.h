@@ -5,6 +5,7 @@
 // Object keys keep insertion order, which makes the saved file readable.
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -22,6 +23,24 @@ class Value {
   Value(float f) : type_(Type::Number), num_((double)f) {}
   Value(const char* s) : type_(Type::String), str_(s ? s : "") {}
   Value(std::string s) : type_(Type::String), str_(std::move(s)) {}
+
+  // Out of line on purpose. The config writes and reads a few hundred values
+  // one line each, and a copy of these at every one of them was most of the
+  // code config.cpp compiled to. Keys are views for the same reason: a
+  // literal no longer becomes a std::string at the call.
+  Value(const Value&);
+  Value(Value&&) noexcept;
+  Value& operator=(const Value&);
+  Value& operator=(Value&&) noexcept;
+  ~Value();
+
+  // Assigning a plain value builds no temporary Value to move from. The
+  // const char* one is not optional: without it a literal would pick bool.
+  Value& operator=(bool b);
+  Value& operator=(int i);
+  Value& operator=(double d);
+  Value& operator=(const char* s);
+  Value& operator=(const std::string& s);
 
   static Value Array() {
     Value v;
@@ -45,13 +64,13 @@ class Value {
   bool AsBool(bool def = false) const;
   double AsNumber(double def = 0.0) const;
   int AsInt(int def = 0) const;
-  std::string AsString(const std::string& def = {}) const;
+  std::string AsString(std::string_view def = {}) const;
 
   // Object access. The const form returns a shared null value for missing keys,
   // so config reads can chain without existence checks.
-  const Value& operator[](const std::string& key) const;
-  Value& operator[](const std::string& key);
-  bool Has(const std::string& key) const;
+  const Value& operator[](std::string_view key) const;
+  Value& operator[](std::string_view key);
+  bool Has(std::string_view key) const;
 
   // Array access.
   void Push(Value v);
@@ -62,6 +81,8 @@ class Value {
   const std::vector<Value>& elements() const { return array_; }
 
  private:
+  void Become(Type type);
+
   Type type_ = Type::Null;
   bool bool_ = false;
   double num_ = 0.0;

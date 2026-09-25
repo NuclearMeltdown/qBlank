@@ -357,6 +357,41 @@ class Parser {
 
 // ------------------------------------------------------------------ Value impl
 
+Value::Value(const Value&) = default;
+Value::Value(Value&&) noexcept = default;
+Value& Value::operator=(const Value&) = default;
+Value& Value::operator=(Value&&) noexcept = default;
+Value::~Value() = default;
+
+void Value::Become(Type type) {
+  type_ = type;
+  str_.clear();
+  array_.clear();
+  object_.clear();
+}
+
+Value& Value::operator=(bool b) {
+  Become(Type::Bool);
+  bool_ = b;
+  return *this;
+}
+
+Value& Value::operator=(int i) { return *this = (double)i; }
+
+Value& Value::operator=(double d) {
+  Become(Type::Number);
+  num_ = d;
+  return *this;
+}
+
+Value& Value::operator=(const char* s) { return *this = std::string(s ? s : ""); }
+
+Value& Value::operator=(const std::string& s) {
+  Become(Type::String);
+  str_ = s;
+  return *this;
+}
+
 bool Value::AsBool(bool def) const {
   if (type_ == Type::Bool) return bool_;
   if (type_ == Type::Number) return num_ != 0.0;
@@ -375,19 +410,19 @@ int Value::AsInt(int def) const {
   return def;
 }
 
-std::string Value::AsString(const std::string& def) const {
+std::string Value::AsString(std::string_view def) const {
   if (type_ == Type::String) return str_;
-  return def;
+  return std::string(def);
 }
 
-const Value& Value::operator[](const std::string& key) const {
+const Value& Value::operator[](std::string_view key) const {
   for (const auto& kv : object_) {
     if (kv.first == key) return kv.second;
   }
   return NullValue();
 }
 
-Value& Value::operator[](const std::string& key) {
+Value& Value::operator[](std::string_view key) {
   if (type_ != Type::Object) {
     type_ = Type::Object;
     object_.clear();
@@ -395,11 +430,11 @@ Value& Value::operator[](const std::string& key) {
   for (auto& kv : object_) {
     if (kv.first == key) return kv.second;
   }
-  object_.emplace_back(key, Value());
+  object_.emplace_back(std::string(key), Value());
   return object_.back().second;
 }
 
-bool Value::Has(const std::string& key) const {
+bool Value::Has(std::string_view key) const {
   for (const auto& kv : object_) {
     if (kv.first == key) return true;
   }
