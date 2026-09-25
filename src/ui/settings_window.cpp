@@ -1708,6 +1708,24 @@ void SettingsWindow::DrawImageTab() {
   ImGui::SameLine();
   HelpMarker(AspectHelp(aspect));
 
+  // Quadratische Pixel ohne Breite der Quelle nehmen die Proben der Karte als
+  // Konsolenpixel, und die sind analog nie quadratisch: 720 auf 576 Zeilen ist
+  // schmaler als 4:3, 720 auf 480 breiter. Das sieht aus wie ein Fehler im
+  // Bild, also steht es hier, wo es eingestellt wird. Nur wo es die Breite
+  // auch zu setzen gibt.
+  if (img.aspect == AspectMode::SquarePixels && img.nativeWidth == 0 && analogueSource_ &&
+      (sourceHeight_ == 0 || sourceHeight_ <= kStandardLines)) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.72f, 0.35f, 1.0f));
+    ImGui::TextWrapped("%s",
+                       T("Ohne Breite der Quelle zählen die Proben der Karte als Pixel: PAL wird "
+                         "zu schmal, 60 Hz zu breit. Für 4:3 „Quelle“ nehmen oder unten die "
+                         "Breite der Quelle angeben.",
+                         "Without a source width the card's samples count as pixels: PAL comes "
+                         "out too narrow, 60 Hz too wide. For 4:3 pick \"Source\" or set the "
+                         "source width below."));
+    ImGui::PopStyleColor();
+  }
+
   // Nur beim Strecken gibt es nichts umzurechnen: dieser Modus hat ueberhaupt
   // keine eigene Form, er nimmt die des Fensters.
   if (img.aspect != AspectMode::Stretch) {
