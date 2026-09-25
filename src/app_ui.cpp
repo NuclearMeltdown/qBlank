@@ -984,8 +984,23 @@ void App::DrawContextMenu() {
   bool borderless = config_.app.borderless;
   if (ImGui::MenuItem(T("Rahmenlos", "Borderless"), nullptr, &borderless)) config_.app.borderless = borderless;
 
-  bool stats = config_.app.showStats;
-  if (ImGui::MenuItem(T("Statistik", "Statistics"), sc(HotkeyAction::Stats), &stats)) config_.app.showStats = stats;
+  // Der Umfang gleich mit, wie beim Filtervergleich: eine Stufe waehlen blendet
+  // die Statistik in ihr ein, dieselbe noch einmal blendet sie aus.
+  if (BeginMenuWithShortcut(T("Statistik", "Statistics"), sc(HotkeyAction::Stats))) {
+    const char* hint = T("Kompakt: Bildraten und Durchlaufzeit. Normal: zusätzlich Format und "
+                         "Ton. Vollständig: alles. Noch einmal wählen blendet sie aus.",
+                         "Compact: frame rates and pipeline delay. Normal: adds format and "
+                         "audio. Full: everything. Choose it again to hide.");
+    for (int i = 0; i < 3; ++i) {
+      const bool on = config_.app.showStats && (int)config_.app.statsDetail == i;
+      if (ImGui::MenuItem(StatsDetailName(i), nullptr, on)) {
+        config_.app.showStats = !on;
+        config_.app.statsDetail = (StatsDetail)i;
+      }
+      WrappedTooltip(hint);
+    }
+    ImGui::EndMenu();
+  }
 
   bool toolbar = config_.app.showToolbar;
   if (ImGui::MenuItem(T("Werkzeugleiste", "Toolbar"), nullptr, &toolbar)) {
