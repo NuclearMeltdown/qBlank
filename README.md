@@ -26,6 +26,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - No queue in the capture path: triple buffer, late frames dropped.
 - No graph clock, so nothing waits for a presentation time.
 - Flip-model swap chain, maximum frame latency of one, tearing permitted, VSync off.
+- Direct3D 11 by default; Vulkan as an option under *Settings → General*, with the same passes and the same rules.
 - Format conversion on the GPU: YUY2, UYVY, YVYU, NV12, planar 4:2:0, RGB, P010.
 
 [Latency](../../wiki/Latency)
@@ -36,11 +37,13 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Any DirectShow video device.
 - Resolution, rate, pixel format and colour space picked independently — undocumented but working combinations can be forced.
 - Rate list carries *highest available* and *the signal's rate*.
+- A resolution that does not fit the video standard is corrected, or asked about on the picture.
 - Analogue: video standard, input cable, and the driver's own property pages while the picture runs.
 
 **Automatic video standard** · [wiki](../../wiki/Automatic-video-standard)
 - Rechecked for as long as the program runs, not chosen once at startup.
 - A colour round measures the picture — PAL B, PAL N and SECAM all fit 625 lines.
+- A settled standard's colour keeps being watched; one that turns out wrong is searched again.
 - 1.7–2.4 s from wrong to confirmed. **F7** searches by hand.
 
 **Picture** · [wiki](../../wiki/Scaling-and-sharpening)
@@ -76,16 +79,16 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 ![Left: a kart driving past a 480i barrier, woven, the chevrons torn into interlacing combs. Right: the same moment through YADIF, clean](docs/deinterlace-before-after.png)
 
 **Composite filter** · [wiki](../../wiki/The-composite-filter)
-- **Four-frame average** clears dot crawl where the picture stands still, at no cost in sharpness.
-- **Synchronous demodulator** takes over where it moves; **follow the movement** averages along the path.
+- **Average what stands still** clears dot crawl where the picture stands still, at no cost in sharpness. It averages over the crawl cycle measured for the source: 4 frames for PAL, 2 or 3 elsewhere.
+- **Synchronous demodulator** takes over where it moves; **follow the movement** averages along the path, sideways and up and down.
 - Weighted sideways average against colour shimmer; **restore bandwidth** puts back the rolled-off top of the band.
 - Derived in the shader from the subcarrier period: right for PAL, PAL 60, NTSC, NTSC 4.43, PAL M and PAL N at any width. SECAM approximated.
 
-![Left: a GameCube over composite with the filter off, dot crawl beading along every letter edge and across the colour bars. Right: the same frame under the four-frame average, clean](docs/composite-before-after.png)
+![Left: a GameCube over composite with the filter off, dot crawl beading along every letter edge and across the colour bars. Right: the same frame with what stands still averaged, clean](docs/composite-before-after.png)
 
 ![A title screen under F12, magnified across the divider: the logo and the lettering beaded with dot crawl on the left half, clean on the right](docs/compare-dotcrawl.jpg)
 
-![The Composite filter section of the settings: colour shimmer, the four-frame average with its conditions, the demodulator at step 9 of 9 reading 81 % gone for 17 % softer, and restore bandwidth](docs/settings-composite.png)
+![The Composite filter section of the settings: colour shimmer, the average of what stands still with its conditions, the demodulator at step 9 of 9 reading 81 % gone for 17 % softer, and restore bandwidth](docs/settings-composite.png)
 
 **Cathode ray tube** — off by default, display only.
 - Scanline gaps follow the **source's** line grid, not the screen's, and are absent where there is no room.
@@ -139,10 +142,11 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Borderless keeps its taskbar button, Alt+Tab and Snap; drag the picture to move it.
 - A red dot on the taskbar button while recording.
 - An optional tray icon with quick actions you pick; the taskbar button stays.
-- Start menu and desktop shortcuts from *Settings → Display*, offered on the first start.
+- Start menu and desktop shortcuts from *Settings → General*, offered on the first start.
 
 **The settings window** · [wiki](../../wiki/The-settings-window)
-- Its own window with its own Direct3D device, so it can go on a second monitor.
+- Its own window with its own graphics device, so it can go on a second monitor.
+- Tabs wrap into rows rather than being cut short, and the layout follows a resize live.
 - An embedded panel remains, because a window capture in OBS cannot see a second window.
 - Controls that cannot apply to the source are absent rather than disabled, and are not applied.
 - **Ctrl+F** finds any setting, through typos and the names other programs use.
@@ -190,14 +194,15 @@ Explorer. All except Esc, the profile digits and Alt+F4 are reassignable under
 
 ## Building
 
-Visual Studio 2022 with the Desktop C++ workload, and CMake. No external
-dependencies; Dear ImGui is vendored in `third_party/`.
+Visual Studio 2022 with the Desktop C++ workload, and CMake. Dear ImGui is
+vendored in `third_party/`. The Vulkan renderer needs the Vulkan SDK; without
+it the build is Direct3D 11 only, with a warning.
 
 ```bash
 build.bat
 ```
 
-- `qBlank.exe` lands in the repository root, about 2 MB, static CRT.
+- `qBlank.exe` lands in the repository root, about 2.4 MB, static CRT.
 - `build.bat keep` retains the build tree, `build.bat debug` builds a debug configuration.
 - Settings live in `qBlank.json` beside the executable; nothing goes into the registry.
 - Prebuilt executables are attached to each [release](../../releases). [Building](../../wiki/Building)

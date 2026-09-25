@@ -250,7 +250,7 @@ footer .made{margin-top:18px}
         </button>
       </div>
     </div>
-    <p class="sub">One file, about 2&nbsp;MB. No installer, nothing written to the registry.</p>
+    <p class="sub">One file, about 2.4&nbsp;MB. No installer, nothing written to the registry.</p>
   </div>
 </header>
 
@@ -275,7 +275,7 @@ footer .made{margin-top:18px}
     <div class="grid">
       <div class="card"><h3>No queue in the capture path</h3><p>Frames are copied into a triple buffer and the filter returns at once. Anything arriving faster than it can be shown is dropped, never buffered, so delay cannot accumulate.</p></div>
       <div class="card"><h3>No graph clock</h3><p>The DirectShow graph runs without a reference clock, so nothing is held back waiting for a presentation time.</p></div>
-      <div class="card"><h3>Tearing allowed</h3><p>A flip-model swap chain with one frame of queue and VSync off by default — the single biggest lever there is.</p></div>
+      <div class="card"><h3>Tearing allowed</h3><p>A flip-model swap chain with one frame of queue and VSync off by default — the single biggest lever there is. Direct3D 11 by default, Vulkan as an option, under the same rules.</p></div>
       <div class="card"><h3>Conversion on the GPU</h3><p>YUY2, UYVY, NV12, planar 4:2:0, RGB and P010 are unpacked in a pixel shader. Nothing touches the CPU between arrival and drawing.</p></div>
       <div class="card"><h3>And it shows you the bill</h3><p>The overlay times the stretch qBlank is answerable for: from a frame arriving to the present that hands it over, with upload, deinterlacing, filters and scaling inside. What the card does before and the screen after is not folded in.</p></div>
     </div>
@@ -313,7 +313,7 @@ footer .made{margin-top:18px}
       </figure>
     </div>
     <div class="grid">
-      <div class="card"><h3>A settings window of its own</h3><p>On its own Direct3D device, so it can sit on a second monitor while the picture runs on the first. Controls that cannot apply to the source are absent rather than greyed out.</p></div>
+      <div class="card"><h3>A settings window of its own</h3><p>On its own graphics device, so it can sit on a second monitor while the picture runs on the first. Controls that cannot apply to the source are absent rather than greyed out.</p></div>
       <div class="card"><h3>Found, not scrolled to</h3><p><strong>Ctrl+F</strong> finds any setting, through typos and the names other programs use. A right click puts a slider back to its default.</p></div>
       <div class="card"><h3>Colour range, measured</h3><p>Full or limited is read off the picture rather than inferred from the pixel format, with the numbers behind the verdict on show. <strong>F6</strong> measures again, for the one thing that changes without touching the format: an option in the card's own driver.</p></div>
       <div class="card"><h3>All filters off</h3><p><strong>Shift+F12</strong> shows the signal as it arrives, with deinterlacing, crop and aspect kept &mdash; the quick answer to whether a filter is the problem.</p></div>
@@ -335,12 +335,12 @@ footer .made{margin-top:18px}
     <h2><span class="num">04</span>It cleans up composite</h2>
     <p class="lead">Composite carries colour and brightness on one wire and they leak into each other. Most viewers leave that alone. qBlank removes it in real time, and the numbers behind every setting were measured on real hardware rather than guessed.</p>
     <figure>
-      <img src="composite-before-after.png" alt="The same GameCube frame over composite: filter off on the left, dot crawl beading along every letter edge and across the colour bars, the four-frame average on and clean on the right">
+      <img src="composite-before-after.png" alt="The same GameCube frame over composite: filter off on the left, dot crawl beading along every letter edge and across the colour bars, the average of what stands still on and clean on the right">
       <figcaption>A GameCube over composite at 576i, filter off and on. The crop was not chosen by eye — it is where the measured difference between the two frames is largest across the parts of the picture that stand still.</figcaption>
     </figure>
     <table>
       <tr><th>Half</th><th>What it does</th><th>What it costs</th></tr>
-      <tr><td><strong>Four-frame average</strong></td><td>Cancels dot crawl wherever the picture stands still. Four, because the subcarrier walks a four-frame cycle — measured 1.91, 2.62, 1.90 and <strong>0.78</strong> at lags of one to four.</td><td>Nothing at all.</td></tr>
+      <tr><td><strong>Average what stands still</strong></td><td>Cancels dot crawl wherever the picture stands still, averaged over the crawl cycle measured for the source. Four frames for PAL — measured 1.91, 2.62, 1.90 and <strong>0.78</strong> at lags of one to four — two or three elsewhere.</td><td>Nothing at all.</td></tr>
       <tr><td><strong>Synchronous demodulator</strong></td><td>Reconstructs the subcarrier out of the brightness and subtracts it, so moving content is covered too. Removes 81&nbsp;% of the pattern at a window of nine samples.</td><td>17&nbsp;% of horizontal sharpness.</td></tr>
     </table>
     <div class="note">The two are told about each other: the averaging reports how much of the job it did, and the demodulator only handles the rest. Turning both up used to make the picture worse than either alone.</div>
@@ -349,7 +349,7 @@ footer .made{margin-top:18px}
       <figcaption>A title screen under <strong>F12</strong>, close up across the divider. This is where dot crawl shows worst: large flat colour against a hard edge, standing still long enough for the crawl to walk through it. Left of the line is what the cable delivers.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="settings-composite.png" alt="The Composite filter section of the settings: colour shimmer, the four-frame average with its conditions, the demodulator at step 9 of 9 and restore bandwidth">
+      <img src="settings-composite.png" alt="The Composite filter section of the settings: colour shimmer, the average of what stands still with its conditions, the demodulator at step 9 of 9 and restore bandwidth">
       <figcaption>The section that does it. Under the demodulator is the reading it is working to: 81&nbsp;% of the pattern gone for 17&nbsp;% of the sharpness at a window of nine samples.</figcaption>
     </figure>
   </div>
