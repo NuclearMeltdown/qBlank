@@ -340,6 +340,7 @@ footer .made{margin-top:18px}
     </figure>
     <table>
       <tr><th>Half</th><th>What it does</th><th>What it costs</th></tr>
+      <tr><td><strong>Extended history</strong></td><td>Looks twelve frames back and takes the dot crawl out of every frame before the rest reads it, also where something moves or fades: around text, in transparencies. Where the crawl repeats every two or four frames: PAL, PAL 60, PAL M, PAL N, NTSC.</td><td>GPU time, no frame of delay.</td></tr>
       <tr><td><strong>Average what stands still</strong></td><td>Cancels dot crawl wherever the picture stands still, averaged over the crawl cycle measured for the source. Four frames for PAL — measured 1.91, 2.62, 1.90 and <strong>0.78</strong> at lags of one to four — two or three elsewhere.</td><td>Nothing at all.</td></tr>
       <tr><td><strong>Synchronous demodulator</strong></td><td>Reconstructs the subcarrier out of the brightness and subtracts it, so moving content is covered too. Removes 81&nbsp;% of the pattern at a window of nine samples.</td><td>17&nbsp;% of horizontal sharpness.</td></tr>
     </table>

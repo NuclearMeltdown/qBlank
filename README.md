@@ -79,6 +79,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 ![Left: a kart driving past a 480i barrier, woven, the chevrons torn into interlacing combs. Right: the same moment through YADIF, clean](docs/deinterlace-before-after.png)
 
 **Composite filter** · [wiki](../../wiki/The-composite-filter)
+- **Extended history** looks twelve frames back and takes the dot crawl out of every frame, also where something moves or fades: around text, in transparencies. Where the crawl repeats every 2 or 4 frames (PAL, PAL 60, PAL M, PAL N, NTSC). GPU time, no frame of delay.
 - **Average what stands still** clears dot crawl where the picture stands still, at no cost in sharpness. It averages over the crawl cycle measured for the source: 4 frames for PAL, 2 or 3 elsewhere.
 - **Synchronous demodulator** takes over where it moves; **follow the movement** averages along the path, sideways and up and down.
 - Weighted sideways average against colour shimmer; **restore bandwidth** puts back the rolled-off top of the band.
