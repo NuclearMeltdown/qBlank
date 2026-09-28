@@ -2040,6 +2040,38 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     return verdicts[i] == Verdict::Tinted || verdicts[i] == Verdict::Flipping;
   };
 
+  // Das Umklappen ist aber nicht nur ein Ausschluss, sondern auch ein Befund:
+  // es heisst, der Traeger wechselt seine Phase zeilenweise. Dann ist die
+  // PAL-Norm auf demselben Traeger die richtige, und ihre Farbe im Schwarzen
+  // ist die Szene -- kein falscher Traeger kommt dafuer mehr in Frage, denn
+  // der Traeger ist ja gerade bestaetigt.
+  //
+  // Am 28.09.2026 um 10:11:22, Cup-Auswahl in Mario Kart Double Dash (dunkle,
+  // satte Hintergruende): PAL 60 Farbe 0,320, Tiefen 0,230 -- ueber
+  // kDarkTinted und damit draussen; NTSC 4.43 klappte um (V 0,0439, U 0,0077)
+  // und war ebenfalls draussen. Uebrig blieben PAL M mit 0,049 und NTSC M mit
+  // 0,030, und Stufe zwei setzte PAL M: ein farbloses Bild, und jede weitere
+  // Runde fand dasselbe, bis der User die Norm von Hand setzte.
+  //
+  // Gilt nur in der gemessenen Richtung, NTSC-Dekoder auf PAL-Signal; die
+  // Gegenrichtung ist nie gemessen worden (siehe kAltFlipping).
+  int vouched = -1, voucher = -1;
+  for (size_t i = 0; i < colourCandidates_.size() && vouched < 0; ++i) {
+    if (verdicts[i] != Verdict::Tinted ||
+        VideoStandardColourSystem(colourCandidates_[i]) != VideoColourSystem::Pal)
+      continue;
+    for (size_t j = 0; j < colourCandidates_.size(); ++j) {
+      if (verdicts[j] == Verdict::Flipping &&
+          VideoStandardColourSystem(colourCandidates_[j]) == VideoColourSystem::Ntsc &&
+          VideoStandardSubcarrierSamples(colourCandidates_[j]) ==
+              VideoStandardSubcarrierSamples(colourCandidates_[i])) {
+        vouched = (int)i;
+        voucher = (int)j;
+        break;
+      }
+    }
+  }
+
   int best = -1, runnerUp = -1;
   bool byDarks = false;
 
@@ -2103,13 +2135,23 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     byDarks = true;
   }
 
+  // Vor den beiden Stufen, die Eingefaerbte ausschliessen: die bestaetigte
+  // PAL-Norm von oben. Nur wenn kein anderer Kandidat saubere Tiefen hatte --
+  // sonst gilt Stufe eins.
+  bool byVouch = false;
+  if (dark1 < 0 && vouched >= 0) {
+    best = vouched;
+    runnerUp = voucher;
+    byVouch = true;
+  }
+
   // Vor Stufe zwei, die Eingefaerbte ausschliesst: alle kraeftigen sind
   // eingefaerbt. Dann gewinnt, wer deutlich
   // am wenigsten Farbe im Schwarzen hat und sein Mehr an Farbe nicht gerade
   // dort -- die Messreihe steht bei kTintedCleanerBy. Wer unbeurteilt blieb,
   // muss deutlich weniger Farbe haben, sonst koennte er der richtige sein.
   bool byTinted = false;
-  if (dark1 < 0 && !sceneChanged) {
+  if (dark1 < 0 && !byVouch && !sceneChanged) {
     int w = -1;
     for (size_t i = 0; i < colourCandidates_.size(); ++i) {
       if (verdicts[i] == Verdict::Tinted &&
@@ -2172,7 +2214,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   // einmal -- ist derselbe wie bei einer zu farbarmen Szene.
   const bool decided =
       !sceneChanged &&
-      (byDarks || byTinted ||
+      (byDarks || byTinted || byVouch ||
        (best >= 0 && !alone && winner >= kChromaFloor && winner > second * needed));
 
   const long chosen = best >= 0 ? colourCandidates_[(size_t)best] : origin;
@@ -2202,7 +2244,12 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
   }
 
   if (decided) {
-    if (alone) {
+    if (byVouch) {
+      CAP_LOG("Video standard: %s flips the colour, so the carrier alternates -- %s on the same "
+              "carrier is right, its coloured shadows are the scene (colour %.3f, shadows %s) -- set",
+              VideoStandardName(VideoStandardIndexOf(runnerUpStandard)),
+              VideoStandardName(VideoStandardIndexOf(chosen)), winner, darkText(winnerDark).c_str());
+    } else if (alone) {
       CAP_LOG("Video standard: %s is the only one strongly coloured with neutral shadows (colour "
               "%.3f, shadows %s) -- set",
               VideoStandardName(VideoStandardIndexOf(chosen)), winner, darkText(winnerDark).c_str());
