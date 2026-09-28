@@ -696,8 +696,11 @@ class VideoRenderer {
   uint64_t pairOuter_ = 0;
 
   // Kriechzyklus, siehe crawlCycle() und AnalyzeCrawl.
-  bool crawlWanted_ = false;  // der zeitliche Filter ist an
+  bool crawlWanted_ = false;  // der zeitliche Filter oder die erweiterte Historie ist an
   int crawlCycle_ = 0;        // uebernommen; 0 = noch nichts gemessen
+  // Ein Bild hochgeladen, seit der Entkriecher zuletzt gelaufen ist. Sein Ring
+  // rueckt einmal je neuem Bild weiter, egal wie oft das Bild gezeichnet wird.
+  bool remNewFrame_ = false;
   int crawlCandidate_ = 0;    // was das letzte eindeutige Fenster sagte
   int crawlLogged_ = -1;      // letztes Fensterurteil im Log, -1 = keins
   // Das Messraster, gebaut fuer eine Groesse und einen Traeger. Je Stelle

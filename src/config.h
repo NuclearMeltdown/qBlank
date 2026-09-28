@@ -477,6 +477,11 @@ struct ImageSettings {
   // The colour subcarrier flips phase from frame to frame, so that average is
   // what cancels dot crawl -- and analogue noise goes with it.
   float temporalDenoise = 0.0f;  // 0..1
+  // The crawl remover: twelve frames of history, fitted for the pattern the
+  // carrier leaves, and taken out of each frame before anything above reads it.
+  // Only on composite, and only where the crawl was measured to repeat every
+  // two or four frames; anywhere else it stays off by itself.
+  bool extendedHistory = false;
   // Wo der Mittelwert wieder losgelassen wird. Er kann nur mitteln, und Mitteln
   // ueber Bewegung ist Schmieren -- also entscheidet ein Gatter pro Bildpunkt,
   // und dieses Flag verschiebt dessen Arbeitspunkt. Aus: das Gatter haelt lange

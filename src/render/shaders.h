@@ -51,6 +51,19 @@ Texture2D<float4> prvB2 : register(t8);
 Texture2D<float4> prvC0 : register(t9);
 Texture2D<float4> prvC1 : register(t10);
 Texture2D<float4> prvC2 : register(t11);
+// Four frames more, one whole crawl cycle back, for the gate.
+Texture2D<float4> prvD0 : register(t12);
+Texture2D<float4> prvD1 : register(t13);
+Texture2D<float4> prvD2 : register(t14);
+Texture2D<float4> prvE0 : register(t15);
+Texture2D<float4> prvE1 : register(t16);
+Texture2D<float4> prvE2 : register(t17);
+Texture2D<float4> prvF0 : register(t18);
+Texture2D<float4> prvF1 : register(t19);
+Texture2D<float4> prvF2 : register(t20);
+Texture2D<float4> prvG0 : register(t21);
+Texture2D<float4> prvG1 : register(t22);
+Texture2D<float4> prvG2 : register(t23);
 
 cbuffer ConvertCB : register(b0) {
   int   gFormatKind;      // see FormatKind in video_renderer.h
@@ -111,7 +124,16 @@ cbuffer ConvertCB : register(b0) {
   // 1 otherwise. The motion search moves up and down in steps of this.
   int   gMotionRows;
   int   gChromaLinear;    // 1 = digital source, see FetchYuvCur
+  int   gRemover;         // 1 = read the crawl remover's pictures, see FetchRgbIn
+  int   gRemHist;
+  int   gRemNew;
+  int   gRemPad;
+  float4 gRemP0;
+  float4 gRemP1;
 };
+
+// The crawl remover's picture, in the planes' own geometry.
+Texture2D<float4> texRem : register(t24);
 
 struct VSOut {
   float4 pos : SV_Position;
@@ -125,19 +147,31 @@ float4 LoadPlane0(int3 at, int frame) {
   if (frame == 0) return tex0.Load(at);
   if (frame == 1) return prvA0.Load(at);
   if (frame == 2) return prvB0.Load(at);
-  return prvC0.Load(at);
+  if (frame == 3) return prvC0.Load(at);
+  if (frame == 4) return prvD0.Load(at);
+  if (frame == 5) return prvE0.Load(at);
+  if (frame == 6) return prvF0.Load(at);
+  return prvG0.Load(at);
 }
 float4 LoadPlane1(int3 at, int frame) {
   if (frame == 0) return tex1.Load(at);
   if (frame == 1) return prvA1.Load(at);
   if (frame == 2) return prvB1.Load(at);
-  return prvC1.Load(at);
+  if (frame == 3) return prvC1.Load(at);
+  if (frame == 4) return prvD1.Load(at);
+  if (frame == 5) return prvE1.Load(at);
+  if (frame == 6) return prvF1.Load(at);
+  return prvG1.Load(at);
 }
 float4 LoadPlane2(int3 at, int frame) {
   if (frame == 0) return tex2.Load(at);
   if (frame == 1) return prvA2.Load(at);
   if (frame == 2) return prvB2.Load(at);
-  return prvC2.Load(at);
+  if (frame == 3) return prvC2.Load(at);
+  if (frame == 4) return prvD2.Load(at);
+  if (frame == 5) return prvE2.Load(at);
+  if (frame == 6) return prvF2.Load(at);
+  return prvG2.Load(at);
 }
 
 float3 FetchYuv(int2 p, int frame) {
@@ -231,11 +265,19 @@ float3 YuvToRgb(float3 yuv) {
   return rgb;
 }
 
+float3 RemFrame(int2 q, int frame) {
+  return frame == 0 ? texRem.Load(int3(q, 0)).rgb : LoadPlane0(int3(q, 0), frame).rgb;
+}
+
 float3 FetchRgbIn(int2 p, int frame) {
   p.x = clamp(p.x, 0, gSrcWidth - 1);
   p.y = clamp(p.y, 0, gSrcHeight - 1);
   int2 q = p;
   if (gBottomUp != 0) q.y = gSrcHeight - 1 - q.y;
+
+  // With the remover on, the history slots hold its pictures, already decoded
+  // and level corrected, and so does texRem for this frame.
+  if (gRemover != 0) return RemFrame(q, frame);
 
   if (gIsYuv != 0) {
     return YuvToRgb(FetchYuv(q, frame));
@@ -289,11 +331,14 @@ float3 FetchYuvCur(int2 p, bool between) {
   return float3(tex0.Load(int3(p, 0)).x, c);
 }
 
-float3 FetchRgbAtL(int2 p, bool linearChroma) {
+float3 FetchRgbAtR(int2 p, bool linearChroma, bool remover) {
   p.x = clamp(p.x, 0, gSrcWidth - 1);
   p.y = clamp(p.y, 0, gSrcHeight - 1);
   int2 q = p;
   if (gBottomUp != 0) q.y = gSrcHeight - 1 - q.y;
+
+  // The remover has already decoded and cleaned this frame.
+  if (remover && gRemover != 0) return texRem.Load(int3(q, 0)).rgb;
 
   float3 rgb;
   if (gIsYuv != 0) {
@@ -304,6 +349,7 @@ float3 FetchRgbAtL(int2 p, bool linearChroma) {
   }
   return rgb;
 }
+float3 FetchRgbAtL(int2 p, bool linearChroma) { return FetchRgbAtR(p, linearChroma, true); }
 float3 FetchRgbAt(int2 p) { return FetchRgbAtL(p, false); }
 float3 FetchRgbPrev(int2 p) { return FetchRgbIn(p, 1); }
 float3 FetchRgbFrame(int2 p, int frame) { return FetchRgbIn(p, frame); }
@@ -321,6 +367,7 @@ float LumaFrameAt(int2 p, int frame) {
   int2 q = p;
   if (gBottomUp != 0) q.y = gSrcHeight - 1 - q.y;
 
+  if (gRemover != 0) return Luma(RemFrame(q, frame));
   if (gIsYuv == 0) return Luma(LoadPlane0(int3(q, 0), frame).rgb);
   if (gFormatKind == 0 || gFormatKind == 1 || gFormatKind == 2) {
     float4 t = LoadPlane0(int3(q.x >> 1, q.y, 0), frame);
@@ -348,12 +395,31 @@ float3 GateSampleAt(int2 p, int frame) {
   int2 q = p;
   if (gBottomUp != 0) q.y = gSrcHeight - 1 - q.y;
 
+  if (gRemover != 0) return RemFrame(q, frame);
   if (gIsYuv == 0) return LoadPlane0(int3(q, 0), frame).rgb * gYScale;
 
   float3 yuv = FetchYuv(q, frame);
   return float3(yuv.x * gYScale,
                 yuv.y * gCScale * gCoef.w,
                 yuv.z * gCScale * gCoef.x);
+}
+
+// A neighbour as the filters after the average should see it: with the crawl
+// taken out wherever the average took it out of the centre. Reading it raw hands
+// the pattern straight back -- the centre is clean, its neighbours are not, and
+// every filter that looks sideways lifts or smears what the average removed.
+//
+// Half a cycle is enough, and costs one fetch instead of three: the pattern
+// inverts after half its cycle, so that pair cancels it on its own. `handled`
+// is the centre's, which is close enough for a few samples to either side.
+float3 CleanTapAt(int2 p, float handled) {
+  float3 f0 = FetchRgbAt(p);
+  if (handled <= 0.0) return f0;
+  float3 m;
+  if (gCrawlCycle == 4) m = (f0 + FetchRgbFrame(p, 2)) * 0.5;
+  else if (gCrawlCycle == 2) m = (f0 + FetchRgbFrame(p, 1)) * 0.5;
+  else m = (f0 + FetchRgbFrame(p, 1) + FetchRgbFrame(p, 2)) * (1.0 / 3.0);
+  return lerp(f0, m, handled);
 }
 
 // Composite carries colour at roughly a quarter of the bandwidth it carries
@@ -376,7 +442,7 @@ R"HLSL(// How sharply a neighbour is discounted for having a different colour fr
 // weight that discounts those stops smoothing the very thing it is for.
 static const float kChromaKeepEdge = 8.0;
 
-float3 SoftenChroma(float3 rgb, int x, int row) {
+float3 SoftenChroma(float3 rgb, int x, int row, float handled) {
   // Averaging colour sideways across a *colour edge* cannot work unweighted,
   // and the reason is not a bug in the arithmetic: gold and blue are close to
   // complementary, so the mean of their chroma genuinely is grey. That is what
@@ -402,7 +468,7 @@ float3 SoftenChroma(float3 rgb, int x, int row) {
   // through at every start. A real loop over the actual radius costs nothing at
   // runtime and compiles in a fraction of the time.
   for (int dx = -gChromaSoft; dx <= gChromaSoft; ++dx) {
-    float3 s = FetchRgbAt(int2(x + dx, row));
+    float3 s = CleanTapAt(int2(x + dx, row), handled);
     float3 sc = s - Luma(s);
     float3 d = sc - centreChroma;
     float w = exp(-dot(d, d) * kChromaKeepEdge);
@@ -517,7 +583,52 @@ R"HLSL(    s0 += GateSampleAt(q, 0);
   // Let go early: no slack at all and gone within four levels. Moving edges
   // come out clean; slow parts of the picture keep some of their crawl,
   // where the demodulator below picks the work back up.
-  return 1.0 - saturate((moved - gMotionSlack) * gMotionSlope);
+  float handled = 1.0 - saturate((moved - gMotionSlack) * gMotionSlope);
+  // The spread above asks whether the frames agree, and
+  // on a standing picture they need not -- whatever the decoder gets wrong
+  // (cross-colour at a colour edge, a caption outline one frame of four off by
+  // fifteen levels) varies within the cycle, and the spread calls it movement.
+  // What does hold for any standing picture, whatever the game and whatever
+  // the artefact, is that it repeats itself one crawl cycle later, frame for
+  // frame, because the subcarrier walks through the same sequence again.
+  // Anything that moved does not. A common offset between the two cycles is a
+  // fade or a pulse and allowed up to a point; each frame's own difference
+  // from that offset is not.
+  if (gHistCount >= 2 * gCrawlCycle - 1 && handled < 1.0) {
+    const float3 sa[4] = { s0, s1, s2, s3 };
+    float3 dk[4];
+    float3 dm = float3(0.0, 0.0, 0.0);
+    for (int k = 0; k < gCrawlCycle; ++k) {
+      float3 sn = float3(0.0, 0.0, 0.0);
+      for (int ex = -3; ex <= 3; ++ex)
+        sn += GateSampleAt(int2(x + ex, row), k + gCrawlCycle);
+      dk[k] = sa[k] - sn;
+      dm += dk[k];
+    }
+    dm /= (float)gCrawlCycle;
+    float3 r = float3(0.0, 0.0, 0.0);
+    for (int j = 0; j < gCrawlCycle; ++j) r = max(r, abs(dk[j] - dm));
+    const float3 am = abs(dm);
+    const float rep = max(max(r.x, max(r.y, r.z)),
+                          max(am.x, max(am.y, am.z)) - 0.21) * 0.142857;
+    // But only for a disagreement the size of an artefact. Movement in the
+    // rhythm of the crawl repeats one cycle later too -- King Boo hopping at
+    // the start line, a hop every three and a half frames -- and there the
+    // repeat excused a hundred levels and the average drew his outline where
+    // he had been. Fifteen levels is what the decoder gets wrong at worst.
+    // Sized on brightness, not on the worst channel: on the 3.58 MHz norms a
+    // standing colour edge swings one channel by more than that from frame to
+    // frame; the hop moves the brightness. Four tenths of the channel spread
+    // still count, for a coloured shape that moves at constant brightness.
+    // The remover's pictures are RGB whatever the source was.
+    float l0 = s0.x, l1 = s1.x, l2 = s2.x, l3 = s3.x;
+    if (gIsYuv == 0 || gRemover != 0) { l0 = Luma(s0); l1 = Luma(s1); l2 = Luma(s2); l3 = Luma(s3); }
+    const float capBy = max((max(max(l0, l1), max(l2, l3)) - min(min(l0, l1), min(l2, l3))) * 0.142857,
+                            moved * 0.4);
+    const float excusable = 1.0 - saturate((capBy - 0.06) * gMotionSlope);
+    handled = max(handled, min(1.0 - saturate((rep - gMotionSlack) * gMotionSlope), excusable));
+  }
+  return handled;
 }
 
 // The spatial half of the same job, for everything the temporal filter cannot
@@ -936,7 +1047,7 @@ float SmoothTriangle(float k, float slope) {
 }
 
 )HLSL"
-R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag) {
+R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag, float handled) {
   float width = max(gCarrierPeriod, 2.0);
   float slopeA = 1.0 / width;              // a triangle one carrier period wide
   float slopeB = 0.5 / width;              // and one of two
@@ -949,7 +1060,7 @@ R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag) {
   float prev = 0.0;
   bool havePrev = false;
   for (int k = -r; k <= r; ++k) {
-    float l = Luma(FetchRgbAt(int2(x + k, row)));
+    float l = Luma(CleanTapAt(int2(x + k, row), handled));
     float t = abs(float(k));
     float wa = SmoothTriangle(float(k), slopeA);
     float wb = SmoothTriangle(float(k), slopeB);
@@ -1105,6 +1216,71 @@ R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag) {
   return rgb + (lifted - y);
 }
 
+)HLSL"
+R"HLSL(// What main runs: BandwidthRestore above, which stays as the single pixel form
+// the reasoning is written on, worked out for this pixel and both of its
+// neighbours, and the three averaged. The limiter at the end is a decision taken
+// per pixel, and a decision taken per pixel writes a pattern at pixel rate:
+// measured on a still title, it put three times the energy back into the
+// carrier band that the crawl average had just taken out of it, and that is the
+// dotted texture a still frame shows. A three sample box has its null on the
+// carrier (0.02 left there on PAL), so whatever the limiter draws in that band
+// cancels, whatever the picture. The box costs the lift a third in its
+// passband, which the 1.4 gives back. One pass over the taps serves all three
+// pixels, so this reads two samples more than the single one did.
+float3 SmoothTriangle3(float3 k, float slope) {
+  return (max(0.0, 1.0 - abs(k - 1.0) * slope) + 2.0 * max(0.0, 1.0 - abs(k) * slope) +
+          max(0.0, 1.0 - abs(k + 1.0) * slope)) * 0.25;
+}
+
+float3 BandwidthRestoreBox(float3 rgb, int x, int row, float carrierMag, float handled) {
+  float width = max(gCarrierPeriod, 2.0);
+  float slopeA = 1.0 / width;
+  float slopeB = 0.5 / width;
+  int r = (int)ceil(2.0 * width) + 1;
+  const float3 c = float3(-1.0, 0.0, 1.0);
+
+  float y0 = Luma(rgb);
+  float yl = y0, yr = y0;
+  float3 sa = 0.0, sb = 0.0;
+  float na = 0.0, nb = 0.0;
+  float3 lo = y0 + 4.0, hi = y0 - 4.0, wlo = lo, whi = hi, jump = 0.0;
+  float prev = 0.0;
+  for (int k = -r - 1; k <= r + 1; ++k) {
+    float l = Luma(CleanTapAt(int2(x + k, row), handled));
+    if (k == -1) yl = l;
+    if (k == 1) yr = l;
+    float3 kc = float(k) - c;
+    float3 t = abs(kc);
+    float3 wa = SmoothTriangle3(kc, slopeA);
+    float3 wb = SmoothTriangle3(kc, slopeB);
+    sa += l * wa;
+    sb += l * wb;
+    na += wa.y;
+    nb += wb.y;
+    float3 near = step(t, 1.0);                  // |k - c| <= 1
+    float3 inWin = step(t, width);               // |k - c| <= width
+    float3 prevIn = step(abs(kc - 1.0), width);  // and the sample before it
+    lo = min(lo, l + (1.0 - near) * 4.0);
+    hi = max(hi, l - (1.0 - near) * 4.0);
+    wlo = min(wlo, l + (1.0 - inWin) * 4.0);
+    whi = max(whi, l - (1.0 - inWin) * 4.0);
+    if (k > -r - 1) jump = max(jump, abs(l - prev) * inWin * prevIn);
+    prev = l;
+  }
+  lo.y = min(lo.y, y0); hi.y = max(hi.y, y0);
+  wlo.y = min(wlo.y, y0); whi.y = max(whi.y, y0);
+  float3 y = float3(yl, y0, yr);
+
+  float3 add = (sa / max(na, 1e-4) - sb / max(nb, 1e-4)) * gBandwidth * 2.0;
+  float3 ext = max(whi - wlo, 1e-4);
+  add *= saturate((0.24 - carrierMag / ext) / 0.24);
+  add *= saturate((0.75 - jump / ext) * 4.0);
+  float slack = 6.0 / 255.0;
+  float3 d = clamp(y + add, lo - slack, hi + slack) - y;
+  return rgb + (d.x + d.y + d.z) * (1.4 / 3.0);
+}
+
 // ---------------------------------------------------------------------------
 // How much of the brightness right here is sitting at the subcarrier's own
 // frequency -- which is the thing that turns into false colour.
@@ -1126,7 +1302,7 @@ R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag) {
 // enough of this to act on" but "what share of what is here is this", which
 // needs the number before a threshold was put on it.
 )HLSL"
-R"HLSL(float2 CarrierEnergy(int x, int row) {
+R"HLSL(float2 CarrierEnergy(int x, int row, float handled) {
   const float kTwoPi = 6.28318531;
   float w = kTwoPi / max(gCarrierPeriod, 1.5);
   int r = (int)floor(gCarrierPeriod + 0.5);   // two cycles, near enough
@@ -1137,7 +1313,7 @@ R"HLSL(float2 CarrierEnergy(int x, int row) {
   for (int k = -8; k <= 8; ++k) {
     if (abs(k) > r) continue;
     float hann = 0.5 + 0.5 * cos(3.14159265 * float(k) / float(r + 1));
-    float l = Luma(FetchRgbAt(int2(x + k, row)));
+    float l = Luma(CleanTapAt(int2(x + k, row), handled));
     float ph = w * float(x + k);
     float c = cos(ph), s = sin(ph);
     sl += hann * l;
@@ -1165,7 +1341,6 @@ float4 main(VSOut i) : SV_Target {
   // Source coordinates, already the right way up: FetchRgbAt resolves a bottom
   // up layout, so everything downstream of this pass can forget about it.
   int2 p = int2(i.pos.xy);
-  float3 rgb = FetchRgbAtL(p, gChromaLinear != 0);
 
   // The A/B divider, and the only place it can sit. Everything that moves the
   // picture around -- cropping, rotation, scaling -- happens in the passes after
@@ -1177,6 +1352,10 @@ float4 main(VSOut i) : SV_Target {
                             : (float)gCropLeft + gCompareSplit * (float)gOutWidth;
   const float at = across ? (float)p.y : (float)p.x;
   const bool raw = gCompareSplit >= 0.0 && at < edge;
+  // With the remover on, every filter below reads its pictures, this frame's
+  // and the history, instead of the captured planes -- except left of the
+  // divider, which shows the raw picture.
+  float3 rgb = FetchRgbAtR(p, gChromaLinear != 0, !raw);
 
   // Everything that cleans the signal happens here, before any deinterlacer has
   // touched it. That is the entire reason this pass exists. A cleanup that runs
@@ -1225,19 +1404,20 @@ float4 main(VSOut i) : SV_Target {
     // for the two filters below that both want to know. Seventeen taps with a
     // sine and a cosine in each, so asking twice would be paying twice for the
     // same answer.
+    // Its neighbours read as cleaned as this pixel, see CleanTapAt.
     float2 carrier = float2(0.0, 0.0);
     if (gBandwidth > 0.0 || (gChromaSoft > 0 && gAdaptChroma != 0)) {
-      carrier = CarrierEnergy(p.x, p.y);
+      carrier = CarrierEnergy(p.x, p.y, handled);
     }
 
     // After all three of those, and not before any of them: the band this lifts
     // runs up towards the carrier, and the pattern the filters above remove sits
     // in the top of it. Lifting a picture that still had the pattern in it would
     // hand them a harder job than they started with.
-    if (gBandwidth > 0.0) rgb = BandwidthRestore(rgb, p.x, p.y, carrier.x);
+    if (gBandwidth > 0.0) rgb = BandwidthRestoreBox(rgb, p.x, p.y, carrier.x, handled);
 
     if (gChromaSoft > 0) {
-      float3 soft = SoftenChroma(rgb, p.x, p.y);
+      float3 soft = SoftenChroma(rgb, p.x, p.y, handled);
       // Softening the colour only where the brightness carries enough at the
       // carrier to have invented some of it. Everywhere else the colour is as
       // real as composite ever gets it, and blurring that sideways is pure loss
@@ -2259,3 +2439,6 @@ float4 main(VSOut i) : SV_Target {
 )HLSL";
 
 }  // namespace cap
+
+// The crawl remover's passes.
+#include "render/shaders_remover.h"

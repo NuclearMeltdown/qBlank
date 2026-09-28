@@ -351,6 +351,30 @@ class D3D11Passes : public RenderPasses {
   ComPtr<ID3D11Texture2D> hdrReadbackTex_[kReadbackSlots];
   int hdrRecWidth_ = 0;
   int hdrRecHeight_ = 0;
+
+  // The crawl remover. A ring of decoded frames, the eight
+  // residual targets the model fits write, and a ring of the pictures it hands
+  // the clean pass, which stands in for that pass's history so the crawl fix
+  // after it sees the same frames it is cleaning. Made on first use, so nobody
+  // without composite pays for them.
+  static constexpr int kRemRing = 12;
+  static constexpr int kRemRs = 8;
+  static constexpr int kRemOut = kHistoryDepth + 1;
+  static constexpr int kRemImages = kRemRing + kRemRs + kRemOut;
+  bool EnsureRemover(int width, int height);
+  void ReleaseRemover();
+  ComPtr<ID3D11PixelShader> psRemDec_;
+  ComPtr<ID3D11PixelShader> psRemRes_;
+  ComPtr<ID3D11PixelShader> psRemComb_;
+  ComPtr<ID3D11Texture2D> remTex_[kRemImages];
+  ComPtr<ID3D11ShaderResourceView> remSrv_[kRemImages];
+  ComPtr<ID3D11RenderTargetView> remRtv_[kRemImages];
+  int remWidth_ = 0;
+  int remHeight_ = 0;
+  int remHead_ = 0;
+  int remOutHead_ = 0;
+  int remCount_ = 0;
+  bool remOk_ = false;
 };
 
 // ------------------------------------------------------------------ lifetime
@@ -378,6 +402,10 @@ void D3D11Passes::Shutdown() {
   ReleaseIntermediate();
   ReleaseClean();
   ReleasePlanes();
+  ReleaseRemover();
+  psRemComb_.Reset();
+  psRemRes_.Reset();
+  psRemDec_.Reset();
   blendPremultiplied_.Reset();
   blendOpaque_.Reset();
   raster_.Reset();
@@ -452,6 +480,23 @@ bool D3D11Passes::CreateShaders(std::string* error) {
     ReportError(error, CAP_SAID(T("Oberflächen-Shader konnte nicht erstellt werden",
                                      "The interface shader could not be created")));
     return false;
+  }
+
+  // The crawl remover. Not fatal: without it everything else runs as
+  // before, and the setting that asks for it is simply dropped.
+  {
+    std::string remError;
+    ComPtr<ID3DBlob> dec = CompileShader(kRemDecPS, "ps_5_0", &remError);
+    ComPtr<ID3DBlob> res = CompileShader(kRemResPS, "ps_5_0", &remError);
+    ComPtr<ID3DBlob> comb = CompileShader(kRemCombPS, "ps_5_0", &remError);
+    remOk_ = dec && res && comb &&
+             SUCCEEDED(CAP_HR(dev->CreatePixelShader(dec->GetBufferPointer(), dec->GetBufferSize(),
+                                                     nullptr, &psRemDec_))) &&
+             SUCCEEDED(CAP_HR(dev->CreatePixelShader(res->GetBufferPointer(), res->GetBufferSize(),
+                                                     nullptr, &psRemRes_))) &&
+             SUCCEEDED(CAP_HR(dev->CreatePixelShader(comb->GetBufferPointer(),
+                                                     comb->GetBufferSize(), nullptr, &psRemComb_)));
+    if (!remOk_) CAP_ERR("Crawl remover unavailable: %s", remError.c_str());
   }
 
   // Erst hier, wo feststeht, welche Dateien diese Fassung braucht.
@@ -594,6 +639,7 @@ void D3D11Passes::ReleasePlanes() {
       planeHist_[h][i].Reset();
     }
   }
+  remCount_ = 0;  // a new source, the ring starts over
 }
 
 bool D3D11Passes::MapPlane(int index, MappedPlane* mapped) {
@@ -701,6 +747,53 @@ bool D3D11Passes::EnsureClean(int width, int height) {
 
   cleanWidth_ = width;
   cleanHeight_ = height;
+  return true;
+}
+
+// The crawl remover's pictures.
+void D3D11Passes::ReleaseRemover() {
+  for (int i = 0; i < kRemImages; ++i) {
+    remRtv_[i].Reset();
+    remSrv_[i].Reset();
+    remTex_[i].Reset();
+  }
+  remWidth_ = 0;
+  remHeight_ = 0;
+  remHead_ = 0;
+  remOutHead_ = 0;
+  remCount_ = 0;
+}
+
+bool D3D11Passes::EnsureRemover(int width, int height) {
+  width = std::max(1, width);
+  height = std::max(1, height);
+  if (remTex_[0] && remWidth_ == width && remHeight_ == height) return true;
+
+  ReleaseRemover();
+
+  ID3D11Device* dev = NativeDevice(*display_);
+  D3D11_TEXTURE2D_DESC td = {};
+  td.Width = (UINT)width;
+  td.Height = (UINT)height;
+  td.MipLevels = 1;
+  td.ArraySize = 1;
+  td.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+  td.SampleDesc.Count = 1;
+  td.Usage = D3D11_USAGE_DEFAULT;
+  td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+  for (int i = 0; i < kRemImages; ++i) {
+    if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &remTex_[i]))) ||
+        FAILED(CAP_HR(dev->CreateShaderResourceView(remTex_[i].Get(), nullptr, &remSrv_[i]))) ||
+        FAILED(CAP_HR(dev->CreateRenderTargetView(remTex_[i].Get(), nullptr, &remRtv_[i])))) {
+      ReleaseRemover();
+      remOk_ = false;  // do not try again every frame
+      CAP_ERR("Crawl remover: its pictures could not be made");
+      return false;
+    }
+  }
+  remWidth_ = width;
+  remHeight_ = height;
+  CAP_LOG("Crawl remover running at %dx%d", width, height);
   return true;
 }
 
@@ -813,13 +906,35 @@ void D3D11Passes::CleanAndConvert(const ConvertParams& params, int srcWidth, int
                                   int outWidth, int outHeight, int historyWrite) {
   ID3D11DeviceContext* dc = NativeContext(*display_);
 
+  // The crawl remover. Its own copy of the parameters, to tell the shaders
+  // how far back the ring reaches; the ring moves on once per new frame,
+  // however often the frame is drawn.
+  ConvertCB cb = params;
+  const bool rem = cb.remover != 0 && remOk_ && EnsureRemover(srcWidth, srcHeight);
+  bool remRun = false;
+  if (rem) {
+    if (cb.remNew != 0 || remCount_ == 0) {
+      remHead_ = (remHead_ + 1) % kRemRing;
+      remOutHead_ = (remOutHead_ + 1) % kRemOut;
+      remCount_ = std::min(remCount_ + 1, kRemRing);
+      remRun = true;
+    }
+    cb.remHist = remCount_ - 1;
+    // The crawl fix reads the remover's pictures as its history, so it can only
+    // look back as far as those go.
+    cb.histCount = std::min(cb.histCount, std::min(remCount_ - 1, (int)kHistoryDepth));
+  } else {
+    cb.remover = 0;
+    remCount_ = 0;
+  }
+
   D3D11_MAPPED_SUBRESOURCE mapped = {};
   if (SUCCEEDED(dc->Map(cbConvert_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    memcpy(mapped.pData, &params, sizeof(ConvertCB));
+    memcpy(mapped.pData, &cb, sizeof(ConvertCB));
     dc->Unmap(cbConvert_.Get(), 0);
   }
 
-  ID3D11ShaderResourceView* nullSrvs[3 + kHistoryDepth * 3] = {};
+  ID3D11ShaderResourceView* nullSrvs[25] = {};
   dc->IASetInputLayout(nullptr);
   dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   dc->VSSetShader(vs_.Get(), nullptr, 0);
@@ -828,6 +943,46 @@ void D3D11Passes::CleanAndConvert(const ConvertParams& params, int srcWidth, int
   dc->RSSetState(raster_.Get());
   const float blendFactor[4] = {0, 0, 0, 0};
   dc->OMSetBlendState(blendOpaque_.Get(), blendFactor, 0xFFFFFFFF);
+
+  // ---- The crawl remover, in source geometry ----
+  //
+  // Decode the new frame into the ring, fit the models against the ring's
+  // history into the residual targets, then combine. Render targets are set
+  // before the views that read the same pictures, so nothing is ever bound both
+  // ways at once.
+  if (remRun) {
+    D3D11_VIEWPORT vp = {};
+    vp.Width = (float)srcWidth;
+    vp.Height = (float)srcHeight;
+    vp.MaxDepth = 1.0f;
+    dc->RSSetViewports(1, &vp);
+
+    ID3D11RenderTargetView* rtv[kRemRs] = {remRtv_[remHead_].Get()};
+    ID3D11ShaderResourceView* srvs[kRemRing + kRemRs] = {};
+    dc->OMSetRenderTargets(1, rtv, nullptr);
+    for (int i = 0; i < 3; ++i) srvs[i] = planeSrv_[i].Get();
+    dc->PSSetShaderResources(0, 3, srvs);
+    dc->PSSetShader(psRemDec_.Get(), nullptr, 0);
+    dc->Draw(3, 0);
+    dc->PSSetShaderResources(0, 3, nullSrvs);
+
+    for (int i = 0; i < kRemRs; ++i) rtv[i] = remRtv_[kRemRing + i].Get();
+    dc->OMSetRenderTargets(kRemRs, rtv, nullptr);
+    for (int k = 0; k < kRemRing; ++k) {
+      srvs[k] = remSrv_[(remHead_ - k + kRemRing) % kRemRing].Get();
+    }
+    dc->PSSetShaderResources(0, kRemRing, srvs);
+    dc->PSSetShader(psRemRes_.Get(), nullptr, 0);
+    dc->Draw(3, 0);
+
+    rtv[0] = remRtv_[kRemRing + kRemRs + remOutHead_].Get();
+    dc->OMSetRenderTargets(1, rtv, nullptr);
+    for (int i = 0; i < kRemRs; ++i) srvs[kRemRing + i] = remSrv_[kRemRing + i].Get();
+    dc->PSSetShaderResources(0, kRemRing + kRemRs, srvs);
+    dc->PSSetShader(psRemComb_.Get(), nullptr, 0);
+    dc->Draw(3, 0);
+    dc->PSSetShaderResources(0, kRemRing + kRemRs, nullSrvs);
+  }
 
   // ---- pass 1: decode the planes and clean the signal, in source geometry ----
   //
@@ -849,16 +1004,24 @@ void D3D11Passes::CleanAndConvert(const ConvertParams& params, int srcWidth, int
     // "two frames ago", "three frames ago" without knowing where the ring
     // happens to stand. historyWrite points at the slot that will be
     // overwritten next, which is the oldest one.
-    ID3D11ShaderResourceView* srvs[3 + kHistoryDepth * 3] = {};
+    // 25 slots, the remover's picture at t24.
+    static_assert(3 + kHistoryDepth * 3 <= 24, "the remover's picture sits at t24");
+    ID3D11ShaderResourceView* srvs[25] = {};
     for (int i = 0; i < 3; ++i) srvs[i] = planeSrv_[i].Get();
     for (int h = 0; h < kHistoryDepth; ++h) {
       const int slot = (historyWrite - 1 - h + kHistoryDepth * 2) % kHistoryDepth;
       for (int i = 0; i < 3; ++i) srvs[3 + h * 3 + i] = planeHistSrv_[slot][i].Get();
     }
-    dc->PSSetShaderResources(0, 3 + kHistoryDepth * 3, srvs);
+    if (rem) {
+      srvs[24] = remSrv_[kRemRing + kRemRs + remOutHead_].Get();
+      for (int h = 0; h < kHistoryDepth; ++h) {
+        srvs[3 + h * 3] = remSrv_[kRemRing + kRemRs + (remOutHead_ - 1 - h + 2 * kRemOut) % kRemOut].Get();
+      }
+    }
+    dc->PSSetShaderResources(0, 25, srvs);
     dc->PSSetShader(psClean_.Get(), nullptr, 0);
     dc->Draw(3, 0);
-    dc->PSSetShaderResources(0, 3 + kHistoryDepth * 3, nullSrvs);
+    dc->PSSetShaderResources(0, 25, nullSrvs);
   }
 
   // ---- pass 2: fields, cropping, line doubling, rotation ----

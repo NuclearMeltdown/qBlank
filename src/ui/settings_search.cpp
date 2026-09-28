@@ -168,6 +168,8 @@ const Entry kEntries[] = {
      "Dot crawl|Schimmern|Shimmer"},
     {Kind::Control, kTabPicture, "chromaadaptive", "Nur wo nötig", "Only where needed",
      "Adaptiv|Adaptive|Farbschimmern"},
+    {Kind::Control, kTabPicture, "extendedhistory", "Erweiterte Historie", "Extended history",
+     "Dot crawl|Punktkriechen|Crawl|Remover|Kriechen|Überblendung|Fade|Transparenz"},
     {Kind::Control, kTabPicture, "average", "Stillstehendes mitteln", "Average what stands still",
      "Denoise|Entrauschen|Rauschen|Noise|Rauschfilter|Temporal|Grieseln|Grain|Körnung"},
     {Kind::Control, kTabPicture, "ghosting", "Ghosting vermeiden", "Avoid ghosting",

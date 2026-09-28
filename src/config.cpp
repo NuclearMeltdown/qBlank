@@ -600,6 +600,7 @@ json::Value WriteProfile(const Profile& p) {
   img["rotation"] = (int)p.image.rotation;
   img["chromaSoft"] = p.image.chromaSoft;
   img["temporalDenoise"] = p.image.temporalDenoise;
+  img["extendedHistory"] = p.image.extendedHistory;
   img["avoidGhosting"] = p.image.avoidGhosting;
   img["dotNotch"] = p.image.dotNotch;
   img["motionCompensate"] = p.image.motionCompensate;
@@ -695,6 +696,7 @@ Profile ReadProfile(const json::Value& v) {
   p.image.rotation = ReadEnum<Rotation>(i, "rotation", kRotationCount, Rotation::None);
   p.image.chromaSoft = i["chromaSoft"].AsInt(0);
   p.image.temporalDenoise = (float)i["temporalDenoise"].AsNumber(0.0);
+  p.image.extendedHistory = i["extendedHistory"].AsBool(false);
   p.image.avoidGhosting = i["avoidGhosting"].AsBool(false);
   p.image.dotNotch = (float)i["dotNotch"].AsNumber(0.0);
   p.image.motionCompensate = i["motionCompensate"].AsBool(false);

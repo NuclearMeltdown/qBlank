@@ -89,16 +89,17 @@ VkDeviceSize AlignUp(VkDeviceSize value, VkDeviceSize alignment) {
 }
 
 // The one descriptor set layout all passes share, as the shaders are compiled
-// for it (CMakeLists.txt, -fvk-t-shift 0 -fvk-s-shift 16 -fvk-b-shift 32):
-// textures from binding 0, samplers from 16, the constant buffer at 32. The
-// clean pass reads twelve textures, the planes and three frames of history.
-// The others read fewer, and a black image of one pixel fills the rest, as an
-// empty slot reads black in Direct3D 11.
-const uint32_t kImageBindings = 3 + RenderPasses::kHistoryDepth * 3;
-static_assert(kImageBindings == 12, "the clean shader reads twelve textures");
-const uint32_t kPointBinding = 16;
-const uint32_t kLinearBinding = 17;
-const uint32_t kUniformBinding = 32;
+// for it (CMakeLists.txt, -fvk-t-shift 0 -fvk-s-shift 32 -fvk-b-shift 48):
+// textures from binding 0, samplers from 32, the constant buffer at 48. The
+// clean pass reads twenty-five textures: the planes, seven frames of history
+// and the crawl remover's picture at binding 24. The others read fewer, and a
+// black image of one pixel fills the rest, as an empty slot reads black in
+// Direct3D 11.
+const uint32_t kImageBindings = 3 + RenderPasses::kHistoryDepth * 3 + 1;
+static_assert(kImageBindings == 25, "the clean shader reads twenty-five textures");
+const uint32_t kPointBinding = 32;
+const uint32_t kLinearBinding = 33;
+const uint32_t kUniformBinding = 48;
 
 // Descriptor sets per pool. A frame takes six at most.
 const uint32_t kSetsPerArena = 32;
@@ -160,6 +161,7 @@ class VulkanPasses : public RenderPasses {
     VkShaderModule fs;
     VkFormat format;
     bool blend;
+    int targets;  // the crawl remover's residual pass writes eight
     VkPipeline pipeline;
   };
 
@@ -195,7 +197,7 @@ class VulkanPasses : public RenderPasses {
 
   // `words` is only room to unpack into, handed around so the six share it.
   bool CreateModule(const Packed& packed, std::vector<uint32_t>* words, VkShaderModule* out);
-  VkPipeline PipelineFor(VkShaderModule fs, VkFormat format, bool blend);
+  VkPipeline PipelineFor(VkShaderModule fs, VkFormat format, bool blend, int targets = 1);
   Arena* ArenaFor(VkDeviceSize need);
   VkDescriptorSet AllocateSet(VulkanImage* const* images, const void* constants, size_t size);
   // One pass: the full screen triangle with `fs` into `target`, the viewport at
@@ -203,6 +205,11 @@ class VulkanPasses : public RenderPasses {
   void Draw(VkShaderModule fs, VulkanImage* target, int x, int y, int width, int height,
             VulkanImage* const* sources, int count, const void* constants, size_t size,
             bool blend = false);
+  // The same over several whole targets of one size and format.
+  void DrawTargets(VkShaderModule fs, VulkanImage* const* targets, int targetCount,
+                   VulkanImage* const* sources, int count, const void* constants, size_t size);
+  bool EnsureRemover(int width, int height);
+  void ReleaseRemover();
 
   // Zero, through a transfer. For the images that are never drawn into.
   void ClearImage(VkCommandBuffer cmd, VulkanImage* image);
@@ -271,6 +278,23 @@ class VulkanPasses : public RenderPasses {
   Readback readback_[kReadbackSlots];
   VulkanImage hdrRec_;
   Readback hdrReadback_[kReadbackSlots];
+
+  // The crawl remover, as in Direct3D 11. The ring of decoded
+  // frames, the eight residual targets, and a ring of its pictures that stands
+  // in for the clean pass's history, so the crawl fix after it sees the same
+  // frames it is cleaning.
+  static constexpr int kRemRing = 12;
+  static constexpr int kRemRs = 8;
+  static constexpr int kRemOut = kHistoryDepth + 1;
+  static constexpr int kRemImages = kRemRing + kRemRs + kRemOut;
+  VkShaderModule fsRemDec_ = VK_NULL_HANDLE;
+  VkShaderModule fsRemRes_ = VK_NULL_HANDLE;
+  VkShaderModule fsRemComb_ = VK_NULL_HANDLE;
+  VulkanImage rem_[kRemImages];
+  int remHead_ = 0;
+  int remOutHead_ = 0;
+  int remCount_ = 0;
+  bool remOk_ = false;
 };
 
 // ------------------------------------------------------------------- lifetime
@@ -332,6 +356,10 @@ bool VulkanPasses::Initialize(Display* display, std::string* error) {
       return ReportError(error, CAP_SAID(T(module.de, module.en)));
     }
   }
+  // The crawl remover. Not fatal, as in Direct3D 11.
+  remOk_ = CreateModule(kSpirvRemDec, &words, &fsRemDec_) &&
+           CreateModule(kSpirvRemRes, &words, &fsRemRes_) &&
+           CreateModule(kSpirvRemComb, &words, &fsRemComb_);
 
   // The same two as in Direct3D 11: clamped, one nearest and one linear.
   VkSamplerCreateInfo sampler = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
@@ -425,6 +453,12 @@ bool VulkanPasses::Initialize(Display* display, std::string* error) {
                                            "A Vulkan pipeline could not be created")));
     }
   }
+  if (remOk_) {
+    remOk_ = PipelineFor(fsRemDec_, VK_FORMAT_R16G16B16A16_SFLOAT, false) &&
+             PipelineFor(fsRemRes_, VK_FORMAT_R16G16B16A16_SFLOAT, false, kRemRs) &&
+             PipelineFor(fsRemComb_, VK_FORMAT_R16G16B16A16_SFLOAT, false);
+  }
+  if (!remOk_) CAP_ERR("Vulkan: crawl remover unavailable");
 
   if (!vk->Flush()) {
     Shutdown();
@@ -450,6 +484,7 @@ void VulkanPasses::Shutdown() {
     ReleaseUiLayer();
     ReleaseReadbackSlots();
     ReleaseHdrRecord();
+    ReleaseRemover();
     vk_->DestroyImage(&dummy_);
     for (Arena& arena : arenas_) vk_->DestroyBuffer(&arena.uniforms);
 
@@ -461,7 +496,8 @@ void VulkanPasses::Shutdown() {
     for (const Arena& arena : arenas_) {
       if (arena.pool) pools.push_back(arena.pool);
     }
-    const VkShaderModule modules[] = {vs_, fsClean_, fsConvert_, fsScale_, fsRecord_, fsUi_};
+    const VkShaderModule modules[] = {vs_,       fsClean_,  fsConvert_, fsScale_, fsRecord_,
+                                      fsUi_,     fsRemDec_, fsRemRes_,  fsRemComb_};
     std::vector<VkShaderModule> moduleList(std::begin(modules), std::end(modules));
     const VkPipelineLayout pipelineLayout = pipelineLayout_;
     const VkDescriptorSetLayout setLayout = setLayout_;
@@ -488,6 +524,10 @@ void VulkanPasses::Forget() {
   vk_ = nullptr;
   device_ = VK_NULL_HANDLE;
   vs_ = fsClean_ = fsConvert_ = fsScale_ = fsRecord_ = fsUi_ = VK_NULL_HANDLE;
+  fsRemDec_ = fsRemRes_ = fsRemComb_ = VK_NULL_HANDLE;
+  for (VulkanImage& image : rem_) image = VulkanImage();
+  remHead_ = remCount_ = 0;
+  remOk_ = false;
   samplerPoint_ = samplerLinear_ = VK_NULL_HANDLE;
   setLayout_ = VK_NULL_HANDLE;
   pipelineLayout_ = VK_NULL_HANDLE;
@@ -505,10 +545,14 @@ void VulkanPasses::Forget() {
 
 // ------------------------------------------------------------------ machinery
 
-VkPipeline VulkanPasses::PipelineFor(VkShaderModule fs, VkFormat format, bool blend) {
+VkPipeline VulkanPasses::PipelineFor(VkShaderModule fs, VkFormat format, bool blend,
+                                     int targets) {
   for (const Pipeline& p : pipelines_) {
-    if (p.fs == fs && p.format == format && p.blend == blend) return p.pipeline;
+    if (p.fs == fs && p.format == format && p.blend == blend && p.targets == targets) {
+      return p.pipeline;
+    }
   }
+  targets = std::max(1, std::min(targets, 8));
 
   VkPipelineShaderStageCreateInfo stages[2] = {};
   stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -556,10 +600,16 @@ VkPipeline VulkanPasses::PipelineFor(VkShaderModule fs, VkFormat format, bool bl
     attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     attachment.alphaBlendOp = VK_BLEND_OP_ADD;
   }
+  VkPipelineColorBlendAttachmentState attachments[8];
+  VkFormat formats[8];
+  for (int i = 0; i < targets; ++i) {
+    attachments[i] = attachment;
+    formats[i] = format;
+  }
   VkPipelineColorBlendStateCreateInfo colorBlend = {
       VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-  colorBlend.attachmentCount = 1;
-  colorBlend.pAttachments = &attachment;
+  colorBlend.attachmentCount = (uint32_t)targets;
+  colorBlend.pAttachments = attachments;
 
   const VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
   VkPipelineDynamicStateCreateInfo dynamic = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
@@ -567,8 +617,8 @@ VkPipeline VulkanPasses::PipelineFor(VkShaderModule fs, VkFormat format, bool bl
   dynamic.pDynamicStates = dynamicStates;
 
   VkPipelineRenderingCreateInfo rendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-  rendering.colorAttachmentCount = 1;
-  rendering.pColorAttachmentFormats = &format;
+  rendering.colorAttachmentCount = (uint32_t)targets;
+  rendering.pColorAttachmentFormats = formats;
 
   VkGraphicsPipelineCreateInfo info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
   info.pNext = &rendering;
@@ -590,7 +640,7 @@ VkPipeline VulkanPasses::PipelineFor(VkShaderModule fs, VkFormat format, bool bl
     pipeline = VK_NULL_HANDLE;
     CAP_ERR("Vulkan: pipeline for format %d failed: %s", (int)format, VkResultName(result));
   }
-  pipelines_.push_back({fs, format, blend, pipeline});
+  pipelines_.push_back({fs, format, blend, targets, pipeline});
   return pipeline;
 }
 
@@ -740,6 +790,83 @@ void VulkanPasses::Draw(VkShaderModule fs, VulkanImage* target, int x, int y, in
   vkCmdEndRendering(cmd);
 }
 
+// Draw over whole targets, as many as the shader writes.
+void VulkanPasses::DrawTargets(VkShaderModule fs, VulkanImage* const* targets, int targetCount,
+                               VulkanImage* const* sources, int count, const void* constants,
+                               size_t size) {
+  if (targetCount < 1 || targetCount > 8 || !targets[0] || !*targets[0]) return;
+  const VkPipeline pipeline = PipelineFor(fs, targets[0]->format, false, targetCount);
+  VkCommandBuffer cmd = vk_->Commands();
+  if (!pipeline || !cmd) return;
+
+  VulkanImage* bound[kImageBindings];
+  for (uint32_t i = 0; i < kImageBindings; ++i) {
+    VulkanImage* source = (int)i < count ? sources[i] : nullptr;
+    bound[i] = source && *source ? source : &dummy_;
+    vk_->Transition(cmd, bound[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  }
+  const VkDescriptorSet set = AllocateSet(bound, constants, size);
+  if (!set) return;
+
+  VkRenderingAttachmentInfo attachments[8] = {};
+  for (int i = 0; i < targetCount; ++i) {
+    vk_->Transition(cmd, targets[i], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    attachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    attachments[i].imageView = targets[i]->view;
+    attachments[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  }
+  const int width = targets[0]->width;
+  const int height = targets[0]->height;
+  const VkRect2D area = {{0, 0}, {(uint32_t)width, (uint32_t)height}};
+  VkRenderingInfo rendering = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+  rendering.renderArea = area;
+  rendering.layerCount = 1;
+  rendering.colorAttachmentCount = (uint32_t)targetCount;
+  rendering.pColorAttachments = attachments;
+  vkCmdBeginRendering(cmd, &rendering);
+
+  const VkViewport viewport = {0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f};
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+  vkCmdSetScissor(cmd, 0, 1, &area);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &set, 0,
+                          nullptr);
+  vkCmdDraw(cmd, 3, 1, 0, 0);
+  vkCmdEndRendering(cmd);
+}
+
+void VulkanPasses::ReleaseRemover() {
+  if (vk_) {
+    for (VulkanImage& image : rem_) vk_->DestroyImage(&image);
+  }
+  remHead_ = 0;
+  remOutHead_ = 0;
+  remCount_ = 0;
+}
+
+bool VulkanPasses::EnsureRemover(int width, int height) {
+  if (!vk_) return false;
+  width = std::max(1, width);
+  height = std::max(1, height);
+  if (rem_[0] && rem_[0].width == width && rem_[0].height == height) return true;
+
+  ReleaseRemover();
+  for (VulkanImage& image : rem_) {
+    if (!vk_->CreateImage(width, height, VK_FORMAT_R16G16B16A16_SFLOAT,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          &image)) {
+      ReleaseRemover();
+      remOk_ = false;  // do not try again every frame
+      CAP_ERR("Vulkan: the crawl remover's pictures could not be made");
+      return false;
+    }
+  }
+  CAP_LOG("Crawl remover running at %dx%d", width, height);
+  return true;
+}
+
 void VulkanPasses::ClearImage(VkCommandBuffer cmd, VulkanImage* image) {
   if (!cmd || !image || !*image) return;
   vk_->Transition(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -859,6 +986,7 @@ void VulkanPasses::ReleasePlane(int index) {
 
 void VulkanPasses::ReleasePlanes() {
   for (int i = 0; i < 3; ++i) ReleasePlane(i);
+  remCount_ = 0;  // a new source, the ring starts over
 }
 
 bool VulkanPasses::MapPlane(int index, MappedPlane* mapped) {
@@ -1040,7 +1168,40 @@ void VulkanPasses::CleanAndConvert(const ConvertParams& params, int srcWidth, in
                                    int outWidth, int outHeight, int historyWrite) {
   if (!vk_ || !clean_ || !intermediate_) return;
 
-  const ConvertCB& cb = params;
+  // The crawl remover, as in Direct3D 11.
+  ConvertCB cb = params;
+  const bool rem = cb.remover != 0 && remOk_ && EnsureRemover(srcWidth, srcHeight);
+  bool remRun = false;
+  if (rem) {
+    if (cb.remNew != 0 || remCount_ == 0) {
+      remHead_ = (remHead_ + 1) % kRemRing;
+      remOutHead_ = (remOutHead_ + 1) % kRemOut;
+      remCount_ = std::min(remCount_ + 1, kRemRing);
+      remRun = true;
+    }
+    cb.remHist = remCount_ - 1;
+    // The crawl fix reads the remover's pictures as its history, so it can only
+    // look back as far as those go.
+    cb.histCount = std::min(cb.histCount, std::min(remCount_ - 1, (int)kHistoryDepth));
+  } else {
+    cb.remover = 0;
+    remCount_ = 0;
+  }
+  VulkanImage* const remOut = &rem_[kRemRing + kRemRs + remOutHead_];
+  if (remRun) {
+    VulkanImage* planes[3] = {&planes_[0].image, &planes_[1].image, &planes_[2].image};
+    VulkanImage* target[kRemRs] = {&rem_[remHead_]};
+    DrawTargets(fsRemDec_, target, 1, planes, 3, &cb, sizeof(cb));
+
+    VulkanImage* ring[kRemRing + kRemRs] = {};
+    for (int k = 0; k < kRemRing; ++k) ring[k] = &rem_[(remHead_ - k + kRemRing) % kRemRing];
+    for (int i = 0; i < kRemRs; ++i) target[i] = &rem_[kRemRing + i];
+    DrawTargets(fsRemRes_, target, kRemRs, ring, kRemRing, &cb, sizeof(cb));
+
+    for (int i = 0; i < kRemRs; ++i) ring[kRemRing + i] = &rem_[kRemRing + i];
+    target[0] = remOut;
+    DrawTargets(fsRemComb_, target, 1, ring, kRemRing + kRemRs, &cb, sizeof(cb));
+  }
 
   // ---- pass 1: decode the planes and clean the signal, in source geometry ----
   //
@@ -1052,6 +1213,12 @@ void VulkanPasses::CleanAndConvert(const ConvertParams& params, int srcWidth, in
   for (int h = 0; h < kHistoryDepth; ++h) {
     const int slot = (historyWrite - 1 - h + kHistoryDepth * 2) % kHistoryDepth;
     for (int i = 0; i < 3; ++i) sources[3 + h * 3 + i] = &planes_[i].history[slot];
+  }
+  if (rem) {
+    sources[kImageBindings - 1] = remOut;
+    for (int h = 0; h < kHistoryDepth; ++h) {
+      sources[3 + h * 3] = &rem_[kRemRing + kRemRs + (remOutHead_ - 1 - h + 2 * kRemOut) % kRemOut];
+    }
   }
   Draw(fsClean_, &clean_, 0, 0, srcWidth, srcHeight, sources, (int)kImageBindings, &cb,
        sizeof(cb));

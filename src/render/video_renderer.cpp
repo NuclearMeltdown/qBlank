@@ -7,6 +7,7 @@
 #include "i18n.h"
 #include "render/display.h"
 namespace cap {
+
 namespace {
 
 // Rec.601 / Rec.709 conversion coefficients: Cr->R, Cb->G, Cr->G, Cb->B.
@@ -2386,6 +2387,7 @@ bool VideoRenderer::UploadFrame(const FrameView& frame) {
       break;
   }
   if (ok) hasFrame_ = true;
+  if (ok) remNewFrame_ = true;
   // Nach dem Hochladen, weil das Bild dann im Cache liegt; siehe AnalyzeCrawl.
   if (ok) SampleCrawl(frame);
   if (ok) SampleChromaDelay(frame);
@@ -2974,8 +2976,9 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   // the averaging above is switched off -- it works on what that one lets go.
   historyWanted_ = DeinterlaceNeedsHistory(deint) || image.temporalDenoise > 0.0f ||
                    image.motionCompensate;
-  // Der Kriechzyklus wird nur gebraucht, solange der zeitliche Filter an ist.
-  crawlWanted_ = image.temporalDenoise > 0.0f;
+  // Der Kriechzyklus wird nur gebraucht, solange der zeitliche Filter oder der
+  // Entkriecher an ist; der laeuft nur bei einem gemessenen Zyklus.
+  crawlWanted_ = image.temporalDenoise > 0.0f || image.extendedHistory;
 
   const bool isYuv = kind_ != FormatKind::Rgb;
   const bool hd = croppedHeight_ >= 720;
@@ -3046,6 +3049,27 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   // und zeitlich versetzt. Solange die Messung noch laeuft, gilt eins.
   cb.motionRows = interlaced ? 2 : 1;
   cb.chromaLinear = analogueSource_ ? 0 : 1;
+  // The crawl remover, for analogue sources whose crawl was measured to repeat
+  // every 2 or 4 frames. Its fits know those two rhythms; on any other (a
+  // 3-frame cycle, SECAM, a drifting carrier) it stays off and the averaging
+  // works on the captured frames as before.
+  cb.remover =
+      image.extendedHistory && analogueSource_ && (crawlCycle_ == 2 || crawlCycle_ == 4) ? 1 : 0;
+  cb.remNew = remNewFrame_ ? 1 : 0;
+  remNewFrame_ = false;
+  cb.remP0[0] = 3.0f;   // sig2
+  cb.remP0[1] = 0.1f;   // tau
+  // The spatial fallback only under a 4.43 MHz carrier. At 3.58 MHz its nine
+  // taps take picture detail for carrier and leave a standing pattern of their
+  // own (PAL-M 0.55 against 0.16 from the decoder); without it the fits reach
+  // the decoder there. At 4.43 MHz it keeps fast motion closer to the picture
+  // (2.5 against 3.1).
+  cb.remP0[2] = carrierSamples_ < 3.4 ? 3.0f : 1e4f;   // ksp
+  cb.remP0[3] = 0.2f;   // marg
+  cb.remP1[0] = 1.0f;   // kfac
+  cb.remP1[1] = 1.0f;   // black
+  cb.remP1[2] = 0.02f;  // gmin
+  cb.remP1[3] = 4.0f;   // glo
   cb.bandwidth = image.bandwidthRestore < 0.0f   ? 0.0f
                  : image.bandwidthRestore > 1.0f ? 1.0f
                                                  : image.bandwidthRestore;

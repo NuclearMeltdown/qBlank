@@ -189,6 +189,7 @@ ImageSettings App::EffectiveImage(const Profile& profile) const {
     // Demodulator wuerde einen Traeger herausrechnen, den es nicht gibt.
     img.chromaSoft = 0;
     img.temporalDenoise = 0.0f;
+    img.extendedHistory = false;
     img.dotNotch = 0.0f;
     // Und die Bandanhebung ebenso: ihre Fensterbreite kommt aus der
     // Traegerfrequenz, und ohne Traeger hebt sie ein Band an, das niemand
@@ -225,6 +226,7 @@ ImageSettings App::EffectiveImage(const Profile& profile) const {
     // steht. Rauschen bringt jede analoge Leitung mit.
     img.chromaSoft = 0;
     img.adaptiveChroma = false;
+    img.extendedHistory = false;
     img.dotNotch = 0.0f;
     img.bandwidthRestore = 0.0f;
   }
@@ -272,6 +274,7 @@ ImageSettings App::EffectiveImage(const Profile& profile) const {
     img.chromaSoft = 0;
     img.adaptiveChroma = false;
     img.temporalDenoise = 0.0f;
+    img.extendedHistory = false;
     img.dotNotch = 0.0f;
     img.motionCompensate = false;
     img.bandwidthRestore = 0.0f;

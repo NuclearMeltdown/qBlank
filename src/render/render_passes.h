@@ -143,6 +143,17 @@ struct ConvertParams {
   // 1 = a digital source: the odd pixel's colour is interpolated between its
   // two colour samples instead of copied from the left one. See FetchYuvCur.
   int32_t chromaLinear;
+  // 1 = the crawl remover runs, and the clean pass reads its pictures, this
+  // frame's and the history, instead of the captured planes. The backend drops
+  // it to 0 when it could not make the remover. remHist is the backend's to
+  // fill: how many older frames its ring holds. remNew = a new frame came in
+  // since the last draw, so the ring moves on.
+  int32_t remover;
+  int32_t remHist;
+  int32_t remNew;
+  int32_t remPad;
+  float remP0[4];  // sig2 tau ksp marg
+  float remP1[4];  // kfac black gmin glo
 };
 
 // The same for the scale pass, which the delivery pass reuses.
@@ -181,14 +192,15 @@ class RenderPasses {
  public:
   virtual ~RenderPasses() = default;
 
-  // The three preceding frames, as a ring. Filled by copying the current planes
+  // The seven preceding frames, as a ring. Filled by copying the current planes
   // just before they are overwritten, which is cheaper than uploading twice and
   // keeps the capture path untouched. One copy per frame regardless of depth;
   // the copies only happen while something that reads them is switched on.
   //
-  // Three because the composite denoiser needs a four frame window -- see the
-  // measurement in the shader. YADIF only ever looks at the first of them.
-  static const int kHistoryDepth = 3;
+  // Seven because the composite denoiser averages a four frame window and its
+  // gate compares that window with the one a whole crawl cycle before it -- see
+  // TemporalGate in the shader. YADIF only ever looks at the first of them.
+  static const int kHistoryDepth = 7;
 
   // Readback ring. Three targets: one being written, one in flight, one old
   // enough to map without stalling.

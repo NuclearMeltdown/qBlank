@@ -2153,6 +2153,28 @@ void SettingsWindow::DrawImageTab() {
                    "places."));
     }
 
+    // Vor dem Mitteln, weil es vor ihm laeuft: das Mitteln und alles danach
+    // lesen die Bilder, aus denen dieser Filter das Kriechen schon genommen
+    // hat. Nur auf Composite -- ohne gemeinsame Leitung gibt es nichts zu
+    // entfernen, siehe EffectiveImage.
+    if (composite) {
+      bool extended = img.extendedHistory;
+      if (ImGui::Checkbox(T("Erweiterte Historie", "Extended history"), &extended)) {
+        img.extendedHistory = extended;
+      }
+      Anchor("extendedhistory");
+      ImGui::SameLine();
+      HelpMarker(T("Sieht zwölf Bilder zurück und rechnet das Punktkriechen aus jedem Bild "
+                   "heraus, bevor die Filter darunter es lesen -- auch dort, wo sich etwas "
+                   "bewegt oder überblendet. Greift, wo das Kriechen sich alle zwei oder "
+                   "vier Bilder wiederholt: PAL, PAL 60, PAL-M, PAL-N, NTSC. Kostet "
+                   "Rechenzeit auf der Grafikkarte, aber kein Bild Verzögerung.",
+                   "Looks twelve frames back and takes the dot crawl out of every frame "
+                   "before the filters below read it -- also where something moves or "
+                   "fades. Works where the crawl repeats every two or four frames: PAL, "
+                   "PAL 60, PAL-M, PAL-N, NTSC. Costs GPU time, but no frame of delay."));
+    }
+
     // Two controls, because they are two different bargains and pretending
     // otherwise hid the more useful one.
     //

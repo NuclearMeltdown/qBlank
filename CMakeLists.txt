@@ -198,6 +198,9 @@ set(qblank_shaders
   scale_ps:ps_6_0:kScalePS:kSpirvScale
   hdr_record_ps:ps_6_0:kHdrRecordPS:kSpirvHdrRecord
   ui_composite_ps:ps_6_0:kUiCompositePS:kSpirvUiComposite
+  rem_dec_ps:ps_6_0:kRemDecPS:kSpirvRemDec
+  rem_res_ps:ps_6_0:kRemResPS:kSpirvRemRes
+  rem_comb_ps:ps_6_0:kRemCombPS:kSpirvRemComb
 )
 set(shader_dir "${CMAKE_BINARY_DIR}/shaders")
 set(hlsl_files)
@@ -287,10 +290,10 @@ if(qblank_vulkan_ready)
   #   -fvk-?-shift      textures, samplers and constant buffers share the
   #                     register numbers t0, s0, b0 in HLSL and would collide
   #                     as Vulkan bindings, so each kind gets its own range:
-  #                     textures from 0, samplers from 16, buffers from 32 --
+  #                     textures from 0, samplers from 32, buffers from 48 --
   #                     see src/render/render_passes_vulkan.cpp.
   set(qblank_dxc_flags -spirv -HV 2018 -O3 -E main -fspv-target-env=vulkan1.1
-      -fvk-t-shift 0 0 -fvk-s-shift 16 0 -fvk-b-shift 32 0 -Wno-for-redefinition)
+      -fvk-t-shift 0 0 -fvk-s-shift 32 0 -fvk-b-shift 48 0 -Wno-for-redefinition)
   set(spirv_files)
   set(spirv_names)
   foreach(shader IN LISTS qblank_shaders)
