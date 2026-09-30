@@ -628,6 +628,46 @@ R"HLSL(    s0 += GateSampleAt(q, 0);
     const float excusable = 1.0 - saturate((capBy - 0.06) * gMotionSlope);
     handled = max(handled, min(1.0 - saturate((rep - gMotionSlack) * gMotionSlope), excusable));
   }
+)HLSL"
+R"HLSL(
+  // What both tests above miss is a faint texture that moves. Asphalt running
+  // towards the camera is a few levels deep, the seven-sample sums barely change
+  // as it slides under them, and the average drew it out into streaks. Asked
+  // finer: brightness over three samples, which takes the subcarrier out, this
+  // frame against one crawl cycle back, where the crawl has come round again,
+  // over seven by three spots of the same field. A standing picture leaves
+  // noise in that difference, well under a level; the asphalt ahead of the kart
+  // leaves several. Only where the picture itself is faint: a sharp edge that
+  // moves already shows in the sums, and a caption fading in or out keeps its
+  // average. The remover asks the same of its own history (gen_qb.py).
+  if (handled > 0.0 && gHistCount >= 2 * gCrawlCycle - 1) {
+    // Kept as loops, with the two samples before carried along: unrolled, the
+    // 54 fetches with all their format branches took the D3D11 compiler a
+    // minute and a half on first start.
+    float sd = 0.0, sdd = 0.0, sa = 0.0, saa = 0.0, ref = 0.0;
+    [loop] for (int gr = -1; gr <= 1; ++gr) {
+      const int rr = row + 2 * gr;
+      float a1 = 0.0, a2 = 0.0, b1 = 0.0, b2 = 0.0;
+      [loop] for (int c = 0; c < 9; ++c) {
+        const float v0 = LumaFrameAt(int2(x + c - 4, rr), 0);
+        const float vn = LumaFrameAt(int2(x + c - 4, rr), gCrawlCycle);
+        // Sums taken against one sample, so the squares stay small in float.
+        if (gr == -1 && c == 0) ref = v0 + vn;
+        if (c >= 2) {
+          const float p0 = a2 + a1 + v0, pn = b2 + b1 + vn;
+          const float d = p0 - pn, a = p0 + pn - 3.0 * ref;
+          sd += d; sdd += d * d; sa += a; saa += a * a;
+        }
+        a2 = a1; a1 = v0; b2 = b1; b1 = vn;
+      }
+    }
+    // Spread after the common part is taken out: a fade moves every spot alike.
+    const float sc = (gRemover != 0 ? 1.0 : gYScale) / 3.0;
+    const float moveRms = sqrt(max(sdd - sd * sd / 21.0, 0.0) / 21.0) * sc;
+    const float contrast = sqrt(max(saa - sa * sa / 21.0, 0.0) / 21.0) * sc * 0.5;
+    handled = min(handled, 1.0 - saturate((moveRms - 0.75 / 255.0) * (255.0 / 0.75)) *
+                                     (1.0 - saturate((contrast - 6.0 / 255.0) * (255.0 / 6.0))));
+  }
   return handled;
 }
 

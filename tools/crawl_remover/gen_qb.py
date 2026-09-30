@@ -278,7 +278,14 @@ if gfits:
                 else:
                     lines.append('{ float4 v = mul(float4(0, 1, 0, %s), Ai) * mask; float nv = 1.0 - 2.0 * g[0] * dot(v, float4(1, 1, 0, 1)) + dot(v, mul(Am, v)); ACC(s2 * nv + pen + %s * ex, Y[0] - mul(v, S)); }' % ('1' if fl else '0', f(m['kap'])))
             comb.append('  if (gHist >= %d) {\n    %s\n  }' % (K - 1, '\n    '.join(lines)))
+# The spatial estimate doubles as the way out for a faint texture that moves: asphalt running towards the
+# camera is a few levels deep, its residuals pass for noise, and the long averages drew it into streaks.
+# Luma over three samples (the subcarrier out), the newest frame against one crawl cycle back (the crawl come
+# round again), 7 x 3 spots of the same field, spread after the common part: where that exceeds 0.75 levels
+# and the picture itself is faint (a moving edge fails the fits anyway, a fade keeps its average), the output
+# leans to the spatial estimate. The convert pass asks the same of its gate (shaders.h, TemporalGate).
 comb += [
+    '  float3 sp;',
     '  {',
     '    const float kW = 6.283185307 / max(gCarrierPeriod, 1.5);',
     '    float3 m = 0, a = 0, b = 0; float hn = 0;',
@@ -287,9 +294,31 @@ comb += [
     '    [unroll] for (int k = -4; k <= 4; ++k) { float h = 0.5 + 0.5 * cos(3.14159265 * k / 5.0); float3 v = LF(0, Clamp2(p + int2(k, 0))).xyz - m; float ph = kW * (p.x + k); a += h * v * cos(ph); b += h * v * sin(ph); }',
     '    float ph0 = kW * p.x;',
     '    float3 pat = 2.0 * (a * cos(ph0) + b * sin(ph0)) / hn;',
-    '    ACC(s2 + gKsp, Y[0] - pat);',
+    '    sp = Y[0] - pat;',
+    '    ACC(s2 + gKsp, sp);',
     '  }',
-    '  float3 c = acc / sw / 255.0;',
+    '  float3 c = acc / sw;',
+    '  if (gHist >= gCrawlCycle) {',
+    '    float sd = 0.0, sdd = 0.0, sa = 0.0, saa = 0.0, ref = 0.0;',
+    '    [unroll] for (int gr = -1; gr <= 1; ++gr) {',
+    '      float l0[9], ln[9];',
+    '      [unroll] for (int k = 0; k < 9; ++k) {',
+    '        const int3 q = int3(Clamp2(p + int2(k - 4, 2 * gr)), 0);',
+    '        l0[k] = F0.Load(q).x;',
+    '        ln[k] = gCrawlCycle == 2 ? F2.Load(q).x : F4.Load(q).x;',
+    '      }',
+    '      if (gr == -1) ref = l0[0] + ln[0];',
+    '      [unroll] for (int k2 = 0; k2 < 7; ++k2) {',
+    '        const float p0 = l0[k2] + l0[k2 + 1] + l0[k2 + 2], pn = ln[k2] + ln[k2 + 1] + ln[k2 + 2];',
+    '        const float d = p0 - pn, e = p0 + pn - 3.0 * ref;',
+    '        sd += d; sdd += d * d; sa += e; saa += e * e;',
+    '      }',
+    '    }',
+    '    const float moveRms = sqrt(max(sdd - sd * sd / 21.0, 0.0) / 21.0) / 3.0;',
+    '    const float contrast = sqrt(max(saa - sa * sa / 21.0, 0.0) / 21.0) / 6.0;',
+    '    c = lerp(c, sp, saturate((moveRms - 0.75) / 0.75) * (1.0 - saturate((contrast - 6.0) / 6.0)));',
+    '  }',
+    '  c /= 255.0;',
     '  const float4 cf = gIsYuv != 0 ? gCoef : float4(1.402, 0.344136, 0.714136, 1.772);',
     '  return float4(c.x + cf.x * c.z, c.x - cf.y * c.y - cf.z * c.z, c.x + cf.w * c.y, 1.0);',
     '}']
