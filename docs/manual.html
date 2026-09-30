@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank — Manual</title>
+<meta name="description" content="How to set up and use qBlank: first start, keys, every settings tab, recording, analogue consoles and troubleshooting.">
+<link rel="icon" href="icon.png">
+<link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/manual.html">
+<link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/manual.html">
+<link rel="stylesheet" href="site.css">
+<script>
+// The same as on the front page: theme and language before anything is painted.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (!l) l = /^de\b/i.test(navigator.language || '') ? 'de' : 'en';
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
+})();
+</script>
+</head>
+<body>
+
+<a class="lang" id="langSwitch" href="de/manual.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+<button class="theme-toggle" id="themeToggle" type="button" hidden>
+  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+</button>
+
+<div class="page-head">
+  <div class="wrap">
+    <a href="./"><img class="logo" src="icon.png" alt="qBlank"></a>
+    <h1>qBlank manual</h1>
+    <p class="tag">Everything you need to get a picture, play on it, and record it. For how it works inside, see the <a href="https://github.com/NuclearMeltdown/qBlank/wiki">wiki</a>.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <b>Contents</b>
+    <a href="#install">Install</a>
+    <a href="#first">First start</a>
+    <a href="#window">The window</a>
+    <a href="#keys">Keys</a>
+    <a href="#settings">Settings</a>
+    <a href="#record">Recording</a>
+    <a href="#analogue">Analogue consoles</a>
+    <a href="#profiles">Profiles</a>
+    <a href="#updates">Updates and About</a>
+    <a href="#trouble">Troubleshooting</a>
+  </nav>
+
+  <main>
+    <section id="install">
+      <h2>Install</h2>
+      <p>qBlank is one file. Download <code>qBlank.exe</code> from the <a href="https://github.com/NuclearMeltdown/qBlank/releases/latest">latest release</a> and put it in a folder of its own that you can write to &mdash; its settings are kept beside it in <code>qBlank.json</code>. There is no installer and nothing goes into the registry, except the virtual camera if you install it.</p>
+      <ul>
+        <li>Windows 10 or later and a DirectShow capture device: almost any card, USB ones included.</li>
+        <li>If SmartScreen warns about an unknown publisher, choose <em>More info</em>, then <em>Run anyway</em>.</li>
+        <li>The release also carries <code>CapView.exe</code>. It is only for moving an old CapView install over; new users need just <code>qBlank.exe</code>.</li>
+        <li>To remove qBlank, delete its folder. Uninstall the virtual camera first if you installed it.</li>
+      </ul>
+    </section>
+
+    <section id="first">
+      <h2>First start</h2>
+      <p>The first start shows a welcome screen that names the key for the settings, <kbd>F2</kbd>. From then on, qBlank opens the settings by itself as long as no device is picked.</p>
+      <ul>
+        <li><strong>Source &rarr; Video device:</strong> pick your card. The picture appears at once.</li>
+        <li><strong>Source &rarr; Card input:</strong> only on cards with several inputs, such as HDMI and composite.</li>
+        <li><strong>Source &rarr; Source audio:</strong> the card's own audio, or any Windows recording device.</li>
+        <li><strong>Source &rarr; Format:</strong> leave it on automatic unless you want a particular resolution or frame rate.</li>
+      </ul>
+      <p>Only one program can hold a card at a time. If the picture stays black, close OBS or any other program that uses the card.</p>
+    </section>
+
+    <section id="window">
+      <h2>The window</h2>
+      <ul>
+        <li><strong>Double-click</strong> or <kbd>Enter</kbd> toggles fullscreen, <kbd>Esc</kbd> leaves it.</li>
+        <li><strong>Right click</strong> opens the menu: settings, fullscreen, window size (1&times;, 2&times;, 3&times; the source), always on top, borderless, statistics, toolbar, video standard, colour, mute, profile, recording, screenshots, freeze and compare filters.</li>
+        <li><strong>Mouse wheel</strong> changes the volume.</li>
+        <li>Hold <kbd>Shift</kbd> while resizing to keep the shape of the picture.</li>
+        <li>In a borderless window, drag the picture to move the window. Snap and the taskbar button stay.</li>
+        <li><kbd>F1</kbd> shows the statistics: source format, measured frame rate and the time a frame spends inside qBlank.</li>
+      </ul>
+    </section>
+
+    <section id="keys">
+      <h2>Keys</h2>
+      <p>These are the defaults. All of them can be changed in <strong>Settings &rarr; Keys</strong>.</p>
+      <table>
+        <tr><th>Key</th><th>Action</th></tr>
+        <tr><td><kbd>Enter</kbd></td><td>Fullscreen</td></tr>
+        <tr><td><kbd>F1</kbd></td><td>Statistics</td></tr>
+        <tr><td><kbd>F2</kbd></td><td>Settings</td></tr>
+        <tr><td><kbd>F5</kbd></td><td>Restart capture</td></tr>
+        <tr><td><kbd>Shift</kbd>+<kbd>F5</kbd></td><td>Reinitialise card</td></tr>
+        <tr><td><kbd>F6</kbd></td><td>Measure the colour range again</td></tr>
+        <tr><td><kbd>F7</kbd></td><td>Detect the video standard</td></tr>
+        <tr><td><kbd>F8</kbd></td><td>Detect the border</td></tr>
+        <tr><td><kbd>F9</kbd></td><td>Start/stop recording</td></tr>
+        <tr><td><kbd>F10</kbd></td><td>Screenshot</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>F10</kbd></td><td>Screenshot to clipboard</td></tr>
+        <tr><td><kbd>F11</kbd></td><td>Freeze</td></tr>
+        <tr><td><kbd>F12</kbd></td><td>Compare filters</td></tr>
+        <tr><td><kbd>Shift</kbd>+<kbd>F12</kbd></td><td>All filters off</td></tr>
+        <tr><td><kbd>M</kbd></td><td>Mute</td></tr>
+        <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Volume up / down</td></tr>
+      </table>
+      <p>Fixed keys: <kbd>Esc</kbd> leaves fullscreen or closes the settings, <kbd>Ctrl</kbd>+<kbd>1</kbd>&hellip;<kbd>9</kbd> switches profile, <kbd>Ctrl</kbd>+<kbd>F</kbd> searches the settings.</p>
+    </section>
+
+    <section id="settings">
+      <h2>Settings</h2>
+      <p>Every change applies on the next frame. <kbd>Ctrl</kbd>+<kbd>F</kbd> finds any setting, also under the names other programs use. A right click on a slider puts it back to its default. Tabs that need a device only appear once one is picked, and controls that do not apply to the source are hidden.</p>
+      <table>
+        <tr><th>Tab</th><th>What is in it</th></tr>
+        <tr><td><strong>General</strong></td><td>Language, window, appearance, notification area icon, Start menu and desktop shortcuts, log file</td></tr>
+        <tr><td><strong>Source</strong></td><td>Video device, video standard, card input, source audio, format</td></tr>
+        <tr><td><strong>Picture</strong></td><td>Scaling, picture controls, fields (deinterlacing), crop, native pixel grid, composite filter or noise, cathode ray tube, compare, colour</td></tr>
+        <tr><td><strong>HDR</strong></td><td>High dynamic range: tone mapping or passthrough, and what keeps the range in screenshots and recordings</td></tr>
+        <tr><td><strong>Audio</strong></td><td>Playback device, delay, volume, microphone</td></tr>
+        <tr><td><strong>Display</strong></td><td>Graphics (Direct3D 11 or Vulkan), VSync and behaviour, volume readout, fullscreen</td></tr>
+        <tr><td><strong>Recording</strong></td><td>Output folder and format, screenshots, virtual camera, rewrap to MP4</td></tr>
+        <tr><td><strong>Encoder</strong></td><td>Encoder, ffmpeg, encoder settings</td></tr>
+        <tr><td><strong>Keys</strong></td><td>Every key above, rebindable, with <em>Reset all</em></td></tr>
+        <tr><td><strong>Profiles</strong></td><td>Profiles and choosing them automatically</td></tr>
+        <tr><td><strong>Updates</strong></td><td>Version, update check, what is new</td></tr>
+        <tr><td><strong>About</strong></td><td>Version, copyright, licence and links</td></tr>
+      </table>
+      <p>The settings window runs on its own graphics device, so it can sit on a second monitor while you play on the first.</p>
+    </section>
+
+    <section id="record">
+      <h2>Recording, screenshots, virtual camera</h2>
+      <h3>Recording</h3>
+      <ul>
+        <li>Recording needs ffmpeg. <strong>Encoder &rarr; Download ffmpeg</strong> fetches it and keeps it current.</li>
+        <li>Pick the encoder in the Encoder tab: NVENC, Quick Sync, AMF, x264 or x265, with H.264, H.265 or AV1.</li>
+        <li><kbd>F9</kbd> starts and stops. A red dot on the taskbar button shows that it is recording.</li>
+        <li>The Recording tab shows the free space as recording time. A recording stops itself before the drive is full.</li>
+        <li>A microphone can go on a track of its own: <strong>Audio &rarr; Microphone</strong>.</li>
+        <li><strong>Rewrap to MP4</strong> turns finished recordings into MP4 without encoding them again.</li>
+      </ul>
+      <h3>Screenshots</h3>
+      <ul>
+        <li><kbd>F10</kbd> saves at source resolution, <kbd>Ctrl</kbd>+<kbd>F10</kbd> copies to the clipboard.</li>
+        <li>PNG, JPEG and JPEG&nbsp;XR need nothing else. AVIF needs ffmpeg.</li>
+        <li><em>Include the interface</em> in the Recording tab grabs the finished window instead.</li>
+      </ul>
+      <h3>Virtual camera</h3>
+      <p><strong>Recording &rarr; Virtual camera &rarr; Install camera</strong> asks once for administrator rights. After that, OBS, Discord or a browser can pick qBlank as a camera. Uninstall it there too.</p>
+    </section>
+
+    <section id="analogue">
+      <h2>Analogue consoles</h2>
+      <h3>Video standard</h3>
+      <p><strong>Source &rarr; Video standard</strong> on <em>Automatic</em> finds PAL, NTSC or SECAM by itself and follows a console switched between 50 and 60&nbsp;Hz. <em>Leave alone</em> keeps what the card's driver set. If the colour is wrong, press <kbd>F7</kbd>: it checks again on the current picture and tells you what it found.</p>
+      <h3>Deinterlacing</h3>
+      <p><strong>Picture &rarr; Fields</strong>. With <em>Only apply to interlaced sources</em> on, the deinterlacer only runs when the picture is measured as interlaced, so it can stay on for 240p consoles.</p>
+      <table>
+        <tr><th>Mode</th><th>What it does</th></tr>
+        <tr><td>Off (weave)</td><td>Fields stay woven. Combing on motion.</td></tr>
+        <tr><td>Bob</td><td>Ideal for 240p/288p, the least steady for real interlacing.</td></tr>
+        <tr><td>Bob (interpolated)</td><td>Like Bob, missing lines interpolated. Much steadier.</td></tr>
+        <tr><td>Motion adaptive</td><td>Still parts keep every line, moving parts are interpolated.</td></tr>
+        <tr><td>Edge directed</td><td>For pixel art: smooth diagonals. Weaker on composite.</td></tr>
+        <tr><td>YADIF</td><td>Best quality, a little more GPU load.</td></tr>
+      </table>
+      <p>If the picture jumps up and down, switch <em>Field order</em>.</p>
+      <h3>Composite filter</h3>
+      <p><strong>Picture &rarr; Composite filter</strong> only appears for a composite input.</p>
+      <ul>
+        <li><strong>Extended history</strong> removes dot crawl also where something moves or fades. Off by default.</li>
+        <li><strong>Average what stands still</strong> cancels dot crawl in still parts of the picture, at no cost.</li>
+        <li><strong>Clean up what moves</strong> covers moving parts too, for a little sharpness.</li>
+        <li><strong>Colour shimmer</strong> calms rainbow patterns over fine detail.</li>
+        <li><strong>Restore bandwidth</strong> brings back detail the cable softened.</li>
+      </ul>
+      <p><kbd>F12</kbd> splits the picture, filters off on one side and on on the other. <kbd>F11</kbd> holds the picture still while you compare.</p>
+      <h3>Colour range</h3>
+      <p><strong>Picture &rarr; Colour</strong> measures full or limited range from the picture. If blacks look grey or crushed after changing an option in the card's driver, press <kbd>F6</kbd>.</p>
+      <h3>Cathode ray tube</h3>
+      <p><strong>Picture &rarr; Cathode ray tube</strong> adds scanlines and a mask, for the display only. Set <em>Source lines</em> to what the console draws: 240 or 288 for SNES, Mega Drive, PS1, N64; 480 or 576 for GameCube, PS2, Dreamcast, Wii. Scanlines need a window at least twice the source height.</p>
+    </section>
+
+    <section id="profiles">
+      <h2>Profiles</h2>
+      <p>A profile keeps device, input, format and every picture and audio setting &mdash; one per console or source. Switch with <kbd>Ctrl</kbd>+<kbd>1</kbd>&hellip;<kbd>9</kbd> or from the right-click menu. Under <strong>Profiles &rarr; Choose automatically</strong>, a profile can be tied to a video standard and is then picked when that standard is found.</p>
+    </section>
+
+    <section id="updates">
+      <h2>Updates and About</h2>
+      <p><strong>Updates</strong> checks at startup if you let it, or on <em>Check now</em>. <em>Download and install</em> replaces the program and restarts it; your settings stay. <strong>About</strong> has the version, licence and links to the website, this manual, GitHub and the bug tracker.</p>
+    </section>
+
+    <section id="trouble">
+      <h2>Troubleshooting</h2>
+      <table>
+        <tr><th>Problem</th><th>Try</th></tr>
+        <tr><td>Black picture</td><td>Close other programs using the card. <kbd>F5</kbd> restarts the capture, <kbd>Shift</kbd>+<kbd>F5</kbd> reinitialises the card. Check the card input.</td></tr>
+        <tr><td>No colour, or wrong colour</td><td>Video standard on <em>Automatic</em>, then <kbd>F7</kbd>.</td></tr>
+        <tr><td>Grey or crushed blacks</td><td><kbd>F6</kbd>, or set the range in <strong>Picture &rarr; Colour</strong>.</td></tr>
+        <tr><td>Combing on movement</td><td>Turn on deinterlacing in <strong>Picture &rarr; Fields</strong>.</td></tr>
+        <tr><td>Picture jumps up and down</td><td>Switch the field order.</td></tr>
+        <tr><td>No sound</td><td>Check <strong>Source &rarr; Source audio</strong> and the playback device in <strong>Audio</strong>. <kbd>M</kbd> may have muted it.</td></tr>
+        <tr><td>Sound out of step</td><td><strong>Audio &rarr; Delay</strong>.</td></tr>
+        <tr><td>Is a filter the problem?</td><td><kbd>Shift</kbd>+<kbd>F12</kbd> shows the signal as it arrives.</td></tr>
+        <tr><td>Something else</td><td>Turn on the log in <strong>General &rarr; Other</strong> and <a href="https://github.com/NuclearMeltdown/qBlank/issues">report the bug</a> with it.</td></tr>
+      </table>
+      <p>To start over with default settings, close qBlank and rename or delete <code>qBlank.json</code> beside the program.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 Alex (NuclearMeltdown)</div>
+    <div><a href="./">Home</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> · <a href="https://github.com/NuclearMeltdown/qBlank/releases">Releases</a></div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

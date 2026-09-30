@@ -9,226 +9,29 @@
 <meta property="og:title" content="qBlank">
 <meta property="og:description" content="Play any console through your capture card. Lightweight, low latency, any DirectShow device.">
 <meta property="og:image" content="https://nuclearmeltdown.github.io/qBlank/viewer.jpg">
-<style>
-:root{
-  color-scheme:dark;
-  --accent:#8B5CF6;
-  --accent-soft:#a78bfa;
-  --bg:#0c0b12;
-  --bg-raised:#131120;
-  --line:#241f38;
-  --text:#e8e6f2;
-  --dim:#9a94b4;
-  --glow-a:rgba(139,92,246,.28);
-  --glow-b:rgba(139,92,246,.10);
-  --radius:14px;
-  --wrap:1080px;
-}
-
-/* The light half, written twice on purpose: once for whoever asked their
-   system for a light desktop and has never touched the switch, once for
-   whoever has. The switch wins, and nothing here needs JavaScript to run. */
-@media (prefers-color-scheme:light){
-  :root:not([data-theme]){
-    color-scheme:light;
-    --accent:#7c3aed;
-    --accent-soft:#6d28d9;
-    --bg:#f6f4fb;
-    --bg-raised:#fff;
-    --line:#e2ddf0;
-    --text:#1b1626;
-    --dim:#5c5675;
-    --glow-a:rgba(139,92,246,.20);
-    --glow-b:rgba(139,92,246,.09);
-  }
-}
-:root[data-theme="light"]{
-  color-scheme:light;
-  --accent:#7c3aed;
-  --accent-soft:#6d28d9;
-  --bg:#f6f4fb;
-  --bg-raised:#fff;
-  --line:#e2ddf0;
-  --text:#1b1626;
-  --dim:#5c5675;
-  --glow-a:rgba(139,92,246,.20);
-  --glow-b:rgba(139,92,246,.09);
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth}
-body{
-  background:var(--bg);color:var(--text);
-  font:400 16px/1.65 "Segoe UI",system-ui,-apple-system,sans-serif;
-  -webkit-font-smoothing:antialiased;overflow-x:hidden;
-}
-a{color:var(--accent-soft);text-decoration:none}
-a:hover{text-decoration:underline}
-.wrap{max-width:var(--wrap);margin:0 auto;padding:0 24px}
-
-/* ---------------------------------------------------------------- header */
-header{
-  position:relative;text-align:center;
-  padding:104px 0 72px;
-  background:
-    radial-gradient(900px 460px at 50% -160px,var(--glow-a),transparent 70%),
-    radial-gradient(600px 300px at 80% 10%,var(--glow-b),transparent 70%);
-}
-header img.logo{width:104px;height:104px;image-rendering:auto}
-h1{font-size:clamp(2.6rem,7vw,4.2rem);font-weight:700;letter-spacing:-.03em;margin:18px 0 10px}
-.tag{font-size:clamp(1.05rem,2.4vw,1.3rem);color:var(--dim);max-width:620px;margin:0 auto}
-.cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:34px}
-.btn{
-  display:inline-block;padding:13px 26px;border-radius:11px;font-weight:600;font-size:.98rem;
-  border:1px solid transparent;transition:transform .16s ease,background .16s ease,border-color .16s ease;
-}
-.btn:hover{text-decoration:none;transform:translateY(-2px)}
-.btn-main{background:var(--accent);color:#fff}
-.btn-main:hover{background:#7c4ff0}
-.btn-ghost{border-color:var(--line);color:var(--text);background:var(--bg-raised)}
-.btn-ghost:hover{border-color:var(--accent)}
-
-/* the winget command, dressed as a field: selectable by hand, and copyable
-   by a button that only appears once the script can back it */
-.cmd{
-  display:flex;align-items:center;gap:6px;padding:0 6px 0 20px;border-radius:11px;
-  min-height:calc(28px + .98rem * 1.65); /* a .btn's height, on a row of its own too */
-  border:1px solid var(--line);background:var(--bg-raised);color:var(--text);
-  font:500 .92rem/1 ui-monospace,"Cascadia Mono",Consolas,monospace;
-  transition:border-color .16s ease;
-}
-.cmd:hover{border-color:var(--accent)}
-.cmd code{font:inherit;white-space:nowrap;user-select:all}
-.cmd code::before{content:">";color:var(--accent-soft);margin-right:.7em;user-select:none}
-.soon{
-  margin-left:10px;padding:4px 9px;border:1px solid var(--accent);border-radius:999px;
-  font:600 .68rem/1 "Segoe UI",system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--accent-soft);white-space:nowrap;user-select:none;
-}
-@media (max-width:420px){
-  .cmd{padding-left:14px;font-size:.84rem}
-  .soon{margin-left:6px;padding:4px 7px;letter-spacing:.03em}
-}
-.copy{
-  width:40px;height:40px;flex:none;display:flex;align-items:center;justify-content:center;
-  border:0;border-radius:8px;background:transparent;color:var(--dim);cursor:pointer;
-  transition:background .16s ease,color .16s ease;
-}
-.copy[hidden]{display:none}
-.copy:hover{background:var(--line);color:var(--text)}
-.copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.copy svg{
-  width:18px;height:18px;fill:none;stroke:currentColor;
-  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;
-}
-.sub{margin-top:14px;font-size:.86rem;color:var(--dim)}
-
-/* ---------------------------------------------------------------- switch */
-/* Fixed, so it stays reachable however far down the page you are. Hidden
-   until the script has run: a button that cannot do anything is worse than
-   no button. */
-.theme-toggle{
-  position:fixed;top:18px;right:18px;z-index:50;
-  width:42px;height:42px;display:flex;align-items:center;justify-content:center;
-  border-radius:50%;cursor:pointer;color:var(--text);
-  border:1px solid var(--line);background:var(--bg-raised);
-  transition:border-color .18s ease,transform .18s ease;
-}
-.theme-toggle[hidden]{display:none}
-.theme-toggle:hover{border-color:var(--accent);transform:translateY(-2px)}
-.theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.theme-toggle svg{
-  width:19px;height:19px;fill:none;stroke:currentColor;
-  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;
-}
-@media (max-width:520px){.theme-toggle{top:12px;right:12px;width:38px;height:38px}}
-
-/* ------------------------------------------------------------- sections */
-section{padding:76px 0}
-h2{font-size:clamp(1.6rem,3.6vw,2.1rem);font-weight:650;letter-spacing:-.02em;margin-bottom:12px}
-h2 .num{color:var(--accent);font-weight:600;margin-right:.5em;font-variant-numeric:tabular-nums}
-.lead{color:var(--dim);max-width:660px;margin-bottom:34px}
-figure{margin:34px 0}
-figure img{
-  width:100%;height:auto;display:block;border-radius:var(--radius);
-  border:1px solid var(--line);background:#000;
-}
-figcaption{margin-top:12px;font-size:.87rem;color:var(--dim);line-height:1.55}
-
-/* two pictures side by side, cut to one shape so their captions line up */
-.pair{display:grid;gap:22px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin:34px 0}
-.pair figure{margin:0}
-.pair img{aspect-ratio:5/4;object-fit:cover}
-
-/* the break between what every source gets and what an analogue one gets */
-.group{padding:96px 0 0;text-align:center}
-.group h2{font-size:clamp(1.9rem,4.4vw,2.6rem)}
-.group .lead{margin:0 auto}
-
-/* close-ups of the interface: shown at their own size, never blown up, and
-   allowed the full width of a phone so the labels stay readable */
-figure.ui img{max-width:436px;margin-left:auto;margin-right:auto;background:var(--bg-raised)}
-figure.ui figcaption{max-width:560px;margin-left:auto;margin-right:auto}
-@media (max-width:520px){
-  figure.ui{margin-left:-24px;margin-right:-24px}
-  figure.ui img{border-radius:0;border-left:0;border-right:0}
-  figure.ui figcaption{padding:0 24px}
-}
-
-/* the one number worth shouting about */
-.metric{
-  display:flex;gap:40px;flex-wrap:wrap;justify-content:center;
-  padding:34px;border:1px solid var(--line);border-radius:var(--radius);
-  background:linear-gradient(180deg,var(--bg-raised),transparent);
-}
-.metric div{text-align:center;min-width:150px}
-.metric b{display:block;font-size:2.2rem;font-weight:700;color:var(--accent-soft);letter-spacing:-.02em}
-.metric span{font-size:.85rem;color:var(--dim)}
-
-.grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
-.card{
-  padding:24px;border:1px solid var(--line);border-radius:var(--radius);
-  background:var(--bg-raised);transition:border-color .18s ease,transform .18s ease;
-}
-.card:hover{border-color:var(--accent);transform:translateY(-3px)}
-.card h3{font-size:1.02rem;font-weight:640;margin-bottom:8px}
-.card p{font-size:.9rem;color:var(--dim);line-height:1.6}
-
-table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:8px}
-th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line)}
-th{color:var(--dim);font-weight:600;font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
-td strong{color:var(--accent-soft)}
-
-.note{
-  border-left:3px solid var(--accent);padding:14px 18px;margin-top:26px;
-  background:var(--bg-raised);border-radius:0 10px 10px 0;font-size:.92rem;color:var(--dim);
-}
-
-footer{padding:56px 0 72px;border-top:1px solid var(--line);color:var(--dim);font-size:.88rem}
-footer .row{display:flex;gap:26px;flex-wrap:wrap;justify-content:space-between;align-items:center}
-footer .made{margin-top:18px}
-
-/* --------------------------------------------------------- scroll reveal */
-.reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.2,.7,.3,1),transform .7s cubic-bezier(.2,.7,.3,1)}
-.reveal.on{opacity:1;transform:none}
-@media (prefers-reduced-motion:reduce){
-  html{scroll-behavior:auto}
-  .reveal{opacity:1;transform:none;transition:none}
-  .btn:hover,.card:hover,.theme-toggle:hover{transform:none}
-}
-</style>
+<link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/">
+<link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/">
+<link rel="stylesheet" href="site.css">
 <script>
 // Before anything is painted, so a remembered choice does not arrive as a flash
-// of the other theme.
+// of the other theme -- or of the other language: a German browser, or German
+// picked by hand before, goes to the German page, and English picked by hand
+// is remembered just the same.
 (function(){
   try {
     var t = localStorage.getItem('qblank-theme');
     if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
   } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (!l) l = /^de\b/i.test(navigator.language || '') ? 'de' : 'en';
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
 })();
 </script>
 </head>
 <body>
 
+<a class="lang" id="langSwitch" href="de/" hreflang="de" lang="de" title="Deutsch">DE</a>
 <button class="theme-toggle" id="themeToggle" type="button" hidden>
   <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
 </button>
@@ -240,8 +43,8 @@ footer .made{margin-top:18px}
     <p class="tag">Play any console through your capture card. A lightweight, low-latency viewer and recorder for&nbsp;Windows.</p>
     <div class="cta">
       <a class="btn btn-main" id="dl" href="https://github.com/NuclearMeltdown/qBlank/releases/latest">Download the latest release</a>
+      <a class="btn btn-ghost" href="manual.html">Manual</a>
       <a class="btn btn-ghost" href="https://github.com/NuclearMeltdown/qBlank">Source on GitHub</a>
-      <a class="btn btn-ghost" href="https://github.com/NuclearMeltdown/qBlank/wiki">Documentation</a>
       <div class="cmd">
         <code id="cmd">winget install qBlank</code>
         <span class="soon">coming soon</span>
@@ -426,125 +229,11 @@ footer .made{margin-top:18px}
 <footer>
   <div class="wrap row">
     <div>GPLv3 licensed · Dear ImGui is MIT · ffmpeg is fetched from upstream and run as a child process</div>
-    <div><a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> · <a href="https://github.com/NuclearMeltdown/qBlank/releases">Releases</a></div>
+    <div><a href="manual.html">Manual</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> · <a href="https://github.com/NuclearMeltdown/qBlank/releases">Releases</a></div>
   </div>
   <div class="wrap made">Written with the help of <a href="https://claude.ai">Claude</a>.</div>
 </footer>
 
-<script>
-// The light/dark switch. The system decides until the button is used, and from
-// then on the button does -- kept in this browser and nowhere else.
-(function(){
-  var root = document.documentElement;
-  var btn = document.getElementById('themeToggle');
-  var icon = document.getElementById('themeIcon');
-  var sun = '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/>';
-  var moon = '<path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5a8.5 8.5 0 1 0 10.8 10.8z"/>';
-  var light = window.matchMedia('(prefers-color-scheme: light)');
-
-  function current(){
-    var set = root.getAttribute('data-theme');
-    if (set === 'light' || set === 'dark') return set;
-    return light.matches ? 'light' : 'dark';
-  }
-  // The icon shows where the button goes, not where you are.
-  function paint(){
-    var dark = current() === 'dark';
-    icon.innerHTML = dark ? sun : moon;
-    var label = dark ? 'Switch to the light theme' : 'Switch to the dark theme';
-    btn.setAttribute('aria-label', label);
-    btn.title = label;
-  }
-  btn.hidden = false;
-  paint();
-  btn.addEventListener('click', function(){
-    var next = current() === 'dark' ? 'light' : 'dark';
-    root.setAttribute('data-theme', next);
-    try { localStorage.setItem('qblank-theme', next); } catch (e) {}
-    paint();
-  });
-  if (light.addEventListener) light.addEventListener('change', paint);
-})();
-
-// The copy button beside the winget command. The clipboard is only there on a
-// secure page; where it is not, the button stays hidden and the command can
-// still be selected by hand.
-(function(){
-  var btn = document.getElementById('copyCmd');
-  var cmd = document.getElementById('cmd');
-  if (!navigator.clipboard || !window.isSecureContext) return;
-  var svg = btn.querySelector('svg');
-  var copy = svg.innerHTML;
-  var done = '<path d="M5 12.5l4.5 4.5L19 7.5"/>';
-  var timer = 0;
-  btn.hidden = false;
-  btn.addEventListener('click', function(){
-    navigator.clipboard.writeText(cmd.textContent).then(function(){
-      svg.innerHTML = done;
-      btn.title = 'Copied';
-      clearTimeout(timer);
-      timer = setTimeout(function(){ svg.innerHTML = copy; btn.title = 'Copy the command'; }, 1600);
-    }, function(){});
-  });
-})();
-
-// Scroll reveal, and nothing that breaks without JavaScript: the sections are
-// visible by default if this never runs.
-(function(){
-  var els = document.querySelectorAll('.reveal');
-  if (!('IntersectionObserver' in window)) {
-    els.forEach(function(e){ e.classList.add('on'); });
-    return;
-  }
-  var io = new IntersectionObserver(function(entries){
-    entries.forEach(function(en){
-      if (en.isIntersecting) { en.target.classList.add('on'); io.unobserve(en.target); }
-    });
-  }, {rootMargin:'0px 0px -12% 0px', threshold:0.08});
-  els.forEach(function(e){ io.observe(e); });
-})();
-
-// A word inside a release asset's label. The label reads "qBlank.exe (app-x64)"
-// -- a file name for whoever is looking at the release page, a word for whoever
-// is picking the file -- so the word is looked for inside it. The hyphen counts
-// as part of a word, or "app" would match halfway into "app-x64".
-function hasWord(text, word) {
-  return new RegExp('(^|[^A-Za-z0-9_-])' + word + '($|[^A-Za-z0-9_-])').test(text || '');
-}
-
-// Which file in a release is the program. The same question the updater answers
-// in src/update/release_source.cpp, and it has to be answered the same way: by
-// the label, never by position. A release also carries the migrator, that one is
-// uploaded first, and it would win any race for "the first .exe in the list".
-function pickProgram(assets) {
-  var exes = (assets || []).filter(function(x){ return /\.exe$/i.test(x.name); });
-  function labelled(word) {
-    return exes.filter(function(x){ return hasWord(x.label, word); })[0];
-  }
-  // x64 for every visitor: Windows on ARM runs it under emulation, and a browser
-  // cannot be asked reliably which of the two it is running on.
-  var exe = labelled('app-x64') || labelled('app');
-  if (exe) return exe;
-
-  // A release whose labels say nothing this page knows: the largest executable
-  // that is not the migrator. The migrator is a few hundred kilobytes and the
-  // program is megabytes.
-  return exes.filter(function(x){ return !hasWord(x.label, 'migrator'); })
-             .sort(function(p, q){ return q.size - p.size; })[0];
-}
-
-// Name the newest release on the download button, so it says what you get.
-// Falls back silently to the generic /releases/latest link.
-fetch('https://api.github.com/repos/NuclearMeltdown/qBlank/releases/latest')
-  .then(function(r){ return r.ok ? r.json() : null; })
-  .then(function(j){
-    if (!j) return;
-    var a = document.getElementById('dl');
-    var exe = pickProgram(j.assets);
-    if (exe) a.href = exe.browser_download_url;
-    a.textContent = 'Download ' + (j.tag_name || 'the latest release');
-  })
-  .catch(function(){});
-</script>
+<script src="site.js"></script>
 </body>
 </html>

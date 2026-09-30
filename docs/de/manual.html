@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank — Handbuch</title>
+<meta name="description" content="Einrichtung und Bedienung von qBlank: erster Start, Tasten, jeder Reiter der Einstellungen, Aufnahme, analoge Konsolen und Fehlersuche.">
+<link rel="icon" href="../icon.png">
+<link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/manual.html">
+<link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/manual.html">
+<link rel="stylesheet" href="../site.css">
+<script>
+// Vor dem ersten Zeichnen, damit ein gemerktes Design nicht erst als Blitz des
+// anderen erscheint.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+
+<a class="lang" id="langSwitch" href="../manual.html" hreflang="en" lang="en" title="English">EN</a>
+<button class="theme-toggle" id="themeToggle" type="button" hidden>
+  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+</button>
+
+<div class="page-head">
+  <div class="wrap">
+    <a href="./"><img class="logo" src="../icon.png" alt="qBlank"></a>
+    <h1>qBlank-Handbuch</h1>
+    <p class="tag">Alles, um ein Bild zu bekommen, darauf zu spielen und es aufzunehmen. Wie es innen funktioniert, steht im <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> (englisch).</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <b>Inhalt</b>
+    <a href="#install">Installation</a>
+    <a href="#first">Erster Start</a>
+    <a href="#window">Das Fenster</a>
+    <a href="#keys">Tasten</a>
+    <a href="#settings">Einstellungen</a>
+    <a href="#record">Aufnahme</a>
+    <a href="#analogue">Analoge Konsolen</a>
+    <a href="#profiles">Profile</a>
+    <a href="#updates">Updates und Über</a>
+    <a href="#trouble">Fehlersuche</a>
+  </nav>
+
+  <main>
+    <section id="install">
+      <h2>Installation</h2>
+      <p>qBlank ist eine einzige Datei. Lade <code>qBlank.exe</code> aus der <a href="https://github.com/NuclearMeltdown/qBlank/releases/latest">neuesten Version</a> und leg sie in einen eigenen Ordner, in den du schreiben darfst &mdash; die Einstellungen liegen daneben in <code>qBlank.json</code>. Es gibt keinen Installer, und nichts landet in der Registry, außer der virtuellen Kamera, wenn du sie installierst.</p>
+      <ul>
+        <li>Windows 10 oder neuer und ein DirectShow-Aufnahmegerät: fast jede Karte, auch per USB.</li>
+        <li>Warnt SmartScreen vor einem unbekannten Herausgeber, wähle <em>Weitere Informationen</em>, dann <em>Trotzdem ausführen</em>.</li>
+        <li>Das Release enthält auch <code>CapView.exe</code>. Sie ist nur zum Umzug einer alten CapView-Installation da; neu brauchst du nur <code>qBlank.exe</code>.</li>
+        <li>Zum Entfernen den Ordner löschen. Vorher die virtuelle Kamera deinstallieren, falls installiert.</li>
+      </ul>
+    </section>
+
+    <section id="first">
+      <h2>Erster Start</h2>
+      <p>Beim ersten Start erscheint ein Willkommensbild mit der Taste für die Einstellungen, <kbd>F2</kbd>. Danach öffnet qBlank die Einstellungen von selbst, solange kein Gerät gewählt ist.</p>
+      <ul>
+        <li><strong>Quelle &rarr; Videogerät:</strong> deine Karte wählen. Das Bild erscheint sofort.</li>
+        <li><strong>Quelle &rarr; Eingang der Karte:</strong> nur bei Karten mit mehreren Eingängen, etwa HDMI und Composite.</li>
+        <li><strong>Quelle &rarr; Ton der Quelle:</strong> der Ton der Karte oder jedes Windows-Aufnahmegerät.</li>
+        <li><strong>Quelle &rarr; Format:</strong> auf Automatisch lassen, außer du willst eine bestimmte Auflösung oder Bildrate.</li>
+      </ul>
+      <p>Eine Karte kann immer nur ein Programm halten. Bleibt das Bild schwarz, schließ OBS oder jedes andere Programm, das die Karte nutzt.</p>
+    </section>
+
+    <section id="window">
+      <h2>Das Fenster</h2>
+      <ul>
+        <li><strong>Doppelklick</strong> oder <kbd>Eingabe</kbd> schaltet Vollbild um, <kbd>Esc</kbd> verlässt es.</li>
+        <li><strong>Rechtsklick</strong> öffnet das Menü: Einstellungen, Vollbild, Fenstergröße (1&times;, 2&times;, 3&times; die Quelle), Immer im Vordergrund, Rahmenlos, Statistik, Werkzeugleiste, Videonorm, Farbe, Stumm, Profil, Aufnahme, Screenshots, Standbild und Filter vergleichen.</li>
+        <li><strong>Mausrad</strong> ändert die Lautstärke.</li>
+        <li><kbd>Umschalt</kbd> beim Ziehen am Rand hält die Form des Bildes.</li>
+        <li>Im rahmenlosen Fenster das Bild ziehen, um das Fenster zu verschieben. Snap und der Taskleistenknopf bleiben.</li>
+        <li><kbd>F1</kbd> zeigt die Statistik: Quellformat, gemessene Bildrate und die Zeit, die ein Bild in qBlank verbringt.</li>
+      </ul>
+    </section>
+
+    <section id="keys">
+      <h2>Tasten</h2>
+      <p>Das sind die Vorgaben. Alle lassen sich unter <strong>Einstellungen &rarr; Tasten</strong> ändern.</p>
+      <table>
+        <tr><th>Taste</th><th>Aktion</th></tr>
+        <tr><td><kbd>Eingabe</kbd></td><td>Vollbild</td></tr>
+        <tr><td><kbd>F1</kbd></td><td>Statistik</td></tr>
+        <tr><td><kbd>F2</kbd></td><td>Einstellungen</td></tr>
+        <tr><td><kbd>F5</kbd></td><td>Aufnahme neu starten</td></tr>
+        <tr><td><kbd>Umschalt</kbd>+<kbd>F5</kbd></td><td>Karte neu einlesen</td></tr>
+        <tr><td><kbd>F6</kbd></td><td>Wertebereich neu messen</td></tr>
+        <tr><td><kbd>F7</kbd></td><td>Videonorm suchen</td></tr>
+        <tr><td><kbd>F8</kbd></td><td>Rand suchen</td></tr>
+        <tr><td><kbd>F9</kbd></td><td>Aufnahme starten/stoppen</td></tr>
+        <tr><td><kbd>F10</kbd></td><td>Screenshot</td></tr>
+        <tr><td><kbd>Strg</kbd>+<kbd>F10</kbd></td><td>Screenshot in die Zwischenablage</td></tr>
+        <tr><td><kbd>F11</kbd></td><td>Standbild</td></tr>
+        <tr><td><kbd>F12</kbd></td><td>Filter vergleichen</td></tr>
+        <tr><td><kbd>Umschalt</kbd>+<kbd>F12</kbd></td><td>Alle Filter aus</td></tr>
+        <tr><td><kbd>M</kbd></td><td>Stumm</td></tr>
+        <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Lauter / Leiser</td></tr>
+      </table>
+      <p>Feste Tasten: <kbd>Esc</kbd> verlässt das Vollbild oder schließt die Einstellungen, <kbd>Strg</kbd>+<kbd>1</kbd>&hellip;<kbd>9</kbd> wechselt das Profil, <kbd>Strg</kbd>+<kbd>F</kbd> durchsucht die Einstellungen.</p>
+      <p>&bdquo;Aufnahme neu starten&ldquo; meint hier das Einlesen von der Karte, nicht die Videoaufnahme.</p>
+    </section>
+
+    <section id="settings">
+      <h2>Einstellungen</h2>
+      <p>Jede Änderung wirkt ab dem nächsten Bild. <kbd>Strg</kbd>+<kbd>F</kbd> findet jede Einstellung, auch unter den Namen anderer Programme. Ein Rechtsklick auf einen Regler setzt ihn auf den Standard zurück. Reiter, die ein Gerät brauchen, erscheinen erst, wenn eines gewählt ist, und Regler, die für die Quelle nicht gelten, fehlen.</p>
+      <table>
+        <tr><th>Reiter</th><th>Was drin ist</th></tr>
+        <tr><td><strong>Allgemein</strong></td><td>Sprache, Fenster, Darstellung, Symbol im Infobereich, Verknüpfungen im Startmenü und auf dem Desktop, Protokoll</td></tr>
+        <tr><td><strong>Quelle</strong></td><td>Videogerät, Videonorm, Eingang der Karte, Ton der Quelle, Format</td></tr>
+        <tr><td><strong>Bild</strong></td><td>Skalierung, Bildregler, Halbbilder (Deinterlacing), Bildrand abschneiden, natives Pixelraster, Composite-Filter oder Rauschen, Bildröhre, Vergleich, Farbe</td></tr>
+        <tr><td><strong>HDR</strong></td><td>Hoher Kontrastumfang: Tone Mapping oder Durchreichen, und was den Umfang in Screenshots und Aufnahmen behält</td></tr>
+        <tr><td><strong>Ton</strong></td><td>Wiedergabegerät, Verzögerung, Lautstärke, Mikrofon</td></tr>
+        <tr><td><strong>Anzeige</strong></td><td>Grafik (Direct3D 11 oder Vulkan), VSync und Verhalten, Lautstärke-Anzeige, Vollbild</td></tr>
+        <tr><td><strong>Aufnahme</strong></td><td>Ausgabeordner und Format, Screenshots, virtuelle Kamera, nach MP4 umpacken</td></tr>
+        <tr><td><strong>Encoder</strong></td><td>Encoder, ffmpeg, Encoder-Einstellungen</td></tr>
+        <tr><td><strong>Tasten</strong></td><td>Alle Tasten von oben, frei belegbar, mit <em>Alle zurücksetzen</em></td></tr>
+        <tr><td><strong>Profile</strong></td><td>Profile und ihre automatische Wahl</td></tr>
+        <tr><td><strong>Updates</strong></td><td>Version, Update-Suche, was neu ist</td></tr>
+        <tr><td><strong>Über</strong></td><td>Version, Copyright, Lizenz und Links</td></tr>
+      </table>
+      <p>Das Einstellungsfenster läuft auf einem eigenen Grafikgerät und kann so auf einem zweiten Bildschirm liegen, während du auf dem ersten spielst.</p>
+    </section>
+
+    <section id="record">
+      <h2>Aufnahme, Screenshots, virtuelle Kamera</h2>
+      <h3>Aufnahme</h3>
+      <ul>
+        <li>Aufnehmen braucht ffmpeg. <strong>Encoder &rarr; ffmpeg herunterladen</strong> holt es und hält es aktuell.</li>
+        <li>Den Encoder im Reiter Encoder wählen: NVENC, Quick Sync, AMF, x264 oder x265, mit H.264, H.265 oder AV1.</li>
+        <li><kbd>F9</kbd> startet und stoppt. Ein roter Punkt auf dem Taskleistenknopf zeigt, dass aufgenommen wird.</li>
+        <li>Der Reiter Aufnahme zeigt den freien Platz als Aufnahmezeit. Eine Aufnahme stoppt selbst, bevor das Laufwerk voll ist.</li>
+        <li>Ein Mikrofon kann auf eine eigene Spur: <strong>Ton &rarr; Mikrofon</strong>.</li>
+        <li><strong>Nach MP4 umpacken</strong> macht fertige Aufnahmen zu MP4, ohne sie neu zu kodieren.</li>
+      </ul>
+      <h3>Screenshots</h3>
+      <ul>
+        <li><kbd>F10</kbd> speichert in Quellauflösung, <kbd>Strg</kbd>+<kbd>F10</kbd> kopiert in die Zwischenablage.</li>
+        <li>PNG, JPEG und JPEG&nbsp;XR brauchen nichts weiter. AVIF braucht ffmpeg.</li>
+        <li><em>Bedienoberfläche mit aufnehmen</em> im Reiter Aufnahme nimmt stattdessen das fertige Fenster auf.</li>
+      </ul>
+      <h3>Virtuelle Kamera</h3>
+      <p><strong>Aufnahme &rarr; Virtuelle Kamera &rarr; Kamera installieren</strong> fragt einmal nach Administratorrechten. Danach können OBS, Discord oder ein Browser qBlank als Kamera wählen. Deinstalliert wird sie an derselben Stelle.</p>
+    </section>
+
+    <section id="analogue">
+      <h2>Analoge Konsolen</h2>
+      <h3>Videonorm</h3>
+      <p><strong>Quelle &rarr; Videonorm</strong> auf <em>Automatisch</em> findet PAL, NTSC oder SECAM selbst und folgt einer Konsole, die zwischen 50 und 60&nbsp;Hz wechselt. <em>Nicht ändern</em> lässt, was der Treiber der Karte eingestellt hat. Stimmt die Farbe nicht, drück <kbd>F7</kbd>: Es prüft am aktuellen Bild neu und sagt, was es gefunden hat.</p>
+      <h3>Deinterlacing</h3>
+      <p><strong>Bild &rarr; Halbbilder</strong>. Mit <em>Nur bei interlaced Quellen anwenden</em> läuft der Deinterlacer nur, wenn das Bild als interlaced gemessen wird, und kann so für 240p-Konsolen anbleiben.</p>
+      <table>
+        <tr><th>Modus</th><th>Was er tut</th></tr>
+        <tr><td>Aus (Weave)</td><td>Halbbilder bleiben verwoben. Kammartefakte bei Bewegung.</td></tr>
+        <tr><td>Bob</td><td>Ideal für 240p/288p, bei echtem Interlacing am unruhigsten.</td></tr>
+        <tr><td>Bob (interpoliert)</td><td>Wie Bob, fehlende Zeilen interpoliert. Deutlich ruhiger.</td></tr>
+        <tr><td>Bewegungsadaptiv</td><td>Ruhige Teile behalten jede Zeile, bewegte werden interpoliert.</td></tr>
+        <tr><td>Kantenorientiert</td><td>Für Pixelgrafik: glatte Diagonalen. Auf Composite schwächer.</td></tr>
+        <tr><td>YADIF</td><td>Beste Qualität, etwas mehr GPU-Last.</td></tr>
+      </table>
+      <p>Springt das Bild auf und ab, die <em>Halbbildreihenfolge</em> umstellen.</p>
+      <h3>Composite-Filter</h3>
+      <p><strong>Bild &rarr; Composite-Filter</strong> erscheint nur an einem Composite-Eingang.</p>
+      <ul>
+        <li><strong>Erweiterte Historie</strong> entfernt Dot Crawl auch dort, wo sich etwas bewegt oder überblendet. Standardmäßig aus.</li>
+        <li><strong>Stillstehendes mitteln</strong> hebt Dot Crawl in ruhigen Bildteilen auf, ohne Kosten.</li>
+        <li><strong>Bewegtes entstören</strong> deckt auch Bewegtes ab, für etwas Schärfe.</li>
+        <li><strong>Farbschimmern</strong> beruhigt Regenbogenmuster über feinen Strukturen.</li>
+        <li><strong>Bandbreite zurückholen</strong> holt Details zurück, die das Kabel weichgezeichnet hat.</li>
+      </ul>
+      <p><kbd>F12</kbd> teilt das Bild, auf einer Seite Filter aus, auf der anderen an. <kbd>F11</kbd> hält das Bild zum Vergleichen an.</p>
+      <h3>Wertebereich</h3>
+      <p><strong>Bild &rarr; Farbe</strong> misst am Bild, ob der Bereich voll oder begrenzt ist. Wirkt Schwarz grau oder abgesoffen, nachdem eine Option im Treiber der Karte geändert wurde, drück <kbd>F6</kbd>.</p>
+      <h3>Bildröhre</h3>
+      <p><strong>Bild &rarr; Bildröhre</strong> legt Zeilenlücken und eine Maske darüber, nur für die Anzeige. <em>Zeilen der Quelle</em> auf das stellen, was die Konsole zeichnet: 240 oder 288 für SNES, Mega Drive, PS1, N64; 480 oder 576 für GameCube, PS2, Dreamcast, Wii. Zeilenlücken brauchen ein Fenster von mindestens der doppelten Quellhöhe.</p>
+    </section>
+
+    <section id="profiles">
+      <h2>Profile</h2>
+      <p>Ein Profil hält Gerät, Eingang, Format und jede Bild- und Toneinstellung &mdash; eines pro Konsole oder Quelle. Gewechselt wird mit <kbd>Strg</kbd>+<kbd>1</kbd>&hellip;<kbd>9</kbd> oder im Rechtsklickmenü. Unter <strong>Profile &rarr; Von selbst wählen</strong> lässt sich ein Profil an eine Videonorm binden und wird dann gewählt, sobald diese Norm gefunden ist.</p>
+    </section>
+
+    <section id="updates">
+      <h2>Updates und Über</h2>
+      <p><strong>Updates</strong> sucht beim Start, wenn du es lässt, oder mit <em>Jetzt suchen</em>. <em>Herunterladen und installieren</em> ersetzt das Programm; die Einstellungen bleiben. <strong>Über</strong> zeigt Version, Lizenz und Links zu Website, diesem Handbuch, GitHub und zur Fehlermeldung.</p>
+    </section>
+
+    <section id="trouble">
+      <h2>Fehlersuche</h2>
+      <table>
+        <tr><th>Problem</th><th>Versuch</th></tr>
+        <tr><td>Schwarzes Bild</td><td>Andere Programme schließen, die die Karte nutzen. <kbd>F5</kbd> startet das Einlesen neu, <kbd>Umschalt</kbd>+<kbd>F5</kbd> liest die Karte neu ein. Eingang der Karte prüfen.</td></tr>
+        <tr><td>Keine oder falsche Farbe</td><td>Videonorm auf <em>Automatisch</em>, dann <kbd>F7</kbd>.</td></tr>
+        <tr><td>Graues oder abgesoffenes Schwarz</td><td><kbd>F6</kbd>, oder den Bereich unter <strong>Bild &rarr; Farbe</strong> setzen.</td></tr>
+        <tr><td>Kämme bei Bewegung</td><td>Deinterlacing unter <strong>Bild &rarr; Halbbilder</strong> einschalten.</td></tr>
+        <tr><td>Bild springt auf und ab</td><td>Halbbildreihenfolge umstellen.</td></tr>
+        <tr><td>Kein Ton</td><td><strong>Quelle &rarr; Ton der Quelle</strong> und das Wiedergabegerät unter <strong>Ton</strong> prüfen. Vielleicht hat <kbd>M</kbd> stummgeschaltet.</td></tr>
+        <tr><td>Ton läuft versetzt</td><td><strong>Ton &rarr; Verzögerung</strong>.</td></tr>
+        <tr><td>Liegt es an einem Filter?</td><td><kbd>Umschalt</kbd>+<kbd>F12</kbd> zeigt das Signal, wie es ankommt.</td></tr>
+        <tr><td>Etwas anderes</td><td>Protokoll unter <strong>Allgemein &rarr; Sonstiges</strong> einschalten und damit <a href="https://github.com/NuclearMeltdown/qBlank/issues">den Fehler melden</a>.</td></tr>
+      </table>
+      <p>Für einen Neuanfang mit Standardeinstellungen qBlank schließen und <code>qBlank.json</code> neben dem Programm umbenennen oder löschen.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>Lizenz GPLv3 · © 2026 Alex (NuclearMeltdown)</div>
+    <div><a href="./">Startseite</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> (englisch) · <a href="https://github.com/NuclearMeltdown/qBlank/releases">Releases</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

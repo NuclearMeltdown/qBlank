@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank — Capture-Card-Viewer mit niedriger Latenz für Windows</title>
+<meta name="description" content="Jede Konsole über die Capture Card spielen. Ein schlanker Viewer und Recorder mit niedriger Latenz für DirectShow-Geräte unter Windows.">
+<link rel="icon" href="../icon.png">
+<meta property="og:title" content="qBlank">
+<meta property="og:description" content="Jede Konsole über die Capture Card spielen. Schlank, niedrige Latenz, jedes DirectShow-Gerät.">
+<meta property="og:image" content="https://nuclearmeltdown.github.io/qBlank/viewer.jpg">
+<link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/">
+<link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/">
+<link rel="stylesheet" href="../site.css">
+<script>
+// Vor dem ersten Zeichnen, damit ein gemerktes Design nicht erst als Blitz des
+// anderen erscheint.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+
+<a class="lang" id="langSwitch" href="../" hreflang="en" lang="en" title="English">EN</a>
+<button class="theme-toggle" id="themeToggle" type="button" hidden>
+  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+</button>
+
+<header>
+  <div class="wrap">
+    <img class="logo" src="../icon.png" alt="">
+    <h1>qBlank</h1>
+    <p class="tag">Jede Konsole über die Capture Card spielen. Ein schlanker Viewer und Recorder mit niedriger Latenz für&nbsp;Windows.</p>
+    <div class="cta">
+      <a class="btn btn-main" id="dl" href="https://github.com/NuclearMeltdown/qBlank/releases/latest">Neueste Version herunterladen</a>
+      <a class="btn btn-ghost" href="manual.html">Handbuch</a>
+      <a class="btn btn-ghost" href="https://github.com/NuclearMeltdown/qBlank">Quellcode auf GitHub</a>
+      <div class="cmd">
+        <code id="cmd">winget install qBlank</code>
+        <span class="soon">bald</span>
+        <button class="copy" id="copyCmd" type="button" aria-label="Befehl kopieren" title="Befehl kopieren" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+        </button>
+      </div>
+    </div>
+    <p class="sub">Eine Datei, etwa 2,4&nbsp;MB. Kein Installer, nichts in der Registry.</p>
+  </div>
+</header>
+
+<section class="reveal">
+  <div class="wrap">
+    <div class="metric">
+      <div><b>~1 ms</b><span>durch qBlank, vom Eintreffen bis zur Anzeige</span></div>
+      <div><b>1 Datei</b><span>kein Installer, keine Abhängigkeiten</span></div>
+      <div><b>GPLv3</b><span>frei und quelloffen</span></div>
+    </div>
+    <figure>
+      <img src="../viewer.jpg" alt="qBlank im Vollbild mit einer Konsole in 1080p60; die Statistik zeigt ein Bildalter von 1,2 ms">
+      <figcaption>Der Viewer im Vollbild. Die Einblendung ist kein Mock-up, sondern qBlanks eigene Statistik: Quellformat, gemessene Bildrate und ganz unten die Zeit, die ein Bild in qBlank verbringt.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">01</span>Nichts zwischen Karte und Bildschirm</h2>
+    <p class="lead">Keine Warteschlange, keine Uhr, kein Warten auf VSync. Was qBlank zur Karte selbst hinzufügt, ist etwa eine Millisekunde, und die Statistik zeigt es an.</p>
+    <div class="grid">
+      <div class="card"><h3>Keine Warteschlange im Aufnahmepfad</h3><p>Bilder landen in einem Dreifachpuffer, und der Filter kehrt sofort zurück. Was schneller kommt, als es angezeigt werden kann, wird verworfen, nie gepuffert. So kann sich keine Verzögerung aufstauen.</p></div>
+      <div class="card"><h3>Keine Graph-Uhr</h3><p>Der DirectShow-Graph läuft ohne Referenzuhr. Nichts wird zurückgehalten, um auf einen Anzeigezeitpunkt zu warten.</p></div>
+      <div class="card"><h3>Tearing erlaubt</h3><p>Eine Flip-Model-Swapchain mit einem Bild Warteschlange und standardmäßig ohne VSync: der größte Hebel, den es gibt. Standardmäßig Direct3D 11, Vulkan als Option, nach denselben Regeln.</p></div>
+      <div class="card"><h3>Umwandlung auf der GPU</h3><p>YUY2, UYVY, NV12, planares 4:2:0, RGB und P010 werden in einem Pixel-Shader entpackt. Zwischen Eintreffen und Zeichnen fasst die CPU nichts an.</p></div>
+      <div class="card"><h3>Und es zeigt dir die Rechnung</h3><p>Die Statistik misst die Strecke, für die qBlank verantwortlich ist: vom Eintreffen eines Bildes bis zur Übergabe an die Anzeige, mit Upload, Deinterlacing, Filtern und Skalierung. Was die Karte davor und der Bildschirm danach tun, ist nicht eingerechnet.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">02</span>Aufnehmen, festhalten, weitergeben</h2>
+    <p class="lead">Für jedes DirectShow-Gerät: HDMI- und analoge Karten, USB-Sticks, Webcams.</p>
+    <div class="grid">
+      <div class="card"><h3>Aufnahme</h3><p>H.264, H.265 oder AV1 über NVENC, Quick Sync, AMF, x264 oder x265. Der Ton ist die Hauptuhr, deshalb hat die Aufnahme eine konstante Bildrate und driftet nicht: gemessen 1&nbsp;ms über 15&nbsp;Sekunden. Der freie Platz auf dem Laufwerk wird als Aufnahmezeit angezeigt, und eine Aufnahme stoppt selbst, bevor das Laufwerk voll ist.</p></div>
+      <div class="card"><h3>Encoder-Einstellungen</h3><p>Ratensteuerung, Preset, Tuning, Look-ahead, adaptive Quantisierung und Multipass unter einheitlichen Namen, übersetzt in die Begriffe jedes Herstellers.</p></div>
+      <div class="card"><h3>Ton</h3><p>Der Ton der Karte oder jedes Windows-Aufnahmegerät, ausgegeben über WASAPI, Taktdrift wird laufend ausgeglichen. Ein Mikrofon kann auf eine eigene Spur der Aufnahme und wird nie wiedergegeben.</p></div>
+      <div class="card"><h3>Screenshots</h3><p>PNG oder JPEG in Quellauflösung über die Windows Imaging Component, ganz ohne ffmpeg. JPEG&nbsp;XR behält den HDR-Umfang und braucht auch keins, AVIF schon. Ein Schalter nimmt stattdessen das fertige Fenster samt Oberfläche auf, und <strong>Strg+F10</strong> legt das Bild in die Zwischenablage statt auf die Platte.</p></div>
+      <div class="card"><h3>Virtuelle Kamera</h3><p>Gib das Bild an OBS, Discord oder einen Browser weiter, in Auflösung und Bildrate der Quelle &mdash; und an alles, was das nicht annimmt, in dem Format, das es stattdessen verlangt.</p></div>
+      <div class="card"><h3>Hoher Kontrastumfang</h3><p>PQ und HLG werden in lineares Licht umgerechnet und mit BT.2390 für einen normalen Bildschirm tone-gemappt oder als scRGB an einen HDR-Bildschirm durchgereicht.</p></div>
+      <div class="card"><h3>Profile</h3><p>Gerät, Eingang, Aufnahmeformat und jede Bild- und Toneinstellung, eines pro Quelle, auf Strg+1 bis Strg+9 &mdash; oder ganz ohne Taste: Ein Profil kann die Videonorm nennen, zu der es gehört, und die Norm, die die Suche findet, wählt dann das Profil.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">03</span>Einstellen, während du zusiehst</h2>
+    <p class="lead">Jede Einstellung wirkt ab dem nächsten Bild, du beurteilst sie also am Bild statt aus dem Gedächtnis. Wo ein Wert leichter zu sehen als einzutippen ist, stellst du ihn direkt am Bild ein.</p>
+    <div class="pair">
+      <figure>
+        <img src="../compare-split.jpg" alt="Ein GameCube-Titelbild, in der Mitte von einer weißen Linie geteilt: links Filter aus, rechts an">
+        <figcaption><strong>F12</strong> teilt das laufende Bild, auf einer Seite Filter aus, auf der anderen an &mdash; senkrecht oder waagerecht, wählbar im Rechtsklickmenü. Die Trennlinie lässt sich ziehen, und <strong>F11</strong> hält die Quelle an.</figcaption>
+      </figure>
+      <figure>
+        <img src="../crop-configure.jpg" alt="Der Zuschnitt-Editor: weiße Griffe an allen vier Bildkanten und eine Leiste mit den vier Werten, der resultierenden Größe, Übernehmen und Abbrechen">
+        <figcaption>Der Zuschnitt wird am laufenden Bild gezogen, und <strong>F8</strong> findet den Rand selbst &mdash; über zwei Sekunden gemessen, damit eine Abblende nach Schwarz nicht als schrumpfendes Bild gilt. Gespeichert je Bildgröße.</figcaption>
+      </figure>
+    </div>
+    <div class="grid">
+      <div class="card"><h3>Ein eigenes Einstellungsfenster</h3><p>Auf einem eigenen Grafikgerät, damit es auf einem zweiten Bildschirm liegen kann, während das Bild auf dem ersten läuft. Regler, die für die Quelle nicht gelten, fehlen, statt ausgegraut zu sein.</p></div>
+      <div class="card"><h3>Gefunden, nicht gescrollt</h3><p><strong>Strg+F</strong> findet jede Einstellung, auch mit Tippfehlern und unter den Namen, die andere Programme verwenden. Ein Rechtsklick setzt einen Regler auf den Standard zurück.</p></div>
+      <div class="card"><h3>Farbumfang, gemessen</h3><p>Voll oder begrenzt wird am Bild abgelesen statt aus dem Pixelformat geschlossen, mit den Zahlen hinter dem Urteil. <strong>F6</strong> misst neu, für das eine, was sich ändert, ohne das Format anzufassen: eine Option im Treiber der Karte.</p></div>
+      <div class="card"><h3>Alle Filter aus</h3><p><strong>Umschalt+F12</strong> zeigt das Signal so, wie es ankommt, mit Deinterlacing, Zuschnitt und Seitenverhältnis &mdash; die schnelle Antwort auf die Frage, ob ein Filter das Problem ist.</p></div>
+      <div class="card"><h3>Ein Fenster, das passt</h3><p>1&times;, 2&times; oder 3&times; die Quelle aus dem Rechtsklickmenü, und <strong>Umschalt</strong> hält beim Ziehen die Form. Rahmenlos behält Taskleistenknopf und Snap; ein roter Punkt darauf zeigt, dass aufgenommen wird.</p></div>
+      <div class="card"><h3>Schnellaktionen im Infobereich</h3><p>Ein optionales Symbol mit den Aktionen deiner Wahl &mdash; Aufnahme, Screenshots, Ordner, Profile &mdash; im selben Menüstil wie alles andere. Verknüpfungen im Startmenü und auf dem Desktop liegen einen Knopf entfernt.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="reveal group">
+  <div class="wrap">
+    <h2>Und für analoge Konsolen</h2>
+    <p class="lead">Eine analoge Quelle braucht mehr, als ein Viewer sonst bietet. qBlank findet die Videonorm, deinterlaced, räumt Composite auf und kann die Scanlines zurückbringen &mdash; alles in Echtzeit.</p>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">04</span>Es räumt Composite auf</h2>
+    <p class="lead">Composite führt Farbe und Helligkeit über eine Leitung, und beide sickern ineinander. Die meisten Viewer lassen das, wie es ist. qBlank entfernt es in Echtzeit, und die Zahlen hinter jeder Einstellung wurden an echter Hardware gemessen statt geraten.</p>
+    <figure>
+      <img src="../composite-before-after.png" alt="Dasselbe GameCube-Bild über Composite: links Filter aus, Dot Crawl an jeder Buchstabenkante und über den Farbbalken, rechts mit gemitteltem Stillstand sauber">
+      <figcaption>Ein GameCube über Composite in 576i, Filter aus und an. Der Ausschnitt ist nicht nach Auge gewählt, sondern dort, wo der gemessene Unterschied zwischen beiden Bildern in den stillstehenden Teilen am größten ist.</figcaption>
+    </figure>
+    <table>
+      <tr><th>Teil</th><th>Was er tut</th><th>Was er kostet</th></tr>
+      <tr><td><strong>Erweiterte Historie</strong></td><td>Schaut zwölf Bilder zurück und nimmt den Dot Crawl aus jedem Bild, bevor der Rest es liest, auch wo sich etwas bewegt oder überblendet: um Text herum, in Transparenzen. Wo sich der Crawl alle zwei oder vier Bilder wiederholt: PAL, PAL 60, PAL M, PAL N, NTSC.</td><td>GPU-Zeit, kein Bild Verzögerung.</td></tr>
+      <tr><td><strong>Stillstehendes mitteln</strong></td><td>Hebt Dot Crawl überall dort auf, wo das Bild stillsteht, gemittelt über den für die Quelle gemessenen Crawl-Zyklus. Vier Bilder bei PAL &mdash; gemessen 1,91, 2,62, 1,90 und <strong>0,78</strong> bei Abständen von eins bis vier &mdash;, sonst zwei oder drei.</td><td>Gar nichts.</td></tr>
+      <tr><td><strong>Synchron-Demodulator</strong></td><td>Rekonstruiert den Farbträger aus der Helligkeit und zieht ihn ab, so ist auch Bewegtes abgedeckt. Entfernt 81&nbsp;% des Musters bei einem Fenster von neun Samples.</td><td>17&nbsp;% der horizontalen Schärfe.</td></tr>
+    </table>
+    <div class="note">Die beiden wissen voneinander: Das Mitteln meldet, wie viel der Arbeit es erledigt hat, und der Demodulator übernimmt nur den Rest. Früher machte es das Bild schlechter als jeder allein, beide hochzudrehen.</div>
+    <figure>
+      <img src="../compare-dotcrawl.jpg" alt="Ein GameCube-Titelbild unter F12, vergrößert über die Trennlinie: Logo und Schrift links mit Dot Crawl, rechts sauber">
+      <figcaption>Ein Titelbild unter <strong>F12</strong>, nah an der Trennlinie. Hier zeigt sich Dot Crawl am schlimmsten: große flache Farbe an einer harten Kante, lange genug still, dass der Crawl hindurchwandert. Links der Linie ist, was das Kabel liefert.</figcaption>
+    </figure>
+    <figure class="ui">
+      <img src="../settings-composite.png" alt="Der Abschnitt Composite-Filter der Einstellungen: Farbschimmern, Stillstehendes mitteln mit seinen Bedingungen, der Demodulator auf Stufe 9 von 9 und Bandbreite wiederherstellen">
+      <figcaption>Der Abschnitt, der es macht (im Bild die englische Oberfläche). Unter dem Demodulator steht der Messwert, auf den er hinarbeitet: 81&nbsp;% des Musters weg für 17&nbsp;% der Schärfe bei einem Fenster von neun Samples.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">05</span>Fünf Deinterlacer, und es misst, welchen du brauchst</h2>
+    <p class="lead">Ob eine Quelle interlaced ist, wird am Bild gemessen, nicht aus dem Medientyp gelesen &mdash; ein Medientyp darf das angeben und tut es oft nicht.</p>
+    <figure>
+      <img src="../deinterlace-before-after.png" alt="Links: ein Kart fährt an einer Absperrung in 480i vorbei, gewebt, die Pfeile von Kammartefakten zerrissen. Rechts: derselbe Moment mit YADIF, sauber">
+      <figcaption>480i von einem GameCube, derselbe Moment in zwei Durchläufen einer Aufzeichnung. Links Weave: Kammartefakte an allem, was sich bewegt. Rechts YADIF. Eine Konsole mit 240p oder 288p, deren Halbbilder dieselben Zeilen tragen, wird getrennt erkannt und ganz ohne Interpolation behandelt.</figcaption>
+    </figure>
+    <figure class="ui">
+      <img src="../settings-fields.png" alt="Der Abschnitt Halbbilder der Einstellungen: Nur auf Interlaced-Quellen anwenden, die Anzeige Gemessen: interlaced, YADIF und die Halbbildfolge">
+      <figcaption><em>Gemessen: interlaced</em> ist die Messung, nicht der Medientyp &mdash; der Deinterlacer kann also anbleiben, während eine 240p-Konsole steckt: Er läuft nur dort, wo die Messung sagt, dass er gebraucht wird.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">06</span>Es findet die Videonorm selbst</h2>
+    <p class="lead">Ein analoger Decoder muss wissen, ob er PAL, NTSC oder SECAM vor sich hat, und ein Fehler kostet entweder das Bild oder die Farbe. Lass es auf Automatisch, und qBlank findet sie &mdash; und findet sie immer wieder, sodass der Wechsel einer Konsole zwischen 50 und 60&nbsp;Hz nichts von dir braucht.</p>
+    <div class="grid">
+      <div class="card"><h3>Die Karte ist nur die halbe Antwort</h3><p>Ein Decoder meldet nur, ob er eingerastet ist, und das hängt an der Zeilenfrequenz. PAL&nbsp;60, NTSC&nbsp;M, PAL&nbsp;M und NTSC&nbsp;4.43 rasten alle auf denselben 525 Zeilen ein, und er meldet die falsche Norm genauso überzeugt.</p></div>
+      <div class="card"><h3>Also entscheidet das Bild</h3><p>Die Kandidaten werden an dem verglichen, was sie tatsächlich liefern: wie viel Farbe da ist und ob Schwarz schwarz bleibt. PAL als SECAM dekodiert gibt kein graues Bild &mdash; es gibt ein knallrotes, wo Schwarz sein sollte, und genau das fängt die zweite Messung.</p></div>
+      <div class="card"><h3>Zwei Sekunden von falsch bis bestätigt</h3><p>Gemessen an einem GameCube mit 60&nbsp;Hz, ausgehend von einer absichtlich falschen Norm: 1,7 bis 2,4&nbsp;Sekunden. Die Liste wird erst schnell durchlaufen und nur dann geduldig, wenn das nichts findet, so ist eine zwischen 50 und 60&nbsp;Hz umgeschaltete Konsole in einem Bruchteil der Zeit erledigt.</p></div>
+      <div class="card"><h3>Zwei Normen auf einem Träger</h3><p>PAL&nbsp;60 und NTSC&nbsp;4.43 tragen die Farbe auf derselben Frequenz und unterscheiden sich nur darin, dass PAL die Phase jede zweite Zeile umkehrt. Die falsche der beiden dekodiert keinen Unsinn &mdash; sie dekodiert <em>weniger</em>, und Farbe zu zählen belohnt sie für das Weglassen. qBlank misst stattdessen die Umkehr selbst und verwirft die Norm, die gegen das Signal arbeitet.</p></div>
+      <div class="card"><h3>Oder frag selbst</h3><p>F7 führt beide Stufen am aktuellen Bild noch einmal aus &mdash; für den einen Fall, den die automatische Suche nicht sehen kann, weil <em>falsche</em> Farbe trotzdem Farbe ist. Das dauert unter zwei Sekunden und sagt dir in jedem Fall, was es gefunden hat.</p></div>
+      <div class="card"><h3>Und das Format folgt daraus</h3><p>Eine Karte bietet dieselbe Formatliste an, egal was an ihr steckt. Steht die Norm fest, steht auch das Raster fest, also passt die standardmäßig angebotene Auflösung zu dem, was wirklich ankommt, statt eine Konsole in der Karte auf 1080p hochzurechnen &mdash; und die Bildratenliste bekommt <em>die Rate des Signals</em>: 50 bei PAL, 59,94 bei NTSC, glatte 60 bei PAL&nbsp;60.</p></div>
+      <div class="card"><h3>Es weiß, wann es nicht raten soll</h3><p>Ein Vergleich braucht ein Bild, an dem er vergleichen kann. Bewegt sich die Szene während der Runde oder ist der Bildschirm im Grunde schwarz, wird die Runde verworfen statt geglaubt &mdash; eine falsche Antwort, fest gehalten, ist schlimmer als einen Moment zu warten.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">07</span>Und es kann die Bildröhre zurückbringen</h2>
+    <p class="lead">240p-Grafik wurde für einen Bildschirm gezeichnet, der Lücken zwischen seinen Zeilen und eine farbige Maske über seinen Leuchtstoffen hatte. Auf einem Flachbildschirm ist das Fehlen beider selbst eine Verfälschung. Standardmäßig aus und nur für die Anzeige &mdash; eine Aufnahme nimmt das Bild vor diesem Schritt ab.</p>
+    <figure>
+      <img src="../crt-scanlines.png" alt="Links: der Titelbildschirm von Super Mario World in 240p, sechsfach vergrößert. Rechts: dasselbe Bild mit Scanlines auf 0,35, eine dunkle Lücke zwischen je zwei Bildzeilen">
+      <figcaption>Eine 240p-Konsole in einem Fenster mit der sechsfachen Höhe. Die Lücken folgen dem Zeilenraster der <em>Quelle</em>, nicht dem des Bildschirms, und die Helligkeit, die sie kosten, wird zurückgegeben &mdash; der Regler ändert die Struktur, nicht die Belichtung. Unter der doppelten Quellhöhe ist kein Platz für eine Lücke, und statt still nichts zu tun, sagt der Regler das, mit der Zahl, von der er ausgeht.</figcaption>
+    </figure>
+    <div class="grid">
+      <div class="card"><h3>Sag, was die Konsole zeichnet</h3><p>Eine Karte, die bei 720p anfängt, oder ein Stick mit eigenem Scaler liefert 1080 Zeilen von einer Konsole, die 480 gezeichnet hat &mdash; und nichts im Bild sagt zuverlässig, welche Zahl echt ist. Bei <em>Zeilen der Quelle</em> sagst du es: 240 und 288 für ein SNES, Mega Drive, PS1 oder N64 mit 60 oder 50&nbsp;Hz, 480 und 576 für GameCube, PS2, Dreamcast oder Wii. PAL&nbsp;60 ist die Ausnahme &mdash; das Raster von NTSC mit der Farbe von PAL.</p></div>
+      <div class="card"><h3>Dann landen die Lücken, wo sie hingehören</h3><p>Die angegebene Zahl wird zur Anzahl Ausgabezeilen pro echter Bildzeile, und damit ist eine skalierte Aufnahme kein Problem mehr: 1080 Zeilen von einer 480-Zeilen-Konsole sind 2,25 Zeilen pro Bildzeile, und die Scanlines liegen auf den Zeilen, die die Konsole wirklich gezeichnet hat, nicht auf denen, die der Scaler erfunden hat.</p></div>
+    </div>
+    <figure>
+      <img src="../crt-mask.png" alt="Drei Felder, bis aufs Pixel vergrößert: Maske aus, ein Streifengitter mit senkrechten Streifen und eine Lochmaske, deren Tripel jede zweite Zeile seitlich versetzt sind">
+      <figcaption>Bis aufs Pixel vergrößert, weil ein Tripel drei davon ist. Ein Streifengitter besteht aus senkrechten Streifen, wie bei einer Trinitron; eine Lochmaske versetzt ihre Tripel jede zweite Zeile seitlich. Beide enden bei halber Stärke &mdash; darüber müsste der Helligkeitsausgleich die Spitzen so weit anheben, dass die Kanäle getrennt voneinander clippen, und heraus käme ein Farbstich statt eines stärkeren Effekts.</figcaption>
+    </figure>
+    <figure class="ui">
+      <img src="../settings-crt-colour.png" alt="Die Abschnitte Bildröhre und Farbe der Einstellungen: Quellzeilen, Scanlines und Maske, darunter Umfang und Matrix mit der Messung, aus der sie stammen">
+      <figcaption>Drei Regler und direkt darunter der Farbumfang &mdash; am Bild gemessen statt vom Eingang angenommen: voller Umfang, 53,41&nbsp;% der Samples unter 16, und eine Zeile, die sagt, was das für eine analoge Quelle bedeutet.</figcaption>
+    </figure>
+    <div class="note">Beide Bilder entstanden, indem die Shader-Funktionen <code>Scanline()</code> und <code>Mask()</code> über ein Standbild liefen, nicht als Foto vom Bildschirm: Die Effekte sind bewusst nur für die Anzeige, ein Screenshot in qBlank enthält sie also nicht.</div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">08</span>Was es nicht ist</h2>
+    <p class="lead">Szenen, Overlays, Compositing und Streaming gibt es nicht und sind nicht geplant. Dafür nimm OBS &mdash; und beachte, dass eine Karte ihren Aufnahme-Pin immer nur einem Prozess gibt, beide können dieselbe Karte also nicht gleichzeitig halten.</p>
+    <table>
+      <tr><th>Voraussetzung</th><th></th></tr>
+      <tr><td>Windows 10 oder neuer</td><td>die virtuelle Kamera installiert sich mit einer UAC-Abfrage</td></tr>
+      <tr><td>Ein DirectShow-Aufnahmegerät</td><td>fast jede Karte, auch per USB</td></tr>
+      <tr><td>ffmpeg</td><td>für Aufnahmen und AVIF-Screenshots, per Knopf geladen und aktuell gehalten</td></tr>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap row">
+    <div>Lizenz GPLv3 · Dear ImGui steht unter MIT · ffmpeg wird vom Original geladen und als eigener Prozess gestartet</div>
+    <div><a href="manual.html">Handbuch</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> (englisch) · <a href="https://github.com/NuclearMeltdown/qBlank/releases">Releases</a></div>
+  </div>
+  <div class="wrap made">Geschrieben mit Hilfe von <a href="https://claude.ai">Claude</a>.</div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>
