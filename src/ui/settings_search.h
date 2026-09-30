@@ -19,16 +19,15 @@ enum SettingsTab {
   kTabEncoder,
   kTabKeys,
   kTabProfiles,
-  kTabUpdates,
+  kTabAbout,    // Updates until 5.4.2; the updates live in About now
   kTabGeneral,  // later than the rest, and first on screen
-  kTabAbout,
   kTabCount,
 };
 
-// Everything but General, Source, Updates and About is only shown once a video
-// device is picked.
+// Everything but General, Source and About is only shown once a video device is
+// picked.
 inline bool SettingsTabNeedsDevice(int tab) {
-  return tab != kTabGeneral && tab != kTabSource && tab != kTabUpdates && tab != kTabAbout;
+  return tab != kTabGeneral && tab != kTabSource && tab != kTabAbout;
 }
 
 struct SettingsSearchHit {

@@ -154,7 +154,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Controls that cannot apply to the source are absent rather than disabled, and are not applied.
 - **Ctrl+F** finds any setting, through typos and the names other programs use.
 - Right click on a slider puts it back to its default.
-- An *About* tab with version, licence and links to the website, the manual and GitHub.
+- An *About* tab with version, licence, links to the website, the manual and GitHub, and the update check.
 
 **Updates** · [wiki](../../wiki/Updates)
 - Compares the build against the newest GitHub release.

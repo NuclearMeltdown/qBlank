@@ -400,7 +400,7 @@ constexpr TabName kTabNames[] = {
     {kTabAudio, "Ton", "Audio"},           {kTabDisplay, "Anzeige", "Display"},
     {kTabRecord, "Aufnahme", "Recording"}, {kTabEncoder, "Encoder", "Encoder"},
     {kTabKeys, "Tasten", "Keys"},          {kTabProfiles, "Profile", "Profiles"},
-    {kTabUpdates, "Updates", "Updates"},   {kTabAbout, "Über", "About"},
+    {kTabAbout, "Über", "About"},
 };
 static_assert(std::size(kTabNames) == kTabCount, "every tab needs a name");
 
@@ -661,7 +661,6 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
       case kTabEncoder: DrawEncoderTab(ffmpeg); break;
       case kTabKeys: DrawHotkeysTab(); break;
       case kTabProfiles: DrawProfilesTab(caps); break;
-      case kTabUpdates: DrawUpdatesTab(); break;
       case kTabAbout: DrawAboutTab(); break;
     }
     ImGui::EndChild();
@@ -851,16 +850,13 @@ void SettingsWindow::Anchor(const char* key) {
   draw->AddRect(a, b, ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, 0.9f * fade)), rounding, 1.5f);
 }
 
-// ---------------------------------------------------------------- updates tab
+// ------------------------------------------------------------- about › updates
 
-void SettingsWindow::DrawUpdatesTab() {
+void SettingsWindow::DrawUpdateSection() {
   AppSettings& app = cfg().app;
   ImGui::Spacing();
-
-  ImGui::SeparatorText(T("Version", "Version"));
-  ImGui::Text("%s", T("Installiert:", "Installed:"));
-  ImGui::SameLine();
-  ImGui::TextDisabled("%s", Updater::currentVersion());
+  ImGui::SeparatorText(T("Updates", "Updates"));
+  Anchor("updatesec");
 
   ImGui::Checkbox(T("Beim Start nach Updates suchen", "Check for updates at startup"),
                   &app.checkUpdatesOnStart);
@@ -876,9 +872,6 @@ void SettingsWindow::DrawUpdatesTab() {
   if (!updater_) return;
   const UpdateStatus st = updater_->status();
   const bool busy = updater_->busy();
-
-  ImGui::Spacing();
-  ImGui::SeparatorText(T("Stand", "Status"));
 
   ImGui::BeginDisabled(busy);
   if (ImGui::Button(T("Jetzt suchen", "Check now"))) updater_->CheckAsync();
@@ -1006,6 +999,9 @@ void SettingsWindow::DrawAboutTab() {
     if (ImGui::Button(link.label)) OpenUrl(link.url);
     ImGui::SetItemTooltip("%s", link.url.c_str());
   }
+
+  // Last, because the release notes of a waiting update can run long.
+  DrawUpdateSection();
 }
 
 // ---------------------------------------------------------------- source tab

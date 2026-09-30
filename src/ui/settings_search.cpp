@@ -381,21 +381,17 @@ const Entry kEntries[] = {
     {Kind::Section, kTabProfiles, "autoselect", "Von selbst wählen", "Choose automatically",
      "Automatisch|Automatic|Auto|Profilwechsel|Switch profile|Norm erkennen"},
 
-    // ---- updates
-    {Kind::Tab, kTabUpdates, nullptr, "Updates", "Updates",
-     "Update|Aktualisierung|Version|neue Version|New version|Changelog|Release|Was neu ist|"
-     "What is new|Neuigkeiten"},
-    {Kind::Place, kTabUpdates, nullptr, "Version", "Version", nullptr},
-    {Kind::Control, kTabUpdates, "updatestartup", "Beim Start nach Updates suchen",
-     "Check for updates at startup", "Automatisch|Automatic|Autoupdate|Update-Check"},
-    {Kind::Place, kTabUpdates, nullptr, "Stand", "Status", nullptr},
-    {Kind::Control, kTabUpdates, "updatecheck", "Jetzt suchen", "Check now",
-     "Update suchen|Check for updates|nach Updates suchen"},
-
     // ---- about
     {Kind::Tab, kTabAbout, nullptr, "Über", "About",
-     "Info|Copyright|Lizenz|License|GPL|Autor|Author|Handbuch|Manual|Anleitung|Hilfe|Help|"
-     "Website|GitHub|Fehler melden|Report a bug|Bug|Issue"},
+     "Info|Version|Copyright|Lizenz|License|GPL|Autor|Author|Handbuch|Manual|Anleitung|Hilfe|"
+     "Help|Website|GitHub|Fehler melden|Report a bug|Bug|Issue"},
+    {Kind::Section, kTabAbout, "updatesec", "Updates", "Updates",
+     "Update|Aktualisierung|neue Version|New version|Changelog|Release|Was neu ist|"
+     "What is new|Neuigkeiten"},
+    {Kind::Control, kTabAbout, "updatestartup", "Beim Start nach Updates suchen",
+     "Check for updates at startup", "Automatisch|Automatic|Autoupdate|Update-Check"},
+    {Kind::Control, kTabAbout, "updatecheck", "Jetzt suchen", "Check now",
+     "Update suchen|Check for updates|nach Updates suchen"},
 };
 
 constexpr int kEntryCount = (int)(sizeof(kEntries) / sizeof(kEntries[0]));

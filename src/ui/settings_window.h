@@ -244,7 +244,7 @@ class SettingsWindow {
   void DrawVirtualCameraBlock();
   void DrawEncoderBlock(const EncoderInfo* encoder);
   void DrawHotkeysTab();
-  void DrawUpdatesTab();
+  void DrawUpdateSection();  // part of About
   void DrawAboutTab();
   // Text field plus Browse / Default / Open, shared by both output folders.
   void FolderRow(const char* id, int pickTag, char* buffer, size_t bufferSize,

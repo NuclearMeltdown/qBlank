@@ -96,7 +96,7 @@ void StartupNotices::DrawUpdatePrompt() {
   if (ImGui::Button(T("Später", "Later"), ImVec2(buttonWidth, 0))) ImGui::CloseCurrentPopup();
   ImGui::SameLine();
   if (ImGui::Button(T("Was ist neu", "What is new"), ImVec2(buttonWidth, 0))) {
-    // The release page, not the Updates tab. The tab shows the notes trimmed to
+    // The release page, not the About tab. The tab shows the notes trimmed to
     // something that fits; the page has the whole of them, the file, and the
     // history above it.
     OpenReleasePage(st);
