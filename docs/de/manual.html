@@ -71,6 +71,10 @@
         <li><strong>Quelle &rarr; Ton der Quelle:</strong> der Ton der Karte oder jedes Windows-Aufnahmegerät.</li>
         <li><strong>Quelle &rarr; Format:</strong> auf Automatisch lassen, außer du willst eine bestimmte Auflösung oder Bildrate.</li>
       </ul>
+      <figure class="ui">
+        <img src="shots/source.png" width="528" height="354" loading="lazy" alt="Der Reiter Quelle der Einstellungen: der Eingang auf Automatisch, die Karte unter Videogerät gewählt und die Knöpfe Karte konfigurieren und Karte neu einlesen">
+        <figcaption>Einstellungen &rarr; Quelle: die Karte unter <em>Videogerät</em> wählen.</figcaption>
+      </figure>
       <p>Eine Karte kann immer nur ein Programm halten. Bleibt das Bild schwarz, schließ OBS oder jedes andere Programm, das die Karte nutzt.</p>
     </section>
 
@@ -149,6 +153,10 @@
         <li>PNG, JPEG und JPEG&nbsp;XR brauchen nichts weiter. AVIF braucht ffmpeg.</li>
         <li><em>Bedienoberfläche mit aufnehmen</em> im Reiter Aufnahme nimmt stattdessen das fertige Fenster auf.</li>
       </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="590" loading="lazy" alt="Der Reiter Aufnahme: Container MKV, Bildrate wie die Quelle, der Ausgabeordner mit dem freien Platz als Aufnahmezeit und unter Screenshots das Format PNG und der Screenshot-Ordner">
+        <figcaption>Einstellungen &rarr; Aufnahme: Container, Ordner und freier Platz, darunter die Screenshots.</figcaption>
+      </figure>
       <h3>Virtuelle Kamera</h3>
       <p><strong>Aufnahme &rarr; Virtuelle Kamera &rarr; Kamera installieren</strong> fragt einmal nach Administratorrechten. Danach können OBS, Discord oder ein Browser qBlank als Kamera wählen. Deinstalliert wird sie an derselben Stelle.</p>
     </section>
@@ -159,6 +167,10 @@
       <p><strong>Quelle &rarr; Videonorm</strong> auf <em>Automatisch</em> findet PAL, NTSC oder SECAM selbst und folgt einer Konsole, die zwischen 50 und 60&nbsp;Hz wechselt. <em>Nicht ändern</em> lässt, was der Treiber der Karte eingestellt hat. Stimmt die Farbe nicht, drück <kbd>F7</kbd>: Es prüft am aktuellen Bild neu und sagt, was es gefunden hat.</p>
       <h3>Deinterlacing</h3>
       <p><strong>Bild &rarr; Halbbilder</strong>. Mit <em>Nur bei interlaced Quellen anwenden</em> läuft der Deinterlacer nur, wenn das Bild als interlaced gemessen wird, und kann so für 240p-Konsolen anbleiben.</p>
+      <figure class="ui">
+        <img src="shots/fields.png" width="528" height="184" loading="lazy" alt="Der Abschnitt Halbbilder: Nur bei interlaced Quellen anwenden, die Anzeige Gemessen: progressiv, der Deinterlacing-Modus und die Halbbildreihenfolge">
+        <figcaption>Bild &rarr; Halbbilder: was gemessen wurde, und der Modus.</figcaption>
+      </figure>
       <table>
         <tr><th>Modus</th><th>Was er tut</th></tr>
         <tr><td>Aus (Weave)</td><td>Halbbilder bleiben verwoben. Kammartefakte bei Bewegung.</td></tr>
@@ -178,6 +190,10 @@
         <li><strong>Farbschimmern</strong> beruhigt Regenbogenmuster über feinen Strukturen.</li>
         <li><strong>Bandbreite zurückholen</strong> holt Details zurück, die das Kabel weichgezeichnet hat.</li>
       </ul>
+      <figure class="ui">
+        <img src="shots/composite.png" width="528" height="398" loading="lazy" alt="Der Abschnitt Composite-Filter, alles aus: Farbschimmern, Erweiterte Historie, Stillstehendes mitteln, Bewegung folgen, Bewegtes entstören und Bandbreite zurückholen">
+        <figcaption>Bild &rarr; Composite-Filter, alles aus wie ab Werk.</figcaption>
+      </figure>
       <p><kbd>F12</kbd> teilt das Bild, auf einer Seite Filter aus, auf der anderen an. <kbd>F11</kbd> hält das Bild zum Vergleichen an.</p>
       <h3>Wertebereich</h3>
       <p><strong>Bild &rarr; Farbe</strong> misst am Bild, ob der Bereich voll oder begrenzt ist. Wirkt Schwarz grau oder abgesoffen, nachdem eine Option im Treiber der Karte geändert wurde, drück <kbd>F6</kbd>.</p>
@@ -193,6 +209,10 @@
     <section id="updates">
       <h2>Über und Updates</h2>
       <p><strong>Über</strong> zeigt Version, Lizenz und Links zu Website, diesem Handbuch, GitHub und zur Fehlermeldung. Darunter, bei <em>Updates</em>, sucht qBlank beim Start, wenn du es lässt, oder mit <em>Jetzt suchen</em>. <em>Herunterladen und installieren</em> ersetzt das Programm; die Einstellungen bleiben.</p>
+      <figure class="ui">
+        <img src="shots/about.png" width="528" height="382" loading="lazy" alt="Der Reiter Über: Version, Copyright NuclearMeltdown, die Lizenz, die Links Website, Handbuch, GitHub und Fehler melden und unter Updates die Suche beim Start und Jetzt suchen">
+        <figcaption>Einstellungen &rarr; Über.</figcaption>
+      </figure>
     </section>
 
     <section id="trouble">

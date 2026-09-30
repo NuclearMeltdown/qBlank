@@ -244,7 +244,7 @@ footer .made{margin-top:18px}
 .doc td:first-child{white-space:nowrap}
 .doc .note{margin-top:18px}
 .doc figure{margin:22px 0}
-.doc figure.ui img{margin-left:0}
+.doc figure.ui img{max-width:528px;margin-left:0}
 .doc figure.ui figcaption{margin-left:0}
 kbd{
   font:600 .8rem/1 ui-monospace,"Cascadia Mono",Consolas,monospace;

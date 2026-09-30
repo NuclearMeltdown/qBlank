@@ -73,6 +73,10 @@
         <li><strong>Source &rarr; Source audio:</strong> the card's own audio, or any Windows recording device.</li>
         <li><strong>Source &rarr; Format:</strong> leave it on automatic unless you want a particular resolution or frame rate.</li>
       </ul>
+      <figure class="ui">
+        <img src="shots/source.png" width="528" height="354" loading="lazy" alt="The Source tab of the settings: the input set to Automatic, the card picked under Video device, and the buttons Configure card and Reinitialise card">
+        <figcaption>Settings &rarr; Source: pick the card under <em>Video device</em>.</figcaption>
+      </figure>
       <p>Only one program can hold a card at a time. If the picture stays black, close OBS or any other program that uses the card.</p>
     </section>
 
@@ -150,6 +154,10 @@
         <li>PNG, JPEG and JPEG&nbsp;XR need nothing else. AVIF needs ffmpeg.</li>
         <li><em>Include the interface</em> in the Recording tab grabs the finished window instead.</li>
       </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="590" loading="lazy" alt="The Recording tab: container MKV, frame rate same as source, the output folder with the free space as recording time, and under Screenshots the format PNG and the screenshot folder">
+        <figcaption>Settings &rarr; Recording: container, folder and free space, below them the screenshots.</figcaption>
+      </figure>
       <h3>Virtual camera</h3>
       <p><strong>Recording &rarr; Virtual camera &rarr; Install camera</strong> asks once for administrator rights. After that, OBS, Discord or a browser can pick qBlank as a camera. Uninstall it there too.</p>
     </section>
@@ -160,6 +168,10 @@
       <p><strong>Source &rarr; Video standard</strong> on <em>Automatic</em> finds PAL, NTSC or SECAM by itself and follows a console switched between 50 and 60&nbsp;Hz. <em>Leave alone</em> keeps what the card's driver set. If the colour is wrong, press <kbd>F7</kbd>: it checks again on the current picture and tells you what it found.</p>
       <h3>Deinterlacing</h3>
       <p><strong>Picture &rarr; Fields</strong>. With <em>Only apply to interlaced sources</em> on, the deinterlacer only runs when the picture is measured as interlaced, so it can stay on for 240p consoles.</p>
+      <figure class="ui">
+        <img src="shots/fields.png" width="528" height="184" loading="lazy" alt="The Fields section: Only apply to interlaced sources, the reading Measured: progressive, the deinterlacing mode and the field order">
+        <figcaption>Picture &rarr; Fields: what was measured, and the mode.</figcaption>
+      </figure>
       <table>
         <tr><th>Mode</th><th>What it does</th></tr>
         <tr><td>Off (weave)</td><td>Fields stay woven. Combing on motion.</td></tr>
@@ -179,6 +191,10 @@
         <li><strong>Colour shimmer</strong> calms rainbow patterns over fine detail.</li>
         <li><strong>Restore bandwidth</strong> brings back detail the cable softened.</li>
       </ul>
+      <figure class="ui">
+        <img src="shots/composite.png" width="528" height="398" loading="lazy" alt="The Composite filter section with everything off: colour shimmer, extended history, average what stands still, follow the movement, clean up what moves and restore bandwidth">
+        <figcaption>Picture &rarr; Composite filter, all off as it comes.</figcaption>
+      </figure>
       <p><kbd>F12</kbd> splits the picture, filters off on one side and on on the other. <kbd>F11</kbd> holds the picture still while you compare.</p>
       <h3>Colour range</h3>
       <p><strong>Picture &rarr; Colour</strong> measures full or limited range from the picture. If blacks look grey or crushed after changing an option in the card's driver, press <kbd>F6</kbd>.</p>
@@ -194,6 +210,10 @@
     <section id="updates">
       <h2>About and updates</h2>
       <p><strong>About</strong> has the version, licence and links to the website, this manual, GitHub and the bug tracker. Below them, under <em>Updates</em>, qBlank checks at startup if you let it, or on <em>Check now</em>. <em>Download and install</em> replaces the program; your settings stay.</p>
+      <figure class="ui">
+        <img src="shots/about.png" width="528" height="368" loading="lazy" alt="The About tab: version, copyright NuclearMeltdown, the licence, the links Website, Manual, GitHub and Report a bug, and under Updates the startup check and Check now">
+        <figcaption>Settings &rarr; About.</figcaption>
+      </figure>
     </section>
 
     <section id="trouble">
