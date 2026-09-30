@@ -2136,7 +2136,7 @@ void SettingsWindow::DrawImageTab() {
                                    : T("Rauschen", "Noise"));
     Anchor("composite");
     if (composite) {
-      ImGui::TextDisabled(T("Gegen das, was Composite immer mitbringt: falsche Farbe, "
+      TextDisabledWrapped(T("Gegen das, was Composite immer mitbringt: falsche Farbe, "
                             "Punktkriechen, Rauschen und einen weichen Bildrand.",
                             "Against what composite always brings with it: false colour, "
                             "dot crawl, noise, and a soft top end."));
@@ -2598,12 +2598,13 @@ void SettingsWindow::DrawImageTab() {
     ImGui::TextDisabled("%s", T("Gedreht — Zeilenlücken bleiben aus, sie lägen quer.",
                                 "Rotated — scanlines stay off, they would run sideways."));
   } else if (scanlineRoom_ > 0.0f && scanlineRoom_ < 2.0f) {
-    ImGui::TextDisabled(
-        T("Kein Platz: das Fenster zeigt %.1f Zeilen je Bildzeile, nötig sind 2. Fenster "
-          "vergrößern — oder stimmt die Zeilenzahl oben?",
-          "No room: the window shows %.1f rows per picture line, 2 are needed. Make the "
-          "window bigger -- or is the line count above right?"),
-        scanlineRoom_);
+    TextDisabledWrapped(
+        Format(T("Kein Platz: das Fenster zeigt %.1f Zeilen je Bildzeile, nötig sind 2. Fenster "
+                 "vergrößern — oder stimmt die Zeilenzahl oben?",
+                 "No room: the window shows %.1f rows per picture line, 2 are needed. Make the "
+                 "window bigger -- or is the line count above right?"),
+               scanlineRoom_)
+            .c_str());
   }
 
   int mask = Clamp(img.mask, 0, 2);
