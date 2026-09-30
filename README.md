@@ -18,8 +18,9 @@ frame arriving to the present that hands it to the compositor.**
 Recording, screenshots, a microphone track and a virtual camera are included;
 scenes, overlays, compositing and streaming are not. For those, use OBS.
 
-> **The [wiki](../../wiki) is the documentation** — one page per feature, what the
-> code does and what was measured. This page is the list.
+> **The [manual](https://nuclearmeltdown.github.io/qBlank/manual.html) explains how
+> to use it** (English and German). **The [wiki](../../wiki) is the documentation** —
+> one page per feature, what the code does and what was measured. This page is the list.
 
 ## Latency
 
@@ -153,6 +154,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Controls that cannot apply to the source are absent rather than disabled, and are not applied.
 - **Ctrl+F** finds any setting, through typos and the names other programs use.
 - Right click on a slider puts it back to its default.
+- An *About* tab with version, licence and links to the website, the manual and GitHub.
 
 **Updates** · [wiki](../../wiki/Updates)
 - Compares the build against the newest GitHub release.
