@@ -245,6 +245,7 @@ class SettingsWindow {
   void DrawEncoderBlock(const EncoderInfo* encoder);
   void DrawHotkeysTab();
   void DrawUpdatesTab();
+  void DrawAboutTab();
   // Text field plus Browse / Default / Open, shared by both output folders.
   void FolderRow(const char* id, int pickTag, char* buffer, size_t bufferSize,
                  std::string* value, const std::filesystem::path& defaultFolder);

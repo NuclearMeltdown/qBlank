@@ -70,6 +70,7 @@ std::string UpdateErrorText(const UpdateStatus& status);
 // built-in address is only used when there was no answer at all.
 std::string ReleasePageUrl(const UpdateStatus& status);
 std::string WebsiteUrl();
+std::string RepositoryUrl();
 
 class Updater {
  public:

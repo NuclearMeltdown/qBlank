@@ -391,6 +391,11 @@ const Entry kEntries[] = {
     {Kind::Place, kTabUpdates, nullptr, "Stand", "Status", nullptr},
     {Kind::Control, kTabUpdates, "updatecheck", "Jetzt suchen", "Check now",
      "Update suchen|Check for updates|nach Updates suchen"},
+
+    // ---- about
+    {Kind::Tab, kTabAbout, nullptr, "Über", "About",
+     "Info|Copyright|Lizenz|License|GPL|Autor|Author|Handbuch|Manual|Anleitung|Hilfe|Help|"
+     "Website|GitHub|Fehler melden|Report a bug|Bug|Issue"},
 };
 
 constexpr int kEntryCount = (int)(sizeof(kEntries) / sizeof(kEntries[0]));

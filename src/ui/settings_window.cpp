@@ -400,7 +400,7 @@ constexpr TabName kTabNames[] = {
     {kTabAudio, "Ton", "Audio"},           {kTabDisplay, "Anzeige", "Display"},
     {kTabRecord, "Aufnahme", "Recording"}, {kTabEncoder, "Encoder", "Encoder"},
     {kTabKeys, "Tasten", "Keys"},          {kTabProfiles, "Profile", "Profiles"},
-    {kTabUpdates, "Updates", "Updates"},
+    {kTabUpdates, "Updates", "Updates"},   {kTabAbout, "Über", "About"},
 };
 static_assert(std::size(kTabNames) == kTabCount, "every tab needs a name");
 
@@ -662,6 +662,7 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
       case kTabKeys: DrawHotkeysTab(); break;
       case kTabProfiles: DrawProfilesTab(caps); break;
       case kTabUpdates: DrawUpdatesTab(); break;
+      case kTabAbout: DrawAboutTab(); break;
     }
     ImGui::EndChild();
     ImGui::PopID();
@@ -962,6 +963,48 @@ void SettingsWindow::DrawUpdatesTab() {
     ImGui::TextUnformatted(st.notes.c_str());
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
+  }
+}
+
+// ----------------------------------------------------------------- about tab
+
+void SettingsWindow::DrawAboutTab() {
+  ImGui::Spacing();
+  ImGui::SeparatorText(AppNameUtf8().c_str());
+  ImGui::Text("Version %s", Updater::currentVersion());
+  // The year off the compiler's date, "Sep 30 2026", so the range grows with
+  // the first build of a new year without anyone remembering to.
+  const char* year = __DATE__ + 7;
+  if (std::strcmp(year, "2026") == 0) {
+    ImGui::TextUnformatted("© 2026 Alex (NuclearMeltdown)");
+  } else {
+    ImGui::Text("© 2026–%s Alex (NuclearMeltdown)", year);
+  }
+  ImGui::Spacing();
+  ImGui::TextWrapped("%s", T("Freie Software unter der GNU General Public License, Version 3. "
+                             "Ohne jede Gewährleistung.",
+                             "Free software under the GNU General Public License, version 3. "
+                             "It comes with no warranty."));
+
+  // The German pages sit under de/ on the website, so the links follow the
+  // language the program speaks.
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Links", "Links"));
+  const std::string site = WebsiteUrl() + T("de/", "");
+  const std::string repo = RepositoryUrl();
+  const struct {
+    const char* label;
+    std::string url;
+  } links[] = {
+      {T("Website", "Website"), site},
+      {T("Handbuch", "Manual"), site + "manual.html"},
+      {"GitHub", repo},
+      {T("Fehler melden", "Report a bug"), repo + "/issues"},
+  };
+  for (const auto& link : links) {
+    if (&link != links) ImGui::SameLine();
+    if (ImGui::Button(link.label)) OpenUrl(link.url);
+    ImGui::SetItemTooltip("%s", link.url.c_str());
   }
 }
 

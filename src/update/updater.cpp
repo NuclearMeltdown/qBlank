@@ -91,6 +91,13 @@ std::string ReleasePageUrl(const UpdateStatus& status) {
 
 std::string WebsiteUrl() { return Releases().website; }
 
+// The release page one level up, so the repository has no address of its own
+// to keep in step with it.
+std::string RepositoryUrl() {
+  const std::string page = Releases().releasePage;
+  return page.substr(0, page.rfind('/'));
+}
+
 const char* Updater::currentVersion() { return kAppVersion; }
 
 void Updater::CleanUpPreviousBuild() {
