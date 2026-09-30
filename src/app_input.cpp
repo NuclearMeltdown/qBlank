@@ -57,6 +57,9 @@ bool App::HandleKeyDown(Key key, bool ctrl, bool shift, bool alt) {
     case HotkeyAction::Stats:
       config_.app.showStats = !config_.app.showStats;
       return true;
+    case HotkeyAction::Toolbar:
+      config_.app.showToolbar = !config_.app.showToolbar;
+      return true;
     case HotkeyAction::RestartCapture:
       RestartAll(true);
       return true;

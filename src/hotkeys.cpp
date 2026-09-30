@@ -8,6 +8,9 @@ Hotkeys::Hotkeys() {
   (*this)[HotkeyAction::Fullscreen].key = Key::Enter;
   (*this)[HotkeyAction::Settings].key = Key::F2;
   (*this)[HotkeyAction::Stats].key = Key::F1;
+  // Gleich neben F1 und F2, weil es dieselbe Sorte ist: etwas ueber dem Bild
+  // ein- oder ausblenden, ohne am Bild selbst etwas zu aendern.
+  (*this)[HotkeyAction::Toolbar].key = Key::F3;
   (*this)[HotkeyAction::RestartCapture].key = Key::F5;
   // Shift+F5 next to F5, the way a browser puts the hard reload next to the
   // ordinary one: same key, more thrown away.
@@ -60,6 +63,7 @@ const char* HotkeyActionName(HotkeyAction action) {
     case HotkeyAction::Fullscreen: return T("Vollbild", "Fullscreen");
     case HotkeyAction::Settings: return T("Einstellungen", "Settings");
     case HotkeyAction::Stats: return T("Statistik", "Statistics");
+    case HotkeyAction::Toolbar: return T("Werkzeugleiste", "Toolbar");
     case HotkeyAction::RestartCapture: return T("Aufnahme neu starten", "Restart capture");
     case HotkeyAction::ReinitCard: return T("Karte neu einlesen", "Reinitialise card");
     case HotkeyAction::Record: return T("Aufnahme starten/stoppen", "Start/stop recording");
@@ -84,6 +88,7 @@ const char* HotkeyActionKey(HotkeyAction action) {
     case HotkeyAction::Fullscreen: return "fullscreen";
     case HotkeyAction::Settings: return "settings";
     case HotkeyAction::Stats: return "stats";
+    case HotkeyAction::Toolbar: return "toolbar";
     case HotkeyAction::RestartCapture: return "restartCapture";
     case HotkeyAction::ReinitCard: return "reinitCard";
     case HotkeyAction::Record: return "record";

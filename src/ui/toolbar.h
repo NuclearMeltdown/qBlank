@@ -25,6 +25,9 @@ struct ToolbarState {
   bool muted = false;
   float volume = 1.0f;   // 0..1
   bool canRecord = true;  // false while ffmpeg is missing or nothing is running
+  // The key that brings the bar back, named in the Hide tooltip. Only read on
+  // hover, so the key name is not built every frame.
+  const HotkeyBinding* toggleKey = nullptr;
 };
 
 // What the user pressed, if anything. One per frame at most.

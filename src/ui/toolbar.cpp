@@ -299,8 +299,14 @@ ToolbarResult DrawToolbar(const ToolbarState& state, unsigned accentRgb) {
     if (hovered) {
       dl->AddRectFilled(origin, ImVec2(origin.x + side, origin.y + side),
                         ImGui::GetColorU32(ImGuiCol_ButtonHovered), side * 0.18f);
-      ImGui::SetTooltip("%s", T("Leiste ausblenden (Rechtsklick bringt sie zurück)",
-                                "Hide the bar (the right-click menu brings it back)"));
+      if (state.toggleKey && state.toggleKey->bound()) {
+        ImGui::SetTooltip(T("Leiste ausblenden (%s oder Rechtsklick bringt sie zurück)",
+                            "Hide the bar (%s or the right-click menu brings it back)"),
+                          HotkeyText(*state.toggleKey).c_str());
+      } else {
+        ImGui::SetTooltip("%s", T("Leiste ausblenden (Rechtsklick bringt sie zurück)",
+                                  "Hide the bar (the right-click menu brings it back)"));
+      }
     }
     const ImVec2 c(origin.x + radius, origin.y + radius);
     const float d = radius * 0.42f;

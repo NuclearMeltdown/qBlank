@@ -18,6 +18,7 @@ enum class HotkeyAction {
   Fullscreen,
   Settings,
   Stats,
+  Toolbar,
   RestartCapture,
   ReinitCard,
   Record,

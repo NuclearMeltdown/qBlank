@@ -3354,6 +3354,8 @@ void SettingsWindow::DrawDisplayTab() {
   // place and undone from another is a setting people lose.
   ImGui::Checkbox(T("Werkzeugleiste anzeigen", "Show toolbar"), &app.showToolbar);
   Anchor("toolbar");
+  ImGui::SameLine();
+  ImGui::TextDisabled("(%s)", HotkeyText(cfg().hotkeys[HotkeyAction::Toolbar]).c_str());
 
   ImGui::Checkbox(T("Statistik einblenden", "Show statistics"), &app.showStats);
   Anchor("stats");

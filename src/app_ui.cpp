@@ -203,6 +203,7 @@ void App::DrawToolbarStrip() {
   state.muted = config_.active().audio.mute;
   state.volume = config_.active().audio.volume;
   state.canRecord = captureState_ == CaptureState::Running && renderer_.hasFrame();
+  state.toggleKey = &config_.hotkeys[HotkeyAction::Toolbar];
 
   const ToolbarResult result = DrawToolbar(state, config_.app.accentColor);
   if (result.volume >= 0.0f) {
@@ -1005,7 +1006,7 @@ void App::DrawContextMenu() {
   }
 
   bool toolbar = config_.app.showToolbar;
-  if (ImGui::MenuItem(T("Werkzeugleiste", "Toolbar"), nullptr, &toolbar)) {
+  if (ImGui::MenuItem(T("Werkzeugleiste", "Toolbar"), sc(HotkeyAction::Toolbar), &toolbar)) {
     config_.app.showToolbar = toolbar;
   }
 
