@@ -969,9 +969,9 @@ void SettingsWindow::DrawAboutTab() {
   // the first build of a new year without anyone remembering to.
   const char* year = __DATE__ + 7;
   if (std::strcmp(year, "2026") == 0) {
-    ImGui::TextUnformatted("© 2026 Alex (NuclearMeltdown)");
+    ImGui::TextUnformatted("© 2026 NuclearMeltdown");
   } else {
-    ImGui::Text("© 2026–%s Alex (NuclearMeltdown)", year);
+    ImGui::Text("© 2026–%s NuclearMeltdown", year);
   }
   ImGui::Spacing();
   ImGui::TextWrapped("%s", T("Freie Software unter der GNU General Public License, Version 3. "
