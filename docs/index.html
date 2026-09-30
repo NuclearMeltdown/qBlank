@@ -24,7 +24,6 @@
   } catch (e) {}
   var l = null;
   try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
-  if (!l) l = /^de\b/i.test(navigator.language || '') ? 'de' : 'en';
   if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
 })();
 </script>
