@@ -638,14 +638,14 @@ R"HLSL(
   // frame against one crawl cycle back, where the crawl has come round again,
   // over seven by three spots of the same field. A standing picture leaves
   // noise in that difference, well under a level; the asphalt ahead of the kart
-  // leaves several. Only where the picture itself is faint: a sharp edge that
-  // moves already shows in the sums, and a caption fading in or out keeps its
-  // average. The remover asks the same of its own history (gen_qb.py).
+  // leaves several. At full strength only where the picture itself is faint,
+  // so a caption fading in or out keeps its average. The remover asks the same
+  // of its own history (gen_qb.py).
   if (handled > 0.0 && gHistCount >= 2 * gCrawlCycle - 1) {
     // Kept as loops, with the two samples before carried along: unrolled, the
     // 54 fetches with all their format branches took the D3D11 compiler a
     // minute and a half on first start.
-    float sd = 0.0, sdd = 0.0, sa = 0.0, saa = 0.0, ref = 0.0;
+    float sd = 0.0, sdd = 0.0, sa = 0.0, saa = 0.0, sad = 0.0, ref = 0.0;
     [loop] for (int gr = -1; gr <= 1; ++gr) {
       const int rr = row + 2 * gr;
       float a1 = 0.0, a2 = 0.0, b1 = 0.0, b2 = 0.0;
@@ -657,17 +657,32 @@ R"HLSL(
         if (c >= 2) {
           const float p0 = a2 + a1 + v0, pn = b2 + b1 + vn;
           const float d = p0 - pn, a = p0 + pn - 3.0 * ref;
-          sd += d; sdd += d * d; sa += a; saa += a * a;
+          sd += d; sdd += d * d; sa += a; saa += a * a; sad += a * d;
         }
         a2 = a1; a1 = v0; b2 = b1; b1 = vn;
       }
     }
     // Spread after the common part is taken out: a fade moves every spot alike.
     const float sc = (gRemover != 0 ? 1.0 : gYScale) / 3.0;
-    const float moveRms = sqrt(max(sdd - sd * sd / 21.0, 0.0) / 21.0) * sc;
-    const float contrast = sqrt(max(saa - sa * sa / 21.0, 0.0) / 21.0) * sc * 0.5;
+    const float vdd = sdd - sd * sd / 21.0, vaa = saa - sa * sa / 21.0, vad = sad - sa * sd / 21.0;
+    const float moveRms = sqrt(max(vdd, 0.0) / 21.0) * sc;
+    const float contrast = sqrt(max(vaa, 0.0) / 21.0) * sc * 0.5;
     handled = min(handled, 1.0 - saturate((moveRms - 0.75 / 255.0) * (255.0 / 0.75)) *
                                      (1.0 - saturate((contrast - 6.0 / 255.0) * (255.0 / 6.0))));
+    // A sharp edge that moves was supposed to show in the sums, and does not
+    // when it moves inside them: the gaps between the letters of a pulsing
+    // caption are narrower than seven samples, slide a pixel as it grows, and
+    // leave every sum as it was. Near the middle of the line, where the letters
+    // move least, the average filled the gaps. So asked here too, with the
+    // fade taken out as well -- what is left after fitting the difference as
+    // brightness and contrast of the picture itself -- and with room growing
+    // with the contrast, for the jitter of a standing edge. On the pulsing item
+    // of a pause menu this takes the pixels ghosting by more than ten levels
+    // from 13 900 to 2 500; standing menus and title screens keep 98 to 100 %
+    // of their correction.
+    const float rest = sqrt(max(vdd - vad * vad / max(vaa, 1e-6), 0.0) / 21.0) * sc;
+    const float room = 0.75 / 255.0 + 0.03 * contrast;
+    handled = min(handled, 1.0 - saturate((rest - room) / room));
   }
   return handled;
 }
