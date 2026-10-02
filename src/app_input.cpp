@@ -44,6 +44,9 @@ bool App::HandleKeyDown(Key key, bool ctrl, bool shift, bool alt) {
     case HotkeyAction::Fullscreen:
       ToggleFullscreen();
       return true;
+    case HotkeyAction::Borderless:
+      config_.app.borderless = !config_.app.borderless;
+      return true;
     case HotkeyAction::Settings:
       // A settings window lost behind the preview is fetched, not closed: the
       // key was pressed to see it, and closing what cannot be seen is the one

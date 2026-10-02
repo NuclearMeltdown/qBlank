@@ -985,7 +985,7 @@ void App::DrawContextMenu() {
   }
 
   bool borderless = config_.app.borderless;
-  if (ImGui::MenuItem(T("Rahmenlos", "Borderless"), nullptr, &borderless)) config_.app.borderless = borderless;
+  if (ImGui::MenuItem(T("Rahmenlos", "Borderless"), sc(HotkeyAction::Borderless), &borderless)) config_.app.borderless = borderless;
 
   // Der Umfang gleich mit, wie beim Filtervergleich: eine Stufe waehlen blendet
   // die Statistik in ihr ein, dieselbe noch einmal blendet sie aus.

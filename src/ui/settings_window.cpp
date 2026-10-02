@@ -3330,6 +3330,8 @@ void SettingsWindow::DrawDisplayTab() {
   ImGui::Checkbox(T("Rahmenlos", "Borderless"), &app.borderless);
   Anchor("borderless");
   ImGui::SameLine();
+  ImGui::TextDisabled("(%s)", HotkeyText(cfg().hotkeys[HotkeyAction::Borderless]).c_str());
+  ImGui::SameLine();
   HelpMarker(T("Ohne Titelleiste und Rahmen. Verschieben durch Ziehen am Bild, Größe an den Rändern.",
                "No title bar or frame. Drag the picture to move, the edges to resize."));
   ImGui::Checkbox(T("Mauszeiger im Vollbild ausblenden", "Hide cursor in fullscreen"),

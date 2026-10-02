@@ -6,6 +6,9 @@ namespace cap {
 
 Hotkeys::Hotkeys() {
   (*this)[HotkeyAction::Fullscreen].key = Key::Enter;
+  // Dieselbe Taste mit Strg: die andere Art, den Rahmen loszuwerden.
+  (*this)[HotkeyAction::Borderless].key = Key::Enter;
+  (*this)[HotkeyAction::Borderless].ctrl = true;
   (*this)[HotkeyAction::Settings].key = Key::F2;
   (*this)[HotkeyAction::Stats].key = Key::F1;
   // Gleich neben F1 und F2, weil es dieselbe Sorte ist: etwas ueber dem Bild
@@ -61,6 +64,7 @@ HotkeyAction Hotkeys::Find(Key key, bool ctrl, bool shift, bool alt) const {
 const char* HotkeyActionName(HotkeyAction action) {
   switch (action) {
     case HotkeyAction::Fullscreen: return T("Vollbild", "Fullscreen");
+    case HotkeyAction::Borderless: return T("Rahmenlos", "Borderless");
     case HotkeyAction::Settings: return T("Einstellungen", "Settings");
     case HotkeyAction::Stats: return T("Statistik", "Statistics");
     case HotkeyAction::Toolbar: return T("Werkzeugleiste", "Toolbar");
@@ -86,6 +90,7 @@ const char* HotkeyActionName(HotkeyAction action) {
 const char* HotkeyActionKey(HotkeyAction action) {
   switch (action) {
     case HotkeyAction::Fullscreen: return "fullscreen";
+    case HotkeyAction::Borderless: return "borderless";
     case HotkeyAction::Settings: return "settings";
     case HotkeyAction::Stats: return "stats";
     case HotkeyAction::Toolbar: return "toolbar";

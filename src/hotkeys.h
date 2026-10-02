@@ -16,6 +16,7 @@ namespace cap {
 
 enum class HotkeyAction {
   Fullscreen,
+  Borderless,
   Settings,
   Stats,
   Toolbar,
