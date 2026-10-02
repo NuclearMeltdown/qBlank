@@ -597,25 +597,29 @@ R"HLSL(    ACC(s2 * 0.86132813 + 0.31640625 * ex, 0.796875 * Y[0] + 0.13020833 *
   }
   float3 c = acc / sw;
   if (gHist >= gCrawlCycle) {
-    float sd = 0.0, sdd = 0.0, sa = 0.0, saa = 0.0, ref = 0.0;
+    float sd = 0.0, sdd = 0.0, sa = 0.0, saa = 0.0, sad = 0.0, ref = 0.0;
     [unroll] for (int gr = -1; gr <= 1; ++gr) {
       float l0[9], ln[9];
       [unroll] for (int k = 0; k < 9; ++k) {
         const int3 q = int3(Clamp2(p + int2(k - 4, 2 * gr)), 0);
         l0[k] = F0.Load(q).x;
-        ln[k] = gCrawlCycle == 2 ? F2.Load(q).x : F4.Load(q).x;
 )HLSL"
-R"HLSL(      }
+R"HLSL(        ln[k] = gCrawlCycle == 2 ? F2.Load(q).x : F4.Load(q).x;
+      }
       if (gr == -1) ref = l0[0] + ln[0];
       [unroll] for (int k2 = 0; k2 < 7; ++k2) {
         const float p0 = l0[k2] + l0[k2 + 1] + l0[k2 + 2], pn = ln[k2] + ln[k2 + 1] + ln[k2 + 2];
         const float d = p0 - pn, e = p0 + pn - 3.0 * ref;
-        sd += d; sdd += d * d; sa += e; saa += e * e;
+        sd += d; sdd += d * d; sa += e; saa += e * e; sad += e * d;
       }
     }
-    const float moveRms = sqrt(max(sdd - sd * sd / 21.0, 0.0) / 21.0) / 3.0;
-    const float contrast = sqrt(max(saa - sa * sa / 21.0, 0.0) / 21.0) / 6.0;
-    c = lerp(c, sp, saturate((moveRms - 0.75) / 0.75) * (1.0 - saturate((contrast - 6.0) / 6.0)));
+    const float vdd = sdd - sd * sd / 21.0, vaa = saa - sa * sa / 21.0, vad = sad - sa * sd / 21.0;
+    const float moveRms = sqrt(max(vdd, 0.0) / 21.0) / 3.0;
+    const float contrast = sqrt(max(vaa, 0.0) / 21.0) / 6.0;
+    const float rest = sqrt(max(vdd - vad * vad / max(vaa, 1e-6), 0.0) / 21.0) / 3.0;
+    const float room = 0.75 + 0.03 * contrast;
+    c = lerp(c, sp, max(saturate((moveRms - 0.75) / 0.75) * (1.0 - saturate((contrast - 6.0) / 6.0)),
+                        saturate((rest - room) / room)));
   }
   c /= 255.0;
   const float4 cf = gIsYuv != 0 ? gCoef : float4(1.402, 0.344136, 0.714136, 1.772);

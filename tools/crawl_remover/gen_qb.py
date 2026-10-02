@@ -284,6 +284,9 @@ if gfits:
 # round again), 7 x 3 spots of the same field, spread after the common part: where that exceeds 0.75 levels
 # and the picture itself is faint (a moving edge fails the fits anyway, a fade keeps its average), the output
 # leans to the spatial estimate. The convert pass asks the same of its gate (shaders.h, TemporalGate).
+# And the same second question as there: what is left after fitting the difference as brightness and contrast
+# of the picture itself, against room growing with the contrast. Sharp detail moving inside the spots (the gaps
+# of a pulsing caption) passes the first test at any contrast; standing edges keep their history.
 comb += [
     '  float3 sp;',
     '  {',
@@ -299,7 +302,7 @@ comb += [
     '  }',
     '  float3 c = acc / sw;',
     '  if (gHist >= gCrawlCycle) {',
-    '    float sd = 0.0, sdd = 0.0, sa = 0.0, saa = 0.0, ref = 0.0;',
+    '    float sd = 0.0, sdd = 0.0, sa = 0.0, saa = 0.0, sad = 0.0, ref = 0.0;',
     '    [unroll] for (int gr = -1; gr <= 1; ++gr) {',
     '      float l0[9], ln[9];',
     '      [unroll] for (int k = 0; k < 9; ++k) {',
@@ -311,12 +314,16 @@ comb += [
     '      [unroll] for (int k2 = 0; k2 < 7; ++k2) {',
     '        const float p0 = l0[k2] + l0[k2 + 1] + l0[k2 + 2], pn = ln[k2] + ln[k2 + 1] + ln[k2 + 2];',
     '        const float d = p0 - pn, e = p0 + pn - 3.0 * ref;',
-    '        sd += d; sdd += d * d; sa += e; saa += e * e;',
+    '        sd += d; sdd += d * d; sa += e; saa += e * e; sad += e * d;',
     '      }',
     '    }',
-    '    const float moveRms = sqrt(max(sdd - sd * sd / 21.0, 0.0) / 21.0) / 3.0;',
-    '    const float contrast = sqrt(max(saa - sa * sa / 21.0, 0.0) / 21.0) / 6.0;',
-    '    c = lerp(c, sp, saturate((moveRms - 0.75) / 0.75) * (1.0 - saturate((contrast - 6.0) / 6.0)));',
+    '    const float vdd = sdd - sd * sd / 21.0, vaa = saa - sa * sa / 21.0, vad = sad - sa * sd / 21.0;',
+    '    const float moveRms = sqrt(max(vdd, 0.0) / 21.0) / 3.0;',
+    '    const float contrast = sqrt(max(vaa, 0.0) / 21.0) / 6.0;',
+    '    const float rest = sqrt(max(vdd - vad * vad / max(vaa, 1e-6), 0.0) / 21.0) / 3.0;',
+    '    const float room = 0.75 + 0.03 * contrast;',
+    '    c = lerp(c, sp, max(saturate((moveRms - 0.75) / 0.75) * (1.0 - saturate((contrast - 6.0) / 6.0)),',
+    '                        saturate((rest - room) / room)));',
     '  }',
     '  c /= 255.0;',
     '  const float4 cf = gIsYuv != 0 ? gCoef : float4(1.402, 0.344136, 0.714136, 1.772);',
