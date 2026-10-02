@@ -481,6 +481,14 @@ static const double kCombThreshold = 0.030;
 // And this many frames in the window have to reach it. One is a noise spike;
 // two is something that was moving.
 static const int kCombFramesNeeded = 2;
+// Ein Muster, das im Bild selbst liegt -- Scanlines eines Upscalers, eine
+// Textur aus Einzelzeilen --, kaemmt in einem Bild nur in eine Richtung: jede
+// mittlere Zeile ist dunkler als ihre Nachbarn, oder jede heller. Bewegung
+// zwischen zwei Halbbildern hat eine Vorder- und eine Hinterkante und kaemmt in
+// beide. Ein Bild zaehlt deshalb nur, wenn die seltenere Richtung mindestens ein
+// Achtel der Treffer stellt. Gemessen an den Rohaufnahmen: echte Kammbilder
+// selten darunter, Scanlines und Streifen in jedem Bild bei null.
+static const uint64_t kCombSignShare = 8;
 // The same question asked of a small part of the picture. A frame-wide fraction
 // asks "how much of the picture combed", and something that moves in one corner
 // of an otherwise still frame answers "hardly any of it" no matter how badly
@@ -504,15 +512,32 @@ static const double kCombTileThreshold = 0.10;
 // geometries, where the division can leave a tile with a handful of samples in
 // it and a single hit would read as a large fraction.
 static const int kCombTileMinSamples = 64;
-// Co-sited fields: the rows within a pair have to differ by at least this factor
-// less than neighbouring pairs do, and there has to be enough vertical detail
-// for the comparison to mean anything in the first place.
-// Measured on a composite SNES: the rows within a pair differ by 1 to 5, the
-// pairs themselves by around 20. Genuinely interlaced and genuinely progressive
-// full resolution pictures both sit near 1, because in either case the two
-// comparisons are looking at the same kind of thing.
-static const double kDoubleRatio = 3.0;
-static const double kDoubleFloor = 4.0;
+// Co-sited fields: the rows within a pair against neighbouring pairs, compared
+// only where the comparison means something -- across an edge, which is where
+// the two rows of a doubled line agree and two picture lines do not, and where
+// nothing moved, because motion is what makes the two moments of one line differ.
+// Averaged over the whole frame instead, flat areas drown the edges and a
+// moving 240p game reads as full resolution.
+//
+// Measured on the raw clips (576i and 480i) and on co-sited frames built from
+// their fields: interlaced 0.43 to 1.00, co-sited 0.04 to 0.43, both ends
+// coming from racing at full speed; still pictures sit near 0.9 and 0.1. In
+// between nothing is decided and the next window asks again.
+static const int kPairEdge = 24;
+static const int kPairStill = 16;
+static const double kPairCoSited = 0.30;
+static const double kPairWoven = 0.55;
+// Around a hundred edge samples a frame. A dark screen with a logo on it stays
+// undecided rather than being judged on a handful.
+static const uint64_t kPairMinSamples = 2000;
+// Unter 720 Zeilen an einem Analogeingang, mit 25 oder 30 Bildern in der
+// Sekunde: jedes Bild ist ein gewebtes Halbbildpaar, das gibt das Format vor.
+// Offen ist dann nur, ob die Halbbilder versetzt (480i/576i) oder deckungsgleich
+// (240p/288p) liegen, und das beantworten die Zeilenpaare auch an einem
+// stehenden Bild. Ein Pausemenue, in dem nur Schrift pulsiert, kaemmt zu wenig
+// fuer die Kammpruefung und waere sonst bis zur ersten echten Bewegung
+// ungefiltert.
+static const double kFieldPairMaxFps = 32.0;
 // Ab wo die gemessene Bildrate die raeumliche Messung ueberstimmen darf --
 // die Begruendung steht bei SetFrameRateHint im Header. Beide Schwellen liegen
 // weit von dem weg, was sie trennen sollen: gewebte Halbbilder kommen mit 25
@@ -544,10 +569,12 @@ void VideoRenderer::ResetAnalysis() {
   combFrameHits_ = 0;
   combFramesAnalysed_ = 0;
   combTileOnly_ = 0;
+  combOneSided_ = 0;
   combFrameBest_ = 0.0;
   combTileBest_ = 0.0;
   pairInner_ = 0;
   pairOuter_ = 0;
+  pairSamples_ = 0;
 
   boundsValid_ = false;
   accAny_ = false;
@@ -1322,9 +1349,11 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
   // the profile entirely.
   const int stepX = w / 64 > 0 ? w / 64 : 1;
   uint64_t hits = 0;
+  uint64_t raised = 0;
   uint64_t samples = 0;
   uint64_t inner = 0;
   uint64_t outer = 0;
+  uint64_t pairs = 0;
   uint32_t tileHits[kCombTilesX * kCombTilesY] = {};
   uint32_t tileSamples[kCombTilesX * kCombTilesY] = {};
   // y is odd throughout, so rowA/rowM are the two rows of one pair and rowM/rowB
@@ -1342,17 +1371,20 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
       const int lm = rowM[at];
       const int lb = rowB[at];
 
-      inner += (uint64_t)(la > lm ? la - lm : lm - la);
-      outer += (uint64_t)(lm > lb ? lm - lb : lb - lm);
-
       // Positive exactly when the middle line lies outside the range the other
       // two span, and near zero on a smooth gradient. Vertical detail that is
       // genuinely in the picture raises the bar, so a finely striped but static
       // image is not read as combing.
       const int comb = (lm - la) * (lm - lb);
       const int detail = la > lb ? la - lb : lb - la;
+      if (detail > kPairEdge && comb <= kPairStill) {
+        inner += (uint64_t)(la > lm ? la - lm : lm - la);
+        outer += (uint64_t)(lm > lb ? lm - lb : lb - lm);
+        ++pairs;
+      }
       if (comb > 900 + detail * 12) {
         ++hits;
+        if (lm > la) ++raised;
         ++tileHits[tile];
       }
       ++samples;
@@ -1376,8 +1408,11 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
   // Measured either way, acted on only where the assumption behind it holds --
   // see SetAnalogueSource in the header for why that is the analogue input.
   const bool oneTile = analogueSource_ && tileWorst > kCombTileThreshold;
-  if (wholeFrame || oneTile) ++combFrameHits_;
-  if (oneTile && !wholeFrame) ++combTileOnly_;
+  const uint64_t fewer = raised < hits - raised ? raised : hits - raised;
+  const bool oneSided = fewer * kCombSignShare < hits;
+  if ((wholeFrame || oneTile) && oneSided) ++combOneSided_;
+  if ((wholeFrame || oneTile) && !oneSided) ++combFrameHits_;
+  if (oneTile && !wholeFrame && !oneSided) ++combTileOnly_;
   ++combFramesAnalysed_;
 
   // Only ever read back in the log line, where they turn "it did not trip" into
@@ -1390,18 +1425,25 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
   combSamples_ += samples;
   pairInner_ += inner;
   pairOuter_ += outer;
+  pairSamples_ += pairs;
 
   if (combFramesAnalysed_ < kCombFramesWanted || combSamples_ == 0) return;
 
-  const double n = (double)combSamples_;
-  const double dInner = (double)pairInner_ / n;
-  const double dOuter = (double)pairOuter_ / n;
   // Either phase counts: which of the two rows of a pair comes first is a
   // property of where the capture happens to have started, not of the signal.
-  const double lo = dInner < dOuter ? dInner : dOuter;
-  const double hi = dInner < dOuter ? dOuter : dInner;
+  const uint64_t lo = pairInner_ < pairOuter_ ? pairInner_ : pairOuter_;
+  const uint64_t hi = pairInner_ < pairOuter_ ? pairOuter_ : pairInner_;
+  const double pairRatio = hi > 0 ? (double)lo / (double)hi : 1.0;
+  const bool pairsKnown = pairSamples_ >= kPairMinSamples;
 
-  const bool looksDoubled = hi >= kDoubleFloor && lo * kDoubleRatio < hi;
+  // Ein Zeilenmuster im Bild (siehe kCombSignShare) taeuscht auch die
+  // Zeilenpaare: die abgedunkelte Zeile eines Paars sieht neben einer Kante aus
+  // wie die Nachbarzeile, und Scanlines lasen sich in der Messung als 240p.
+  // Kaemmen mehr Bilder einseitig als beidseitig, zaehlt "deckungsgleich" nicht.
+  const bool linePattern =
+      combOneSided_ >= kCombFramesNeeded && combOneSided_ > combFrameHits_;
+  const bool looksDoubled = pairsKnown && pairRatio < kPairCoSited && !linePattern;
+  const bool looksWoven = pairsKnown && pairRatio > kPairWoven;
   const bool looksCombed = combFrameHits_ >= kCombFramesNeeded;
 
   // Was die Bildrate dazu sagt -- gefragt, bevor die Messung etwas festschreibt,
@@ -1431,11 +1473,23 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
     // bottom-up layouts, but only by a mirror, and mirroring an even number of
     // rows maps a pair starting on an even row to a pair starting on an even
     // row. Capture heights are even, so the phase carries over unchanged.
-    coSitedPhase_ = dInner < dOuter ? 0 : 1;
+    coSitedPhase_ = pairInner_ < pairOuter_ ? 0 : 1;
     interlaceVerdict_ = InterlaceVerdict::Interlaced;
-    CAP_LOG("Interlacing check: yes, fields co-sited, 240p/288p source (%.2f against %.2f per "
-            "line pair, phase %d)",
-            lo, hi, coSitedPhase_);
+    CAP_LOG("Interlacing check: yes, fields co-sited, 240p/288p source (line pairs %.2f over %llu "
+            "edges, phase %d)",
+            pairRatio, (unsigned long long)pairSamples_, coSitedPhase_);
+    return;
+  }
+
+  // Siehe kFieldPairMaxFps: hier sagt das Format "Halbbilder", und die
+  // Zeilenpaare sagen, dass sie versetzt liegen. Bewegung braucht es dafuer nicht.
+  const bool fieldsByFormat = analogueSource_ && h < kRateVetoMinHeight && rateKnown &&
+                              frameRateHint_ < kFieldPairMaxFps;
+  if (looksWoven && fieldsByFormat) {
+    interlaceVerdict_ = InterlaceVerdict::Interlaced;
+    CAP_LOG("Interlacing check: yes, analogue fields at %.1f frames/s, offset (line pairs %.2f "
+            "over %llu edges)",
+            frameRateHint_, pairRatio, (unsigned long long)pairSamples_);
     return;
   }
 
@@ -1444,7 +1498,12 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
   // gemessen, auch wo er nichts entscheiden darf.
   const char* tileNote = analogueSource_ ? "" : ", tile path off (digital source)";
 
-  if (looksCombed && mayLatch) {
+  // Liegen die Zeilenpaare eines Analogbilds zwischen beiden Antworten, wartet
+  // auch die Kammpruefung: ein bewegtes 240p kaemmt genauso wie 480i, und ihr
+  // "ja" rastete fuer die Sitzung als 480i ein. Das naechste Fenster fragt neu.
+  const bool pairsUndecided = analogueSource_ && pairsKnown && !looksWoven;
+
+  if (looksCombed && mayLatch && !pairsUndecided) {
     interlaceVerdict_ = InterlaceVerdict::Interlaced;
     CAP_LOG("Interlacing check: yes (%d of %d frames with combing, %d of them only in single "
             "tiles; at most %.1f%% of the frame, %.1f%% of a tile%s)",
@@ -1471,30 +1530,39 @@ void VideoRenderer::AnalyzeInterlace(const FrameView& frame) {
     rateVetoLogged_ = true;
     CAP_LOG("Interlacing check: no, the frame rate rules out fields (%.1f frames/s at %d lines; "
             "measured %d of %d frames with combing, at most %.1f%% of the frame and %.1f%% of a "
-            "tile, %.2f/%.2f per line pair)",
+            "tile, line pairs %.2f)",
             frameRateHint_, h, combFrameHits_, combFramesAnalysed_, combFrameBest_ * 100.0,
-            combTileBest_ * 100.0, lo, hi);
+            combTileBest_ * 100.0, pairRatio);
   }
 
   if (interlaceVerdict_ == InterlaceVerdict::Pending && !rateNotYetIn) {
     interlaceVerdict_ = InterlaceVerdict::Progressive;
-    if (!rateVetoed) {
-      CAP_LOG("Interlacing check: no (%d of %d frames with combing, at most %.1f%% of the frame "
-              "and %.1f%% of a tile%s, %.2f/%.2f per line pair)",
-              combFrameHits_, combFramesAnalysed_, combFrameBest_ * 100.0, combTileBest_ * 100.0,
-              tileNote, lo, hi);
+    // Gekaemmt, aber die Zeilenpaare liessen offen, ob 480i oder bewegtes 240p:
+    // ohne den Grund liest sich "nein (20 von 20 gekaemmt)" wie ein Fehler.
+    if (looksCombed && pairsUndecided && mayLatch) {
+      CAP_LOG("Interlacing check: not yet (%d of %d frames with combing, but line pairs %.2f over "
+              "%llu edges say neither offset nor co-sited; asking again)",
+              combFrameHits_, combFramesAnalysed_, pairRatio, (unsigned long long)pairSamples_);
+    } else if (!rateVetoed) {
+      CAP_LOG("Interlacing check: no (%d of %d frames with combing, %d more combed one way only; "
+              "at most %.1f%% of the frame and %.1f%% of a tile%s, line pairs %.2f over %llu "
+              "edges)",
+              combFrameHits_, combFramesAnalysed_, combOneSided_, combFrameBest_ * 100.0,
+              combTileBest_ * 100.0, tileNote, pairRatio, (unsigned long long)pairSamples_);
     }
   }
   combFramesSeen_ = 0;
   combFrameHits_ = 0;
   combFramesAnalysed_ = 0;
   combTileOnly_ = 0;
+  combOneSided_ = 0;
   combSamples_ = 0;
   combHits_ = 0;
   combFrameBest_ = 0.0;
   combTileBest_ = 0.0;
   pairInner_ = 0;
   pairOuter_ = 0;
+  pairSamples_ = 0;
 }
 
 // Der Kriechzyklus, siehe crawlCycle() im Header.

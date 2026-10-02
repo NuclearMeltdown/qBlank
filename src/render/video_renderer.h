@@ -677,6 +677,9 @@ class VideoRenderer {
   // Of those, the ones only a single tile noticed -- a small thing moving in an
   // otherwise still picture. Diagnostic only.
   int combTileOnly_ = 0;
+  // Frames that combed, but all in one direction: a pattern in the picture, not
+  // motion between fields (see kCombSignShare). Not counted; diagnostic only.
+  int combOneSided_ = 0;
   // Whether the tile half of the test is allowed to decide. See
   // SetAnalogueSource.
   bool analogueSource_ = false;
@@ -691,9 +694,11 @@ class VideoRenderer {
   double combFrameBest_ = 0.0;
   double combTileBest_ = 0.0;
   // Sums of the difference between the two rows of a pair, and between two
-  // neighbouring pairs. On a line doubled picture the first is nearly zero.
+  // neighbouring pairs, over the samples that sit on a still edge. On a line
+  // doubled picture the first is nearly zero.
   uint64_t pairInner_ = 0;
   uint64_t pairOuter_ = 0;
+  uint64_t pairSamples_ = 0;
 
   // Kriechzyklus, siehe crawlCycle() und AnalyzeCrawl.
   bool crawlWanted_ = false;  // der zeitliche Filter oder die erweiterte Historie ist an
