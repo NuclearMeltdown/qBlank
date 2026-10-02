@@ -1903,22 +1903,25 @@ R"HLSL(        // gradient. Vertical detail that is genuinely in the picture rai
         // works on both. It also needs no allowance for genuine vertical
         // detail: on a real edge the middle line lies *between* its
         // neighbours, so the deviations have opposite signs and this reads zero
-        // by construction. Sweeping the remaining two numbers against frames
-        // from the card, with movement established by comparing the same field
-        // across frames, 0.003 and 60 reach 47 % of what genuinely moves while
-        // touching 4.7 % of what does not.
+        // by construction.
+        //
+        // Per colour channel, not on brightness. A red outline over purple has
+        // nearly the brightness of its background, so on luma alone its teeth
+        // read as nothing -- and they were what was left combing on a pulsing
+        // menu. And the strongest of the three columns, not their average: an
+        // edge that moved by one pixel only combs in one of them, and a third
+        // of a blend leaves two thirds of the comb. Against interlaced frames
+        // made from the card's own fields, where the missing line is known, this
+        // leaves no combing where things move, at 0.006 and 40.
         float motion = 0.0;
         [unroll]
         for (int dx = -1; dx <= 1; ++dx) {
-          float lw = Luma(FetchRgbAt(int2(srcX + dx, row)));
-          float la = Luma(FetchRgbAt(int2(srcX + dx, rowAbove)));
-          float lb = Luma(FetchRgbAt(int2(srcX + dx, rowBelow)));
-          float da = lw - la;
-          float db = lw - lb;
-          float comb = (da * db > 0.0) ? min(abs(da), abs(db)) : 0.0;
-          motion += saturate((comb - 0.003) * 60.0);
+          float3 w = FetchRgbAt(int2(srcX + dx, row));
+          float3 da = w - FetchRgbAt(int2(srcX + dx, rowAbove));
+          float3 db = w - FetchRgbAt(int2(srcX + dx, rowBelow));
+          float3 comb = min(abs(da), abs(db)) * step(0.0, da * db);
+          motion = max(motion, saturate((max(comb.r, max(comb.g, comb.b)) - 0.006) * 40.0));
         }
-        motion = saturate(motion * 0.3333);
 
         // Where it does interpolate, follow the edge rather than averaging
         // straight down. That is what was leaving jagged steps on things moving
