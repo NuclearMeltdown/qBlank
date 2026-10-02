@@ -164,7 +164,8 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 
 | Key | Action | | Key | Action |
 |---|---|---|---|---|
-| Enter / Esc | Fullscreen on / off | | F9 | Start / stop recording |
+| Enter / Esc | Fullscreen on / off | | F8 | Detect border |
+| Ctrl+Enter | Borderless | | F9 | Start / stop recording |
 | F1 | Statistics | | F10 | Screenshot |
 | F2 | Settings | | Ctrl+F10 | Screenshot to clipboard |
 | F3 | Toolbar | | F11 | Freeze |
@@ -172,7 +173,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 | Shift+F5 | Reinitialise card | | Shift+F12 | All filters off |
 | F6 | Measure colour range | | M | Mute |
 | F7 | Detect video standard | | `+` `-` / wheel | Volume |
-| F8 | Detect border | | Ctrl+1 … Ctrl+9 | Switch profile |
+| | | | Ctrl+1 … Ctrl+9 | Switch profile |
 
 Right click opens the menu, a double click on the picture toggles fullscreen.
 A click on the notice after a recording or screenshot shows the file in
