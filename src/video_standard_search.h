@@ -158,6 +158,11 @@ class VideoStandardSearch {
   // werden; eine bewiesene zeigt auf einem blassen Bild einfach ein blasses
   // Bild.
   bool colourProven_ = false;
+  // Bewiesen, und dabei lagen wirklich dunkle Flaechen im Bild. Erst dann ist
+  // spaetere Farbe im Schwarzen die Szene: ein falscher Traeger legt seine
+  // Schwebung ueber jedes Bild und kam nie unter kDarkTinted. Ohne dunkle
+  // Flaechen ("no dark areas") war ueber die Tiefen nichts bewiesen.
+  bool colourDarksClean_ = false;
   // Auf diesem Lock ist ein Vergleich schon zu Ende gegangen. Dann hat er
   // "Farbe im Schwarzen" bei allen Kandidaten gesehen, und die Nachkontrolle
   // darf ihn dafuer nicht wieder eroeffnen -- am 25.09. sechs Runden.

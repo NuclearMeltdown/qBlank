@@ -1512,6 +1512,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
                 name, e, darkText(d).c_str());
         colourProven_ = true;
       }
+      if (d >= 0.0f) colourDarksClean_ = true;
       if (colourWatch_ == ColourWatch::Notice) {
         colourNotice_.clear();
         colourWatch_ = ColourWatch::Done;
@@ -1522,7 +1523,14 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     }
     // Farbe im Schwarzen zaehlt nur, solange kein Vergleich gelaufen ist. Der
     // hat sie dann bei allen Kandidaten gesehen, also ist es die Szene.
-    const bool tinted = e >= kChromaConfident && d >= kDarkTinted && !colourCompared_;
+    //
+    // Und nur, solange die Norm ihre Tiefen nicht schon sauber gezeigt hat.
+    // Am 02.10. auf DK Mountain (Double Dash, PAL 60) bei jedem Start: erst
+    // "dark areas neutral (0.079)", dann im Flug am dunkelroten Vulkan 0,214
+    // -- ein Rundgang mitten im Rennen, und PAL 60 blieb. Viermal im Log, immer
+    // dieselbe Norm, die vorher 0,074 bis 0,138 gemessen hatte.
+    const bool tinted =
+        e >= kChromaConfident && d >= kDarkTinted && !colourCompared_ && !colourDarksClean_;
     const bool pale = !colourProven_ && lit >= kWatchLitWanted && e < kChromaPale;
     if (!flipping && !tinted && !pale) {
       colourWatchStrikes_ = 0;
@@ -1550,6 +1558,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
       colourCheckedStandard_ = 0;
       colourWatchStandard_ = 0;
       colourProven_ = false;
+      colourDarksClean_ = false;
       colourAttempts_ = 0;
       colourStartedQpc_ = 0;
       colourRetryQpc_ = 0;
@@ -1737,6 +1746,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
       colourAttempts_ = 0;
       colourWaitingForPicture_ = false;
       colourProven_ = true;
+      colourDarksClean_ = dark >= 0.0f;
       // Hierher kommt ein Suchlauf von Hand nur, wenn seine Frist abgelaufen
       // ist, bevor ein Bild zum Vergleichen da war -- und dann ist das hier
       // die Antwort: gemessen wurde, es sprach nichts dagegen.
@@ -2328,6 +2338,7 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     standardLastGood_ = origin;
     colourAttempts_ = 0;
     colourProven_ = true;
+    colourDarksClean_ = true;
     FinishManualStandardSearch(
         origin, T("Der Vergleich war unbrauchbar, die Farbe stimmt für sich — es bleibt dabei",
                   "The comparison was unusable, but the colour stands on its own — no change"));
@@ -2405,6 +2416,7 @@ void VideoStandardSearch::ResetStandardColourCheck() {
   colourWaitingForPicture_ = false;
   colourDoubt_ = ColourDoubt::None;
   colourProven_ = false;
+  colourDarksClean_ = false;
   colourCompared_ = false;
   colourWatch_ = ColourWatch::Watching;
   colourWatchStandard_ = 0;
