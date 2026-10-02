@@ -1700,6 +1700,17 @@ float3 YadifSpatial(int x, int rowAbove, int rowBelow) {
   }
   return pred;
 }
+)HLSL"
+R"HLSL(
+// How far one column of the picture moved since the last frame, on the missing
+// line and on the two around it: the larger of YADIF's two estimates, taken over
+// the strongest colour channel.
+float YadifMotionAt(int x, int row, int rowAbove, int rowBelow) {
+  float3 m = max(abs(FetchRgbPrev(int2(x, row)) - FetchRgbAt(int2(x, row))) * 0.5,
+                 (abs(FetchRgbPrev(int2(x, rowAbove)) - FetchRgbAt(int2(x, rowAbove))) +
+                  abs(FetchRgbPrev(int2(x, rowBelow)) - FetchRgbAt(int2(x, rowBelow)))) * 0.5);
+  return max(m.r, max(m.g, m.b));
+}
 
 // One missing line, reconstructed the way YADIF does it: predict it spatially,
 // then refuse to let that prediction stray further from the temporal evidence
@@ -1715,21 +1726,31 @@ float3 YadifSpatial(int x, int rowAbove, int rowBelow) {
 float3 Yadif(int x, int row, int rowTop, int rowBottom) {
   int rowAbove = clamp(row - 1, rowTop, rowBottom);
   int rowBelow = clamp(row + 1, rowTop, rowBottom);
-  float3 spatial = YadifSpatial(x, rowAbove, rowBelow);
-  if (gHavePrev == 0) return spatial;
-
   float3 c = FetchRgbAt(int2(x, rowAbove));
   float3 e = FetchRgbAt(int2(x, rowBelow));
+
+  // Kept between its two neighbours, like EdgeDirected's answer. A slant the
+  // search wandered off on otherwise lands brighter or darker than both lines
+  // around it, and that is a comb of its own making.
+  float3 spatial = clamp(YadifSpatial(x, rowAbove, rowBelow), min(c, e), max(c, e));
+  if (gHavePrev == 0) return spatial;
 
   float3 tPrev = FetchRgbPrev(int2(x, row));   // missing line, one frame ago
   float3 tCur  = FetchRgbAt(int2(x, row));     // missing line, woven into this frame
   float3 d = (tPrev + tCur) * 0.5;
 
   // How much this part of the picture is moving, measured on the lines we do
-  // have as well as on the line we are guessing.
-  float3 diff = max(abs(tPrev - tCur) * 0.5,
-                    (abs(FetchRgbPrev(int2(x, rowAbove)) - c) +
-                     abs(FetchRgbPrev(int2(x, rowBelow)) - e)) * 0.5);
+  // have as well as on the line we are guessing -- and on the two columns either
+  // side. A fast, finely patterned surface (cobbles, gravel, a crowd) can match
+  // itself from one frame to the next at a single column by pure coincidence,
+  // and YADIF then trusts the stale line. Its neighbours rarely all do.
+  float m = YadifMotionAt(x, row, rowAbove, rowBelow);
+  [unroll]
+  for (int k = 1; k <= 2; ++k) {
+    m = max(m, max(YadifMotionAt(x - k, row, rowAbove, rowBelow),
+                   YadifMotionAt(x + k, row, rowAbove, rowBelow)));
+  }
+  float3 diff = float3(m, m, m);
 
   // Two lines out, same parity as the missing one: the local gradient the
   // reconstruction has to stay inside.
@@ -1741,8 +1762,37 @@ float3 Yadif(int x, int row, int rowTop, int rowBottom) {
   float3 hi = max(max(d - e, d - c), min(b - c, f - e));
   float3 lo = min(min(d - e, d - c), max(b - c, f - e));
   diff = max(max(diff, lo), -hi);
+  float3 r = clamp(spatial, d - diff, d + diff);
 
-  return clamp(spatial, d - diff, d + diff);
+  // The same coincidence can hold across a whole patch: a stripe that moved by
+  // exactly two lines sits where it sat a frame ago, every test above calls it
+  // still, and the result is a line brighter or darker than both its
+  // neighbours -- combing. Locally that is indistinguishable from a genuine
+  // thin line that never moved. What tells them apart is whether anything a
+  // few lines or pixels away changed. So where the result combs, look around
+  // (three lines up and down, three pixels across), and only where there is
+  // movement give the line to the spatial guess, which cannot comb.
+  float3 da = r - c;
+  float3 db = r - e;
+  float3 comb = min(abs(da), abs(db)) * step(0.0, da * db);
+  float w = saturate((max(comb.r, max(comb.g, comb.b)) - 0.02) * 30.0);
+  [branch]
+  if (w > 0.0) {
+    float around = 0.0;
+    [unroll]
+    for (int dy = -3; dy <= 3; ++dy) {
+      int y = clamp(row + dy, rowTop, rowBottom);
+      [unroll]
+      for (int dx = -3; dx <= 3; dx += 2) {
+        float3 t = abs(FetchRgbAt(int2(x + dx, y)) - FetchRgbPrev(int2(x + dx, y)));
+        around = max(around, max(t.r, max(t.g, t.b)));
+      }
+      float3 t = abs(FetchRgbAt(int2(x, y)) - FetchRgbPrev(int2(x, y)));
+      around = max(around, max(t.r, max(t.g, t.b)));
+    }
+    r = lerp(r, spatial, w * saturate((around - 0.04) * 25.0));
+  }
+  return r;
 }
 
 
