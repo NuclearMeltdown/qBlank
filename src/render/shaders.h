@@ -1,6 +1,7 @@
 #pragma once
 
-// HLSL for the two render passes, compiled at startup with D3DCompile.
+// HLSL for the render passes. The build compiles it with fxc for Direct3D 11
+// and with dxc to SPIR-V for Vulkan (CMakeLists.txt).
 //
 // Pass 1 ("convert") turns whatever the card delivers into linear-indexed RGBA
 // at the cropped source resolution: colour space conversion, range expansion,

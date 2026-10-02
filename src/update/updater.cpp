@@ -105,6 +105,16 @@ void Updater::CleanUpPreviousBuild() {
   if (PathExists(old) && RemoveFile(old)) {
     CAP_LOG("Previous program version removed");
   }
+
+  // Builds before 5.5 compiled their shaders at startup and kept the result
+  // beside the program as shader-<hash>.cso. The program carries the bytecode
+  // now, and nothing reads those files any more.
+  int removed = 0;
+  for (const std::filesystem::path& file :
+       FilesWithExtension(OwnProgramFile().parent_path(), ".cso")) {
+    if (file.stem().u8string().rfind("shader-", 0) == 0 && RemoveFile(file)) ++removed;
+  }
+  if (removed > 0) CAP_LOG("Old shader cache removed (%d files)", removed);
 }
 
 Updater::~Updater() {

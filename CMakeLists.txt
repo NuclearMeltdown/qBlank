@@ -174,11 +174,17 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
              "${CMAKE_CURRENT_SOURCE_DIR}/tools/strip_shader_comments.cmake")
 target_include_directories(qBlank PRIVATE "${CMAKE_BINARY_DIR}/generated")
 
-# ...and packed -- see src/inflate.h. A small program writes each shader out as
-# a file, and tools/embed_packed.cmake deflates the files into a header, which
-# Direct3D 11 unpacks its source from when it starts. The program includes the
-# copy without comments, so a change to shaders.h rebuilds it and everything
-# after it. The Vulkan renderer below compiles the same files to SPIR-V.
+# ...and compiled. A small program writes each shader out as a file, fxc turns
+# the files into Direct3D 11 bytecode, and tools/embed_packed.cmake deflates the
+# bytecode into a header -- see src/inflate.h. The program includes the copy
+# without comments, so a change to shaders.h rebuilds it and everything after
+# it. The Vulkan renderer below compiles the same files to SPIR-V.
+#
+# Compiled here and not when qBlank starts: at optimisation level three the
+# clean pass alone keeps fxc busy for twenty seconds and the remover's passes
+# for another eight. Compiled at startup, every user sat through that before the
+# window came up -- after every update, and on every start in a folder where the
+# compiled result could not be kept.
 add_executable(qblank_hlsl_dump src/tools/hlsl_dump.cpp)
 target_include_directories(qblank_hlsl_dump PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_BINARY_DIR}/generated")
@@ -190,27 +196,25 @@ if(MSVC)
                "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-# file : dxc profile : its source in shaders_hlsl.h : its SPIR-V in shaders_spirv.h
+# file : dxc profile : its bytecode in shaders_dxbc.h : its SPIR-V in
+# shaders_spirv.h : fxc profile
 set(qblank_shaders
-  fullscreen_vs:vs_6_0:kFullscreenVS:kSpirvFullscreenVS
-  clean_ps:ps_6_0:kCleanPS:kSpirvClean
-  convert_ps:ps_6_0:kConvertPS:kSpirvConvert
-  scale_ps:ps_6_0:kScalePS:kSpirvScale
-  hdr_record_ps:ps_6_0:kHdrRecordPS:kSpirvHdrRecord
-  ui_composite_ps:ps_6_0:kUiCompositePS:kSpirvUiComposite
-  rem_dec_ps:ps_6_0:kRemDecPS:kSpirvRemDec
-  rem_res_ps:ps_6_0:kRemResPS:kSpirvRemRes
-  rem_comb_ps:ps_6_0:kRemCombPS:kSpirvRemComb
+  fullscreen_vs:vs_6_0:kFullscreenVS:kSpirvFullscreenVS:vs_4_0
+  clean_ps:ps_6_0:kCleanPS:kSpirvClean:ps_4_0
+  convert_ps:ps_6_0:kConvertPS:kSpirvConvert:ps_4_0
+  scale_ps:ps_6_0:kScalePS:kSpirvScale:ps_4_0
+  hdr_record_ps:ps_6_0:kHdrRecordPS:kSpirvHdrRecord:ps_4_0
+  ui_composite_ps:ps_6_0:kUiCompositePS:kSpirvUiComposite:ps_4_0
+  rem_dec_ps:ps_6_0:kRemDecPS:kSpirvRemDec:ps_5_0
+  rem_res_ps:ps_6_0:kRemResPS:kSpirvRemRes:ps_5_0
+  rem_comb_ps:ps_6_0:kRemCombPS:kSpirvRemComb:ps_5_0
 )
 set(shader_dir "${CMAKE_BINARY_DIR}/shaders")
 set(hlsl_files)
-set(hlsl_names)
 foreach(shader IN LISTS qblank_shaders)
   string(REPLACE ":" ";" parts "${shader}")
   list(GET parts 0 file)
-  list(GET parts 2 name)
   list(APPEND hlsl_files "${shader_dir}/${file}.hlsl")
-  list(APPEND hlsl_names "${file}.hlsl=${name}")
 endforeach()
 add_custom_command(
   OUTPUT ${hlsl_files}
@@ -220,17 +224,42 @@ add_custom_command(
   COMMENT "Writing the shaders out"
   VERBATIM)
 
-string(REPLACE ";" "," hlsl_names "${hlsl_names}")
-set(hlsl_header "${CMAKE_BINARY_DIR}/generated/shaders_hlsl.h")
+# fxc comes with the Windows SDK, which the build needs for Direct3D anyway;
+# the developer prompt build.bat sets up has it on PATH. The flags are the ones
+# qBlank compiled with at startup, and give the same bytes.
+find_program(QBLANK_FXC fxc HINTS "$ENV{WindowsSdkVerBinPath}/x64")
+if(NOT QBLANK_FXC)
+  message(FATAL_ERROR "fxc not found: it comes with the Windows SDK; run build.bat")
+endif()
+set(dxbc_files)
+set(dxbc_names)
+foreach(shader IN LISTS qblank_shaders)
+  string(REPLACE ":" ";" parts "${shader}")
+  list(GET parts 0 file)
+  list(GET parts 2 name)
+  list(GET parts 4 profile)
+  add_custom_command(
+    OUTPUT "${shader_dir}/${file}.dxbc"
+    COMMAND "${QBLANK_FXC}" /nologo /T ${profile} /E main /O3 /Ges
+            /Fo "${shader_dir}/${file}.dxbc" "${shader_dir}/${file}.hlsl"
+    DEPENDS "${shader_dir}/${file}.hlsl"
+    COMMENT "Compiling ${file} for Direct3D 11"
+    VERBATIM)
+  list(APPEND dxbc_files "${shader_dir}/${file}.dxbc")
+  list(APPEND dxbc_names "${file}.dxbc=${name}")
+endforeach()
+
+string(REPLACE ";" "," dxbc_names "${dxbc_names}")
+set(dxbc_header "${CMAKE_BINARY_DIR}/generated/shaders_dxbc.h")
 add_custom_command(
-  OUTPUT "${hlsl_header}"
-  COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${hlsl_header}" "-DDIR=${shader_dir}"
-          "-DFILES=${hlsl_names}"
+  OUTPUT "${dxbc_header}"
+  COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${dxbc_header}" "-DDIR=${shader_dir}"
+          "-DFILES=${dxbc_names}"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
-  DEPENDS ${hlsl_files} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
-  COMMENT "Packing the shaders"
+  DEPENDS ${dxbc_files} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_packed.cmake"
+  COMMENT "Packing the bytecode"
   VERBATIM)
-target_sources(qBlank PRIVATE src/inflate.cpp "${hlsl_header}")
+target_sources(qBlank PRIVATE src/inflate.cpp "${dxbc_header}")
 target_compile_definitions(qBlank PRIVATE QBLANK_SHADERS_PACKED)
 
 # The Vulkan renderer, next to Direct3D 11 -- see src/render/display_vulkan.cpp.
@@ -277,8 +306,8 @@ endif()
 if(qblank_vulkan_ready)
   message(STATUS "Vulkan renderer: on (dxc: ${QBLANK_DXC})")
 
-  # The shaders are the ones Direct3D 11 compiles at startup, from the files
-  # written out above, compiled to SPIR-V here instead -- and packed the same way.
+  # The shaders are the ones compiled for Direct3D 11 above, from the same
+  # files, compiled to SPIR-V here -- and packed the same way.
   #
   # The flags keep the shaders what they are under Direct3D 11:
   #   -HV 2018          the HLSL version fxc speaks, including its scoping of a

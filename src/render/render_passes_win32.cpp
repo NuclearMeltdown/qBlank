@@ -1,22 +1,25 @@
 #include "render/render_passes.h"
 
 #include <d3d11.h>
-#include <d3dcompiler.h>
 
 #include <algorithm>
 #include <cstring>
+#include <vector>
 
-#include "app_identity.h"
 #include "common_win32.h"
 #include "i18n.h"
-#include "render/display_win32.h"
-// The build packs the shaders without their comments (CMakeLists.txt); check.bat
-// and anything else that compiles this file on its own takes the original.
-#ifdef QBLANK_SHADERS_PACKED
 #include "inflate.h"
-#include "shaders_hlsl.h"
+#include "render/display_win32.h"
+// The build compiles the shaders and packs the bytecode (CMakeLists.txt).
+// check.bat compiles this file on its own, with no build behind it, and only
+// needs to know that the bytecode is there.
+#ifdef QBLANK_SHADERS_PACKED
+#include "shaders_dxbc.h"
 #else
-#include "render/shaders.h"
+namespace cap {
+extern const Packed kFullscreenVS, kCleanPS, kConvertPS, kScalePS, kHdrRecordPS, kUiCompositePS,
+    kRemDecPS, kRemResPS, kRemCombPS;
+}
 #endif
 
 namespace cap {
@@ -47,149 +50,15 @@ DXGI_FORMAT PlaneDxgiFormat(PlaneFormat format) {
   }
 }
 
-// Where a compiled shader is kept between runs. The conversion shader has grown
-// into several hundred lines of branching, and D3DCompile spends seconds on it
-// at optimisation level three -- seconds the user waits through before the
-// window appears, every single time, to arrive at byte-for-byte the same answer.
-//
-// The name carries a hash of the source and the target profile, so editing the
-// shader or changing the profile simply misses the cache rather than loading
-// something stale. A miss costs what it always cost; there is nothing to
-// invalidate by hand.
-std::wstring ShaderCachePath(const uint8_t* source, size_t size, const char* target) {
-  uint64_t hash = 1469598103934665603ull;  // FNV-1a
-  for (size_t i = 0; i < size; ++i) {
-    hash = (hash ^ source[i]) * 1099511628211ull;
-  }
-  for (const char* p = target; *p; ++p) {
-    hash = (hash ^ (unsigned char)*p) * 1099511628211ull;
-  }
-  wchar_t name[64];
-  ::swprintf(name, 64, L"shader-%016llx.cso", (unsigned long long)hash);
-  return ExeDirectory() + name;
-}
-
-ComPtr<ID3DBlob> LoadCachedShader(const std::wstring& path) {
-  HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE) return nullptr;
-  LARGE_INTEGER size = {};
-  ComPtr<ID3DBlob> blob;
-  if (::GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart < (1 << 22) &&
-      SUCCEEDED(::D3DCreateBlob((SIZE_T)size.QuadPart, &blob))) {
-    DWORD read = 0;
-    if (!::ReadFile(file, blob->GetBufferPointer(), (DWORD)size.QuadPart, &read, nullptr) ||
-        read != size.QuadPart) {
-      blob.Reset();
-    }
-  }
-  ::CloseHandle(file);
-  return blob;
-}
-
-void StoreCachedShader(const std::wstring& path, ID3DBlob* code) {
-  HANDLE file = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE) return;  // read-only folder: compile every time, no harm
-  DWORD written = 0;
-  ::WriteFile(file, code->GetBufferPointer(), (DWORD)code->GetBufferSize(), &written, nullptr);
-  ::CloseHandle(file);
-}
-
-// Was in diesem Lauf tatsaechlich gebraucht wurde. Alles andere neben der exe
-// ist ein Rest aus einer aelteren Fassung des Shaders.
-std::vector<std::wstring>& ShaderCacheInUse() {
-  static std::vector<std::wstring> names;
-  return names;
-}
-
-// Loescht die Dateien, die kein Shader dieser Fassung mehr beansprucht. Der
-// Cache ist nach Inhalt benannt, eine geaenderte Quelle trifft also eine neue
-// Datei und die alte bleibt sonst fuer immer liegen -- nach ein paar Releases
-// steht da ein Dutzend toter Blobs.
-void PruneShaderCache() {
-  const std::wstring dir = ExeDirectory();
-  WIN32_FIND_DATAW found = {};
-  HANDLE search = ::FindFirstFileW((dir + L"shader-*.cso").c_str(), &found);
-  if (search == INVALID_HANDLE_VALUE) return;
-  int removed = 0;
-  do {
-    if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-    const std::wstring path = dir + found.cFileName;
-    bool live = false;
-    for (const std::wstring& used : ShaderCacheInUse()) {
-      if (_wcsicmp(used.c_str(), path.c_str()) == 0) {
-        live = true;
-        break;
-      }
-    }
-    // Ein Fehlschlag ist keiner: liegt die Datei fest, weil eine zweite Instanz
-    // sie gerade liest, ist der naechste Start wieder an der Reihe.
-    if (!live && ::DeleteFileW(path.c_str())) ++removed;
-  } while (::FindNextFileW(search, &found));
-  ::FindClose(search);
-  if (removed > 0) CAP_LOG("Shader cache: %d stale file(s) removed", removed);
-}
-
-// A shader as this file has it: packed by the build, or as the plain text when
-// the file is compiled on its own. The cache is named after the packed bytes,
-// which stay the same as long as the source does -- so the usual start, from
-// the cache, never unpacks anything.
-#ifdef QBLANK_SHADERS_PACKED
-using ShaderSource = Packed;
-const uint8_t* SourceKey(const Packed& source, size_t* size) {
-  *size = source.size;
-  return source.data;
-}
-bool SourceText(const Packed& source, std::string* text) {
-  text->resize(source.unpackedSize);
-  return Inflate(source, reinterpret_cast<uint8_t*>(&(*text)[0]));
-}
-#else
-using ShaderSource = const char*;
-const uint8_t* SourceKey(const char* source, size_t* size) {
-  *size = strlen(source);
-  return reinterpret_cast<const uint8_t*>(source);
-}
-bool SourceText(const char* source, std::string* text) {
-  *text = source;
-  return true;
-}
-#endif
-
-ComPtr<ID3DBlob> CompileShader(const ShaderSource& source, const char* target, std::string* error) {
-  size_t keySize = 0;
-  const uint8_t* key = SourceKey(source, &keySize);
-  const std::wstring cachePath = ShaderCachePath(key, keySize, target);
-  ShaderCacheInUse().push_back(cachePath);
-  if (ComPtr<ID3DBlob> cached = LoadCachedShader(cachePath)) return cached;
-
-  std::string text;
-  if (!SourceText(source, &text)) {
+// A shader as the build compiled it: Direct3D 11 bytecode, packed. Empty when
+// it does not unpack, which takes a damaged executable.
+std::vector<uint8_t> ShaderCode(const Packed& packed, const char* target, std::string* error) {
+  std::vector<uint8_t> code(packed.unpackedSize);
+  if (!Inflate(packed, code.data())) {
     ReportError(error, CAP_SAID(T("Shader (", "Shader (") + std::string(target) +
                           T(") ist beschädigt", ") is damaged")));
     CAP_ERR("Shader %s: unpacking failed", target);
-    return nullptr;
-  }
-  UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_ENABLE_STRICTNESS;
-  ComPtr<ID3DBlob> code;
-  ComPtr<ID3DBlob> errors;
-  const DWORD started = ::GetTickCount();
-  HRESULT hr = ::D3DCompile(text.data(), text.size(), nullptr, nullptr, nullptr, "main", target,
-                            flags, 0, &code, &errors);
-  if (SUCCEEDED(hr)) {
-    CAP_LOG("Shader %s compiled in %lu ms, cached", target,
-            (unsigned long)(::GetTickCount() - started));
-    StoreCachedShader(cachePath, code.Get());
-  }
-  if (FAILED(hr)) {
-    std::string detail = errors ? std::string((const char*)errors->GetBufferPointer(),
-                                              errors->GetBufferSize())
-                                : HrToString(hr);
-    ReportError(error, CAP_SAID(T("Shader (", "Shader (") + std::string(target) +
-                          T(") konnte nicht kompiliert werden: ", ") could not be compiled: ") + detail));
-    CAP_ERR("Shader error: %s", detail.c_str());
-    return nullptr;
+    code.clear();
   }
   return code;
 }
@@ -427,56 +296,54 @@ void D3D11Passes::Shutdown() {
 bool D3D11Passes::CreateShaders(std::string* error) {
   ID3D11Device* dev = NativeDevice(*display_);
 
-  ComPtr<ID3DBlob> vsCode = CompileShader(kFullscreenVS, "vs_4_0", error);
-  if (!vsCode) return false;
-  if (FAILED(CAP_HR(dev->CreateVertexShader(vsCode->GetBufferPointer(), vsCode->GetBufferSize(),
-                                            nullptr, &vs_)))) {
+  const std::vector<uint8_t> vsCode = ShaderCode(kFullscreenVS, "vs_4_0", error);
+  if (vsCode.empty()) return false;
+  if (FAILED(CAP_HR(dev->CreateVertexShader(vsCode.data(), vsCode.size(), nullptr, &vs_)))) {
     ReportError(error, CAP_SAID(T("Vertex-Shader konnte nicht erstellt werden",
                                      "The vertex shader could not be created")));
     return false;
   }
 
-  ComPtr<ID3DBlob> cleanCode = CompileShader(kCleanPS, "ps_4_0", error);
-  if (!cleanCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(cleanCode->GetBufferPointer(),
-                                           cleanCode->GetBufferSize(), nullptr, &psClean_)))) {
+  const std::vector<uint8_t> cleanCode = ShaderCode(kCleanPS, "ps_4_0", error);
+  if (cleanCode.empty()) return false;
+  if (FAILED(CAP_HR(dev->CreatePixelShader(cleanCode.data(), cleanCode.size(), nullptr,
+                                           &psClean_)))) {
     ReportError(error, CAP_SAID(T("Aufbereitungs-Shader konnte nicht erstellt werden",
                                      "The cleanup shader could not be created")));
     return false;
   }
 
-  ComPtr<ID3DBlob> convertCode = CompileShader(kConvertPS, "ps_4_0", error);
-  if (!convertCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(convertCode->GetBufferPointer(),
-                                           convertCode->GetBufferSize(), nullptr, &psConvert_)))) {
+  const std::vector<uint8_t> convertCode = ShaderCode(kConvertPS, "ps_4_0", error);
+  if (convertCode.empty()) return false;
+  if (FAILED(CAP_HR(dev->CreatePixelShader(convertCode.data(), convertCode.size(), nullptr,
+                                           &psConvert_)))) {
     ReportError(error, CAP_SAID(T("Konvertierungs-Shader konnte nicht erstellt werden",
                                      "The conversion shader could not be created")));
     return false;
   }
 
-  ComPtr<ID3DBlob> scaleCode = CompileShader(kScalePS, "ps_4_0", error);
-  if (!scaleCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(scaleCode->GetBufferPointer(), scaleCode->GetBufferSize(),
-                                           nullptr, &psScale_)))) {
+  const std::vector<uint8_t> scaleCode = ShaderCode(kScalePS, "ps_4_0", error);
+  if (scaleCode.empty()) return false;
+  if (FAILED(CAP_HR(dev->CreatePixelShader(scaleCode.data(), scaleCode.size(), nullptr,
+                                           &psScale_)))) {
     ReportError(error, CAP_SAID(T("Skalierungs-Shader konnte nicht erstellt werden",
                                      "The scaling shader could not be created")));
     return false;
   }
 
-  ComPtr<ID3DBlob> recordCode = CompileShader(kHdrRecordPS, "ps_4_0", error);
-  if (!recordCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(recordCode->GetBufferPointer(),
-                                           recordCode->GetBufferSize(), nullptr,
+  const std::vector<uint8_t> recordCode = ShaderCode(kHdrRecordPS, "ps_4_0", error);
+  if (recordCode.empty()) return false;
+  if (FAILED(CAP_HR(dev->CreatePixelShader(recordCode.data(), recordCode.size(), nullptr,
                                            &psHdrRecord_)))) {
     ReportError(error, CAP_SAID(T("Aufnahme-Shader konnte nicht erstellt werden",
                                      "The recording shader could not be created")));
     return false;
   }
 
-  ComPtr<ID3DBlob> uiCode = CompileShader(kUiCompositePS, "ps_4_0", error);
-  if (!uiCode) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(uiCode->GetBufferPointer(), uiCode->GetBufferSize(),
-                                           nullptr, &psUiComposite_)))) {
+  const std::vector<uint8_t> uiCode = ShaderCode(kUiCompositePS, "ps_4_0", error);
+  if (uiCode.empty()) return false;
+  if (FAILED(CAP_HR(dev->CreatePixelShader(uiCode.data(), uiCode.size(), nullptr,
+                                           &psUiComposite_)))) {
     ReportError(error, CAP_SAID(T("Oberflächen-Shader konnte nicht erstellt werden",
                                      "The interface shader could not be created")));
     return false;
@@ -486,21 +353,18 @@ bool D3D11Passes::CreateShaders(std::string* error) {
   // before, and the setting that asks for it is simply dropped.
   {
     std::string remError;
-    ComPtr<ID3DBlob> dec = CompileShader(kRemDecPS, "ps_5_0", &remError);
-    ComPtr<ID3DBlob> res = CompileShader(kRemResPS, "ps_5_0", &remError);
-    ComPtr<ID3DBlob> comb = CompileShader(kRemCombPS, "ps_5_0", &remError);
-    remOk_ = dec && res && comb &&
-             SUCCEEDED(CAP_HR(dev->CreatePixelShader(dec->GetBufferPointer(), dec->GetBufferSize(),
-                                                     nullptr, &psRemDec_))) &&
-             SUCCEEDED(CAP_HR(dev->CreatePixelShader(res->GetBufferPointer(), res->GetBufferSize(),
-                                                     nullptr, &psRemRes_))) &&
-             SUCCEEDED(CAP_HR(dev->CreatePixelShader(comb->GetBufferPointer(),
-                                                     comb->GetBufferSize(), nullptr, &psRemComb_)));
+    const std::vector<uint8_t> dec = ShaderCode(kRemDecPS, "ps_5_0", &remError);
+    const std::vector<uint8_t> res = ShaderCode(kRemResPS, "ps_5_0", &remError);
+    const std::vector<uint8_t> comb = ShaderCode(kRemCombPS, "ps_5_0", &remError);
+    remOk_ = !dec.empty() && !res.empty() && !comb.empty() &&
+             SUCCEEDED(CAP_HR(dev->CreatePixelShader(dec.data(), dec.size(), nullptr,
+                                                     &psRemDec_))) &&
+             SUCCEEDED(CAP_HR(dev->CreatePixelShader(res.data(), res.size(), nullptr,
+                                                     &psRemRes_))) &&
+             SUCCEEDED(CAP_HR(dev->CreatePixelShader(comb.data(), comb.size(), nullptr,
+                                                     &psRemComb_)));
     if (!remOk_) CAP_ERR("Crawl remover unavailable: %s", remError.c_str());
   }
-
-  // Erst hier, wo feststeht, welche Dateien diese Fassung braucht.
-  PruneShaderCache();
 
   D3D11_BUFFER_DESC bd = {};
   bd.Usage = D3D11_USAGE_DYNAMIC;

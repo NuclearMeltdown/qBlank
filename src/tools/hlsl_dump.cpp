@@ -1,9 +1,8 @@
 // Writes the HLSL from src/render/shaders.h out as files, one per shader.
 //
-// A build step, not a tool anyone runs: the build packs the files into the
-// executable for Direct3D 11, which compiles them at startup, and compiles them
-// to SPIR-V with dxc for Vulkan -- one source for both, so the two renderers
-// cannot drift apart. See CMakeLists.txt.
+// A build step, not a tool anyone runs: the build compiles the files with fxc
+// for Direct3D 11 and with dxc to SPIR-V for Vulkan -- one source for both, so
+// the two renderers cannot drift apart. See CMakeLists.txt.
 //
 //   qblank_hlsl_dump.exe <output directory>
 

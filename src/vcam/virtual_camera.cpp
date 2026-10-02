@@ -50,7 +50,7 @@ const wchar_t kDllSuffix[] = L".dll";
 // when the filter does, and naming the file needs no unpacking.
 std::wstring DllFileName() {
   static const std::wstring name = [] {
-    uint64_t hash = 1469598103934665603ull;  // FNV-1a, as the shader cache uses
+    uint64_t hash = 1469598103934665603ull;  // FNV-1a
     for (size_t i = 0; i < kVcamFilter.size; ++i) {
       hash = (hash ^ kVcamFilter.data[i]) * 1099511628211ull;
     }

@@ -83,8 +83,9 @@ class Updater {
   // The version this build reports. Compared against the release tag.
   static const char* currentVersion();
 
-  // Removes the build a previous update moved aside. Call once at startup; it
-  // costs nothing when there is nothing to remove.
+  // Removes the build a previous update moved aside, and what older builds left
+  // beside the program. Call once at startup; it costs nothing when there is
+  // nothing to remove.
   static void CleanUpPreviousBuild();
 
   // Both return immediately; watch status().
