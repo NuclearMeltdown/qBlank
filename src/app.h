@@ -328,6 +328,8 @@ class App {
   // Diagnostics for "the card starts but nothing shows up".
   bool sawFirstFrame_ = false;
   int64_t captureStartQpc_ = 0;
+  // Das Format, das der Renderer zuletzt bekommen hat (FrameView::formatGen).
+  uint32_t sourceFormatGen_ = 0;
 
   // Snapshot of the settings that actually drive something, so a live edit can
   // be told apart from a harmless one.

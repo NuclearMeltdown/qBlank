@@ -132,7 +132,6 @@ void App::RenderFrame() {
         CAP_LOG("First frame after %.0f ms (%zu bytes)",
                 TicksToSeconds(now - captureStartQpc_) * 1000.0, view.size);
       }
-      renderer_.SetSourceFormat(sink->format(), nullptr);
       // Das Standbild haelt hier an und nirgends sonst: die Bilder werden
       // weiter abgeholt, damit der Zulauf nicht auflaeuft und die Statistik
       // stimmt, nur in die Textur geht keines mehr. Alles dahinter -- Filter,
@@ -150,7 +149,20 @@ void App::RenderFrame() {
         displayedArrivalQpc_ = sink->lastArrivalTicks();
       }
     }
+    // Das Format nur, wenn es ein anderes ist als beim letzten Bild, und nur
+    // das, in dem dieses Bild geschrieben wurde. Wechselt es zwischen Abholen
+    // und Nachfragen, passt das Bild nicht mehr dazu und bleibt liegen.
+    bool fits = false;
     if (!frozen_ && delayLine_.active()) {
+      fits = view.formatGen == sourceFormatGen_;
+      VideoFormatInfo changed;
+      if (!fits && sink->FormatOf(view.formatGen, &changed) &&
+          renderer_.SetSourceFormat(changed, nullptr)) {
+        sourceFormatGen_ = view.formatGen;
+        fits = true;
+      }
+    }
+    if (fits) {
       FrameView delayed;
       if (delayLine_.Pop(&delayed, now)) {
         renderer_.UploadFrame(delayed);

@@ -1,16 +1,27 @@
 #include "capture/frame_buffer.h"
 
+#include <atomic>
 #include <cstring>
 
 #include "common.h"
 
 namespace cap {
 
+namespace {
+
+uint32_t NextFormatGen() {
+  static std::atomic<uint32_t> next{0};
+  return ++next;
+}
+
+}  // namespace
+
 // ------------------------------------------------------------- writer side
 
 void FrameBuffer::Configure(const VideoFormatInfo& info) {
   std::lock_guard<std::mutex> lock(mutex_);
   format_ = info;
+  formatGen_ = NextFormatGen();
   for (int i = 0; i < 3; ++i) {
     slots_[i].assign(info.imageSize, 0);
     slotSize_[i] = 0;
@@ -38,14 +49,15 @@ void FrameBuffer::Reformat(const VideoFormatInfo& info, bool pixelsChanged) {
   if (info.width != format_.width || info.height != format_.height || pixelsChanged) {
     CAP_LOG("Format change mid-stream: %s %dx%d", info.subtypeLabel.c_str(), info.width,
             info.height);
-    for (int i = 0; i < 3; ++i) {
-      slots_[i].assign(info.imageSize, 0);
-      slotSize_[i] = 0;
-    }
+    // Die Slots bleiben stehen. Einen davon haelt der Renderthread womoeglich
+    // gerade und laedt aus ihm hoch; ihn neu anzulegen gab bei einem groesseren
+    // Bild seinen Speicher frei, waehrend daraus gelesen wurde. Write
+    // vergroessert einen Slot ohnehin erst, wenn es hineinschreibt, und nimmt
+    // nie den des Lesers. Nur das wartende Bild ist im alten Format und geht.
     readyIdx_ = -1;
-    readIdx_ = -1;
   }
   format_ = info;
+  formatGen_ = NextFormatGen();
 }
 
 void FrameBuffer::DropPending() {
@@ -78,6 +90,7 @@ void FrameBuffer::Write(const uint8_t* data, size_t length) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (readyIdx_ >= 0) ++dropped_;  // previous frame never made it to the screen
     slotSize_[slot] = length;
+    slotGen_[slot] = formatGen_;
     readyIdx_ = slot;
     ++sequence_;
     ++received_;
@@ -121,6 +134,7 @@ bool FrameBuffer::AcquireFrame(FrameView* out) {
       out->data = slots_[readIdx_].data();
       out->size = slotSize_[readIdx_];
       out->sequence = readSequence_;
+      out->formatGen = slotGen_[readIdx_];
     } else {
       *out = FrameView{};
     }
@@ -131,6 +145,13 @@ bool FrameBuffer::AcquireFrame(FrameView* out) {
 VideoFormatInfo FrameBuffer::format() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return format_;
+}
+
+bool FrameBuffer::FormatOf(uint32_t gen, VideoFormatInfo* out) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (gen != formatGen_) return false;
+  *out = format_;
+  return true;
 }
 
 SinkStats FrameBuffer::stats() const {

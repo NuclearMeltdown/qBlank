@@ -27,6 +27,8 @@ struct FrameView {
   const uint8_t* data = nullptr;
   size_t size = 0;
   uint64_t sequence = 0;
+  // Which format the bytes are in, see FrameBuffer::FormatOf.
+  uint32_t formatGen = 0;
 
   bool valid() const { return data != nullptr && size > 0; }
 };
@@ -75,6 +77,10 @@ class FrameBuffer {
   bool AcquireFrame(FrameView* out);
 
   VideoFormatInfo format() const;
+  // The format a frame was written in, by its `formatGen`. False when the
+  // format has changed since: the frame is from before the change and its
+  // bytes do not fit the new one.
+  bool FormatOf(uint32_t gen, VideoFormatInfo* out) const;
   SinkStats stats() const;
 
   // When the newest frame was handed over by the driver, in ClockTicks. Zero
@@ -100,6 +106,10 @@ class FrameBuffer {
   mutable std::mutex mutex_;
   std::vector<uint8_t> slots_[3];
   size_t slotSize_[3] = {0, 0, 0};
+  uint32_t slotGen_[3] = {0, 0, 0};
+  // Counts up with every format taken, across all buffers, so a number never
+  // means two formats.
+  uint32_t formatGen_ = 0;
   int readyIdx_ = -1;  // newest completed frame, not yet taken by the reader
   int readIdx_ = -1;   // slot the reader currently holds
   uint64_t sequence_ = 0;
