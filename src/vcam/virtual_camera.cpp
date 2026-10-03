@@ -804,13 +804,16 @@ void VirtualCamera::consumers(std::vector<Consumer>* out) const {
 void VirtualCamera::WorkerLoop() {
   ::SetThreadDescription(::GetCurrentThread(), L"qBlank vcam");
 
+  // Outside the loop, so the swap below hands the last round's buffer back to
+  // the render thread: it writes the next frame into one of the right size
+  // instead of allocating and zeroing a fresh one every frame.
+  std::vector<uint8_t> frame;
   while (!quit_.load(std::memory_order_relaxed)) {
     ::WaitForSingleObject(wake_, 100);
     if (quit_.load(std::memory_order_relaxed)) break;
 
     PruneConsumers();
 
-    std::vector<uint8_t> frame;
     int width = 0, height = 0;
     bool wide = false;
     {
