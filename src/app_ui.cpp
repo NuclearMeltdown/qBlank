@@ -199,7 +199,7 @@ float App::DrawColourNotice() {
 void App::DrawToolbarStrip() {
   ToolbarState state;
   state.recording = recorder_.recording();
-  state.recordSeconds = state.recording ? recorder_.stats().seconds : 0.0;
+  state.recordSeconds = state.recording ? recorder_.seconds() : 0.0;
   state.muted = config_.active().audio.mute;
   state.volume = config_.active().audio.volume;
   state.canRecord = captureState_ == CaptureState::Running && renderer_.hasFrame();
@@ -689,7 +689,7 @@ void App::DrawUi() {
 
   // ---- recording indicator ----
   if (recorder_.recording()) {
-    DrawRecordIndicator(recorder_.stats().seconds, config_.app.osdCorner);
+    DrawRecordIndicator(recorder_.seconds(), config_.app.osdCorner);
   }
 
   // ---- volume readout ----

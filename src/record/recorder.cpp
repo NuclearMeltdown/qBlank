@@ -661,10 +661,14 @@ uint64_t Recorder::outputFileSize() const {
   return ec ? 0 : (uint64_t)size;
 }
 
+double Recorder::seconds() const {
+  return startTicks_ ? TicksToSeconds(ClockTicks() - startTicks_) : 0.0;
+}
+
 RecordStats Recorder::stats() const {
   RecordStats s;
   s.running = running_.load(std::memory_order_relaxed);
-  s.seconds = startTicks_ ? TicksToSeconds(ClockTicks() - startTicks_) : 0.0;
+  s.seconds = seconds();
   s.videoFrames = videoFramesWritten_.load(std::memory_order_relaxed);
   s.duplicated = duplicated_.load(std::memory_order_relaxed);
   s.dropped = dropped_.load(std::memory_order_relaxed);

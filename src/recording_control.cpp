@@ -504,11 +504,10 @@ void RecordingControl::FeedRecorder() {
     // Gemessen schlaegt geschaetzt, sobald es etwas zu messen gibt: was dieser
     // Encoder auf dieser Quelle wirklich schreibt, kann von der eingestellten
     // Bitrate weit weg sein -- im Qualitaetsmodus ist es das immer.
-    const RecordStats stats = recorder_.stats();
+    const double seconds = recorder_.seconds();
+    const uint64_t written = recorder_.bytesWritten();
     double rate = diskBytesPerSecond_;
-    if (stats.seconds > 3.0 && stats.bytesWritten > 0) {
-      rate = (double)stats.bytesWritten / stats.seconds;
-    }
+    if (seconds > 3.0 && written > 0) rate = (double)written / seconds;
     const double left = rate > 1.0 ? (double)diskFreeBytes_ / rate : 0.0;
 
     // Ein fester Boden zusaetzlich zur Zeit: bei kleiner Bitrate reichen 30 s

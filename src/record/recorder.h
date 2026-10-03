@@ -120,6 +120,10 @@ class Recorder {
   int frameHeight() const { return height_; }
 
   RecordStats stats() const;
+  // The two numbers asked for every frame, without copying the strings in
+  // stats() under their lock.
+  double seconds() const;
+  uint64_t bytesWritten() const { return bytesWritten_.load(std::memory_order_relaxed); }
 
   // Size of the file being written, for the optional size based split.
   uint64_t outputFileSize() const;

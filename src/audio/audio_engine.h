@@ -81,6 +81,9 @@ class AudioEngine {
   float inputPeak() const { return inputPeak_.load(std::memory_order_relaxed); }
 
   bool running() const { return running_.load(std::memory_order_relaxed); }
+  // What is queued for playback, as in stats(), without the names and their
+  // lock: this one is asked every frame.
+  double bufferedMs() const;
   // Set when a device disappeared; the app can then offer a restart.
   bool failed() const { return failed_.load(std::memory_order_relaxed); }
   std::string lastError() const;

@@ -183,6 +183,11 @@ void AudioEngine::ApplySettings(const AudioSettings& settings) {
                   std::memory_order_relaxed);
 }
 
+double AudioEngine::bufferedMs() const {
+  const int rate = captureRate_.load(std::memory_order_relaxed);
+  return rate > 0 ? (double)ring_.Available() * 1000.0 / (double)rate : 0.0;
+}
+
 AudioStats AudioEngine::stats() const {
   AudioStats s;
   s.running = running_.load(std::memory_order_relaxed);
