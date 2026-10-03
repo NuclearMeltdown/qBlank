@@ -423,12 +423,14 @@ class App {
   SettingsHost settingsHost_;
   Updater updater_;
   FfmpegDownloader ffmpegDownloader_;
-  // A download finished while a recording or an encoder test ran; ffmpeg is
-  // looked for again once they are over.
+  // A download finished or the path was changed; ffmpeg is looked for again
+  // once a recording or an encoder test is over.
   bool ffmpegRelocate_ = false;
   CameraSink virtualCamera_;
   // Refilled once a frame rather than allocated once a frame.
   std::vector<CameraSink::Consumer> virtualCameraConsumers_;
+  // The startup check for a newer ffmpeg waits until it has been found.
+  bool ffmpegVersionCheck_ = false;
 
   // Recording, and what it asks of the rest of the program.
   class RecordingHost final : public RecordingControl::Host {

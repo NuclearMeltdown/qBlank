@@ -53,12 +53,16 @@ class RecordingControl {
   std::string EncoderSignature() const;
   void LoadCachedEncoders();
   void SaveCachedEncoders();
-  void CollectEncoderProbe();
-  // A download has put a new ffmpeg in place: find it again, so the version
-  // shown is the one on disk and the old build's encoder test no longer counts
-  // for it. False while that has to wait -- an encoder test would bring the old
-  // one back when it lands, and during a recording the moment it takes to run
-  // "ffmpeg -version" belongs to the recording.
+  // Takes over what the worker thread finished. True when that was a search
+  // for ffmpeg rather than an encoder test.
+  bool CollectEncoderProbe();
+  // Finds ffmpeg again -- at startup, after a download put a new one in place,
+  // after the path was changed -- so the version shown is the one on disk and
+  // the old build's encoder test no longer counts for it. On the worker
+  // thread: "ffmpeg -version" takes a moment, and on the UI thread that held
+  // up the picture. False while that has to wait -- an encoder test would
+  // bring the old one back when it lands, and a recording gets the machine to
+  // itself.
   bool RelocateFfmpeg();
 
   void ToggleRecording();
@@ -91,13 +95,15 @@ class RecordingControl {
   CameraSink& virtualCamera_;
   Host& host_;
 
-  // Located once at startup; encoder tests run on probeThread_ and are handed
-  // over through probeResult_ once probeDone_ flips.
+  // The search and the encoder tests run on probeThread_, one at a time, and
+  // are handed over through probeResult_ once probeDone_ flips.
   FfmpegInfo ffmpeg_;
   FfmpegInfo probeResult_;
   std::thread probeThread_;
   std::atomic<bool> probing_{false};
   std::atomic<bool> probeDone_{false};
+  // What probeThread_ is doing: searching rather than testing. UI thread only.
+  bool locating_ = false;
   // What SyncMicrophone last acted on, so a failure is reported once instead of
   // once per frame. Cleared when the settings change.
   DeviceRef micApplied_;

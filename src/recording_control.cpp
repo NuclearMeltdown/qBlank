@@ -65,12 +65,18 @@ void RecordingControl::StartEncoderProbe(bool full) {
   });
 }
 
-void RecordingControl::CollectEncoderProbe() {
-  if (!probeDone_.load(std::memory_order_acquire)) return;
+bool RecordingControl::CollectEncoderProbe() {
+  if (!probeDone_.load(std::memory_order_acquire)) return false;
   probeDone_.store(false, std::memory_order_relaxed);
   if (probeThread_.joinable()) probeThread_.join();
   ffmpeg_ = std::move(probeResult_);
-  SaveCachedEncoders();
+  if (!locating_) {
+    SaveCachedEncoders();
+    return false;
+  }
+  locating_ = false;
+  LoadCachedEncoders();
+  return true;
 }
 
 bool RecordingControl::RelocateFfmpeg() {
@@ -78,8 +84,15 @@ bool RecordingControl::RelocateFfmpeg() {
       recorder_.recording()) {
     return false;
   }
-  ffmpeg_ = LocateFfmpeg(config_.record.ffmpegPath);
-  LoadCachedEncoders();
+  if (probeThread_.joinable()) probeThread_.join();
+  probing_.store(true, std::memory_order_relaxed);
+  locating_ = true;
+  probeThread_ = std::thread([this, path = config_.record.ffmpegPath]() {
+    SystemThreadScope onThisThread;
+    probeResult_ = LocateFfmpeg(path);
+    probing_.store(false, std::memory_order_relaxed);
+    probeDone_.store(true, std::memory_order_release);
+  });
   return true;
 }
 
@@ -142,6 +155,11 @@ void RecordingControl::StartRecording() {
   // portable build on a stick that got unplugged, an antivirus quarantine, or
   // simply someone tidying up. Checking costs one file attribute lookup and
   // turns a confusing "ffmpeg exited with code 1" into an honest answer.
+  if (locating_) {
+    host_.Toast(T("ffmpeg wird noch gesucht, gleich nochmal.",
+                  "Still looking for ffmpeg, try again in a moment."));
+    return;
+  }
   if (ffmpeg_.found && !IsFile(Utf8ToPath(ffmpeg_.path))) {
     CAP_WARN("ffmpeg has disappeared: %s", ffmpeg_.path.c_str());
     ffmpeg_ = FfmpegInfo{};

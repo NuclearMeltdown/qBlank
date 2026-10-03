@@ -171,6 +171,9 @@ class SettingsWindow {
   // Set by the dialog when the user asks for a full encoder test; the app runs
   // it in the background and clears the flag.
   bool takeProbeRequest();
+  // Set when a new path to ffmpeg was typed or picked; the app looks for it in
+  // the background.
+  bool takeFfmpegPathChanged();
   // Set when the user wants to drag the crop on the picture; the app closes the
   // dialog and takes over.
   bool takeCropPickRequest();
@@ -316,6 +319,7 @@ class SettingsWindow {
   AsyncFileDialog picker_;
   enum PickTarget { kPickNone = 0, kPickRecordFolder, kPickShotFolder, kPickFfmpeg, kPickRemux };
   bool probeRequested_ = false;
+  bool ffmpegPathChanged_ = false;
   bool cropPickRequested_ = false;
   bool probeBusy_ = false;
   char folderBuffer_[512] = {};

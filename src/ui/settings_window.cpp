@@ -217,6 +217,12 @@ bool SettingsWindow::takeProbeRequest() {
   return requested;
 }
 
+bool SettingsWindow::takeFfmpegPathChanged() {
+  const bool changed = ffmpegPathChanged_;
+  ffmpegPathChanged_ = false;
+  return changed;
+}
+
 bool SettingsWindow::takeCropPickRequest() {
   const bool requested = cropPickRequested_;
   cropPickRequested_ = false;
@@ -375,7 +381,7 @@ void SettingsWindow::PollFileDialog(FfmpegInfo* ffmpeg) {
     case kPickFfmpeg:
       rec.ffmpegPath = PathToUtf8(picked.front());
       std::snprintf(ffmpegPathBuffer_, sizeof(ffmpegPathBuffer_), "%s", rec.ffmpegPath.c_str());
-      if (ffmpeg) *ffmpeg = LocateFfmpeg(rec.ffmpegPath);
+      ffmpegPathChanged_ = true;
       break;
     case kPickRemux:
       if (ffmpeg && ffmpeg->found) remuxer_.Start(Utf8ToPath(ffmpeg->path), picked);
@@ -3554,8 +3560,10 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
                                  "Custom path to ffmpeg.exe (optional)"),
                                ffmpegPathBuffer_, sizeof(ffmpegPathBuffer_))) {
     rec.ffmpegPath = ffmpegPathBuffer_;
-    if (ffmpeg) *ffmpeg = LocateFfmpeg(rec.ffmpegPath);
   }
+  // Looked for once the path is finished, with Enter or by leaving the field.
+  // On every keystroke that ran "ffmpeg -version" for each half-typed path.
+  if (ImGui::IsItemDeactivatedAfterEdit()) ffmpegPathChanged_ = true;
   Anchor("ffmpegpath");
   ImGui::SameLine();
   ImGui::BeginDisabled(picker_.busy());

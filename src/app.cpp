@@ -171,25 +171,20 @@ bool App::Initialize() {
     OpenSettings(error);
   }
   CaptureAppliedState();
-  recording_.ffmpeg() = LocateFfmpeg(config_.record.ffmpegPath);
-  // No test on startup. Which encoders work does not change from one run to the
-  // next, so the answer is loaded from the config; testing is something the user
-  // asks for once, or when the machine changed underneath it.
-  recording_.LoadCachedEncoders();
 
   // The leftover of a previous update is cleared in wWinMain, before the name
   // is sorted out and the settings are read -- both of which would otherwise
   // work on the wrong file.
   CameraSink::CleanUpOldInstalls();
   FfmpegDownloader::CleanUp(OwnFfmpegFolder());
+  // Found in the background, see Tick. No test on startup: which encoders work
+  // does not change from one run to the next, so the answer is loaded from the
+  // config; testing is something the user asks for once, or when the machine
+  // changed underneath it.
+  recording_.RelocateFfmpeg();
   if (config_.app.checkUpdatesOnStart) {
     updater_.CheckAsync(true);
-    // ffmpeg as well, but only the one a download put there: that is the one an
-    // update can replace. A git build has no release number to compare with.
-    const FfmpegInfo& ffmpeg = recording_.ffmpeg();
-    if (ffmpeg.found && !ffmpeg.number.empty() && IsOwnFfmpeg(ffmpeg.path)) {
-      ffmpegDownloader_.StartVersionCheck(ffmpeg.number, true);
-    }
+    ffmpegVersionCheck_ = true;
   }
 
   running_ = true;
@@ -1070,17 +1065,27 @@ void App::UpdateProfileForStandard() {
 
 void App::Tick() {
   UpdatePowerRequest();
-  recording_.CollectEncoderProbe();
+  if (recording_.CollectEncoderProbe() && ffmpegVersionCheck_) {
+    // ffmpeg as well as qBlank, but only the one a download put there: that is
+    // the one an update can replace. A git build has no release number to
+    // compare with.
+    ffmpegVersionCheck_ = false;
+    const FfmpegInfo& ffmpeg = recording_.ffmpeg();
+    if (ffmpeg.found && !ffmpeg.number.empty() && IsOwnFfmpeg(ffmpeg.path)) {
+      ffmpegDownloader_.StartVersionCheck(ffmpeg.number, true);
+    }
+  }
   if (ffmpegDownloader_.TakeInstalled()) ffmpegRelocate_ = true;
   if (ffmpegRelocate_ && recording_.RelocateFfmpeg()) ffmpegRelocate_ = false;
   // Erst entscheiden, ob der Decoder ueberhaupt befragt wird, dann das
   // Ergebnis benutzen. Beim Start der Aufnahme steht das Format noch nicht
   // fest, der Wachthread laeuft also zunaechst an und wird hier ein Bild
+  if (settings_.takeFfmpegPathChanged()) ffmpegRelocate_ = true;
+  CollectScreenshots();
   // spaeter wieder angehalten, sobald sich die Quelle als digital erweist.
   standardSearch_.UpdateSignalWatch();
   standardSearch_.UpdateVideoStandard();
   UpdateProfileForStandard();
-  CollectScreenshots();
   cropTool_.UpdateCropForFormat();
 
   if (captureState_ == CaptureState::Running) {
