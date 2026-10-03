@@ -6,9 +6,9 @@
 #include "audio/mic_capture.h"
 #include "camera_sink.h"
 #include "capture/video_capture.h"
+#include "common.h"
 #include "files.h"
 #include "i18n.h"
-#include "imgui.h"
 #include "platform.h"
 #include "record/recorder.h"
 #include "render/display.h"
@@ -359,7 +359,7 @@ void RecordingControl::UpdateDiskSpace() {
   }
   diskBytesPerSecond_ = EstimatedBytesPerSecond(config_.record, tracks);
 
-  const double now = ImGui::GetTime();
+  const double now = TicksToSeconds(ClockTicks());
   if (now - lastDiskCheck_ > 1.0) {
     lastDiskCheck_ = now;
     // Absichtlich nicht ueber ResolveOutputFolder: das legt Ordner an und meldet
@@ -412,7 +412,7 @@ void RecordingControl::SyncMicrophone(bool aboutToRecord) {
 void RecordingControl::FeedRecorder() {
   if (!recorder_.recording()) return;
 
-  const double now = ImGui::GetTime();
+  const double now = TicksToSeconds(ClockTicks());
 
   // Die Quelle hat mitten in der Aufnahme die Norm gewechselt. Bildgroesse und
   // Rate stehen in der ffmpeg-Zeile fest -- rawvideo hat keinen Kopf, in dem

@@ -1134,6 +1134,10 @@ void App::Tick() {
     recordingBadge_ = !recordingBadge_;
     window_.SetTaskbarBadge(recordingBadge_, T("Aufnahme läuft", "Recording"));
   }
+  // Here rather than with the interface: a recording goes on while the window
+  // is minimised and nothing of the interface is drawn, and the disk fills all
+  // the same.
+  recording_.UpdateDiskSpace();
   UpdateTray();
 
   // Hide the pointer once it has been still for a while in fullscreen.

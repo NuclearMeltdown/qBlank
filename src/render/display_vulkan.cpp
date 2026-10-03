@@ -80,6 +80,7 @@ struct VulkanDisplay final : Display::Impl {
   bool SetHdrOutput(bool enabled, std::string* error) override;
   bool BeginFrame(const float clearColor[4]) override;
   void EndFrame(bool vsync) override;
+  void SubmitHidden() override;
   bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) override;
 
   bool InitUi() override;
@@ -539,6 +540,12 @@ bool VulkanDisplay::BeginFrame(const float clearColor[4]) {
   inFrame_ = true;
   StartImage();
   return true;
+}
+
+void VulkanDisplay::SubmitHidden() {
+  // The passes began the command buffer themselves; no image was acquired, so
+  // there is nothing to wait for and nothing to present.
+  if (!inFrame_) device_.Submit();
 }
 
 void VulkanDisplay::EndFrame(bool vsync) {

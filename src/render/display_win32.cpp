@@ -121,6 +121,7 @@ struct D3D11Display final : Display::Impl {
   bool SetHdrOutput(bool enabled, std::string* error) override;
   bool BeginFrame(const float clearColor[4]) override;
   void EndFrame(bool vsync) override;
+  void SubmitHidden() override;
   bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) override;
 
   bool InitUi() override;
@@ -359,6 +360,12 @@ bool D3D11Display::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* h
   if (width) *width = w;
   if (height) *height = h;
   return true;
+}
+
+void D3D11Display::SubmitHidden() {
+  // Without a present nothing else pushes the queued copies to the GPU, and
+  // the readback would wait for them forever.
+  if (context_) context_->Flush();
 }
 
 void D3D11Display::EndFrame(bool vsync) {

@@ -108,6 +108,11 @@ class Display {
   // with tearing allowed where the system supports it.
   void EndFrame(bool vsync);
 
+  // In place of a frame while the window is minimised and the picture only
+  // goes to the recording or the camera: hands the GPU what the passes queued
+  // since, presents nothing. No BeginFrame before it.
+  void SubmitHidden();
+
   // Liest den Rueckpuffer als RGBA aus, also das Bild samt allem, was darauf
   // gezeichnet wurde. Muss vor dem Present passieren -- danach ist der Inhalt
   // eines Flip-Puffers undefiniert.

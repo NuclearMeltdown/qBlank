@@ -2548,7 +2548,7 @@ void VideoRenderer::ComputeDestRectIn(const ImageSettings& image, int winW, int 
   videoRect_ = Rect{x, y, x + w, y + h};
 }
 
-void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
+void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScreen) {
   if (!hasFrame_ || planeCount_ == 0 || !display_) return;
 
   const int srcW = source_.width;
@@ -2731,6 +2731,7 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex) {
   // the finished picture at source resolution, and the copy runs on the GPU
   // while pass 2 is being set up rather than blocking anything.
   QueueReadback();
+  if (!toScreen) return;
 
   ComputeDestRect(image);
   const int dstW = videoRect_.width();

@@ -17,7 +17,11 @@ int App::Run() {
     if (!PumpEvents()) running_ = false;
     if (!running_) break;
 
-    if (minimized_) {
+    // A recording or a watched camera still need the pictures with nobody
+    // looking at them: the loop goes on as below and RenderFrame stops short of
+    // the screen. Waiting here instead froze both for as long as the window
+    // was minimised.
+    if (minimized_ && !FeedsWhileHidden()) {
       // No preview to draw. The settings window and the icon's menu are windows
       // of their own, though, drawn by this loop and nowhere else -- blocking
       // here without them froze the settings for as long as the viewer was
@@ -25,11 +29,15 @@ int App::Run() {
       // either is on screen; otherwise the loop blocks and costs nothing. The
       // settings embedded in the picture are minimised along with it and do not
       // count.
+      Tick();
       DrawSettingsWindowed();
       DrawTrayMenu();
       if (settingsHost_.visible() || trayPopup_.isOpen()) {
         lastWake_ = WaitForEventsOr(nullptr, 16);
-      Tick();
+      } else if (virtualCamera_.running()) {
+        // A program can start reading the camera at any moment, and nothing
+        // wakes the loop when it does.
+        lastWake_ = WaitForEventsOr(nullptr, 100);
       } else {
         WaitForEvents();
       }
@@ -74,6 +82,11 @@ int App::Run() {
       RenderFrame();
     }
 
+    // Behind the picture rather than ahead of it: the norm search, the tray and
+    // the device's events need not be done before a frame reaches the screen,
+    // and a verdict they reach is acted on one frame later either way.
+    Tick();
+
     // And the settings window is drawn on its own account, every time round,
     // with its own throttle inside. It wants to follow the mouse; the preview
     // wants to follow the capture card. Tying them together made one of them
@@ -81,11 +94,6 @@ int App::Run() {
     DrawSettingsWindowed();
     // The icon's menu likewise, while it is open.
     DrawTrayMenu();
-
-    // Behind the picture rather than ahead of it: the norm search, the tray and
-    // the device's events need not be done before a frame reaches the screen,
-    // and a verdict they reach is acted on one frame later either way.
-    Tick();
 
     // Wait for the next captured frame, a pending second field, or input.
     //
@@ -121,39 +129,32 @@ int App::Run() {
   return 0;
 }
 
+bool App::FeedsWhileHidden() const {
+  return recorder_.recording() || (virtualCamera_.running() && virtualCamera_.consumed());
+}
+
 void App::RenderFrame() {
   const int64_t now = ClockTicks();
   const Profile& profile = config_.active();
+  // Minimised, the frame still goes through every pass, to the recording and
+  // the camera; only the window's part is left out.
+  const bool toScreen = !minimized_;
+
+  // Normally a no-op: the pass before has done this after its Present. Only a
+  // pass run from inside another one, out of a modal loop, would otherwise pull
+  // a new frame over the one that pass has not measured yet.
+  renderer_.AnalyzeAfterPresent();
 
   // ---- pull the newest frame ----
   FrameBuffer* sink = capture_.sink();
   bool haveNewFrame = false;
   if (sink) {
     FrameView view;
-    if (sink->AcquireFrame(&view) && view.valid()) {
-      if (!sawFirstFrame_) {
-        sawFirstFrame_ = true;
-        CAP_LOG("First frame after %.0f ms (%zu bytes)",
-                TicksToSeconds(now - captureStartQpc_) * 1000.0, view.size);
-      }
-  // Normally a no-op: the pass before has done this after its Present. Only a
-  // pass run from inside another one, out of a modal loop, would otherwise pull
-  // a new frame over the one that pass has not measured yet.
-  renderer_.AnalyzeAfterPresent();
-      // Das Standbild haelt hier an und nirgends sonst: die Bilder werden
-      // weiter abgeholt, damit der Zulauf nicht auflaeuft und die Statistik
-      // stimmt, nur in die Textur geht keines mehr. Alles dahinter -- Filter,
-      // Skalierung, Regler -- laeuft am stehenden Bild weiter.
-      if (frozen_) {
-        // nichts hochladen
-      } else if (delayLine_.active()) {
-        // Mit der Ankunftszeit und nicht mit `now`: die Verzoegerungsleitung
-        // soll das Bild um die eingestellte Zeit nach seinem Eintreffen
     // Das Format nur, wenn es ein anderes ist als beim letzten Bild, und nur
     // das, in dem dieses Bild geschrieben wurde. Wechselt es zwischen Abholen
     // und Nachfragen, passt das Bild nicht mehr dazu und bleibt liegen.
     bool fits = false;
-        // herausgeben, nicht nach dem Zeichendurchgang, der es aufgegriffen hat.
+    if (sink->AcquireFrame(&view) && view.valid()) {
       fits = view.formatGen == sourceFormatGen_;
       VideoFormatInfo changed;
       if (!fits && sink->FormatOf(view.formatGen, &changed) &&
@@ -163,6 +164,21 @@ void App::RenderFrame() {
       }
     }
     if (fits) {
+      if (!sawFirstFrame_) {
+        sawFirstFrame_ = true;
+        CAP_LOG("First frame after %.0f ms (%zu bytes)",
+                TicksToSeconds(now - captureStartQpc_) * 1000.0, view.size);
+      }
+      // Das Standbild haelt hier an und nirgends sonst: die Bilder werden
+      // weiter abgeholt, damit der Zulauf nicht auflaeuft und die Statistik
+      // stimmt, nur in die Textur geht keines mehr. Alles dahinter -- Filter,
+      // Skalierung, Regler -- laeuft am stehenden Bild weiter.
+      if (frozen_) {
+        // nichts hochladen
+      } else if (delayLine_.active()) {
+        // Mit der Ankunftszeit und nicht mit `now`: die Verzoegerungsleitung
+        // soll das Bild um die eingestellte Zeit nach seinem Eintreffen
+        // herausgeben, nicht nach dem Zeichendurchgang, der es aufgegriffen hat.
         delayLine_.Push(view, sink->lastArrivalTicks());
       } else {
         renderer_.UploadFrame(view);
@@ -257,7 +273,7 @@ void App::RenderFrame() {
   // ---- draw ----
   float clear[4];
   GetBackgroundColor(darkMode_, config_.app.accentColor, clear);
-  if (!display_.BeginFrame(clear)) {
+  if (toScreen && !display_.BeginFrame(clear)) {
     renderer_.AnalyzeAfterPresent();
     return;
   }
@@ -277,7 +293,7 @@ void App::RenderFrame() {
   const int topInset = toolbarVisible_ ? (int)std::lround(ToolbarHeight()) : 0;
   renderer_.SetTopInset(topInset);
   UpdateHdr();
-  renderer_.Draw(EffectiveImage(profile), fieldIndex_);
+  renderer_.Draw(EffectiveImage(profile), fieldIndex_, toScreen);
   // The shape Shift holds while the window is resized.
   window_.SetSizingAspect(renderer_.hasFrame() ? renderer_.pictureAspect() : 0.0, topInset);
 
@@ -289,38 +305,35 @@ void App::RenderFrame() {
     WriteScreenshot(false, screenshotToClipboard_);
   }
 
-  display_.NewUiFrame();
-  window_.BeginUiFrame();
-  ImGui::NewFrame();
-  DrawUi();
-  ImGui::Render();
-  // In HDR the interface goes to a buffer of its own first: it is drawn in sRGB
-  // and the screen is being fed linear light, so it needs converting rather than
-  // copying. In SDR both calls do nothing and it draws straight to the screen.
-  const bool uiLayer = renderer_.BeginUiLayer();
-  display_.RenderUi(ImGui::GetDrawData());
-  if (uiLayer) renderer_.CompositeUiLayer();
+  if (toScreen) {
+    display_.NewUiFrame();
+    window_.BeginUiFrame();
+    ImGui::NewFrame();
+    DrawUi();
+    ImGui::Render();
+    // In HDR the interface goes to a buffer of its own first: it is drawn in
+    // sRGB and the screen is being fed linear light, so it needs converting
+    // rather than copying. In SDR both calls do nothing and it draws straight
+    // to the screen.
+    const bool uiLayer = renderer_.BeginUiLayer();
+    display_.RenderUi(ImGui::GetDrawData());
+    if (uiLayer) renderer_.CompositeUiLayer();
 
-  // The other grab point. Everything has been drawn and nothing has been
-  // presented yet, which is the only moment the back buffer holds the finished
-  // window: under the flip model its contents are undefined after the present.
-  if (screenshotPending_) {
-    screenshotPending_ = false;
-    WriteScreenshot(true, screenshotToClipboard_);
+    // The other grab point. Everything has been drawn and nothing has been
+    // presented yet, which is the only moment the back buffer holds the
+    // finished window: under the flip model its contents are undefined after
+    // the present. Minimised there is no window to grab; the shot waits.
+    if (screenshotPending_) {
+      screenshotPending_ = false;
+      WriteScreenshot(true, screenshotToClipboard_);
+    }
   }
 
-  // Beide Messwerte jedes Bild, unabhaengig davon, ob das Panel offen ist: das
-  // Log schreibt seine Statuszeile auch dann, und ein Ruckler waehrend einer
-  // geschlossenen Anzeige ist genau der, den man spaeter sucht.
-  if (captureState_ == CaptureState::Running) {
-    const AudioStats audioNow = audio_.stats();
-    if (audioNow.running) audioBufferMeter_.Sample(audioNow.bufferMs, TicksToSeconds(now));
+  if (toScreen) {
+    display_.EndFrame(config_.app.vsync);
+  } else {
+    display_.SubmitHidden();
   }
-  recording_.SyncMicrophone();
-  recording_.FeedRecorder();
-  UpdateVirtualCamera();
-  FeedFrameConsumers();
-  display_.EndFrame(config_.app.vsync);
 
   // ---- Durchlaufzeit ----
   // Erst hier, weil erst hier feststeht, wann das Bild qBlank verlaesst.
@@ -340,7 +353,7 @@ void App::RenderFrame() {
   // Schleife auf das Bildereignis wartet, war das fast immer dieselbe Zehntel
   // Millisekunde -- eine Zahl, die nur sagte, dass der Renderthread wach
   // geworden ist.
-  if (captureState_ == CaptureState::Running && displayedArrivalQpc_ != 0) {
+  if (toScreen && captureState_ == CaptureState::Running && displayedArrivalQpc_ != 0) {
     const int64_t leaving = ClockTicks();
     const double ageMs = TicksToSeconds(leaving - displayedArrivalQpc_) * 1000.0;
     if (ageMs >= 0.0) frameAgeMeter_.Sample(ageMs, TicksToSeconds(leaving));
@@ -348,12 +361,34 @@ void App::RenderFrame() {
 
   // Erst nach der Durchlaufzeit: was hier gerechnet wird, soll weder das Bild
   // aufhalten noch in der Zahl stehen, die sagt, wie lange es aufgehalten wurde.
+  //
+  // Beide Messwerte jedes Bild, unabhaengig davon, ob das Panel offen ist: das
+  // Log schreibt seine Statuszeile auch dann, und ein Ruckler waehrend einer
+  // geschlossenen Anzeige ist genau der, den man spaeter sucht.
+  if (captureState_ == CaptureState::Running && audio_.running()) {
+    audioBufferMeter_.Sample(audio_.bufferedMs(), TicksToSeconds(now));
+  }
+  // Recording and camera as well. Their copy of this picture was queued with
+  // the passes and is read a frame or two later anyway; what is handed on here
+  // is an older one, and opening a microphone takes a few milliseconds the
+  // screen should not wait for.
+  recording_.SyncMicrophone();
+  recording_.FeedRecorder();
+  UpdateVirtualCamera();
+  FeedFrameConsumers();
   renderer_.AnalyzeAfterPresent();
   // Likewise the config: the check for changes serialises all of it, and the
   // save that follows one writes a file. Before the present that was up to a
   // tenth of a millisecond on every fifteenth picture, and a disk write now and
   // then, for nothing the picture needs.
   MaybeSaveConfig();
+  // The screen can change without anything else doing so -- dragging the window
+  // to another monitor, or turning HDR on in Windows while this runs. Not every
+  // frame, and after the present; the next frame acts on the answer.
+  if (++hdrDisplayPoll_ >= 120) {
+    hdrDisplayPoll_ = 0;
+    display_.RefreshDisplayCapability();
+  }
 
   // ---- present rate ----
   ++presentCount_;
@@ -382,13 +417,6 @@ void App::RenderFrame() {
         audioBufferMeter_.TakeRange(&bufLow, &bufHigh);
         CAP_LOG("Status: source %.2f fps, output %.1f fps, %llu shown, %llu dropped, frame age "
                 "%.1f ms (peak %.1f) | fields %llu/%llu | audio %.1f/%.0f ms (%.1f-%.1f), %llu "
-  // The screen can change without anything else doing so -- dragging the window
-  // to another monitor, or turning HDR on in Windows while this runs. Not every
-  // frame, and after the present; the next frame acts on the answer.
-  if (++hdrDisplayPoll_ >= 120) {
-    hdrDisplayPoll_ = 0;
-    display_.RefreshDisplayCapability();
-  }
                 "underruns, %llu overruns",
                 sinkStats.sourceFps, presentFps_, (unsigned long long)sinkStats.displayed,
                 (unsigned long long)sinkStats.dropped, frameAgeMeter_.average, ageHigh,
@@ -536,7 +564,8 @@ void App::UpdateHdr() {
       break;
   }
 
-  if (want != display_.hdrOutput()) {
+  // Not while minimised: no chain to switch for a window nobody sees.
+  if (want != display_.hdrOutput() && !minimized_) {
     std::string error;
     if (!display_.SetHdrOutput(want, &error)) {
       // Said once and then left alone, rather than every frame from here on.
@@ -631,6 +660,7 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
   if (!screenshotWriter_.Queue(std::move(job))) {
     Toast(T("Screenshots werden noch gespeichert.", "Still saving screenshots."));
   }
+}
 
 void App::CollectScreenshots() {
   ScreenshotWriter::Result r;
@@ -650,4 +680,3 @@ void App::CollectScreenshots() {
 }
 
 }  // namespace cap
-}

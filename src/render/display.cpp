@@ -90,6 +90,10 @@ void Display::EndFrame(bool vsync) {
   if (impl_) impl_->EndFrame(vsync);
 }
 
+void Display::SubmitHidden() {
+  if (impl_) impl_->SubmitHidden();
+}
+
 bool Display::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
   return impl_ && impl_->GrabBackBuffer(rgba, width, height);
 }

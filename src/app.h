@@ -96,7 +96,10 @@ class App {
   bool StartGraphics();
 
   void Tick();
+  // Draws into the window, or while minimised only for recording and camera.
   void RenderFrame();
+  // Something takes the pictures even while the window is minimised.
+  bool FeedsWhileHidden() const;
   void DrawUi();
   void DrawContextMenu();
 
@@ -170,11 +173,11 @@ class App {
   // `includeUi` false grabs the picture itself at source resolution; true grabs
   // the finished window, overlay and all, at window resolution.
   void WriteScreenshot(bool includeUi, bool toClipboard);
+  // Says how the shots handed to the writer came out.
+  void CollectScreenshots();
   // Haelt an, was in die Textur geht -- der Zulauf laeuft weiter, die Filter
   // auch. Ein Standbild ist zum Hinsehen da: an einem stehenden Bild laesst
   // sich ein Regler beurteilen, an einem laufenden nicht.
-  // Says how the shots handed to the writer came out.
-  void CollectScreenshots();
   //
   // Waehrend einer Aufnahme geht das nicht. Aufnahme und virtuelle Kamera holen
   // ihr Bild aus derselben Textur wie die Anzeige, ein Standbild wuerde also
@@ -325,11 +328,11 @@ class App {
   // dasselbe angekommene Bild, und der zweite ist absichtlich ein halbes
   // Vollbild spaeter dran: genau das soll die Zahl auch sagen.
   int64_t displayedArrivalQpc_ = 0;
+  // Das Format, das der Renderer zuletzt bekommen hat (FrameView::formatGen).
+  uint32_t sourceFormatGen_ = 0;
   StatMeter audioBufferMeter_;
   int statsLogCounter_ = 0;
 
-  // Das Format, das der Renderer zuletzt bekommen hat (FrameView::formatGen).
-  uint32_t sourceFormatGen_ = 0;
   // Diagnostics for "the card starts but nothing shows up".
   bool sawFirstFrame_ = false;
   int64_t captureStartQpc_ = 0;
@@ -366,10 +369,10 @@ class App {
 
   bool screenshotPending_ = false;
   bool screenshotToClipboard_ = false;
+  ScreenshotWriter screenshotWriter_;
   // Standbild: siehe ToggleFreeze. Kein Profilwert, sondern ein Zustand -- ein
   // angehaltenes Bild soll einen Neustart nicht ueberleben.
   bool frozen_ = false;
-  ScreenshotWriter screenshotWriter_;
   // Die beiden anderen Sehhilfen, aus demselben Grund ebenfalls hier und nicht
   // im Profil: siehe ToggleCompare und ToggleBypass.
   bool compare_ = false;
@@ -426,11 +429,11 @@ class App {
   // A download finished or the path was changed; ffmpeg is looked for again
   // once a recording or an encoder test is over.
   bool ffmpegRelocate_ = false;
+  // The startup check for a newer ffmpeg waits until it has been found.
+  bool ffmpegVersionCheck_ = false;
   CameraSink virtualCamera_;
   // Refilled once a frame rather than allocated once a frame.
   std::vector<CameraSink::Consumer> virtualCameraConsumers_;
-  // The startup check for a newer ffmpeg waits until it has been found.
-  bool ffmpegVersionCheck_ = false;
 
   // Recording, and what it asks of the rest of the program.
   class RecordingHost final : public RecordingControl::Host {

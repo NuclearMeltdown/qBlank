@@ -45,8 +45,9 @@ class VideoRenderer {
   bool UploadFrame(const FrameView& frame);
 
   // Renders the last uploaded frame into the currently bound back buffer.
-  // `fieldIndex` picks the field when bob deinterlacing is on.
-  void Draw(const ImageSettings& image, int fieldIndex);
+  // `fieldIndex` picks the field when bob deinterlacing is on. Without
+  // `toScreen` it stops once the copies for recording and camera are queued.
+  void Draw(const ImageSettings& image, int fieldIndex, bool toScreen);
 
   // Was von den Messungen nicht vor dem Bild fertig sein muss. Einmal je
   // Durchgang, nach dem Present: UploadFrame legt nur ab, was dafuer vom Bild
@@ -733,12 +734,12 @@ class VideoRenderer {
   // stehen, dazu die Bildnummer (0 = nichts abgelegt).
   std::vector<uint8_t> crawlPending_;
   uint64_t crawlPendingSequence_ = 0;
-  // Je Stelle der Abstand ueber zwoelf Bilder im Quadrat, -1 = bewegt, und
   // The frame UploadFrame took, for the other analyses after Present. Not a
   // copy: it stays valid until the next AcquireFrame, the delay line lets go of
   // it, or the capture stops -- and each of those drops the flag first.
   FrameView analysisFrame_;
   bool analysisPending_ = false;
+  // Je Stelle der Abstand ueber zwoelf Bilder im Quadrat, -1 = bewegt, und
   // dieselben Zahlen ohne die bewegten, fuer den Median. Mitglieder nur, damit
   // nicht jedes Bild neu anlegt.
   std::vector<float> crawlScratch_;

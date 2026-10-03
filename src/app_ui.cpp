@@ -74,6 +74,9 @@ bool BeginMenuWithShortcut(const char* label, const char* shortcut) {
 // Schirm ist, das sich bewegen koennen muss. Liegt ein Signal an, gibt dessen
 // Takt ohnehin alles vor und dieser Boden kommt nie zum Tragen.
 double App::IdleFloorMs() const {
+  // Minimised nothing on screen animates, and the interface clock stands still:
+  // a toast up at that moment would keep the floor short until the restore.
+  if (minimized_) return 200.0;
   const bool embeddedPanel = settings_.isOpen() && !config_.app.settingsSeparateWindow;
   const double now = ImGui::GetTime();
   const bool toastUp = !toastText_.empty() && now - toastStart_ <= 2.5;
@@ -905,7 +908,6 @@ void App::DrawUi() {
   settings_.SetScanlineRoom(renderer_.scanlineRoom());
   settings_.SetLevels(audio_.inputPeak(), mic_.peak(), mic_.running());
   settings_.SetViewAids(compare_, bypass_);
-  recording_.UpdateDiskSpace();
   if (settings_.takeCompareToggle()) ToggleCompare();
   if (settings_.takeBypassToggle()) ToggleBypass();
   if (settings_.takeCropPickRequest()) cropTool_.BeginCropPick();
