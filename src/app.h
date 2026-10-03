@@ -27,6 +27,7 @@
 #include "crop_tool.h"
 #include "record/ffmpeg_download.h"
 #include "record/recorder.h"
+#include "record/screenshot_writer.h"
 #include "recording_control.h"
 #include "render/display.h"
 #include "render/video_renderer.h"
@@ -172,6 +173,8 @@ class App {
   // Haelt an, was in die Textur geht -- der Zulauf laeuft weiter, die Filter
   // auch. Ein Standbild ist zum Hinsehen da: an einem stehenden Bild laesst
   // sich ein Regler beurteilen, an einem laufenden nicht.
+  // Says how the shots handed to the writer came out.
+  void CollectScreenshots();
   //
   // Waehrend einer Aufnahme geht das nicht. Aufnahme und virtuelle Kamera holen
   // ihr Bild aus derselben Textur wie die Anzeige, ein Standbild wuerde also
@@ -325,11 +328,11 @@ class App {
   StatMeter audioBufferMeter_;
   int statsLogCounter_ = 0;
 
+  // Das Format, das der Renderer zuletzt bekommen hat (FrameView::formatGen).
+  uint32_t sourceFormatGen_ = 0;
   // Diagnostics for "the card starts but nothing shows up".
   bool sawFirstFrame_ = false;
   int64_t captureStartQpc_ = 0;
-  // Das Format, das der Renderer zuletzt bekommen hat (FrameView::formatGen).
-  uint32_t sourceFormatGen_ = 0;
 
   // Snapshot of the settings that actually drive something, so a live edit can
   // be told apart from a harmless one.
@@ -366,6 +369,7 @@ class App {
   // Standbild: siehe ToggleFreeze. Kein Profilwert, sondern ein Zustand -- ein
   // angehaltenes Bild soll einen Neustart nicht ueberleben.
   bool frozen_ = false;
+  ScreenshotWriter screenshotWriter_;
   // Die beiden anderen Sehhilfen, aus demselben Grund ebenfalls hier und nicht
   // im Profil: siehe ToggleCompare und ToggleBypass.
   bool compare_ = false;

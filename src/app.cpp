@@ -1080,6 +1080,7 @@ void App::Tick() {
   standardSearch_.UpdateSignalWatch();
   standardSearch_.UpdateVideoStandard();
   UpdateProfileForStandard();
+  CollectScreenshots();
   cropTool_.UpdateCropForFormat();
 
   if (captureState_ == CaptureState::Running) {

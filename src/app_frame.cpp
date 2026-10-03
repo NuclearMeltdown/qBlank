@@ -596,36 +596,48 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
     return;
   }
 
-  const std::filesystem::path folder =
-      ResolveOutputFolder(&rec.screenshotFolder, DefaultScreenshotFolder());
-  const std::filesystem::path path =
-      folder.empty() ? std::filesystem::path()
-      : wide          ? MakeHdrScreenshotPath(folder, config_.app.hdrShotFormat)
-                      : MakeScreenshotPath(folder, rec.screenshotFormat);
-  if (path.empty()) {
+  ScreenshotWriter::Job job;
+  job.folder = ResolveOutputFolder(&rec.screenshotFolder, DefaultScreenshotFolder());
+  if (job.folder.empty()) {
     Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
-    CAP_ERR("Screenshot: folder not available: %s", PathToUtf8(folder).c_str());
+    CAP_ERR("Screenshot: folder not available");
     return;
   }
-
-  std::string error;
-  const bool ok =
-      !wide ? SaveScreenshot(path, pixels.data(), width, height, rec.screenshotFormat,
-                             rec.jpegQuality, &error)
-      : config_.app.hdrShotFormat == HdrShotFormat::Avif
-          ? SaveScreenshotAvif(path, Utf8ToPath(recording_.ffmpeg().path), halfPixels.data(),
-                               width, height, halfStride, config_.app.paperWhiteNits, &error)
-          : SaveScreenshotHdr(path, halfPixels.data(), width, height, halfStride,
-                              config_.app.paperWhiteNits, &error);
-  if (!ok) {
-    Toast(T("Screenshot fehlgeschlagen: ", "Screenshot failed: ") + error);
-    return;
+  // Saved on the writer's thread, see CollectScreenshots for the message.
+  job.wide = wide;
+  job.pixels = std::move(pixels);
+  job.halfPixels = std::move(halfPixels);
+  job.width = width;
+  job.height = height;
+  job.halfStride = halfStride;
+  job.format = rec.screenshotFormat;
+  job.jpegQuality = rec.jpegQuality;
+  job.hdrFormat = config_.app.hdrShotFormat;
+  if (wide && job.hdrFormat == HdrShotFormat::Avif) {
+    job.ffmpeg = Utf8ToPath(recording_.ffmpeg().path);
+  }
+  job.paperWhiteNits = config_.app.paperWhiteNits;
+  job.note = std::move(note);
+  if (!screenshotWriter_.Queue(std::move(job))) {
+    Toast(T("Screenshots werden noch gespeichert.", "Still saving screenshots."));
   }
 
-  // The file name, not the whole path: the path is long, and the point of the
-  // message is "it worked and it is called this".
-  Toast(T("Screenshot: ", "Screenshot: ") + PathToUtf8(path.filename()) + note, path);
-  CAP_LOG("Screenshot saved: %s (%dx%d)", PathToUtf8(path).c_str(), width, height);
+void App::CollectScreenshots() {
+  ScreenshotWriter::Result r;
+  while (screenshotWriter_.Take(&r)) {
+    if (r.noFolder) {
+      Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
+      CAP_ERR("Screenshot: folder not available: %s", PathToUtf8(r.path).c_str());
+    } else if (!r.ok) {
+      Toast(T("Screenshot fehlgeschlagen: ", "Screenshot failed: ") + r.error);
+    } else {
+      // The file name, not the whole path: the path is long, and the point of
+      // the message is "it worked and it is called this".
+      Toast(T("Screenshot: ", "Screenshot: ") + PathToUtf8(r.path.filename()) + r.note, r.path);
+      CAP_LOG("Screenshot saved: %s (%dx%d)", PathToUtf8(r.path).c_str(), r.width, r.height);
+    }
+  }
 }
 
 }  // namespace cap
+}

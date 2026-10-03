@@ -110,6 +110,7 @@ add_executable(qBlank WIN32
   src/record/recorder.cpp
   src/record/remuxer.cpp
   src/record/screenshot.cpp
+  src/record/screenshot_writer.cpp
   src/render/display.cpp
   src/render/display_win32.cpp
   src/render/render_passes.cpp
@@ -425,12 +426,12 @@ target_sources(qBlank PRIVATE "${vcam_header}")
 # target links the static runtime and comes out at roughly two and a half times
 # that on its own, so nothing has to be padded -- but the floor is real, and a
 # future attempt to make this file small would walk straight into it.
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/res/migrator.rc.in"
 #
 # Not part of a normal build. The binary in the releases is the one uploaded
 # since the rename and stays that one; a release takes it from the previous
 # release's assets.
 # The target is kept so the source still compiles on request.
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/res/migrator.rc.in"
                "${CMAKE_BINARY_DIR}/migrator.rc" @ONLY)
 
 add_executable(CapViewMigrator WIN32 EXCLUDE_FROM_ALL
