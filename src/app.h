@@ -374,7 +374,7 @@ class App {
   TrayIcon tray_;
   TrayMenu trayPopup_;
   std::vector<TrayMenuItem> trayMenu_;  // what the icon's menu holds right now
-  std::string trayTooltip_;
+  const char* trayTooltipState_ = nullptr;  // see UpdateTray
   bool trayFailed_ = false;  // not retried until the setting goes off and on
   bool bypass_ = false;
   // Whether the bar was drawn this frame; the picture layout follows it.

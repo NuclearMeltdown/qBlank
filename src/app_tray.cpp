@@ -30,33 +30,40 @@ void App::UpdateTray() {
       trayPopup_.Destroy();
       tray_.Hide();
       trayMenu_.clear();
-      trayTooltip_.clear();
+      trayTooltipState_ = nullptr;
     }
     return;
   }
   if (trayFailed_) return;
 
-  const std::string tooltip =
-      recorder_.recording() ? AppNameUtf8() + T(" – Aufnahme läuft", " – Recording") : AppNameUtf8();
+  // T() answers with one of its two arguments, so the pointer alone says
+  // whether recording or language have changed -- no string to build for that
+  // every frame.
+  const char* state = recorder_.recording() ? T(" – Aufnahme läuft", " – Recording") : "";
   if (!tray_.shown()) {
-    if (!tray_.Show(tooltip)) {
+    if (!tray_.Show(AppNameUtf8() + state)) {
       // Not retried every frame; switching the setting off and on tries again.
       CAP_WARN("Tray icon could not be created");
       trayFailed_ = true;
       return;
     }
-    trayTooltip_ = tooltip;
+    trayTooltipState_ = state;
     trayMenu_.clear();
-  } else if (tooltip != trayTooltip_) {
-    tray_.SetTooltip(tooltip);
-    trayTooltip_ = tooltip;
+  } else if (state != trayTooltipState_) {
+    tray_.SetTooltip(AppNameUtf8() + state);
+    trayTooltipState_ = state;
   }
 
-  std::vector<TrayMenuItem> menu = BuildTrayMenu();
-  if (menu != trayMenu_) {
-    trayMenu_ = menu;
-    trayPopup_.SetItems(std::move(menu));
-  }
+  // The menu only while it can be seen, open or about to be. Built every frame
+  // regardless, it cost a few dozen strings a frame for a menu nobody looked at.
+  const auto refresh = [this] {
+    std::vector<TrayMenuItem> menu = BuildTrayMenu();
+    if (menu != trayMenu_) {
+      trayMenu_ = menu;
+      trayPopup_.SetItems(std::move(menu));
+    }
+  };
+  if (trayPopup_.isOpen()) refresh();
 
   // Not from inside a move or resize: they wait there until it is over.
   if (inModalFrame_) return;
@@ -65,6 +72,7 @@ void App::UpdateTray() {
       window_.Raise();
       continue;
     }
+    refresh();
     std::string error;
     if (!trayPopup_.Open(event.at, display_.tearingSupported(), &error)) {
       CAP_WARN("Tray menu could not be opened: %s", error.c_str());
