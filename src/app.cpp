@@ -530,6 +530,8 @@ void App::StartAudio() {
     CAP_WARN("Sound stays off");
     Toast(T("Ton konnte nicht gestartet werden: ", "Sound could not be started: ") + err);
   }
+  // A new delay empties the line, and the last picture may still lie in it.
+  renderer_.DropPendingAnalysis();
   delayLine_.Configure(std::max(0, -p.audio.avOffsetMs));
 }
 
@@ -750,6 +752,7 @@ void App::SyncConfigChanges() {
   } else if (p.audio.bufferMs != applied_.bufferMs || p.audio.avOffsetMs != applied_.avOffsetMs ||
              p.audio.volume != applied_.volume || p.audio.mute != applied_.mute) {
     audio_.ApplySettings(p.audio);
+    renderer_.DropPendingAnalysis();
     delayLine_.Configure(std::max(0, -p.audio.avOffsetMs));
   }
 
@@ -850,6 +853,7 @@ void App::ToggleFreeze() {
     // Was waehrend des Standbilds in der Verzoegerungsleitung stehen geblieben
     // ist, ist inzwischen so alt wie das Standbild lang war. Es auszugeben
     // hiesse, beim Fortsetzen erst einmal die Vergangenheit abzuspielen.
+    renderer_.DropPendingAnalysis();
     delayLine_.Clear();
   }
   Toast(frozen_ ? T("Standbild", "Frozen") : T("Standbild aus", "Running again"));
@@ -1076,12 +1080,12 @@ void App::Tick() {
     }
   }
   if (ffmpegDownloader_.TakeInstalled()) ffmpegRelocate_ = true;
+  if (settings_.takeFfmpegPathChanged()) ffmpegRelocate_ = true;
+  CollectScreenshots();
   if (ffmpegRelocate_ && recording_.RelocateFfmpeg()) ffmpegRelocate_ = false;
   // Erst entscheiden, ob der Decoder ueberhaupt befragt wird, dann das
   // Ergebnis benutzen. Beim Start der Aufnahme steht das Format noch nicht
   // fest, der Wachthread laeuft also zunaechst an und wird hier ein Bild
-  if (settings_.takeFfmpegPathChanged()) ffmpegRelocate_ = true;
-  CollectScreenshots();
   // spaeter wieder angehalten, sobald sich die Quelle als digital erweist.
   standardSearch_.UpdateSignalWatch();
   standardSearch_.UpdateVideoStandard();
@@ -1093,6 +1097,7 @@ void App::Tick() {
     if (capture_.PumpEvents(&message)) {
       captureError_ = message;
       captureState_ = CaptureState::Reconnecting;
+      renderer_.DropPendingAnalysis();
       capture_.Stop();
       audio_.Stop();
       nextRetryQpc_ = ClockTicks() + SecondsToTicks(kRetrySeconds);

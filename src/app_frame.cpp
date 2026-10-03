@@ -135,6 +135,10 @@ void App::RenderFrame() {
       // Das Standbild haelt hier an und nirgends sonst: die Bilder werden
       // weiter abgeholt, damit der Zulauf nicht auflaeuft und die Statistik
       // stimmt, nur in die Textur geht keines mehr. Alles dahinter -- Filter,
+  // Normally a no-op: the pass before has done this after its Present. Only a
+  // pass run from inside another one, out of a modal loop, would otherwise pull
+  // a new frame over the one that pass has not measured yet.
+  renderer_.AnalyzeAfterPresent();
       // Skalierung, Regler -- laeuft am stehenden Bild weiter.
       if (frozen_) {
         // nichts hochladen
@@ -145,15 +149,11 @@ void App::RenderFrame() {
         delayLine_.Push(view, sink->lastArrivalTicks());
       } else {
         renderer_.UploadFrame(view);
-        haveNewFrame = true;
-        displayedArrivalQpc_ = sink->lastArrivalTicks();
-      }
-    }
     // Das Format nur, wenn es ein anderes ist als beim letzten Bild, und nur
     // das, in dem dieses Bild geschrieben wurde. Wechselt es zwischen Abholen
     // und Nachfragen, passt das Bild nicht mehr dazu und bleibt liegen.
     bool fits = false;
-    if (!frozen_ && delayLine_.active()) {
+        haveNewFrame = true;
       fits = view.formatGen == sourceFormatGen_;
       VideoFormatInfo changed;
       if (!fits && sink->FormatOf(view.formatGen, &changed) &&
@@ -163,6 +163,10 @@ void App::RenderFrame() {
       }
     }
     if (fits) {
+        displayedArrivalQpc_ = sink->lastArrivalTicks();
+      }
+    }
+    if (!frozen_ && delayLine_.active()) {
       FrameView delayed;
       if (delayLine_.Pop(&delayed, now)) {
         renderer_.UploadFrame(delayed);
@@ -249,7 +253,10 @@ void App::RenderFrame() {
   // ---- draw ----
   float clear[4];
   GetBackgroundColor(darkMode_, config_.app.accentColor, clear);
-  if (!display_.BeginFrame(clear)) return;
+  if (!display_.BeginFrame(clear)) {
+    renderer_.AnalyzeAfterPresent();
+    return;
+  }
 
   // The window is on a monitor with other scaling now. Sizes, spacing and font
   // follow it from this frame on.

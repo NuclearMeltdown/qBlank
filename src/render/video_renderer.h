@@ -55,7 +55,13 @@ class VideoRenderer {
   void AnalyzeAfterPresent();
 
   bool hasFrame() const { return hasFrame_; }
-  void DropFrame() { hasFrame_ = false; }
+  void DropFrame() {
+    hasFrame_ = false;
+    analysisPending_ = false;
+  }
+  // For whoever is about to free the memory the last uploaded frame lies in:
+  // the analyses after Present must not read it any more.
+  void DropPendingAnalysis() { analysisPending_ = false; }
 
   // Where the picture ended up inside the window, in client pixels.
   const Rect& videoRect() const { return videoRect_; }
@@ -728,6 +734,11 @@ class VideoRenderer {
   std::vector<uint8_t> crawlPending_;
   uint64_t crawlPendingSequence_ = 0;
   // Je Stelle der Abstand ueber zwoelf Bilder im Quadrat, -1 = bewegt, und
+  // The frame UploadFrame took, for the other analyses after Present. Not a
+  // copy: it stays valid until the next AcquireFrame, the delay line lets go of
+  // it, or the capture stops -- and each of those drops the flag first.
+  FrameView analysisFrame_;
+  bool analysisPending_ = false;
   // dieselben Zahlen ohne die bewegten, fuer den Median. Mitglieder nur, damit
   // nicht jedes Bild neu anlegt.
   std::vector<float> crawlScratch_;

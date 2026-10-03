@@ -23,6 +23,7 @@ std::filesystem::path App::RecordingHost::ResolveOutputFolder(
 void App::RecordingHost::DropViewAids() {
   if (app_.frozen_) {
     app_.frozen_ = false;
+    app_.renderer_.DropPendingAnalysis();
     app_.delayLine_.Clear();
   }
   app_.compare_ = false;

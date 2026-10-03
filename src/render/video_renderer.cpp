@@ -72,6 +72,8 @@ void VideoRenderer::ReleaseSourceTextures() {
 }
 
 bool VideoRenderer::SetSourceFormat(const VideoFormatInfo& info, std::string* error) {
+  // A frame still waiting for its analyses was laid out in the old format.
+  analysisPending_ = false;
   if (!info.valid()) {
     ReleaseSourceTextures();
     source_ = VideoFormatInfo{};
@@ -1781,6 +1783,14 @@ void VideoRenderer::SampleCrawl(const FrameView& frame) {
 }
 
 void VideoRenderer::AnalyzeAfterPresent() {
+  if (analysisPending_) {
+    analysisPending_ = false;
+    AnalyzeLevels(analysisFrame_);
+    AnalyzeInterlace(analysisFrame_);
+    AnalyzeContentBounds(analysisFrame_);
+    AnalyzeSignal(analysisFrame_);
+    AnalyzeChroma(analysisFrame_);
+  }
   AnalyzeCrawl();
 }
 
@@ -1961,11 +1971,10 @@ void VideoRenderer::JudgeCrawl() {
 bool VideoRenderer::UploadFrame(const FrameView& frame) {
   if (!frame.valid() || planeCount_ == 0) return false;
 
-  AnalyzeLevels(frame);
-  AnalyzeInterlace(frame);
-  AnalyzeContentBounds(frame);
-  AnalyzeSignal(frame);
-  AnalyzeChroma(frame);
+  // Measured after Present (AnalyzeAfterPresent): none of them has to be done
+  // for this picture, and a verdict a frame later changes nothing.
+  analysisFrame_ = frame;
+  analysisPending_ = true;
 
   // Before anything is written over: the frame currently in the planes moves
   // into the ring. One copy, whatever the depth. Skipped entirely unless
