@@ -14,4 +14,9 @@ ID3D11Device* NativeDevice(const Display& display);
 ID3D11DeviceContext* NativeContext(const Display& display);
 ID3D11RenderTargetView* NativeBackBuffer(const Display& display);
 
+// What the screen the window mostly sits on can do, for both backends. Cheap
+// while nothing changed: the screens are walked again only when the window
+// moved to another one or the system said they changed.
+Display::DisplayCapability ScreenCapability(HWND window);
+
 }  // namespace cap

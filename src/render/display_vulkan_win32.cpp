@@ -10,6 +10,7 @@
 
 #include "common_win32.h"
 #include "i18n.h"
+#include "render/display_win32.h"
 #include "render/vulkan_device.h"
 #include "window_win32.h"
 
@@ -61,38 +62,9 @@ void VulkanClientSize(const Window& window, int* width, int* height) {
 }
 
 Display::DisplayCapability VulkanDisplayCapability(const Window& window) {
-  Display::DisplayCapability capability;
-
   // Vulkan says nothing about whether Windows runs the screen in HDR, so DXGI
-  // is asked, as the Direct3D 11 display asks it. There is no swapchain of
-  // DXGI's to name the output, so the screen the window mostly sits on is
-  // looked up among all outputs.
-  HMONITOR monitor = ::MonitorFromWindow(NativeWindow(window), MONITOR_DEFAULTTONEAREST);
-  if (!monitor) return capability;
-
-  ComPtr<IDXGIFactory1> factory;
-  if (FAILED(::CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return capability;
-  for (UINT a = 0;; ++a) {
-    ComPtr<IDXGIAdapter1> adapter;
-    if (factory->EnumAdapters1(a, &adapter) == DXGI_ERROR_NOT_FOUND) break;
-    for (UINT o = 0;; ++o) {
-      ComPtr<IDXGIOutput> output;
-      if (adapter->EnumOutputs(o, &output) == DXGI_ERROR_NOT_FOUND) break;
-      DXGI_OUTPUT_DESC desc = {};
-      if (FAILED(output->GetDesc(&desc)) || desc.Monitor != monitor) continue;
-
-      ComPtr<IDXGIOutput6> output6;
-      DXGI_OUTPUT_DESC1 desc1 = {};
-      if (FAILED(output.As(&output6)) || !output6 || FAILED(output6->GetDesc1(&desc1))) {
-        return capability;
-      }
-      capability.hdr = desc1.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
-      capability.peakNits = desc1.MaxLuminance > 0.0f ? desc1.MaxLuminance : 100.0f;
-      capability.minNits = desc1.MinLuminance;
-      return capability;
-    }
-  }
-  return capability;
+  // is asked, as the Direct3D 11 display asks it.
+  return ScreenCapability(NativeWindow(window));
 }
 
 bool VulkanTearingSupported() {

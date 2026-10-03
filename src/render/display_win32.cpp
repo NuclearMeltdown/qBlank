@@ -44,6 +44,52 @@ std::string GraphicsAdapterSignature() {
   }
   return result;
 }
+
+Display::DisplayCapability ScreenCapability(HWND window) {
+  // Asked every couple of seconds from the render thread. A new factory and a
+  // walk over every output each time cost more than the answer is worth when
+  // nothing changed. The factory says itself when something did: IsCurrent
+  // turns false when a screen comes or goes or HDR is switched in Windows, and
+  // only a new factory sees the new state.
+  static ComPtr<IDXGIFactory1> factory;
+  static HMONITOR cachedMonitor = nullptr;
+  static Display::DisplayCapability cached;
+
+  HMONITOR monitor = ::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+  if (!monitor) return {};
+  if (factory && factory->IsCurrent() && monitor == cachedMonitor) return cached;
+
+  cachedMonitor = nullptr;
+  cached = {};
+  if ((!factory || !factory->IsCurrent()) &&
+      FAILED(::CreateDXGIFactory1(IID_PPV_ARGS(factory.ReleaseAndGetAddressOf())))) {
+    factory.Reset();
+    return cached;
+  }
+  cachedMonitor = monitor;
+  for (UINT a = 0;; ++a) {
+    ComPtr<IDXGIAdapter1> adapter;
+    if (factory->EnumAdapters1(a, &adapter) == DXGI_ERROR_NOT_FOUND) break;
+    for (UINT o = 0;; ++o) {
+      ComPtr<IDXGIOutput> output;
+      if (adapter->EnumOutputs(o, &output) == DXGI_ERROR_NOT_FOUND) break;
+      DXGI_OUTPUT_DESC desc = {};
+      if (FAILED(output->GetDesc(&desc)) || desc.Monitor != monitor) continue;
+
+      ComPtr<IDXGIOutput6> output6;
+      DXGI_OUTPUT_DESC1 desc1 = {};
+      if (FAILED(output.As(&output6)) || !output6 || FAILED(output6->GetDesc1(&desc1))) {
+        return cached;
+      }
+      cached.hdr = desc1.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+      cached.peakNits = desc1.MaxLuminance > 0.0f ? desc1.MaxLuminance : 100.0f;
+      cached.minNits = desc1.MinLuminance;
+      return cached;
+    }
+  }
+  return cached;
+}
+
 namespace {
 
 const DXGI_FORMAT kBackBufferFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -332,23 +378,10 @@ void D3D11Display::EndFrame(bool vsync) {
 
 
 void D3D11Display::RefreshDisplayCapability() {
-  display_ = Display::DisplayCapability();
-  if (!swapchain_) return;
-
-  // The output the window mostly sits on. Asking the swapchain rather than
-  // enumerating outputs is what makes this follow the window across screens.
-  ComPtr<IDXGIOutput> output;
-  if (FAILED(swapchain_->GetContainingOutput(&output)) || !output) return;
-
-  ComPtr<IDXGIOutput6> output6;
-  if (FAILED(output.As(&output6)) || !output6) return;
-
-  DXGI_OUTPUT_DESC1 desc = {};
-  if (FAILED(output6->GetDesc1(&desc))) return;
-
-  display_.hdr = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
-  display_.peakNits = desc.MaxLuminance > 0.0f ? desc.MaxLuminance : 100.0f;
-  display_.minNits = desc.MinLuminance;
+  // Not through the swapchain's output: that comes from the factory the device
+  // was made with, which goes on reporting the state from back then once HDR
+  // is switched in Windows.
+  display_ = swapchain_ ? ScreenCapability(hwnd_) : Display::DisplayCapability();
 }
 
 bool D3D11Display::SetHdrOutput(bool enabled, std::string* error) {
