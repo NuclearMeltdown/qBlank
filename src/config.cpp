@@ -550,6 +550,7 @@ json::Value WriteFormat(const FormatSel& f) {
   o["height"] = f.height;
   o["fps"] = f.fps;
   o["forced"] = f.forced;
+  o["subtypeAuto"] = f.autoSubtype;
   return o;
 }
 
@@ -560,6 +561,9 @@ FormatSel ReadFormat(const json::Value& v) {
   f.height = v["height"].AsInt(0);
   f.fps = v["fps"].AsNumber(kFpsNative);
   f.forced = v["forced"].AsBool(false);
+  // Older files only have the subtype, and one that stands there may have been
+  // chosen by hand: it stays chosen.
+  f.autoSubtype = v["subtypeAuto"].AsBool(f.subtype.empty());
   return f;
 }
 

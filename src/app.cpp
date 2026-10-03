@@ -31,12 +31,17 @@ const double kCursorIdleSeconds = 2.0;
 // Signals" ist keine Messung, die neu gemacht werden muesste, sondern die
 // Anweisung, wie danach zu antworten ist -- sonst stuende hinterher wieder
 // "hoechste verfuegbare" da, obwohl niemand das ausgesucht hat.
+//
+// Steht das Pixelformat auf automatisch, geht es mit: dann hat es niemand
+// ausgesucht, und ein RGB32 vom Composite-Eingang hat am HDMI nichts verloren.
 void DropResolution(FormatSel& f) {
-  std::string subtype = std::move(f.subtype);
+  const bool autoSubtype = f.autoSubtype;
+  std::string subtype = autoSubtype ? std::string() : std::move(f.subtype);
   const double fps = f.fps <= 0.0 ? f.fps : kFpsNative;
   f = FormatSel{};
   f.subtype = std::move(subtype);
   f.fps = fps;
+  f.autoSubtype = autoSubtype;
 }
 
 }  // namespace
@@ -446,8 +451,10 @@ bool App::StartCapture(std::string* error) {
   if (!config_.active().capture.format.valid() && capture_.connectedFormat().valid()) {
     FormatSel& stored = config_.active().capture.format;
     const double wishedFps = stored.fps;
+    const bool autoSubtype = stored.autoSubtype;
     stored = capture_.connectedFormat();
     stored.fps = wishedFps;
+    stored.autoSubtype = autoSubtype;
   }
 
   // Was hier gebaut wurde, gilt ab jetzt als angewandt -- unabhaengig davon, ob
@@ -553,7 +560,7 @@ void App::StartAudio() {
 //
 // Das Pixelformat bleibt stehen, aus demselben Grund wie in ReinitialiseCard:
 // es haengt an der Karte, nicht an der Norm. Wer RGB32 ausgesucht hat, will es
-// nach dem Umschalten immer noch.
+// nach dem Umschalten immer noch. Ein automatisches wird mit neu gesucht.
 bool App::ReleaseStandardBoundFormat(int newLines) {
   if (appliedStandardLines_ <= 0 || newLines <= 0) return false;
   if (appliedStandardLines_ == newLines) return false;
@@ -563,6 +570,7 @@ bool App::ReleaseStandardBoundFormat(int newLines) {
           f.Label().c_str());
   f.width = 0;
   f.height = 0;
+  if (f.autoSubtype) f.subtype.clear();
   // Eine Zahl faellt weg, eine Betriebsart nicht. "Hoechste verfuegbare" und
   // "die des Signals" sind keine Werte, die an der Norm haengen -- sie sind die
   // Anweisung, nach dem Umschalten neu zu antworten, und genau die soll das
@@ -592,7 +600,8 @@ void App::ReinitialiseCard() {
   const bool hadStandard = c.videoStandard > 0;
   c.videoStandard = -1;  // wieder suchen lassen
   DropResolution(c.format);
-  const std::string& keptSubtype = c.format.subtype;
+  // A copy: StartCapture writes the connected format back into `c`.
+  const std::string keptSubtype = c.format.subtype;
   standardSearch_.SourceChanged();
 
   // Die Geraeteliste ebenfalls, denn eine umgesteckte Karte kann unter einem

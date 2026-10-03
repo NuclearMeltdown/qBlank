@@ -351,8 +351,10 @@ void SettingsWindow::EnsureValidFormat(const DeviceProbeResult& caps) {
     // gefundenen Formats. Sonst wuerde ein Normwechsel, der die Aufloesung
     // loslaesst, beim naechsten Zeichnen der Seite eine feste Zahl hinterlassen.
     const double mode = p.capture.format.fps;
+    const bool autoSubtype = p.capture.format.autoSubtype;
     p.capture.format = caps.caps.PickDefault(p.capture.format.subtype);
     if (mode <= 0.0) p.capture.format.fps = mode;
+    p.capture.format.autoSubtype = autoSubtype;
   }
   p.capture.format.forced =
       !caps.caps.IsAdvertised(p.capture.format.subtype, p.capture.format.width,
@@ -1406,25 +1408,40 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   const std::vector<std::string> subtypes = caps.caps.Subtypes();
   FormatSel& fmt = p.capture.format;
 
+  const char* autoLabel = T("Automatisch", "Automatic");
+  const std::string subtypePreview =
+      fmt.autoSubtype ? Format("%s (%s)", autoLabel, fmt.subtype.c_str()) : fmt.subtype;
   ImGui::SetNextItemWidth(-260.0f);
-  if (ImGui::BeginCombo(T("Farbformat", "Colour format"), fmt.subtype.c_str())) {
+  if (ImGui::BeginCombo(T("Farbformat", "Colour format"), subtypePreview.c_str())) {
+    // Picked the way a new card is, and again after every change of input. A
+    // fixed rate goes back to that of the signal, as a picked size wants it.
+    if (ImGui::Selectable(autoLabel, fmt.autoSubtype) && !fmt.autoSubtype) {
+      const double mode = fmt.fps <= 0.0 ? fmt.fps : kFpsNative;
+      fmt = caps.caps.PickDefault();
+      fmt.fps = mode;
+    }
+    if (fmt.autoSubtype) ImGui::SetItemDefaultFocus();
     for (const std::string& s : subtypes) {
-      const bool selected = (s == fmt.subtype);
+      const bool selected = !fmt.autoSubtype && s == fmt.subtype;
       if (ImGui::Selectable(s.c_str(), selected) && !selected) {
-        fmt.subtype = s;
-        // Resolution and rate lists depend on the format, so re-pick.
-        std::vector<ResolutionOption> res = caps.caps.Resolutions(s);
-        if (!res.empty()) {
-          fmt.width = res.front().width;
-          fmt.height = res.front().height;
-        }
-        // The rate goes back to a mode rather than to a number carried over
-        // from a format that may not offer it. Those entries lead the list, so
-        // taking the first unforced one lands on one of them.
-        for (const FpsOption& f : caps.caps.FpsList(s, fmt.width, fmt.height)) {
-          if (f.forced) continue;
-          fmt.fps = f.native ? kFpsNative : (f.highest ? kFpsHighest : f.fps);
-          break;
+        fmt.autoSubtype = false;
+        // The one automatic had picked only becomes a choice; nothing to re-pick.
+        if (s != fmt.subtype) {
+          fmt.subtype = s;
+          // Resolution and rate lists depend on the format, so re-pick.
+          std::vector<ResolutionOption> res = caps.caps.Resolutions(s);
+          if (!res.empty()) {
+            fmt.width = res.front().width;
+            fmt.height = res.front().height;
+          }
+          // The rate goes back to a mode rather than to a number carried over
+          // from a format that may not offer it. Those entries lead the list, so
+          // taking the first unforced one lands on one of them.
+          for (const FpsOption& f : caps.caps.FpsList(s, fmt.width, fmt.height)) {
+            if (f.forced) continue;
+            fmt.fps = f.native ? kFpsNative : (f.highest ? kFpsHighest : f.fps);
+            break;
+          }
         }
       }
       if (selected) ImGui::SetItemDefaultFocus();
@@ -1433,7 +1450,9 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   }
   Anchor("subtype");
   ImGui::SameLine();
-  HelpMarker(T("YUY2, UYVY, NV12: unkomprimiert. MJPG: braucht einen Decoder, kostet Latenz.",
+  HelpMarker(T("Automatisch: qBlank wählt bei jedem Eingangswechsel neu. "
+               "YUY2, UYVY, NV12: unkomprimiert. MJPG: braucht einen Decoder, kostet Latenz.",
+               "Automatic: qBlank picks again whenever the input changes. "
                "YUY2, UYVY, NV12: uncompressed. MJPG: needs a decoder, costs latency."));
 
   ImGui::BeginDisabled(customFormat_);

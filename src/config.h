@@ -347,6 +347,9 @@ struct FormatSel {
   // True when this combination is not advertised by the driver but lies inside
   // the ranges it reports -- the 1080p60 case.
   bool forced = false;
+  // `subtype` is what qBlank picked, not what someone chose: it is picked again
+  // whenever the resolution is, after a change of input or a re-read card.
+  bool autoSubtype = true;
 
   bool valid() const { return width > 0 && height > 0 && !subtype.empty(); }
   bool SameFormat(const FormatSel& o) const {
