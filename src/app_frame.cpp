@@ -17,8 +17,6 @@ int App::Run() {
     if (!PumpEvents()) running_ = false;
     if (!running_) break;
 
-    Tick();
-
     if (minimized_) {
       // No preview to draw. The settings window and the icon's menu are windows
       // of their own, though, drawn by this loop and nowhere else -- blocking
@@ -31,6 +29,7 @@ int App::Run() {
       DrawTrayMenu();
       if (settingsHost_.visible() || trayPopup_.isOpen()) {
         lastWake_ = WaitForEventsOr(nullptr, 16);
+      Tick();
       } else {
         WaitForEvents();
       }
@@ -83,6 +82,11 @@ int App::Run() {
     // The icon's menu likewise, while it is open.
     DrawTrayMenu();
 
+    // Behind the picture rather than ahead of it: the norm search, the tray and
+    // the device's events need not be done before a frame reaches the screen,
+    // and a verdict they reach is acted on one frame later either way.
+    Tick();
+
     // Wait for the next captured frame, a pending second field, or input.
     //
     // This bounds how long the loop *sleeps*, not how often it draws. It used
@@ -132,28 +136,24 @@ void App::RenderFrame() {
         CAP_LOG("First frame after %.0f ms (%zu bytes)",
                 TicksToSeconds(now - captureStartQpc_) * 1000.0, view.size);
       }
-      // Das Standbild haelt hier an und nirgends sonst: die Bilder werden
-      // weiter abgeholt, damit der Zulauf nicht auflaeuft und die Statistik
-      // stimmt, nur in die Textur geht keines mehr. Alles dahinter -- Filter,
   // Normally a no-op: the pass before has done this after its Present. Only a
   // pass run from inside another one, out of a modal loop, would otherwise pull
   // a new frame over the one that pass has not measured yet.
   renderer_.AnalyzeAfterPresent();
+      // Das Standbild haelt hier an und nirgends sonst: die Bilder werden
+      // weiter abgeholt, damit der Zulauf nicht auflaeuft und die Statistik
+      // stimmt, nur in die Textur geht keines mehr. Alles dahinter -- Filter,
       // Skalierung, Regler -- laeuft am stehenden Bild weiter.
       if (frozen_) {
         // nichts hochladen
       } else if (delayLine_.active()) {
         // Mit der Ankunftszeit und nicht mit `now`: die Verzoegerungsleitung
         // soll das Bild um die eingestellte Zeit nach seinem Eintreffen
-        // herausgeben, nicht nach dem Zeichendurchgang, der es aufgegriffen hat.
-        delayLine_.Push(view, sink->lastArrivalTicks());
-      } else {
-        renderer_.UploadFrame(view);
     // Das Format nur, wenn es ein anderes ist als beim letzten Bild, und nur
     // das, in dem dieses Bild geschrieben wurde. Wechselt es zwischen Abholen
     // und Nachfragen, passt das Bild nicht mehr dazu und bleibt liegen.
     bool fits = false;
-        haveNewFrame = true;
+        // herausgeben, nicht nach dem Zeichendurchgang, der es aufgegriffen hat.
       fits = view.formatGen == sourceFormatGen_;
       VideoFormatInfo changed;
       if (!fits && sink->FormatOf(view.formatGen, &changed) &&
@@ -163,6 +163,10 @@ void App::RenderFrame() {
       }
     }
     if (fits) {
+        delayLine_.Push(view, sink->lastArrivalTicks());
+      } else {
+        renderer_.UploadFrame(view);
+        haveNewFrame = true;
         displayedArrivalQpc_ = sink->lastArrivalTicks();
       }
     }
@@ -378,6 +382,13 @@ void App::RenderFrame() {
         audioBufferMeter_.TakeRange(&bufLow, &bufHigh);
         CAP_LOG("Status: source %.2f fps, output %.1f fps, %llu shown, %llu dropped, frame age "
                 "%.1f ms (peak %.1f) | fields %llu/%llu | audio %.1f/%.0f ms (%.1f-%.1f), %llu "
+  // The screen can change without anything else doing so -- dragging the window
+  // to another monitor, or turning HDR on in Windows while this runs. Not every
+  // frame, and after the present; the next frame acts on the answer.
+  if (++hdrDisplayPoll_ >= 120) {
+    hdrDisplayPoll_ = 0;
+    display_.RefreshDisplayCapability();
+  }
                 "underruns, %llu overruns",
                 sinkStats.sourceFps, presentFps_, (unsigned long long)sinkStats.displayed,
                 (unsigned long long)sinkStats.dropped, frameAgeMeter_.average, ageHigh,
@@ -508,14 +519,6 @@ void App::UpdateHdr() {
       break;
   }
   renderer_.SetHdrInput(transfer, wideGamut);
-
-  // The screen can change without anything else doing so -- dragging the window
-  // to another monitor, or turning HDR on in Windows while this runs. Asking
-  // costs a little, so not every frame.
-  if (++hdrDisplayPoll_ >= 120) {
-    hdrDisplayPoll_ = 0;
-    display_.RefreshDisplayCapability();
-  }
 
   const Display::DisplayCapability display = display_.displayCapability();
   bool want = false;
