@@ -643,10 +643,19 @@ bool PatchMediaType(AM_MEDIA_TYPE* mt, int width, int height, double fps) {
     avgTime = &vih2->AvgTimePerFrame;
     rcSource = &vih2->rcSource;
     rcTarget = &vih2->rcTarget;
-    // Keep the aspect ratio consistent with the new size when it was set.
+    // The aspect ratio describes the picture, not the sample grid. Where the
+    // template has square pixels the new size gets them too; where it does not
+    // -- 720x576 as 4:3 -- it stays as it was. Setting it to width:height
+    // unconditionally made a standard definition card report 5:4, and the
+    // picture came out six percent too narrow.
     if (vih2->dwPictAspectRatioX && vih2->dwPictAspectRatioY) {
-      vih2->dwPictAspectRatioX = (DWORD)width;
-      vih2->dwPictAspectRatioY = (DWORD)height;
+      const int64_t oldW = vih2->bmiHeader.biWidth;
+      const int64_t oldH = vih2->bmiHeader.biHeight < 0 ? -(int64_t)vih2->bmiHeader.biHeight
+                                                        : vih2->bmiHeader.biHeight;
+      if ((int64_t)vih2->dwPictAspectRatioX * oldH == (int64_t)vih2->dwPictAspectRatioY * oldW) {
+        vih2->dwPictAspectRatioX = (DWORD)width;
+        vih2->dwPictAspectRatioY = (DWORD)height;
+      }
     }
   } else {
     return false;
