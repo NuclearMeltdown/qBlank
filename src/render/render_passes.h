@@ -310,6 +310,20 @@ class RenderPasses {
   // because the backend's own row padding is part of what is returned.
   virtual bool ReadStillHalf(PassImage from, int rows, std::vector<uint16_t>* out,
                              int* strideBytes) = 0;
+
+ protected:
+  // Whether pass one has to run, for CleanAndConvert. Its picture depends on
+  // the planes, their history, the remover's pictures and the parameters other
+  // than the field; a frame drawn again without any of those changing -- the
+  // second field of bob, a redraw for the interface -- gets the same picture,
+  // so the one already there stays. Remembers `params` when it says yes.
+  bool CleanStale(const ConvertParams& params);
+  // Something pass one reads, or the picture it writes, has been replaced.
+  void InvalidateClean() { cleanValid_ = false; }
+
+ private:
+  ConvertParams cleanParams_ = {};
+  bool cleanValid_ = false;
 };
 
 // The passes for a display backend. Null when this build does not have them.

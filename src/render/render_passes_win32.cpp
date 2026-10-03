@@ -495,6 +495,7 @@ bool D3D11Passes::CreatePlane(int index, int width, int height, PlaneFormat form
 }
 
 void D3D11Passes::ReleasePlanes() {
+  InvalidateClean();
   for (int i = 0; i < 3; ++i) {
     planeSrv_[i].Reset();
     plane_[i].Reset();
@@ -507,6 +508,7 @@ void D3D11Passes::ReleasePlanes() {
 }
 
 bool D3D11Passes::MapPlane(int index, MappedPlane* mapped) {
+  InvalidateClean();
   D3D11_MAPPED_SUBRESOURCE sub = {};
   if (FAILED(dc()->Map(plane_[index].Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &sub))) return false;
   mapped->data = (uint8_t*)sub.pData;
@@ -519,6 +521,7 @@ void D3D11Passes::UnmapPlane(int index) {
 }
 
 void D3D11Passes::PushHistory(int slot, int planeCount) {
+  InvalidateClean();
   ID3D11DeviceContext* c = dc();
   // The cleaned picture currently in cleanTex_ belongs to the frame that is
   // about to be replaced, so this is the moment it becomes the previous one.
@@ -533,6 +536,7 @@ void D3D11Passes::PushHistory(int slot, int planeCount) {
 // ------------------------------------------------- the pictures between passes
 
 void D3D11Passes::ReleaseClean() {
+  InvalidateClean();
   cleanSrv_.Reset();
   cleanRtv_.Reset();
   cleanTex_.Reset();
@@ -854,7 +858,10 @@ void D3D11Passes::CleanAndConvert(const ConvertParams& params, int srcWidth, int
   // runs after a deinterlacer has to work out which source line the pixel in
   // front of it came from, and for the interpolating modes there is no single
   // answer -- which is how the same class of artefact kept coming back.
-  {
+  //
+  // Skipped when nothing it reads has changed; see CleanStale.
+  if (remRun) InvalidateClean();
+  if (CleanStale(cb)) {
     ID3D11RenderTargetView* rtv[] = {cleanRtv_.Get()};
     dc->OMSetRenderTargets(1, rtv, nullptr);
 

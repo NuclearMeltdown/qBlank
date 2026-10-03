@@ -985,11 +985,13 @@ void VulkanPasses::ReleasePlane(int index) {
 }
 
 void VulkanPasses::ReleasePlanes() {
+  InvalidateClean();
   for (int i = 0; i < 3; ++i) ReleasePlane(i);
   remCount_ = 0;  // a new source, the ring starts over
 }
 
 bool VulkanPasses::MapPlane(int index, MappedPlane* mapped) {
+  InvalidateClean();
   if (!vk_ || index < 0 || index >= 3 || !planes_[index].image) return false;
   Plane& plane = planes_[index];
   // Begun first: that is where the previous submission is waited for, and
@@ -1034,6 +1036,7 @@ void VulkanPasses::UnmapPlane(int index) {
 }
 
 void VulkanPasses::PushHistory(int slot, int planeCount) {
+  InvalidateClean();
   if (!vk_ || slot < 0 || slot >= kHistoryDepth) return;
   VkCommandBuffer cmd = vk_->Commands();
   if (!cmd) return;
@@ -1048,6 +1051,7 @@ void VulkanPasses::PushHistory(int slot, int planeCount) {
 // ------------------------------------------------- the pictures between passes
 
 void VulkanPasses::ReleaseClean() {
+  InvalidateClean();
   if (vk_) {
     vk_->DestroyImage(&clean_);
     vk_->DestroyImage(&cleanPrev_);
@@ -1208,20 +1212,24 @@ void VulkanPasses::CleanAndConvert(const ConvertParams& params, int srcWidth, in
   // Newest history first, as in Direct3D 11, so the shader reads "one frame
   // ago", "two", "three" without knowing where the ring stands. historyWrite is
   // the slot the next copy goes into, which is the oldest.
-  VulkanImage* sources[kImageBindings] = {};
-  for (int i = 0; i < 3; ++i) sources[i] = &planes_[i].image;
-  for (int h = 0; h < kHistoryDepth; ++h) {
-    const int slot = (historyWrite - 1 - h + kHistoryDepth * 2) % kHistoryDepth;
-    for (int i = 0; i < 3; ++i) sources[3 + h * 3 + i] = &planes_[i].history[slot];
-  }
-  if (rem) {
-    sources[kImageBindings - 1] = remOut;
+  // Skipped when nothing it reads has changed, as in Direct3D 11.
+  if (remRun) InvalidateClean();
+  if (CleanStale(cb)) {
+    VulkanImage* sources[kImageBindings] = {};
+    for (int i = 0; i < 3; ++i) sources[i] = &planes_[i].image;
     for (int h = 0; h < kHistoryDepth; ++h) {
-      sources[3 + h * 3] = &rem_[kRemRing + kRemRs + (remOutHead_ - 1 - h + 2 * kRemOut) % kRemOut];
+      const int slot = (historyWrite - 1 - h + kHistoryDepth * 2) % kHistoryDepth;
+      for (int i = 0; i < 3; ++i) sources[3 + h * 3 + i] = &planes_[i].history[slot];
     }
+    if (rem) {
+      sources[kImageBindings - 1] = remOut;
+      for (int h = 0; h < kHistoryDepth; ++h) {
+        sources[3 + h * 3] = &rem_[kRemRing + kRemRs + (remOutHead_ - 1 - h + 2 * kRemOut) % kRemOut];
+      }
+    }
+    Draw(fsClean_, &clean_, 0, 0, srcWidth, srcHeight, sources, (int)kImageBindings, &cb,
+         sizeof(cb));
   }
-  Draw(fsClean_, &clean_, 0, 0, srcWidth, srcHeight, sources, (int)kImageBindings, &cb,
-       sizeof(cb));
 
   // ---- pass 2: fields, cropping, line doubling, rotation ----
   VulkanImage* cleaned[2] = {&clean_, &cleanPrev_};
