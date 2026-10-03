@@ -426,9 +426,14 @@ target_sources(qBlank PRIVATE "${vcam_header}")
 # that on its own, so nothing has to be padded -- but the floor is real, and a
 # future attempt to make this file small would walk straight into it.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/res/migrator.rc.in"
+#
+# Not part of a normal build. The binary in the releases is the one uploaded
+# since the rename and stays that one; a release takes it from the previous
+# release's assets.
+# The target is kept so the source still compiles on request.
                "${CMAKE_BINARY_DIR}/migrator.rc" @ONLY)
 
-add_executable(CapViewMigrator WIN32
+add_executable(CapViewMigrator WIN32 EXCLUDE_FROM_ALL
   src/migrate/migrator.cpp
   src/app_identity.cpp
   src/i18n.cpp

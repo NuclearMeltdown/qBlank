@@ -48,16 +48,8 @@ if errorlevel 1 exit /b 1
 
 rem Die Medienquelle wird nicht mehr danebengelegt: sie steckt als Ressource in
 rem der exe und wird beim Installieren der Kamera von dort herausgeschrieben.
-rem Ein Release ist damit wieder eine einzige Datei -- plus den Migrator.
-rem
-rem Der liegt im Build in einem eigenen Ordner, weil er CapView.exe heisst: der
-rem Updater in CapView 3.7 laedt das Asset mit genau diesem Namen. Ein Release
-rem besteht aus beiden Dateien, und der Migrator wandert unveraendert von
-rem Release zu Release mit.
-if not exist "%ROOT%\build\bin\migrator\CapView.exe" goto :nomigrator
-copy /y "%ROOT%\build\bin\migrator\CapView.exe" "%ROOT%\CapView.exe" >nul
-if errorlevel 1 exit /b 1
-:nomigrator
+rem Ein Release ist damit wieder eine einzige Datei -- plus den Migrator. Den
+rem baut das hier nicht: er wandert unveraendert aus dem vorigen Release mit.
 
 if "%CLEAN%"=="0" goto :kept
 
@@ -78,7 +70,6 @@ rmdir /s /q "%ROOT%\build"
 
 echo.
 echo === Fertig: %ROOT%\qBlank.exe ===
-echo Daneben CapView.exe: der Migrator, gehoert mit ins Release.
 echo Einstellungen landen in qBlank.json daneben. Sonst wird nichts angelegt.
 exit /b 0
 
