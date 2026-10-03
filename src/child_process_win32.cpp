@@ -218,18 +218,42 @@ class NamedStream final : public Win32Stream {
 // `stdErr` are the child's ends and stay the caller's to close.
 bool Spawn(const ProcessSpec& spec, HANDLE stdIn, HANDLE stdOut, HANDLE stdErr,
            PROCESS_INFORMATION* pi) {
-  STARTUPINFOW si = {};
-  si.cb = sizeof(si);
-  si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-  si.wShowWindow = SW_HIDE;
-  si.hStdInput = stdIn ? stdIn : ::GetStdHandle(STD_INPUT_HANDLE);
-  si.hStdOutput = stdOut ? stdOut : ::GetStdHandle(STD_OUTPUT_HANDLE);
-  si.hStdError = stdErr ? stdErr : ::GetStdHandle(STD_ERROR_HANDLE);
+  STARTUPINFOEXW si = {};
+  si.StartupInfo.cb = sizeof(si);
+  si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+  si.StartupInfo.wShowWindow = SW_HIDE;
+  si.StartupInfo.hStdInput = stdIn ? stdIn : ::GetStdHandle(STD_INPUT_HANDLE);
+  si.StartupInfo.hStdOutput = stdOut ? stdOut : ::GetStdHandle(STD_OUTPUT_HANDLE);
+  si.StartupInfo.hStdError = stdErr ? stdErr : ::GetStdHandle(STD_ERROR_HANDLE);
+
+  // Only the handles meant for this child. Inheriting everything inheritable
+  // handed it the pipe ends of any other child started at the same moment on
+  // another thread -- a recording and an encoder test -- and that copy kept the
+  // other pipe open after its own child had gone, so the thread reading from it
+  // never saw the end.
+  HANDLE inherit[3];
+  DWORD count = 0;
+  for (HANDLE h : {stdIn, stdOut, stdErr}) {
+    if (h && std::find(inherit, inherit + count, h) == inherit + count) inherit[count++] = h;
+  }
+  SIZE_T size = 0;
+  ::InitializeProcThreadAttributeList(nullptr, 1, 0, &size);
+  std::vector<uint8_t> storage(size);
+  auto* list = (LPPROC_THREAD_ATTRIBUTE_LIST)storage.data();
+  const bool listed = count && ::InitializeProcThreadAttributeList(list, 1, 0, &size);
+  DWORD flags = CREATE_NO_WINDOW;
+  if (listed && ::UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherit,
+                                            count * sizeof(HANDLE), nullptr, nullptr)) {
+    si.lpAttributeList = list;
+    flags |= EXTENDED_STARTUPINFO_PRESENT;
+  }
 
   std::vector<wchar_t> commandLine = CommandLineFor(spec);
   *pi = {};
-  return ::CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-                          nullptr, nullptr, &si, pi) != FALSE;
+  const bool ok = ::CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, count != 0,
+                                   flags, nullptr, nullptr, &si.StartupInfo, pi) != FALSE;
+  if (listed) ::DeleteProcThreadAttributeList(list);
+  return ok;
 }
 
 // Waits, and kills whatever is still running when the time is up.
@@ -273,16 +297,22 @@ bool RunAndCollect(const ProcessSpec& spec, std::string* output, int* exitCode,
     return false;
   }
 
+  // Read on the side while the time runs here. Reading until the end first and
+  // only then waiting meant a child that hung without closing its output was
+  // never timed out, and took the thread that asked with it.
   std::string captured;
-  char buffer[4096];
-  DWORD read = 0;
-  while (::ReadFile(readPipe, buffer, sizeof(buffer), &read, nullptr) && read > 0) {
-    captured.append(buffer, read);
-    if (captured.size() > 1 << 20) break;  // a stuck child must not eat memory
-  }
-  ::CloseHandle(readPipe);
-
+  std::thread reader([readPipe, &captured] {
+    char buffer[4096];
+    DWORD read = 0;
+    while (::ReadFile(readPipe, buffer, sizeof(buffer), &read, nullptr) && read > 0) {
+      captured.append(buffer, read);
+      if (captured.size() > 1 << 20) break;  // a stuck child must not eat memory
+    }
+  });
   const int code = WaitFor(pi.hProcess, timeoutMs);
+  // Gone or killed, its end of the pipe is closed and the reader runs out.
+  reader.join();
+  ::CloseHandle(readPipe);
   ::CloseHandle(pi.hThread);
   ::CloseHandle(pi.hProcess);
 
