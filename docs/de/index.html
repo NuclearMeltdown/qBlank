@@ -210,7 +210,22 @@
 
 <section class="reveal">
   <div class="wrap">
-    <h2><span class="num">08</span>Was es nicht ist</h2>
+    <h2><span class="num">08</span>Es findet die Pixel der Konsole</h2>
+    <p class="lead">Eine Karte tastet eine Zeile 720-mal ab, ein SNES hat 256 gezeichnet. Sag qBlank die <em>Breite der Quelle</em>, und es misst, wo jedes Konsolenpixel im Bild liegt, und zeichnet es als einen Block. Bei einer analogen Quelle baut es jedes Pixel außerdem aus den Samples neu, über die die Karte es verwischt hat.</p>
+    <figure>
+      <img src="../pixel-grid-logo.png" alt="Links: das Logo von Super Mario World von einem PAL-SNES über Composite, in qBlank 5.6.0 aufs native Pixelraster eingerastet, Konturen grau und Farben verlaufen. Rechts: dasselbe Bild in 5.7.0, schwarze Konturen und eine Farbe pro Buchstabe">
+      <figcaption>Ein PAL-SNES über Composite, dasselbe Bild in 5.6.0 und 5.7.0. Früher wurde das Raster angenommen, jetzt wird es gemessen, und die Kante, die die Karte über zwei, drei Pixel verschmiert hat, sitzt wieder auf einem.</figcaption>
+    </figure>
+    <figure>
+      <img src="../pixel-grid-text.png" alt="Links: die Copyright-Zeile in 5.6.0, verwaschen und in vielen Blautönen. Rechts: 5.7.0, ein einziges Cyan mit schwarzer Kontur">
+      <figcaption>Die Karte entsättigt je nach Bildstelle, eine Farbe kommt also als viele an. Pixel gleicher Helligkeit und gleichen Farbtons werden wieder eine Farbe &mdash; ohne Kosten bei der Latenz.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">09</span>Was es nicht ist</h2>
     <p class="lead">Szenen, Overlays, Compositing und Streaming gibt es nicht und sind nicht geplant. Dafür nimm OBS &mdash; und beachte, dass eine Karte ihren Aufnahme-Pin immer nur einem Prozess gibt, beide können dieselbe Karte also nicht gleichzeitig halten.</p>
     <table>
       <tr><th>Voraussetzung</th><th></th></tr>

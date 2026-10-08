@@ -214,7 +214,22 @@
 
 <section class="reveal">
   <div class="wrap">
-    <h2><span class="num">08</span>What it is not</h2>
+    <h2><span class="num">08</span>It finds the console's pixels</h2>
+    <p class="lead">A card samples a line 720 times; a SNES drew 256. Tell qBlank the <em>Source width</em>, and it measures where each console pixel lies in the picture and draws it as one block. On an analogue source it also rebuilds each pixel from the samples the card blurred across it.</p>
+    <figure>
+      <img src="pixel-grid-logo.png" alt="Left: the Super Mario World logo from a PAL SNES over composite, snapped to the native pixel grid in qBlank 5.6.0, outlines grey and colours bleeding. Right: the same frame in 5.7.0, black outlines and one colour per letter">
+      <figcaption>A PAL SNES over composite, the same frame in 5.6.0 and 5.7.0. The grid used to be assumed; now it is measured, and the edge the card smeared over two or three pixels is put back on one.</figcaption>
+    </figure>
+    <figure>
+      <img src="pixel-grid-text.png" alt="Left: the copyright line in 5.6.0, blurred and in many shades of blue. Right: 5.7.0, one cyan with a black outline">
+      <figcaption>The card desaturates by position, so one colour arrives as many. Pixels of the same brightness and hue are made one colour again &mdash; at no cost in latency.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <h2><span class="num">09</span>What it is not</h2>
     <p class="lead">Scenes, overlays, compositing and streaming are not here and are not planned. For those, use OBS — and note that a card grants its capture pin to one process at a time, so the two cannot hold the same card at once.</p>
     <table>
       <tr><th>Requirement</th><th></th></tr>

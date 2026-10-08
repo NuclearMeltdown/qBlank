@@ -51,10 +51,14 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Nearest, bilinear, Catmull-Rom, Lanczos3, sharp-bilinear.
 - Contrast adaptive sharpening; brightness, contrast, saturation, hue.
 - Aspect override, integer scaling, square pixels, quarter turns, line doubling for 240p and 288p.
-- **Native pixel grid**: one output pixel per console pixel, where the card samples a line 720 times and a SNES drew 256.
+- **Native pixel grid**: one output pixel per console pixel, where the card samples a line 720 times and a SNES drew 256. The grid is measured from the picture; on analogue sources each pixel is rebuilt from the card's blurred samples and cleaned up.
 - **Freeze** (**F11**) holds the source, so a slider can be judged on a still picture.
 - **A/B compare** (**F12**) splits the picture, every filter off on one side, deinterlacing on both. Vertical or horizontal, chosen in the right-click menu.
 - **All filters off** (**Shift+F12**) shows the signal as it arrives, with deinterlacing, crop, aspect and range kept.
+
+![Left: the Super Mario World logo from a PAL SNES over composite, snapped to the native pixel grid in qBlank 5.6.0, outlines grey and colours bleeding. Right: the same frame in 5.7.0, black outlines and one colour per letter](docs/pixel-grid-logo.png)
+
+![Left: the copyright line in 5.6.0, blurred and in many shades of blue. Right: 5.7.0, one cyan with a black outline](docs/pixel-grid-text.png)
 
 **Crop and colour range** · [wiki](../../wiki/Cropping-and-geometry)
 - Dragged on the picture or found by **Detect** (**F8**).
