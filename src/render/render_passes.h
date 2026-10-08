@@ -151,7 +151,9 @@ struct ConvertParams {
   int32_t remover;
   int32_t remHist;
   int32_t remNew;
-  int32_t remPad;
+  // 1 = rebuild the colour edges the card's narrow chroma band smeared, guided
+  // by the brightness. See RestoreChroma. Only ever set on an analogue source.
+  int32_t chromaRestore;
   float remP0[4];  // sig2 tau ksp marg
   float remP1[4];  // kfac black gmin glo
 };

@@ -2809,3 +2809,4 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
 }
 
 }  // namespace cap
+  cb.chromaRestore = analogueSource_ ? 1 : 0;

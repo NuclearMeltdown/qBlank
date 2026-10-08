@@ -128,7 +128,7 @@ cbuffer ConvertCB : register(b0) {
   int   gRemover;         // 1 = read the crawl remover's pictures, see FetchRgbIn
   int   gRemHist;
   int   gRemNew;
-  int   gRemPad;
+  int   gChromaRestore;   // 1 = rebuild colour edges from the brightness, see RestoreChroma
   float4 gRemP0;
   float4 gRemP1;
 };
@@ -480,7 +480,174 @@ float3 SoftenChroma(float3 rgb, int x, int row, float handled) {
   // vector is zero by construction, so this cannot shift brightness.
   return centreLuma + sum / max(n, 1e-4);
 }
+)HLSL"
+R"HLSL(// The colour is not only soft, it is soft in a way that can be measured, and
+// what can be measured can be partly undone. Fitted to edges from this card: a
+// colour sample every second pixel, held for both, each one a Gaussian of 1.6
+// samples centred a tenth of a sample right of the even pixel. That is about two
+// SNES pixels of colour resolution, which is why a one pixel black outline round
+// cyan letters comes out blue: the samples beside it reach into the fill.
+//
+// Undoing a blur outright is hopeless -- it multiplies noise -- so this asks a
+// better posed question. Which colour, sampled the way the card samples, gives
+// back what the card delivered, while staying smooth wherever the brightness is
+// smooth? Brightness came through at full bandwidth, so it says where the edges
+// really are, and colour is allowed to change there and nowhere else:
+//
+//   minimise |A c - o|^2 + kRestoreSmooth * sum w_j (c_j+1 - c_j)^2
+//            + kRestoreAnchor * |c - captured|^2,   w_j = exp(-(dY_j / kRestoreLumaEdge)^2)
+//
+// over a window of 13 pixels, keeping the middle. The window was checked against
+// solving whole lines at once and gives the same answer.
+//
+// The solve is cheaper than it looks. The smoothness and anchor terms form a
+// chain -- tridiagonal -- and A has only five rows, so the 13 by 13 system comes
+// apart into a sweep along the chain and a 5 by 5 system (Woodbury).
+//
+// This is not the colour edge alignment that was taken out in 5.6.0. That one
+// moved the colour sideways by a measured delay; this one gives back bandwidth.
+static const float kRestoreSmooth = 3.0;
+static const float kRestoreLumaEdge = 30.0 / 255.0;
+// Only there so a stretch of the window with no sample in it and walled in by
+// edges has an answer at all. Small enough not to pull anything else back.
+static const float kRestoreAnchor = 0.01;
+static const float kCardChromaSigma = 1.6;   // in samples of a 720 wide line
+static const float kCardChromaPhase = 0.1;
+// The softening below compares brightness as well as colour once the edges have
+// been rebuilt. Without it, it averages straight across the outline it was just
+// given back and undoes most of it -- the colour test alone cannot stop that,
+// because a smeared outline and the fill beside it differ mainly in brightness.
+static const float kChromaKeepLuma = 8.0;
 
+float3 RestoreChroma(float3 rgb, int x, int row, float handled, float softAmount) {
+  float yl[13];
+  float3 ch[13];
+  [loop] for (int t = 0; t < 13; ++t) {
+    float3 s = CleanTapAt(int2(x + t - 6, row), handled);
+    yl[t] = Luma(s);
+    ch[t] = s - yl[t];
+  }
+
+  // The chain, eliminated once: e is the coupling between neighbours, cp and id
+  // what the forward sweep leaves of it. e[12] is zero, the chain's end.
+  // em is e shifted by one, em[k] = e[k - 1], so the sweeps never index -1.
+  float e[13], em[13], cp[13], id[13];
+  em[0] = 0.0;
+  [unroll] for (int j = 0; j < 12; ++j) {
+    float dy = (yl[j + 1] - yl[j]) / kRestoreLumaEdge;
+    e[j] = -kRestoreSmooth * exp(-dy * dy);
+    em[j + 1] = e[j];
+  }
+  e[12] = 0.0;
+  float cpPrev = 0.0;
+  [unroll] for (int jj = 0; jj < 13; ++jj) {
+    id[jj] = 1.0 / (kRestoreAnchor - em[jj] - e[jj] - em[jj] * cpPrev);
+    cpPrev = e[jj] * id[jj];
+    cp[jj] = cpPrev;
+  }
+
+  // The five colour samples inside the window, on whichever pixels hold their
+  // own pair -- every second one, starting at 1 or 2 depending on the parity.
+  const int first = (x & 1) == 0 ? 2 : 1;
+  const float sigma = kCardChromaSigma * (float)gSrcWidth / 720.0;
+  float a[5][13];
+  float3 o[5];
+  [unroll] for (int m = 0; m < 5; ++m) {
+    float c = (float)(first + 2 * m) + kCardChromaPhase;
+    float nrm = 0.0;
+    [unroll] for (int k = 0; k < 13; ++k) {
+      float u = ((float)k - c) / sigma;
+      a[m][k] = exp(-0.5 * u * u);
+      nrm += a[m][k];
+    }
+    [unroll] for (int kn = 0; kn < 13; ++kn) a[m][kn] /= nrm;
+    o[m] = ch[first + 2 * m];
+  }
+
+  // z = chain^-1 A^T, five solves; v = chain^-1 (A^T o + anchor * captured).
+  float z[5][13];
+  float3 v[13];
+  [unroll] for (int mz = 0; mz < 5; ++mz) {
+    float y = 0.0;
+    [unroll] for (int kf = 0; kf < 13; ++kf) {
+      y = (a[mz][kf] - em[kf] * y) * id[kf];
+      z[mz][kf] = y;
+    }
+    [unroll] for (int kb = 11; kb >= 0; --kb) z[mz][kb] -= cp[kb] * z[mz][kb + 1];
+  }
+  float3 yv = 0.0;
+  [unroll] for (int kv = 0; kv < 13; ++kv) {
+    float3 rhs = kRestoreAnchor * ch[kv];
+    [unroll] for (int mv = 0; mv < 5; ++mv) rhs += a[mv][kv] * o[mv];
+    yv = (rhs - em[kv] * yv) * id[kv];
+    v[kv] = yv;
+  }
+  [unroll] for (int kw = 11; kw >= 0; --kw) v[kw] -= cp[kw] * v[kw + 1];
+
+  // The 5 by 5 part: (I + A z) w = A v, then c = v - z^T w.
+  float sm[5][5];
+  float3 w[5];
+  [unroll] for (int ms = 0; ms < 5; ++ms) {
+    w[ms] = 0.0;
+    [unroll] for (int ka = 0; ka < 13; ++ka) w[ms] += a[ms][ka] * v[ka];
+    [unroll] for (int ns = 0; ns < 5; ++ns) {
+      float s = ms == ns ? 1.0 : 0.0;
+      [unroll] for (int ks = 0; ks < 13; ++ks) s += a[ms][ks] * z[ns][ks];
+      sm[ms][ns] = s;
+    }
+  }
+  // Symmetric and positive definite, so plain elimination needs no pivoting.
+  [unroll] for (int ie = 0; ie < 5; ++ie) {
+    [unroll] for (int re = ie + 1; re < 5; ++re) {
+      float f = sm[re][ie] / sm[ie][ie];
+      [unroll] for (int ce = ie + 1; ce < 5; ++ce) sm[re][ce] -= f * sm[ie][ce];
+      w[re] -= f * w[ie];
+    }
+  }
+  [unroll] for (int ib = 4; ib >= 0; --ib) {
+    [unroll] for (int cs = ib + 1; cs < 5; ++cs) w[ib] -= sm[ib][cs] * w[cs];
+    w[ib] /= sm[ib][ib];
+  }
+
+  // Never past what the neighbourhood holds, nor past grey. Without this a
+  // narrow gap between two strong colours could swing beyond either; with grey
+  // allowed, the black outline can lose its colour entirely, which is the point.
+  float3 lo = 0.0, hi = 0.0;
+  [unroll] for (int kl = 2; kl <= 10; ++kl) { lo = min(lo, ch[kl]); hi = max(hi, ch[kl]); }
+
+  const int rs = softAmount > 0.0 ? min(gChromaSoft, 6) : 0;
+  float3 cr[13];
+  [unroll] for (int kc = 0; kc < 13; ++kc) {
+    float3 c = v[kc];
+    [unroll] for (int nc = 0; nc < 5; ++nc) c -= z[nc][kc] * w[nc];
+    c = clamp(c, lo, hi);
+    cr[kc] = c - Luma(c);
+  }
+
+  // The softening, on the rebuilt colour rather than the captured one: see
+  // SoftenChroma for the colour weight, and kChromaKeepLuma for the other.
+  const float centreLuma = Luma(rgb);
+  float3 soft = cr[6];
+  if (rs > 0) {
+    float3 sum = 0.0;
+    float n = 0.0;
+    [unroll] for (int kt = 0; kt < 13; ++kt) {
+      if (abs(kt - 6) > rs) continue;
+      float3 d = cr[kt] - cr[6];
+      float dl = yl[kt] - yl[6];
+      float wt = exp(-dot(d, d) * kChromaKeepEdge - dl * dl * kChromaKeepLuma);
+      sum += cr[kt] * wt;
+      n += wt;
+    }
+    soft = sum / max(n, 1e-4);
+  }
+  // Unsoftened, the pixel keeps its own colour -- with whatever the temporal
+  // average did to it -- plus what the rebuild changed.
+  float3 own = rgb - centreLuma + (cr[6] - ch[6]);
+  return centreLuma + lerp(own, soft, softAmount);
+}
+)HLSL"
+R"HLSL(
 // Dot crawl is the other half of the same crosstalk, going the other way: colour
 // leaking into brightness, as that crawling zip along vertical colour edges.
 // Blurring the chroma does nothing for it, because it is not in the chroma.
@@ -726,7 +893,15 @@ R"HLSL(
 // Measured against this card's own frames, at a window of nine samples that
 // removes 81 % of the pattern for 17 % of the horizontal sharpness, where the
 // notch it replaces managed 67 % for 18 %. At five samples it reaches 99 %.
-float DotDemodDelta(int x, int row) {
+//
+// It measures the line as the frame average left it (CleanTapAt), so it takes
+// out whatever crawl the average did not. Where the crawl cycles, a still
+// picture comes out of the average clean and this finds nothing; where it does
+// not -- a console whose carrier lands on the same phase every frame, like a
+// PAL SNES, or a standard without a cycle -- the average keeps all of it, and
+// this takes it out. Scaling by what the gate let through instead assumed every
+// still picture was clean, and left exactly those with their full crawl.
+float DotDemodDelta(int x, int row, float handled) {
   // The slider is the window: wide and gentle at the left, narrow and thorough
   // at the right. It is counted in cycles of the subcarrier rather than in
   // samples, because the two are not the same thing across standards: NTSC
@@ -751,12 +926,17 @@ float DotDemodDelta(int x, int row) {
   // gets a pattern invented on top of itself. Measured on a constant field of
   // 128, leaving this out produced swings of ninety levels -- which is what
   // "the picture goes oddly bright" was.
+  // Each tap is fetched once and kept: the average below costs two fetches a
+  // tap, and two passes over it would pay that twice.
+  float tap[25];
   float mean = 0.0, norm = 0.0;
   for (int k = -12; k <= 12; ++k) {
+    tap[k + 12] = 0.0;
     if (abs(k) > r) continue;
     // Raised cosine over the window, so the ends do not ring.
     float hann = 0.5 + 0.5 * cos(3.14159265 * float(k) / float(r + 1));
-    mean += hann * Luma(FetchRgbAt(int2(x + k, row)));
+    tap[k + 12] = Luma(CleanTapAt(int2(x + k, row), handled));
+    mean += hann * tap[k + 12];
     norm += hann;
   }
   if (norm <= 0.0) return 0.0;
@@ -766,7 +946,7 @@ float DotDemodDelta(int x, int row) {
   for (int k = -12; k <= 12; ++k) {
     if (abs(k) > r) continue;
     float hann = 0.5 + 0.5 * cos(3.14159265 * float(k) / float(r + 1));
-    float l = Luma(FetchRgbAt(int2(x + k, row))) - mean;
+    float l = tap[k + 12] - mean;
     float ph = w * float(x + k);
     acc += hann * l * cos(ph);
     accQ += hann * l * sin(ph);
@@ -1454,7 +1634,7 @@ float4 main(VSOut i) : SV_Target {
       rgb += MotionCompDelta(p.x, p.y) * (1.0 - handled);
     }
 
-    if (gDotNotch > 0.0) rgb += DotDemodDelta(p.x, p.y) * (1.0 - handled);
+    if (gDotNotch > 0.0) rgb += DotDemodDelta(p.x, p.y, handled);
 
     // One reading of how much of this pixel sits at the carrier's own frequency,
     // for the two filters below that both want to know. Seventeen taps with a
@@ -1472,7 +1652,12 @@ float4 main(VSOut i) : SV_Target {
     // hand them a harder job than they started with.
     if (gBandwidth > 0.0) rgb = BandwidthRestoreBox(rgb, p.x, p.y, carrier.x, handled);
 
-    if (gChromaSoft > 0) {
+    if (gChromaRestore != 0) {
+      // Rebuilding the edges and softening share one window, so they are one
+      // step: the softening has to see the rebuilt colour, see RestoreChroma.
+      float amount = gChromaSoft <= 0 ? 0.0 : gAdaptChroma != 0 ? carrier.y : 1.0;
+      rgb = RestoreChroma(rgb, p.x, p.y, handled, amount);
+    } else if (gChromaSoft > 0) {
       float3 soft = SoftenChroma(rgb, p.x, p.y, handled);
       // Softening the colour only where the brightness carries enough at the
       // carrier to have invented some of it. Everywhere else the colour is as
