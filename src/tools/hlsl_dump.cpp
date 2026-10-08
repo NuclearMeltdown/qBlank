@@ -50,5 +50,6 @@ int main(int argc, char** argv) {
   ok = WriteShader(dir, "rem_dec_ps", cap::kRemDecPS) && ok;
   ok = WriteShader(dir, "rem_res_ps", cap::kRemResPS) && ok;
   ok = WriteShader(dir, "rem_comb_ps", cap::kRemCombPS) && ok;
+  ok = WriteShader(dir, "grid_ps", cap::kGridPS) && ok;
   return ok ? 0 : 1;
 }

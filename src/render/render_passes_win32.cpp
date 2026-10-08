@@ -3,6 +3,7 @@
 #include <d3d11.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -18,7 +19,7 @@
 #else
 namespace cap {
 extern const Packed kFullscreenVS, kCleanPS, kConvertPS, kScalePS, kHdrRecordPS, kUiCompositePS,
-    kRemDecPS, kRemResPS, kRemCombPS;
+    kRemDecPS, kRemResPS, kRemCombPS, kGridPS;
 }
 #endif
 
@@ -33,8 +34,7 @@ using ConvertCB = ConvertParams;
 static_assert(sizeof(ConvertCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
 struct ScaleCB {
-  ScaleParams params;
-  int32_t pad[3];
+  ScaleParams params;  // fills its last register exactly
 };
 static_assert(sizeof(ScaleCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
@@ -90,6 +90,8 @@ class D3D11Passes : public RenderPasses {
                        int outHeight, int historyWrite) override;
   void ScaleToScreen(const ScaleParams& params, int x, int y, int width, int height) override;
   bool Deliver(bool half, int width, int height, const ScaleParams& params) override;
+  void RebuildGrid(const ScaleParams& params, int rowsPerLine, const int* stages,
+                   int count) override;
   bool BeginUiLayer(int width, int height) override;
   void CompositeUiLayer(float paperWhiteNits) override;
 
@@ -244,6 +246,22 @@ class D3D11Passes : public RenderPasses {
   int remOutHead_ = 0;
   int remCount_ = 0;
   bool remOk_ = false;
+
+  // The console pixels (RebuildGrid): two pictures one texel per console
+  // pixel, the stages going back and forth between them, the result in [0].
+  // Valid for the grid and intermediate they were made from.
+  bool EnsureGrid(int width, int height);
+  // The grid lookup for a scale or deliver pass, if the grid is the one built.
+  void UseGrid(ScaleParams* params) const;
+  ComPtr<ID3D11PixelShader> psGrid_;
+  ComPtr<ID3D11Texture2D> gridTex_[2];
+  ComPtr<ID3D11ShaderResourceView> gridSrv_[2];
+  ComPtr<ID3D11RenderTargetView> gridRtv_[2];
+  int gridWidth_ = 0;
+  int gridHeight_ = 0;
+  bool gridValid_ = false;
+  float gridSpan_ = 0.0f;
+  float gridOffset_ = 0.0f;
 };
 
 // ------------------------------------------------------------------ lifetime
@@ -275,6 +293,14 @@ void D3D11Passes::Shutdown() {
   psRemComb_.Reset();
   psRemRes_.Reset();
   psRemDec_.Reset();
+  for (int i = 0; i < 2; ++i) {
+    gridRtv_[i].Reset();
+    gridSrv_[i].Reset();
+    gridTex_[i].Reset();
+  }
+  gridWidth_ = gridHeight_ = 0;
+  gridValid_ = false;
+  psGrid_.Reset();
   blendPremultiplied_.Reset();
   blendOpaque_.Reset();
   raster_.Reset();
@@ -364,6 +390,17 @@ bool D3D11Passes::CreateShaders(std::string* error) {
              SUCCEEDED(CAP_HR(dev->CreatePixelShader(comb.data(), comb.size(), nullptr,
                                                      &psRemComb_)));
     if (!remOk_) CAP_ERR("Crawl remover unavailable: %s", remError.c_str());
+  }
+  // The console pixel pass. Not fatal either: the scale pass rebuilds them
+  // itself without it.
+  {
+    std::string gridError;
+    const std::vector<uint8_t> grid = ShaderCode(kGridPS, "ps_5_0", &gridError);
+    if (grid.empty() ||
+        FAILED(CAP_HR(dev->CreatePixelShader(grid.data(), grid.size(), nullptr, &psGrid_)))) {
+      psGrid_.Reset();
+      CAP_ERR("Pixel grid pass unavailable: %s", gridError.c_str());
+    }
   }
 
   D3D11_BUFFER_DESC bd = {};
@@ -915,6 +952,110 @@ void D3D11Passes::CleanAndConvert(const ConvertParams& params, int srcWidth, int
   // The intermediate is about to be read by whatever comes next, so nothing may
   // still have it bound as a source.
   dc->PSSetShaderResources(0, 3, nullSrvs);
+  gridValid_ = false;  // built from the picture just replaced
+}
+
+bool D3D11Passes::EnsureGrid(int width, int height) {
+  if (gridTex_[0] && gridWidth_ == width && gridHeight_ == height) return true;
+  for (int i = 0; i < 2; ++i) {
+    gridRtv_[i].Reset();
+    gridSrv_[i].Reset();
+    gridTex_[i].Reset();
+  }
+  gridWidth_ = gridHeight_ = 0;
+  ID3D11Device* dev = NativeDevice(*display_);
+  D3D11_TEXTURE2D_DESC td = {};
+  td.Width = (UINT)width;
+  td.Height = (UINT)height;
+  td.MipLevels = 1;
+  td.ArraySize = 1;
+  td.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+  td.SampleDesc.Count = 1;
+  td.Usage = D3D11_USAGE_DEFAULT;
+  td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+  for (int i = 0; i < 2; ++i) {
+    if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &gridTex_[i]))) ||
+        FAILED(CAP_HR(dev->CreateShaderResourceView(gridTex_[i].Get(), nullptr, &gridSrv_[i]))) ||
+        FAILED(CAP_HR(dev->CreateRenderTargetView(gridTex_[i].Get(), nullptr, &gridRtv_[i])))) {
+      for (int j = 0; j < 2; ++j) {
+        gridRtv_[j].Reset();
+        gridSrv_[j].Reset();
+        gridTex_[j].Reset();
+      }
+      psGrid_.Reset();  // do not try again every frame
+      CAP_ERR("Pixel grid: its pictures could not be made");
+      return false;
+    }
+  }
+  gridWidth_ = width;
+  gridHeight_ = height;
+  return true;
+}
+
+void D3D11Passes::RebuildGrid(const ScaleParams& params, int rowsPerLine, const int* stages,
+                              int count) {
+  gridValid_ = false;
+  if (!psGrid_ || !intermediateSrv_ || params.nativeSpan <= 0.0f || count < 1) return;
+  const int width =
+      (int)std::ceil((params.srcSize[0] - params.nativeOffset) / params.nativeSpan) + 1;
+  const int height = (int)params.srcSize[1];
+  if (width < 2 || height < 1 || !EnsureGrid(width, height)) return;
+
+  ID3D11DeviceContext* dc = NativeContext(*display_);
+  dc->IASetInputLayout(nullptr);
+  dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  dc->VSSetShader(vs_.Get(), nullptr, 0);
+  dc->RSSetState(raster_.Get());
+  const float blendFactor[4] = {0, 0, 0, 0};
+  dc->OMSetBlendState(blendOpaque_.Get(), blendFactor, 0xFFFFFFFF);
+  dc->PSSetShader(psGrid_.Get(), nullptr, 0);
+  ID3D11Buffer* cbs[] = {cbScale_.Get()};
+  dc->PSSetConstantBuffers(0, 1, cbs);
+  D3D11_VIEWPORT vp = {};
+  vp.Width = (float)width;
+  vp.Height = (float)height;
+  vp.MaxDepth = 1.0f;
+  dc->RSSetViewports(1, &vp);
+
+  // intermediate -> one picture, then back and forth, so that the last stage
+  // lands in [0]. The target is set before the view that reads the other
+  // picture, so neither is ever bound both ways.
+  ScaleCB sc = {};
+  sc.params = params;
+  sc.params.grid[1] = width;
+  sc.params.grid[2] = std::max(1, rowsPerLine);
+  ID3D11ShaderResourceView* none[] = {nullptr};
+  for (int i = 0; i < count; ++i) {
+    sc.params.grid[0] = stages[i];
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(dc->Map(cbScale_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+      memcpy(mapped.pData, &sc, sizeof(sc));
+      dc->Unmap(cbScale_.Get(), 0);
+    }
+    const int to = (count - 1 - i) & 1;
+    dc->PSSetShaderResources(0, 1, none);
+    ID3D11RenderTargetView* rtv[] = {gridRtv_[to].Get()};
+    dc->OMSetRenderTargets(1, rtv, nullptr);
+    ID3D11ShaderResourceView* srv[] = {i == 0 ? intermediateSrv_.Get()
+                                              : gridSrv_[1 - to].Get()};
+    dc->PSSetShaderResources(0, 1, srv);
+    dc->Draw(3, 0);
+  }
+  dc->PSSetShaderResources(0, 1, none);
+  dc->OMSetRenderTargets(0, nullptr, nullptr);
+  gridValid_ = true;
+  gridSpan_ = params.nativeSpan;
+  gridOffset_ = params.nativeOffset;
+}
+
+void D3D11Passes::UseGrid(ScaleParams* params) const {
+  params->grid[0] = 0;
+  params->grid[1] = gridValid_ && params->nativeSpan == gridSpan_ &&
+                            params->nativeOffset == gridOffset_ &&
+                            (int)params->srcSize[1] == gridHeight_
+                        ? gridWidth_
+                        : 0;
+  params->grid[2] = params->grid[3] = 0;
 }
 
 void D3D11Passes::ScaleToScreen(const ScaleParams& params, int x, int y, int width, int height) {
@@ -922,6 +1063,7 @@ void D3D11Passes::ScaleToScreen(const ScaleParams& params, int x, int y, int wid
 
   ScaleCB sc = {};
   sc.params = params;
+  UseGrid(&sc.params);
 
   D3D11_MAPPED_SUBRESOURCE mapped = {};
   if (SUCCEEDED(dc->Map(cbScale_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
@@ -949,8 +1091,9 @@ void D3D11Passes::ScaleToScreen(const ScaleParams& params, int x, int y, int wid
   vp.Height = (float)height;
   dc->RSSetViewports(1, &vp);
 
-  ID3D11ShaderResourceView* scaleSrv[] = {intermediateSrv_.Get()};
-  dc->PSSetShaderResources(0, 1, scaleSrv);
+  ID3D11ShaderResourceView* scaleSrv[] = {
+      intermediateSrv_.Get(), sc.params.grid[1] > 0 ? gridSrv_[0].Get() : nullptr};
+  dc->PSSetShaderResources(0, 2, scaleSrv);
   ID3D11SamplerState* samplers[] = {sampPoint_.Get(), sampLinear_.Get()};
   dc->PSSetSamplers(0, 2, samplers);
   dc->PSSetShader(psScale_.Get(), nullptr, 0);
@@ -959,8 +1102,8 @@ void D3D11Passes::ScaleToScreen(const ScaleParams& params, int x, int y, int wid
   dc->Draw(3, 0);
 
   // Leave the pipeline clean so ImGui's own state setup starts from scratch.
-  ID3D11ShaderResourceView* nullSrvs[1] = {};
-  dc->PSSetShaderResources(0, 1, nullSrvs);
+  ID3D11ShaderResourceView* nullSrvs[2] = {};
+  dc->PSSetShaderResources(0, 2, nullSrvs);
 
   // Restore the full window viewport for whatever draws next.
   vp.TopLeftX = 0;
@@ -978,6 +1121,7 @@ bool D3D11Passes::Deliver(bool half, int width, int height, const ScaleParams& p
 
   ScaleCB sc = {};
   sc.params = params;
+  UseGrid(&sc.params);
 
   D3D11_MAPPED_SUBRESOURCE mapped = {};
   if (SUCCEEDED(dc->Map(cbScale_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
@@ -998,8 +1142,9 @@ bool D3D11Passes::Deliver(bool half, int width, int height, const ScaleParams& p
   dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   dc->VSSetShader(vs_.Get(), nullptr, 0);
   dc->PSSetShader(psScale_.Get(), nullptr, 0);
-  ID3D11ShaderResourceView* srv[] = {intermediateSrv_.Get()};
-  dc->PSSetShaderResources(0, 1, srv);
+  ID3D11ShaderResourceView* srv[] = {
+      intermediateSrv_.Get(), sc.params.grid[1] > 0 ? gridSrv_[0].Get() : nullptr};
+  dc->PSSetShaderResources(0, 2, srv);
   ID3D11SamplerState* samplers[] = {sampPoint_.Get(), sampLinear_.Get()};
   dc->PSSetSamplers(0, 2, samplers);
   ID3D11Buffer* cbs[] = {cbScale_.Get()};
@@ -1011,8 +1156,8 @@ bool D3D11Passes::Deliver(bool half, int width, int height, const ScaleParams& p
   dc->OMSetBlendState(blendOpaque_.Get(), blendFactor, 0xFFFFFFFF);
   dc->Draw(3, 0);
 
-  ID3D11ShaderResourceView* none[] = {nullptr};
-  dc->PSSetShaderResources(0, 1, none);
+  ID3D11ShaderResourceView* none[] = {nullptr, nullptr};
+  dc->PSSetShaderResources(0, 2, none);
   return true;
 }
 

@@ -28,6 +28,7 @@
 #include "render/render_passes.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -48,8 +49,7 @@ using ConvertCB = ConvertParams;  // fills its last register exactly
 static_assert(sizeof(ConvertCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
 struct ScaleCB {
-  ScaleParams params;
-  int32_t pad[3];
+  ScaleParams params;  // fills its last register exactly
 };
 static_assert(sizeof(ScaleCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
@@ -132,6 +132,8 @@ class VulkanPasses : public RenderPasses {
                        int outHeight, int historyWrite) override;
   void ScaleToScreen(const ScaleParams& params, int x, int y, int width, int height) override;
   bool Deliver(bool half, int width, int height, const ScaleParams& params) override;
+  void RebuildGrid(const ScaleParams& params, int rowsPerLine, const int* stages,
+                   int count) override;
   bool BeginUiLayer(int width, int height) override;
   void CompositeUiLayer(float paperWhiteNits) override;
 
@@ -295,6 +297,15 @@ class VulkanPasses : public RenderPasses {
   int remOutHead_ = 0;
   int remCount_ = 0;
   bool remOk_ = false;
+
+  // The console pixels, as in Direct3D 11.
+  void UseGrid(ScaleParams* params) const;
+  VkShaderModule fsGrid_ = VK_NULL_HANDLE;
+  VulkanImage grid_[2];
+  bool gridOk_ = false;
+  bool gridValid_ = false;
+  float gridSpan_ = 0.0f;
+  float gridOffset_ = 0.0f;
 };
 
 // ------------------------------------------------------------------- lifetime
@@ -459,6 +470,10 @@ bool VulkanPasses::Initialize(Display* display, std::string* error) {
              PipelineFor(fsRemComb_, VK_FORMAT_R16G16B16A16_SFLOAT, false);
   }
   if (!remOk_) CAP_ERR("Vulkan: crawl remover unavailable");
+  // The console pixel pass. Not fatal either.
+  gridOk_ = CreateModule(kSpirvGrid, &words, &fsGrid_) &&
+            PipelineFor(fsGrid_, VK_FORMAT_R16G16B16A16_SFLOAT, false);
+  if (!gridOk_) CAP_ERR("Vulkan: pixel grid pass unavailable");
 
   if (!vk->Flush()) {
     Shutdown();
@@ -485,6 +500,7 @@ void VulkanPasses::Shutdown() {
     ReleaseReadbackSlots();
     ReleaseHdrRecord();
     ReleaseRemover();
+    for (VulkanImage& image : grid_) vk_->DestroyImage(&image);
     vk_->DestroyImage(&dummy_);
     for (Arena& arena : arenas_) vk_->DestroyBuffer(&arena.uniforms);
 
@@ -496,8 +512,8 @@ void VulkanPasses::Shutdown() {
     for (const Arena& arena : arenas_) {
       if (arena.pool) pools.push_back(arena.pool);
     }
-    const VkShaderModule modules[] = {vs_,       fsClean_,  fsConvert_, fsScale_, fsRecord_,
-                                      fsUi_,     fsRemDec_, fsRemRes_,  fsRemComb_};
+    const VkShaderModule modules[] = {vs_,       fsClean_,  fsConvert_, fsScale_,  fsRecord_,
+                                      fsUi_,     fsRemDec_, fsRemRes_,  fsRemComb_, fsGrid_};
     std::vector<VkShaderModule> moduleList(std::begin(modules), std::end(modules));
     const VkPipelineLayout pipelineLayout = pipelineLayout_;
     const VkDescriptorSetLayout setLayout = setLayout_;
@@ -524,7 +540,9 @@ void VulkanPasses::Forget() {
   vk_ = nullptr;
   device_ = VK_NULL_HANDLE;
   vs_ = fsClean_ = fsConvert_ = fsScale_ = fsRecord_ = fsUi_ = VK_NULL_HANDLE;
-  fsRemDec_ = fsRemRes_ = fsRemComb_ = VK_NULL_HANDLE;
+  fsRemDec_ = fsRemRes_ = fsRemComb_ = fsGrid_ = VK_NULL_HANDLE;
+  grid_[0] = grid_[1] = VulkanImage();
+  gridOk_ = gridValid_ = false;
   for (VulkanImage& image : rem_) image = VulkanImage();
   remHead_ = remCount_ = 0;
   remOk_ = false;
@@ -1234,6 +1252,57 @@ void VulkanPasses::CleanAndConvert(const ConvertParams& params, int srcWidth, in
   // ---- pass 2: fields, cropping, line doubling, rotation ----
   VulkanImage* cleaned[2] = {&clean_, &cleanPrev_};
   Draw(fsConvert_, &intermediate_, 0, 0, outWidth, outHeight, cleaned, 2, &cb, sizeof(cb));
+  gridValid_ = false;  // built from the picture just replaced
+}
+
+void VulkanPasses::RebuildGrid(const ScaleParams& params, int rowsPerLine, const int* stages,
+                               int count) {
+  gridValid_ = false;
+  if (!vk_ || !gridOk_ || !intermediate_ || params.nativeSpan <= 0.0f || count < 1) return;
+  const int width =
+      (int)std::ceil((params.srcSize[0] - params.nativeOffset) / params.nativeSpan) + 1;
+  const int height = (int)params.srcSize[1];
+  if (width < 2 || height < 1) return;
+  if (!grid_[0] || grid_[0].width != width || grid_[0].height != height) {
+    for (VulkanImage& image : grid_) {
+      vk_->DestroyImage(&image);
+    }
+    for (VulkanImage& image : grid_) {
+      if (!vk_->CreateImage(width, height, VK_FORMAT_R16G16B16A16_SFLOAT,
+                            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                            &image)) {
+        for (VulkanImage& made : grid_) vk_->DestroyImage(&made);
+        gridOk_ = false;  // do not try again every frame
+        CAP_ERR("Vulkan: the pixel grid's pictures could not be made");
+        return;
+      }
+    }
+  }
+  // intermediate -> one picture, then back and forth, so that the last stage
+  // lands in [0].
+  ScaleCB sc = {};
+  sc.params = params;
+  sc.params.grid[1] = width;
+  sc.params.grid[2] = std::max(1, rowsPerLine);
+  for (int i = 0; i < count; ++i) {
+    sc.params.grid[0] = stages[i];
+    const int to = (count - 1 - i) & 1;
+    VulkanImage* source[1] = {i == 0 ? &intermediate_ : &grid_[1 - to]};
+    Draw(fsGrid_, &grid_[to], 0, 0, width, height, source, 1, &sc, sizeof(sc));
+  }
+  gridValid_ = true;
+  gridSpan_ = params.nativeSpan;
+  gridOffset_ = params.nativeOffset;
+}
+
+void VulkanPasses::UseGrid(ScaleParams* params) const {
+  params->grid[0] = 0;
+  params->grid[1] = gridValid_ && params->nativeSpan == gridSpan_ &&
+                            params->nativeOffset == gridOffset_ &&
+                            (int)params->srcSize[1] == grid_[0].height
+                        ? grid_[0].width
+                        : 0;
+  params->grid[2] = params->grid[3] = 0;
 }
 
 void VulkanPasses::ScaleToScreen(const ScaleParams& params, int x, int y, int width,
@@ -1241,8 +1310,9 @@ void VulkanPasses::ScaleToScreen(const ScaleParams& params, int x, int y, int wi
   if (!vk_ || !intermediate_) return;
   ScaleCB sc = {};
   sc.params = params;
-  VulkanImage* source[1] = {&intermediate_};
-  Draw(fsScale_, vk_->backBuffer(), x, y, width, height, source, 1, &sc, sizeof(sc));
+  UseGrid(&sc.params);
+  VulkanImage* source[2] = {&intermediate_, sc.params.grid[1] > 0 ? &grid_[0] : nullptr};
+  Draw(fsScale_, vk_->backBuffer(), x, y, width, height, source, 2, &sc, sizeof(sc));
 }
 
 bool VulkanPasses::Deliver(bool half, int width, int height, const ScaleParams& params) {
@@ -1250,9 +1320,10 @@ bool VulkanPasses::Deliver(bool half, int width, int height, const ScaleParams& 
   if (!EnsureDelivery(width, height, half)) return false;
   ScaleCB sc = {};
   sc.params = params;
-  VulkanImage* source[1] = {&intermediate_};
+  UseGrid(&sc.params);
+  VulkanImage* source[2] = {&intermediate_, sc.params.grid[1] > 0 ? &grid_[0] : nullptr};
   VulkanImage* target = half ? &deliveryHalf_ : &delivery_;
-  Draw(fsScale_, target, 0, 0, target->width, target->height, source, 1, &sc, sizeof(sc));
+  Draw(fsScale_, target, 0, 0, target->width, target->height, source, 2, &sc, sizeof(sc));
   return true;
 }
 

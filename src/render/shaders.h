@@ -2248,7 +2248,7 @@ cbuffer ScaleCB : register(b0) {
 
   int    gMask;         // 0 off, 1 aperture grille, 2 shadow mask
   float  gMaskStrength; // 0..1
-  int    gNativeWidth;  // pixels the source really has across, 0 = leave alone
+  float  gNativeSpan;   // texels per console pixel, 0 = leave alone
   float  gLinePitch;    // output rows per real picture line; 0 disables scanlines
 
   int    gPassthrough;  // resample only: no display effects, no transfer, no clamp
@@ -2262,8 +2262,14 @@ cbuffer ScaleCB : register(b0) {
   int    gCompareAxis;  // 0 upright, 1 across
 
   int    gRotation;     // the quarter turns the convert pass applied
-  int3   gPad;
+  float  gNativeOffset; // texel where a console pixel starts
+  int2   gPad;
+  float4 gNativeKernel[2]; // see GridKernel; all zero = plain average
+  int4   gGrid;            // see kGridPS; y > 0: the console pixels are in texBlocks
 };
+
+// One texel per console pixel and row, from kGridPS. Bound only while gGrid.y > 0.
+Texture2D<float4> texBlocks : register(t1);
 
 struct VSOut {
   float4 pos : SV_Position;
@@ -2377,13 +2383,14 @@ float3 Sharpen(float3 c, float2 uv, float amount) {
 // Back onto the pixel grid the console actually drew.
 //
 // A capture card samples the active line at a fixed rate -- 720 samples for
-// BT.601, whatever the source does. A SNES puts 256 pixels across that same
-// line, so each of its pixels lands on about 2.8 samples: not a whole number,
-// and already softened by the card's own filter. Scale that straight to a
+// BT.601, whatever the source does. A SNES draws its 256 pixels across about
+// 650 of them, each on about 2.53 samples: not a whole number, and already
+// softened by the card's own filter. Scale that straight to a
 // window and the pixel boundaries fall wherever the arithmetic puts them, which
 // is why upscaled pixel art usually looks slightly wrong even when it is sharp.
 //
-// Told what the real horizontal count is, every output pixel can be resolved to
+// Told where the console's pixels sit -- measured on the CPU from the count the
+// setting gives, see AnalyzePixelGrid -- every output pixel can be resolved to
 // the *console's* pixel instead: work out which one it belongs to, and average
 // exactly the samples that pixel covers. The grid comes back, and with integer
 // scaling every block is the same width again.
@@ -2400,16 +2407,64 @@ float3 Sharpen(float3 c, float2 uv, float amount) {
 // Bounded loop, because HLSL wants one and because the ratio is small: 720 over
 // 256 is under three samples, and the clamp on the setting keeps it under
 // sixteen even for an absurdly low count.
+//
+// From an analogue source the average is not the console's pixel, though. The
+// card's filter -- and the dot demodulator after it -- spread every pixel over
+// about a pixel on either side, so the samples a pixel covers hold half of each
+// neighbour at its edges: a black outline comes out grey and the colours next
+// to it muddy. Knowing the grid, that can be undone: every pixel is one flat
+// value, the blur is known, and the values that best explain the samples around
+// are a least squares problem with nine unknowns. Its answer for the middle one
+// is a fixed weighting of the samples by their distance from the pixel's centre,
+// which the CPU works out once per grid (GridKernel); measured on a PAL SNES it
+// matches the full solve to about one level. Clamped to what the pixel's own
+// samples and the next one out span, so it sharpens without overshooting.
 )HLSL"
-R"HLSL(float3 SampleNativeGrid(float2 uv) {
-  float n = floor(uv.x * (float)gNativeWidth);
-  float span = gSrcSize.x / (float)gNativeWidth;
-  float x0 = n * span;
+R"HLSL(float NativeKnot(int i) {
+  if (i >= 8) return 0.0;
+  float4 q = gNativeKernel[i >> 2];
+  int c = i & 3;
+  return c == 0 ? q.x : c == 1 ? q.y : c == 2 ? q.z : q.w;
+}
+
+float3 SampleNativeGrid(float2 uv) {
+  float span = gNativeSpan;
+  float n = floor((uv.x * gSrcSize.x - gNativeOffset) / span);
+  float x0 = gNativeOffset + n * span;
   float x1 = x0 + span;
 
   int row = clamp((int)(uv.y * gSrcSize.y), 0, (int)gSrcSize.y - 1);
+  if (gGrid.y > 0) return texBlocks.Load(int3(clamp((int)n + 1, 0, gGrid.y - 1), row, 0)).rgb;
   int first = (int)floor(x0);
   int maxX = (int)gSrcSize.x - 1;
+
+  if (gNativeKernel[0].x > 0.0) {
+    float centre = x0 + 0.5 * span;
+    float knot = 0.4 * span;
+    int from = (int)floor(centre - 8.0 * knot);
+    int to = (int)ceil(x1);
+    float3 acc = 0.0, lo = 1e9, hi = -1e9;
+    float total = 0.0;
+    [loop]
+    for (int t = 0; t < 48; ++t) {
+      int xs = from + t;
+      float u = abs((float)xs + 0.5 - centre) / knot;
+      if (u >= 8.0) {
+        if ((float)xs > centre) break;
+        continue;
+      }
+      int ki = (int)u;
+      float g = lerp(NativeKnot(ki), NativeKnot(ki + 1), u - (float)ki);
+      float3 s = texSrc.Load(int3(clamp(xs, 0, maxX), row, 0)).rgb;
+      acc += s * g;
+      total += g;
+      if (xs >= first - 1 && xs <= to) {
+        lo = min(lo, s);
+        hi = max(hi, s);
+      }
+    }
+    return clamp(acc / max(total, 1e-4), lo, hi);
+  }
 
   float3 sum = 0.0;
   float weight = 0.0;
@@ -2650,7 +2705,7 @@ float4 main(VSOut i) : SV_Target {
   const bool raw = CompareRaw(i.uv);
 
   float3 rgb;
-  if (gNativeWidth > 0 && !raw) {
+  if (gNativeSpan > 0.0 && !raw) {
     // Deliberately ahead of the filter choice and instead of it. Resolving to
     // the console's own pixel *is* a nearest-neighbour decision -- that is the
     // point of it -- and running a smoothing filter afterwards would put back
@@ -2729,6 +2784,433 @@ float4 main(VSOut i) : SV_Target {
     return float4(SrgbToLinear(rgb) * (gPaperWhite / 80.0), 1.0);
   }
   return float4(saturate(rgb), 1.0);
+}
+)HLSL";
+
+// The snapped picture's console pixels, worked out once per frame instead of
+// once per screen pixel: one texel per console pixel and row of the
+// intermediate, column n + 1 for console pixel n (the first one may start left
+// of the picture). Five stages, picked by gGrid.x, run in the order the caller
+// gives:
+//
+//   1  rebuild each pixel from the samples around it, as SampleNativeGrid does
+//   2  PAL only: undo the decoder's averaging of each line's colour with the
+//      line above, which runs every colour a line down past its edge; and on
+//      every source, how far each pixel sits on an edge (.a)
+//   3  colour. The card does not blur a thin coloured detail evenly, it loses
+//      saturation by where the detail sits against the subcarrier: one colour
+//      comes out as many. So a coloured pixel takes the colour of the region
+//      it belongs to -- neighbours of about its brightness and hue, reached
+//      without crossing an edge -- and only as far as the region agrees on
+//      its hue
+//   4  brightness: on an edge or two pixels from a big step, three steps
+//      towards the local mode among neighbours of the same kind of colour,
+//      which evens out what the rebuild and the card's ringing left uneven
+//   5  down a vertical edge, a pixel in between the colours beside it takes
+//      the one above and below it
+//
+// The thresholds are in display referred SDR, which is what a composite source
+// arrives as.
+inline const char* kGridPS = R"HLSL(
+Texture2D<float4> texSrc : register(t0);
+
+cbuffer ScaleCB : register(b0) {
+  float2 gSrcSize;
+  float2 gDstSize;
+  int    gFilter;
+  float  gSharpen;
+  int    gTransfer;
+  int    gOutputHdr;
+  float  gPaperWhite;
+  float  gSourcePeak;
+  float  gDisplayPeak;
+  float  gScanlines;
+  int    gMask;
+  float  gMaskStrength;
+  float  gNativeSpan;
+  float  gLinePitch;
+  int    gPassthrough;
+  float  gBrightness;
+  float  gContrast;
+  float  gSaturation;
+  float  gHue;
+  int    gProcAmp;
+  float  gCompareSplit;
+  int    gCompareAxis;
+  int    gRotation;
+  float  gNativeOffset;
+  int2   gPad;
+  float4 gNativeKernel[2];
+  int4   gGrid;  // stage, console pixels across (texels), rows per picture line, 1 = PAL
+};
+
+struct VSOut {
+  float4 pos : SV_Position;
+  float2 uv  : TEXCOORD0;
+};
+
+static const float kRegionLuma = 35.0 / 255.0;  // brightness spread within a region
+static const float kSameHue = 0.819152;         // cos 35 degrees
+static const float kEdge = 50.0 / 255.0;        // a step this big on the way is an edge
+static const float kNoHue = 40.0 / 255.0;       // below this a pixel's own hue is noise
+static const float kGrey = 12.0 / 255.0;        // below this a pixel has no colour
+static const float kNeutral = 24.0 / 255.0;     // grey enough to count as grey
+static const float kModeLuma = 20.0 / 255.0;    // the mode step's window
+static const float kEdgeFrom = 30.0 / 255.0;    // a step below this is no edge
+static const float kEdgeRamp = 40.0 / 255.0;    // ... and this much more a full one
+static const float kStepNoise = 8.0 / 255.0;    // a thin line's step must beat noise
+static const float kColumn = 24.0 / 255.0;      // two pixels this close share a colour
+static const float kRing = 100.0 / 255.0;       // a step this big rings two pixels on
+
+float NativeKnot(int i) {
+  if (i >= 8) return 0.0;
+  float4 q = gNativeKernel[i >> 2];
+  int c = i & 3;
+  return c == 0 ? q.x : c == 1 ? q.y : c == 2 ? q.z : q.w;
+}
+
+float Luma(float3 c) { return dot(c, float3(0.299, 0.587, 0.114)); }
+float2 Chroma(float3 c, float y) { return float2(c.b - y, c.r - y); }
+float3 FromLumaChroma(float y, float2 c) {
+  return float3(y + c.y, y - (0.299 * c.y + 0.114 * c.x) / 0.587, y + c.x);
+}
+
+// How far the chroma can go at this brightness before a channel leaves 0..1:
+// the colour is pulled towards grey rather than clipped, which would turn it.
+float GamutRoom(float y, float2 c) {
+  float3 d = float3(c.y, -(0.299 * c.y + 0.114 * c.x) / 0.587, c.x);
+  float k = 1.0;
+  [unroll]
+  for (int i = 0; i < 3; ++i) {
+    if (d[i] > 1e-6) k = min(k, (1.0 - y) / d[i]);
+    else if (d[i] < -1e-6) k = min(k, y / -d[i]);
+  }
+  return max(k, 0.0);
+}
+
+// 0 well below the threshold, 1 well above, a blend within a quarter of it: a
+// pixel near a threshold would flip between two answers with the noise from
+// one frame to the next.
+float Above(float v, float t) { return saturate((v - 0.75 * t) / (0.5 * t)); }
+
+// How far two colours count as the same hue, around kSameHue.
+float SameHue(float2 a, float2 b, float sa, float sb) {
+  return saturate((dot(a, b) / max(sa * sb, 1e-6) - kSameHue + 0.06) / 0.12);
+}
+
+// A Gaussian window, half its width at sigma: no edge where a whole area of
+// one brightness would drop out at once.
+float Window(float v) { return exp(-2.0 * v * v); }
+
+float4 Rebuild(int n, int row) {
+  float span = gNativeSpan;
+  float x0 = gNativeOffset + (float)n * span;
+  float x1 = x0 + span;
+  int first = (int)floor(x0);
+  int maxX = (int)gSrcSize.x - 1;
+  float3 rgb;
+  if (gNativeKernel[0].x > 0.0) {
+    float centre = x0 + 0.5 * span;
+    float knot = 0.4 * span;
+    int from = (int)floor(centre - 8.0 * knot);
+    int to = (int)ceil(x1);
+    float3 acc = 0.0, lo = 1e9, hi = -1e9;
+    // Brightness two and one pixels to the left, under the pixel, one and two
+    // to the right.
+    float box[5] = {0.0, 0.0, 0.0, 0.0, 0.0}, cover[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    float total = 0.0;
+    [loop]
+    for (int t = 0; t < 48; ++t) {
+      int xs = from + t;
+      float u = abs((float)xs + 0.5 - centre) / knot;
+      if (u >= 8.0) {
+        if ((float)xs > centre) break;
+        continue;
+      }
+      int ki = (int)u;
+      float g = lerp(NativeKnot(ki), NativeKnot(ki + 1), u - (float)ki);
+      float3 s = texSrc.Load(int3(clamp(xs, 0, maxX), row, 0)).rgb;
+      acc += s * g;
+      total += g;
+      if (xs >= first - 1 && xs <= to) {
+        lo = min(lo, s);
+        hi = max(hi, s);
+      }
+      float sy = Luma(s);
+      [unroll]
+      for (int b = 0; b < 5; ++b) {
+        float at = x0 + (float)(b - 2) * span;
+        float cv = saturate(min((float)xs + 1.0, at + span) - max((float)xs, at));
+        box[b] += cv * sy;
+        cover[b] += cv;
+      }
+    }
+    float3 free = acc / max(total, 1e-4);
+    rgb = clamp(free, lo, hi);
+    // A line one or two pixels thin, darker or lighter than both sides: the
+    // card's blur pulls it towards them, so not even its own samples reach its
+    // brightness. That may go past them, by at most the step to the sides
+    // (the pull of a blur that takes no more than half); the colour stays
+    // the samples' and has to fit the new brightness. A pixel on the slope
+    // beside such a line is none: what it lies above its darker (below its
+    // lighter) neighbour comes off.
+    float m[5];
+    [unroll]
+    for (int b = 0; b < 5; ++b) m[b] = box[b] / max(cover[b], 1e-4);
+    float y = Luma(rgb), yFree = Luma(free), yNew = y;
+    float dark = min(max(m[0], m[1]), max(m[3], m[4])) - m[2] -
+                 max(m[2] - min(m[1], m[3]), 0.0);
+    float light = m[2] - max(min(m[0], m[1]), min(m[3], m[4])) -
+                  max(max(m[1], m[3]) - m[2], 0.0);
+    float kd = Above(dark, kStepNoise), kl = Above(light, kStepNoise) * (1.0 - kd);
+    if (kd > 0.0) yNew = lerp(yNew, min(y, max(yFree, max(m[2] - dark, 0.0))), kd);
+    if (kl > 0.0) yNew = lerp(yNew, max(y, min(yFree, min(m[2] + light, 1.0))), kl);
+    if (yNew != y) {
+      float2 c = Chroma(rgb, y);
+      rgb = FromLumaChroma(yNew, c * GamutRoom(yNew, c));
+    }
+  } else {
+    float3 sum = 0.0;
+    float weight = 0.0;
+    [loop]
+    for (int k = 0; k < 16; ++k) {
+      int x = first + k;
+      if ((float)x >= x1) break;
+      float cover = min((float)x + 1.0, x1) - max((float)x, x0);
+      if (cover <= 0.0) continue;
+      sum += texSrc.Load(int3(clamp(x, 0, maxX), row, 0)).rgb * cover;
+      weight += cover;
+    }
+    rgb = sum / max(weight, 1e-4);
+  }
+  return float4(rgb, Luma(rgb));
+}
+
+// The console pixel dx across and dy picture lines down, edges repeated.
+float4 Block(int bx, int row, int dx, int dy) {
+  int2 p = int2(clamp(bx + dx, 0, gGrid.y - 1),
+                clamp(row + dy * gGrid.z, 0, (int)gSrcSize.y - 1));
+  return texSrc.Load(int3(p, 0));
+}
+
+// Its brightness: after the first two stages .a holds how far it sits on an
+// edge (NearEdge), and every stage keeps the brightness of its colour.
+float BlockY(int bx, int row, int dx, int dy) { return Luma(Block(bx, row, dx, dy).rgb); }
+
+int RoundAway(float v) { return (int)(sign(v) * floor(abs(v) + 0.5)); }
+
+// How free the way from this pixel to the neighbour is, 1 when every pixel on
+// the straight line to it is about as bright as this one, and where the line
+// steps diagonally one of the two pixels beside the step is too -- an outline
+// drawn pixel to pixel across the corner is closed.
+float PathOpen(int bx, int row, int dx, int dy, float y) {
+  int m = max(abs(dx), abs(dy));
+  int2 prev = 0;
+  float open = 1.0;
+  [loop]
+  for (int t = 1; t <= m && open > 0.0; ++t) {
+    float f = (float)t / (float)m;
+    int2 cur = int2(RoundAway(dx * f), RoundAway(dy * f));
+    if (t < m) open = min(open, 1.0 - Above(abs(BlockY(bx, row, cur.x, cur.y) - y), kEdge));
+    if (cur.x != prev.x && cur.y != prev.y)
+      open = min(open, 1.0 - min(Above(abs(BlockY(bx, row, cur.x, prev.y) - y), kEdge),
+                                 Above(abs(BlockY(bx, row, prev.x, cur.y) - y), kEdge)));
+    prev = cur;
+  }
+  return open;
+}
+
+// How far this pixel sits on a brightness edge, 0 inside a flat area to 1. The
+// card loses colour and brightness on thin detail; inside an area it measures
+// both right, and evening them out there only takes detail away.
+float NearEdge(int bx, int row, float y) {
+  float step = 0.0;
+  [unroll]
+  for (int k = 0; k < 9; ++k) {
+    if (k == 4) continue;
+    step = max(step, abs(BlockY(bx, row, k % 3 - 1, k / 3 - 1) - y));
+  }
+  return saturate((step - kEdgeFrom) / kEdgeRamp);
+}
+
+// The card's PAL decoder averages each line's colour with the line above, half
+// and half. Lines of one brightness region share one colour, so: a line whose
+// region goes on upwards is clean; one that starts a region going on for
+// another two lines reads its colour off the next line; a one line region
+// solves it from the two below -- unless one of them sits at the edge of the
+// gamut, where the eight bit picture before this has clipped its colour.
+float4 PalLines(int bx, int row) {
+  float4 l[5];
+  [unroll]
+  for (int k = 0; k < 5; ++k) l[k] = Block(bx, row, 0, k - 1);
+  float y = l[1].a;
+  float up = 1.0 - Above(abs(l[0].a - y), kRegionLuma);
+  if (up >= 1.0) return l[1];
+  float on1 = 1.0 - Above(abs(l[2].a - l[3].a), kRegionLuma);
+  float next = on1 * (1.0 - Above(abs(l[2].a - y), kRegionLuma));
+  float3 lo = min(l[2].rgb, l[3].rgb), hi = 1.0 - max(l[2].rgb, l[3].rgb);
+  float solve = on1 * (1.0 - Above(abs(l[3].a - l[4].a), kRegionLuma)) *
+                Above(min(min(min(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z)), 4.0 / 255.0);
+  float2 own = Chroma(l[1].rgb, y), c2 = Chroma(l[2].rgb, l[2].a);
+  float2 c = lerp(lerp(own, 2.0 * c2 - Chroma(l[3].rgb, l[3].a), solve), c2, next);
+  c = lerp(c, own, up);
+  c *= GamutRoom(y, c);
+  return float4(FromLumaChroma(y, c), y);
+}
+
+// The colour of the pixel's region: pixels about as bright, with a free way
+// to them and the same hue, or no colour at all. Inside an area the card
+// measures colour right, so where the region has inside pixels they decide.
+// Where it is edge all through it is a thin line: one lighter than its
+// surroundings loses colour to them, and its most colourful pixels are nearest
+// the truth; one darker takes on theirs, and its palest are. The blur also
+// pulls a thin line's brightness towards its surroundings, so its region
+// reaches twice as far the other way.
+float4 Region(int bx, int row) {
+  float4 c = Block(bx, row, 0, 0);
+  float edge = c.a;
+  float y = Luma(c.rgb);
+  float2 ch = Chroma(c.rgb, y);
+  float sat = length(ch);
+  float coloured = Above(sat, kGrey);
+  if (coloured <= 0.0) return c;
+  float around = 0.0;
+  [unroll]
+  for (int k = 0; k < 9; ++k) around += BlockY(bx, row, k % 3 - 1, k / 3 - 1);
+  // How far it is a dark line rather than a light one; a pixel as bright as
+  // its surroundings takes both halves.
+  float dark = saturate(0.5 + (around / 9.0 - y) / kRegionLuma);
+  float hueSure = Above(sat, kNoHue);
+  float2 inner = 0.0, thinD = 0.0, thinL = 0.0, hue = 0.0;
+  float innerW = 0.0, thinDW = 0.0, thinLW = 0.0, hueW = 0.0;
+  [loop]
+  for (int dy = -3; dy <= 3; ++dy) {
+    [loop]
+    for (int dx = -4; dx <= 4; ++dx) {
+      float4 j = Block(bx, row, dx, dy);
+      float yj = Luma(j.rgb);
+      float2 cj = Chroma(j.rgb, yj);
+      float sj = length(cj);
+      float colJ = Above(sj, kGrey);
+      float fit = 1.0 - colJ * hueSure * (1.0 - SameHue(cj, ch, sj, sat));
+      float d = (yj - y) / kRegionLuma;
+      float wd = Window(yj < y ? 0.5 * d : d), wl = Window(yj < y ? d : 0.5 * d);
+      if (fit <= 0.0 || wd + wl < 1e-3) continue;
+      fit *= PathOpen(bx, row, dx, dy, y);
+      if (fit <= 0.0) continue;
+      float w = Window(d) * fit;
+      float s2 = sj * sj, g2 = kGrey * kGrey, a = j.a * fit;
+      wd *= a / ((s2 + g2) * (s2 + g2));
+      wl *= a * s2 * s2;
+      float wi = w * (1.0 - j.a);
+      inner += wi * cj;
+      innerW += wi;
+      thinD += wd * cj;
+      thinDW += wd;
+      thinL += wl * cj;
+      thinLW += wl;
+      hue += w * colJ * cj;
+      hueW += w * colJ * sj;
+    }
+  }
+  float2 thin = lerp(thinL / max(thinLW, 1e-12), thinD / max(thinDW, 1e-12), dark);
+  float2 o = lerp(thin, inner / max(innerW, 1e-12), saturate(2.0 * innerW));
+  // 1 = every hue in the region agrees.
+  float agree = hueW > 0.0 ? length(hue) / hueW : 1.0;
+  float2 co = lerp(ch, o, saturate((agree - 0.85) / 0.1) * coloured);
+  co *= GamutRoom(y, co);
+  return float4(FromLumaChroma(y, co), edge);
+}
+
+float4 Mode(int bx, int row) {
+  float4 c = Block(bx, row, 0, 0);
+  float y0 = Luma(c.rgb);
+  // The card's filter rings along the line beside a big step: the pixel two
+  // away still overshoots, though NearEdge sees it inside a flat area.
+  float near = max(c.a, Above(max(abs(BlockY(bx, row, -2, 0) - y0),
+                                  abs(BlockY(bx, row, 2, 0) - y0)), kRing));
+  if (near <= 0.0) return c;
+  float2 co = Chroma(c.rgb, y0);
+  float so = length(co);
+  float yj[15];
+  float ok[15];
+  [unroll]
+  for (int k = 0; k < 15; ++k) {
+    int dx = k % 5 - 2, dy = k / 5 - 1;
+    float4 j = Block(bx, row, dx, dy);
+    yj[k] = Luma(j.rgb);
+    float2 cj = Chroma(j.rgb, yj[k]);
+    float sj = length(cj);
+    float both = Above(sj, kGrey) * Above(so, kGrey);
+    float same = both * SameHue(cj, co, sj, so) +
+                 (1.0 - both) * (1.0 - Above(sj, kNeutral)) * (1.0 - Above(so, kNeutral));
+    ok[k] = same > 0.0 ? same * PathOpen(bx, row, dx, dy, y0) : 0.0;
+  }
+  float y = y0;
+  [unroll]
+  for (int it = 0; it < 3; ++it) {
+    float nu = 0.0, de = 0.0;
+    [unroll]
+    for (int k = 0; k < 15; ++k) {
+      float d = (yj[k] - y) / kModeLuma;
+      float w = ok[k] * exp(-0.5 * d * d);
+      nu += w * yj[k];
+      de += w;
+    }
+    y = nu / max(de, 1e-12);
+  }
+  y = lerp(y0, y, near);
+  co *= GamutRoom(y, co);
+  return float4(FromLumaChroma(y, co), c.a);
+}
+
+// A pixel whose neighbours above and below agree on a colour, while it sits in
+// between that colour and the one beside it: the card smears colour across a
+// vertical edge on some lines and not on others, and pixel art has no such
+// in-between down a straight edge. A colour that another neighbour shares is
+// the picture's own and stays.
+float4 Column(int bx, int row) {
+  float4 c = Block(bx, row, 0, 0);
+  float3 t = 0.5 * (Block(bx, row, 0, -1).rgb + Block(bx, row, 0, 1).rgb);
+  float k = 1.0 - Above(length(Block(bx, row, 0, -1).rgb - Block(bx, row, 0, 1).rgb), kColumn);
+  if (k <= 0.0) return c;
+  float between = 0.0;
+  [unroll]
+  for (int s = -1; s <= 1; s += 2) {
+    float3 e = Block(bx, row, s, 0).rgb - t;
+    float el = length(e);
+    float a = dot(c.rgb - t, e) / max(el * el, 1e-6);
+    float off = length(c.rgb - t - a * e);
+    // Nearer the colour beside it than the one above and below, it may be
+    // that colour's own pixel: the closer, the less it moves.
+    between = max(between, Above(el, kEdge) * saturate((a - 0.08) / 0.12) *
+                               saturate((0.8 - a) / 0.3) * (1.0 - Above(off, 0.3 * el)));
+  }
+  k *= between;
+  if (k <= 0.0) return c;
+  [unroll]
+  for (int n = 0; n < 9; ++n) {
+    if (n == 4) continue;
+    k *= Above(length(Block(bx, row, n % 3 - 1, n / 3 - 1).rgb - c.rgb), kColumn);
+  }
+  float3 rgb = lerp(c.rgb, t, k);
+  return float4(rgb, Luma(rgb));
+}
+
+float4 main(VSOut i) : SV_Target {
+  int bx = (int)i.pos.x;
+  int row = (int)i.pos.y;
+  if (gGrid.x == 1) return Rebuild(bx - 1, row);
+  if (gGrid.x == 2) {
+    // The card's delay line holds the line above in the same field: the
+    // console's line above where each one fills two rows, and in an
+    // interlaced picture a row the other field drew -- left be there.
+    float4 c = gGrid.w == 1 && gGrid.z >= 2 ? PalLines(bx, row) : Block(bx, row, 0, 0);
+    return float4(c.rgb, NearEdge(bx, row, Luma(c.rgb)));
+  }
+  if (gGrid.x == 3) return Region(bx, row);
+  if (gGrid.x == 4) return Mode(bx, row);
+  return Column(bx, row);
 }
 )HLSL";
 

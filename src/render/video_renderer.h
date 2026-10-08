@@ -608,6 +608,7 @@ class VideoRenderer {
   void AnalyzeLevels(const FrameView& frame);
   void AnalyzeInterlace(const FrameView& frame);
   void AnalyzeContentBounds(const FrameView& frame);
+  void AnalyzePixelGrid(const FrameView& frame);
   void AnalyzeSignal(const FrameView& frame);
   void AnalyzeChroma(const FrameView& frame);
   void SampleCrawl(const FrameView& frame);
@@ -771,6 +772,20 @@ class VideoRenderer {
   std::vector<int> columnHits_;    // scratch, sized once per format
   std::vector<uint8_t> rowLit_;    // one entry per scanned line, likewise
   std::vector<uint8_t> colLit_;
+
+  // The console's pixel grid, for snapping. Draw says how many pixels across
+  // were asked for; AnalyzePixelGrid finds where they actually sit.
+  int gridWanted_ = 0;           // "Source width" with snapping on, else 0
+  int gridFramesSeen_ = 0;
+  int gridLooks_ = 0;            // frames summed into gridEnergy_
+  std::vector<float> gridEnergy_;
+  double gridPeriod_ = 0.0;      // source samples per console pixel, 0 = not found
+  double gridOffset_ = 0.0;      // where a console pixel starts, in source texels
+  bool gridSearchWide_ = true;   // last look found nothing: search the whole range
+  // The reconstruction weights for that grid (GridKernel) and what they were
+  // worked out for: period, blur, carrier, demodulator window.
+  float gridKernel_[8] = {};
+  double gridKernelFor_[4] = {};
 };
 
 }  // namespace cap

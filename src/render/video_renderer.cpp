@@ -305,7 +305,7 @@ bool VideoRenderer::RenderDelivery(bool half) {
   sc.scanlines = 0.0f;
   sc.mask = 0;
   sc.maskStrength = 0.0f;
-  sc.nativeWidth = 0;
+  sc.nativeSpan = 0.0f;
   sc.linePitch = 0.0f;
   sc.transfer = (int32_t)hdrTransfer_;
   sc.outputHdr = 0;   // this copy is for things that are not a screen
@@ -581,6 +581,12 @@ void VideoRenderer::ResetAnalysis() {
   boundsValid_ = false;
   accAny_ = false;
   boundsFramesSeen_ = 0;
+
+  gridFramesSeen_ = 0;
+  gridLooks_ = 0;
+  gridEnergy_.clear();
+  gridPeriod_ = 0.0;
+  gridSearchWide_ = true;
 
   signalVerdict_ = SignalVerdict::Unknown;
   signalFramesSeen_ = 0;
@@ -1216,6 +1222,289 @@ void VideoRenderer::AnalyzeContentBounds(const FrameView& frame) {
   }
 }
 
+// ---------------------------------------------------------------- pixel grid
+//
+// Where the console's pixels sit on the card's samples. "Source width" says how
+// many there are, not where: a console draws its 256 or 320 pixels across about
+// 47.5 us of the line, the card samples about 53, and the console's dot clock
+// is its own -- a PAL SNES lands on 864/341 = 2.534 samples per pixel, 650
+// samples from 24 on, where "256 across 720" would put 2.81 from 0 and be a
+// whole pixel off every nine.
+//
+// Every pixel boundary is a possible edge, so the summed horizontal steps of the
+// picture repeat with the pixel pitch. The strongest repeat within the range
+// the setting allows gives the pitch, its phase the boundaries. Sprites move by
+// whole pixels, so motion only adds evidence. Cheap enough after Present: a
+// quarter of the lines every fifth frame, and the frequency search once in
+// fifty frames, narrow once a grid has been found.
+static const int kGridSampleEvery = 5;
+static const int kGridLooks = 10;
+// Strongest repeat over its noise; a picture without a grid reaches about 2.
+static const double kGridConfidence = 4.0;
+
+void VideoRenderer::AnalyzePixelGrid(const FrameView& frame) {
+  if (gridWanted_ <= 0 || !boundsValid_) return;
+  if (++gridFramesSeen_ % kGridSampleEvery != 0) return;
+
+  const int w = source_.width;
+  const int h = source_.height;
+  size_t offset = 0, step = 1;
+  if (!LumaLayout(&offset, &step)) return;
+  const size_t pitch = (size_t)w * step;
+  if (pitch * (size_t)h > frame.size) return;
+  const int x0 = boundsL_, x1 = boundsR_;
+  if (x1 - x0 < 64) return;
+  if ((int)gridEnergy_.size() != w) gridEnergy_.assign((size_t)w, 0.0f);
+
+  // gridEnergy_[x] is the step between samples x-1 and x, which sits on the
+  // texel boundary x.
+  for (int y = boundsT_; y <= boundsB_; y += 4) {
+    const int row = source_.bottomUp ? h - 1 - y : y;
+    const uint8_t* p = frame.data + offset + (size_t)row * pitch;
+    int prev = p[(size_t)x0 * step];
+    for (int x = x0 + 1; x <= x1; ++x) {
+      const int v = p[(size_t)x * step];
+      gridEnergy_[(size_t)x] += (float)std::abs(v - prev);
+      prev = v;
+    }
+  }
+  if (++gridLooks_ < kGridLooks) return;
+
+  // The picture's own edges are one step from black, not a grid.
+  const int a = x0 + 4, b = x1 - 3;
+  const int n = b - a + 1;
+  double mean = 0.0;
+  for (int x = a; x <= b; ++x) mean += gridEnergy_[(size_t)x];
+  mean /= n;
+  double noise = 0.0;
+  for (int x = a; x <= b; ++x) {
+    const double d = gridEnergy_[(size_t)x] - mean;
+    noise += d * d;
+  }
+  // Half of it stays for the next evaluation, so a scene change is outvoted
+  // within a few.
+  gridLooks_ = kGridLooks / 2;
+  if (noise <= 0.0) {
+    for (float& e : gridEnergy_) e *= 0.5f;
+    return;
+  }
+
+  constexpr double kTwoPi = 6.283185307179586;
+  auto fit = [&](double f, double* re, double* im) {
+    const double dc = std::cos(kTwoPi * f), ds = -std::sin(kTwoPi * f);
+    double c = std::cos(kTwoPi * f * a), s = -std::sin(kTwoPi * f * a);
+    double sr = 0.0, si = 0.0;
+    for (int x = a; x <= b; ++x) {
+      const double e = gridEnergy_[(size_t)x] - mean;
+      sr += e * c;
+      si += e * s;
+      const double t = c * dc - s * ds;
+      s = c * ds + s * dc;
+      c = t;
+    }
+    *re = sr;
+    *im = si;
+    return sr * sr + si * si;
+  };
+
+  // The setting's count across at most the whole line and at least three
+  // quarters of it, the latter being far narrower than any console draws.
+  double lo = (double)gridWanted_ / (double)w;
+  double hi = (double)gridWanted_ / (0.75 * (double)w);
+  if (gridPeriod_ > 0.0 && !gridSearchWide_) {
+    lo = std::max(lo, 0.985 / gridPeriod_);
+    hi = std::min(hi, 1.015 / gridPeriod_);
+  }
+  hi = std::min(hi, 0.49);  // past Nyquist there is nothing left to find
+  if (hi <= lo) {
+    for (float& e : gridEnergy_) e *= 0.5f;
+    return;
+  }
+  const double df = 1.0 / (8.0 * n);
+  double best = -1.0, bestF = lo, re = 0.0, im = 0.0;
+  for (double f = lo; f <= hi; f += df) {
+    const double m = fit(f, &re, &im);
+    if (m > best) { best = m; bestF = f; }
+  }
+  // Narrow it down: the peak is one lobe about 1/n wide.
+  double l = bestF - df, r = bestF + df;
+  for (int i = 0; i < 24; ++i) {
+    const double m1 = l + (r - l) / 3.0, m2 = r - (r - l) / 3.0;
+    if (fit(m1, &re, &im) < fit(m2, &re, &im)) l = m1; else r = m2;
+  }
+  const double f = 0.5 * (l + r);
+  const double strength = std::sqrt(fit(f, &re, &im) / noise);
+  for (float& e : gridEnergy_) e *= 0.5f;
+  if (strength < kGridConfidence) {
+    // Keep the grid in use, but look across the whole range again next time.
+    if (gridPeriod_ > 0.0 && !gridSearchWide_) {
+      CAP_LOG("Pixel grid: unclear (strength %.1f), searching the whole range", strength);
+    }
+    gridSearchWide_ = true;
+    return;
+  }
+  const double period = 1.0 / f;
+  double off = std::fmod(-std::atan2(im, re) / kTwoPi * period, period);
+  if (off < 0.0) off += period;
+  const bool moved = gridPeriod_ <= 0.0 || std::abs(period - gridPeriod_) > 0.002 ||
+                     std::abs(off - gridOffset_) > 0.15;
+  gridPeriod_ = period;
+  gridOffset_ = off;
+  gridSearchWide_ = false;
+  if (moved) {
+    CAP_LOG("Pixel grid: %.4f samples per pixel, from %.2f, %.1f pixels in %d..%d (strength %.1f)",
+            period, off, (x1 - x0 + 1) / period, x0, x1, strength);
+  }
+}
+
+// ---------------------------------------------------------------- grid kernel
+//
+// The weights SampleNativeGrid rebuilds a console pixel with from an analogue
+// source. The model: the console drew flat pixels `period` samples wide, the
+// card blurred them with a Gaussian of `sigma` samples, and the dot
+// demodulator, when on, took its band out of the luma -- DotDemodDelta's own
+// window, which is linear and the same at every position. The least squares
+// values of a pixel and four neighbours either side, with a little smoothness
+// against noise, are then a weighting of the samples around it. That weighting
+// depends on where the pixel starts between two samples, but over sixteen such
+// starts it is one curve of the distance from the pixel's centre to within a
+// hundredth -- one level of picture, measured on a PAL SNES. Eight knots of that
+// curve, 0.4 pixel apart, are what the shader gets.
+//
+// The card's blur, at 720 samples a line: fitted on a PAL SNES to the raw frames
+// directly and again, through the demodulator, to the app's own output; both
+// land on 0.7. Through a demodulator at 0.945 the luma comes out as wide as a
+// Gaussian of 1.3, which is what the plain average had to live with.
+static const double kCardBlur = 0.7;
+
+namespace {
+
+// m x = b for a small dense system, m row major; b becomes x.
+bool SolveSmall(double* m, double* b, int n) {
+  for (int c = 0; c < n; ++c) {
+    int p = c;
+    for (int r = c + 1; r < n; ++r) {
+      if (std::abs(m[r * n + c]) > std::abs(m[p * n + c])) p = r;
+    }
+    if (std::abs(m[p * n + c]) < 1e-12) return false;
+    if (p != c) {
+      for (int k = 0; k < n; ++k) std::swap(m[c * n + k], m[p * n + k]);
+      std::swap(b[c], b[p]);
+    }
+    for (int r = c + 1; r < n; ++r) {
+      const double f = m[r * n + c] / m[c * n + c];
+      for (int k = c; k < n; ++k) m[r * n + k] -= f * m[c * n + k];
+      b[r] -= f * b[c];
+    }
+  }
+  for (int c = n - 1; c >= 0; --c) {
+    double s = b[c];
+    for (int k = c + 1; k < n; ++k) s -= m[c * n + k] * b[k];
+    b[c] = s / m[c * n + c];
+  }
+  return true;
+}
+
+void GridKernel(double period, double sigma, double carrier, double notch, float out[8]) {
+  constexpr int kSide = 4, kN = 2 * kSide + 1, kKnots = 8, kStarts = 16;
+  constexpr double kPi = 3.141592653589793;
+  constexpr double kSmooth = 0.05;
+  std::fill(out, out + kKnots, 0.0f);
+
+  // The demodulator as DotDemodDelta runs it: the line, less its carrier band
+  // measured around the local mean.
+  double demod[25] = {};
+  int r = 0;
+  if (notch > 0.0) {
+    r = std::clamp((int)std::floor((8.2 - notch * 5.9) * carrier * 0.5 + 0.5), 2, 12);
+    const double w = 2.0 * kPi / std::max(carrier, 1.5);
+    double hann[25] = {}, norm = 0.0, mean = 0.0;
+    for (int k = -r; k <= r; ++k) {
+      hann[k + 12] = 0.5 + 0.5 * std::cos(kPi * k / (r + 1));
+      norm += hann[k + 12];
+      mean += hann[k + 12] * std::cos(w * k);
+    }
+    for (int k = -r; k <= r; ++k) {
+      demod[k + 12] = -2.0 / norm * hann[k + 12] * (std::cos(w * k) - mean / norm);
+    }
+  }
+  demod[12] += 1.0;
+
+  const double knot = 0.4 * period;
+  const double s2 = std::sqrt(2.0) * sigma;
+  double nn[kKnots * kKnots] = {}, nb[kKnots] = {};
+  std::vector<double> blur, a, wt;
+  for (int st = 0; st < kStarts; ++st) {
+    const double x0 = (double)st / kStarts;
+    const double centre = x0 + 0.5 * period;
+    const int first = (int)std::floor(centre - kKnots * knot);
+    const int taps = (int)std::ceil(centre + kKnots * knot) - first + 1;
+    const int span = taps + 2 * r;
+    // Each pixel blurred by the card at every sample the demodulator reaches,
+    // then through the demodulator: one column per unknown pixel.
+    blur.assign((size_t)span * kN, 0.0);
+    for (int e = 0; e < span; ++e) {
+      const double c = first - r + e + 0.5;
+      for (int j = 0; j < kN; ++j) {
+        const double lo = x0 + (j - kSide) * period;
+        blur[(size_t)e * kN + j] =
+            0.5 * (std::erf((lo + period - c) / s2) - std::erf((lo - c) / s2));
+      }
+    }
+    a.assign((size_t)taps * kN, 0.0);
+    for (int t = 0; t < taps; ++t) {
+      for (int k = -r; k <= r; ++k) {
+        const double d = demod[k + 12];
+        for (int j = 0; j < kN; ++j) a[(size_t)t * kN + j] += d * blur[(size_t)(t + r + k) * kN + j];
+      }
+    }
+    // (A'A + smoothness) z = the middle pixel; its weights are then A z.
+    double m[kN * kN] = {}, z[kN] = {};
+    for (int i = 0; i < kN; ++i) {
+      for (int j = 0; j < kN; ++j) {
+        double s = 0.0;
+        for (int t = 0; t < taps; ++t) s += a[(size_t)t * kN + i] * a[(size_t)t * kN + j];
+        m[i * kN + j] = s;
+      }
+    }
+    for (int i = 0; i + 1 < kN; ++i) {
+      m[i * kN + i] += kSmooth;
+      m[(i + 1) * kN + i + 1] += kSmooth;
+      m[i * kN + i + 1] -= kSmooth;
+      m[(i + 1) * kN + i] -= kSmooth;
+    }
+    z[kSide] = 1.0;
+    if (!SolveSmall(m, z, kN)) return;
+    wt.assign((size_t)taps, 0.0);
+    double sum = 0.0;
+    for (int t = 0; t < taps; ++t) {
+      for (int j = 0; j < kN; ++j) wt[(size_t)t] += a[(size_t)t * kN + j] * z[j];
+      sum += wt[(size_t)t];
+    }
+    if (std::abs(sum) < 1e-9) return;
+    // Into the curve: linear between knots, zero from the eighth on.
+    for (int t = 0; t < taps; ++t) {
+      const double u = std::abs(first + t + 0.5 - centre) / knot;
+      if (u >= kKnots) continue;
+      const int i = (int)u;
+      const double hi = u - i, lo = 1.0 - hi, w = wt[(size_t)t] / sum;
+      nn[i * kKnots + i] += lo * lo;
+      nb[i] += lo * w;
+      if (i + 1 < kKnots) {
+        nn[(i + 1) * kKnots + i + 1] += hi * hi;
+        nn[i * kKnots + i + 1] += lo * hi;
+        nn[(i + 1) * kKnots + i] += lo * hi;
+        nb[i + 1] += hi * w;
+      }
+    }
+  }
+  for (int i = 0; i < kKnots; ++i) nn[i * kKnots + i] += 1e-9;
+  if (!SolveSmall(nn, nb, kKnots) || nb[0] <= 0.0) return;
+  for (int i = 0; i < kKnots; ++i) out[i] = (float)nb[i];
+}
+
+}  // namespace
+
 // ---------------------------------------------------------------- signal
 //
 // A sparse grid of luma samples, compared against itself and against the same
@@ -1788,6 +2077,7 @@ void VideoRenderer::AnalyzeAfterPresent() {
     AnalyzeLevels(analysisFrame_);
     AnalyzeInterlace(analysisFrame_);
     AnalyzeContentBounds(analysisFrame_);
+    AnalyzePixelGrid(analysisFrame_);
     AnalyzeSignal(analysisFrame_);
     AnalyzeChroma(analysisFrame_);
   }
@@ -2664,6 +2954,7 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
   // und zeitlich versetzt. Solange die Messung noch laeuft, gilt eins.
   cb.motionRows = interlaced ? 2 : 1;
   cb.chromaLinear = analogueSource_ ? 0 : 1;
+  cb.chromaRestore = analogueSource_ ? 1 : 0;
   // The crawl remover, for analogue sources whose crawl was measured to repeat
   // every 2 or 4 frames. Its fits know those two rhythms; on any other (a
   // 3-frame cycle, SECAM, a drifting carrier) it stays off and the averaging
@@ -2750,10 +3041,51 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
   sc.maskStrength = Clamp(image.maskStrength, 0.0f, 1.0f);
   // Only meaningful when it is actually below what the card delivers; asking to
   // "recover" a grid wider than the samples there are would invent detail.
-  // Without snapping the number only shapes the picture (TargetAspect).
-  sc.nativeWidth = image.nativeSnap && image.nativeWidth > 0 && image.nativeWidth < srcW
-                       ? (int32_t)Clamp(image.nativeWidth, 64, 4096)
-                       : 0;
+  // Without snapping the number only shapes the picture (TargetAspect). Where
+  // the grid sits is measured (AnalyzePixelGrid); until then nothing snaps.
+  const int wanted = image.nativeSnap && image.nativeWidth > 0 && image.nativeWidth < srcW
+                         ? Clamp(image.nativeWidth, 64, 4096)
+                         : 0;
+  if (wanted != gridWanted_) {
+    gridWanted_ = wanted;
+    gridLooks_ = 0;
+    gridEnergy_.clear();
+    gridPeriod_ = 0.0;
+    gridSearchWide_ = true;
+  }
+  sc.nativeSpan = 0.0f;
+  sc.nativeOffset = 0.0f;
+  if (wanted > 0 && gridPeriod_ > 0.0 && !quarterTurn) {
+    // Into the cropped, possibly half-turned intermediate.
+    double off = gridOffset_ - cropL;
+    if (image.rotation == Rotation::Half) off = (double)croppedWidth_ - off;
+    off = std::fmod(off, gridPeriod_);
+    if (off < 0.0) off += gridPeriod_;
+    sc.nativeSpan = (float)gridPeriod_;
+    sc.nativeOffset = (float)off;
+    // Rebuilt rather than averaged where the blur is known, which takes an
+    // analogue source. Worked out again only when the grid moves by more than
+    // its own measuring noise, or the demodulator's window changes.
+    if (analogueSource_) {
+      const double key[4] = {gridPeriod_, kCardBlur * srcW / 720.0, cb.carrierPeriod,
+                             cb.dotNotch > 0.0f ? cb.dotNotch : 0.0};
+      if (std::abs(key[0] - gridKernelFor_[0]) > 0.01 || key[1] != gridKernelFor_[1] ||
+          key[2] != gridKernelFor_[2] || key[3] != gridKernelFor_[3]) {
+        GridKernel(key[0], key[1], key[2], key[3], gridKernel_);
+        std::copy(key, key + 4, gridKernelFor_);
+        CAP_LOG("Pixel grid: rebuild weights %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f",
+                gridKernel_[0], gridKernel_[1], gridKernel_[2], gridKernel_[3], gridKernel_[4],
+                gridKernel_[5], gridKernel_[6], gridKernel_[7]);
+      }
+      std::copy(gridKernel_, gridKernel_ + 8, sc.nativeKernel);
+    }
+  }
+  // Sharpening stands down on a snapped picture. Its neighbours are the
+  // samples a texel away, not the console's pixels, so on a block seven screen
+  // pixels wide it draws the sub-pixel edges back in that the snap took out --
+  // an outline comes out doubled. On an analogue source the rebuild above is
+  // what sharpening means on a grid.
+  if (sc.nativeSpan > 0.0f) sc.sharpen = 0.0f;
 
   // How many rows of the intermediate make up one line the console drew.
   // Doubling and co-sited fields each put two rows where the signal has one;
@@ -2805,8 +3137,19 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
   sc.compareAxis = compareAxis_;
   sc.rotation = rotation_;
 
+  // The console pixels once per frame, cleaned up across neighbours of the
+  // same colour, for both the window and the files. Mode runs twice: before
+  // Region it takes out the card's overshoot behind a big step, after it the
+  // mixed pixels Region left at the outlines.
+  if (analogueSource_ && sc.nativeSpan > 0.0f && !turned && hdrTransfer_ == Transfer::Sdr) {
+    static const int kStages[] = {1, 2, 4, 3, 4, 5};
+    // The PAL line averaging is undone where the carrier is PAL's 4.43 MHz.
+    sc.grid[3] = carrierSamples_ < 3.4 ? 1 : 0;
+    passes_->RebuildGrid(sc, std::max(1, (int)std::lround(pitch)), kStages,
+                         (int)std::size(kStages));
+    sc.grid[3] = 0;
+  }
   passes_->ScaleToScreen(sc, videoRect_.left, videoRect_.top, dstW, dstH);
 }
 
 }  // namespace cap
-  cb.chromaRestore = analogueSource_ ? 1 : 0;

@@ -174,7 +174,7 @@ struct ScaleParams {
 
   int32_t mask;        // 0 off, 1 aperture grille, 2 shadow mask
   float maskStrength;  // 0..1
-  int32_t nativeWidth; // pixels the source really has across, 0 = leave alone
+  float nativeSpan;    // texels per console pixel, 0 = leave alone
   float linePitch;     // output rows per real picture line; 0 disables scanlines
 
   int32_t passthrough; // resample only: no display effects, no transfer, no clamp
@@ -188,6 +188,14 @@ struct ScaleParams {
   int32_t compareAxis;
 
   int32_t rotation;    // to find the divider's axis again after the quarter turns
+  float nativeOffset;  // texel where a console pixel starts
+  int32_t pad[2];
+  // Weights for rebuilding a console pixel from the samples around it, by
+  // distance from its centre in steps of 0.4 pixel; all zero = plain average.
+  float nativeKernel[8];
+  // The backend's own (kGridPS): stage, console pixels across, rows per picture
+  // line. Left at zero by the caller.
+  int32_t grid[4];
 };
 
 class RenderPasses {
@@ -270,6 +278,13 @@ class RenderPasses {
   // picks the linear light target, which the PQ recording and the wide
   // screenshot read; the other one is an ordinary eight bit picture.
   virtual bool Deliver(bool half, int width, int height, const ScaleParams& params) = 0;
+
+  // The snapped picture's console pixels, worked out once from the
+  // intermediate (kGridPS), for the scale and deliver passes after it that snap
+  // to the same grid. `stages` are kGridPS's, run in this order, the first one
+  // 1 (the rebuild). Lasts until the next CleanAndConvert.
+  virtual void RebuildGrid(const ScaleParams& params, int rowsPerLine, const int* stages,
+                           int count) = 0;
 
   // ui-composite: a layer of its own for the interface to draw into, and the
   // step that brings it back over the picture. Only used while the output is

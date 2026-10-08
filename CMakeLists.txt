@@ -209,6 +209,7 @@ set(qblank_shaders
   rem_dec_ps:ps_6_0:kRemDecPS:kSpirvRemDec:ps_5_0
   rem_res_ps:ps_6_0:kRemResPS:kSpirvRemRes:ps_5_0
   rem_comb_ps:ps_6_0:kRemCombPS:kSpirvRemComb:ps_5_0
+  grid_ps:ps_6_0:kGridPS:kSpirvGrid:ps_5_0
 )
 set(shader_dir "${CMAKE_BINARY_DIR}/shaders")
 set(hlsl_files)
