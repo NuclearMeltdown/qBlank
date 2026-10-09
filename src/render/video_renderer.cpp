@@ -587,6 +587,11 @@ void VideoRenderer::ResetAnalysis() {
   gridEnergy_.clear();
   gridPeriod_ = 0.0;
   gridSearchWide_ = true;
+  gridDetectRun_ = 0;
+  gridSuggest_ = 0;
+  gridBlur_ = 0.0;
+  blurLooks_ = 0;
+  blurFitFor_[0] = 0.0;
 
   signalVerdict_ = SignalVerdict::Unknown;
   signalFramesSeen_ = 0;
@@ -1241,10 +1246,25 @@ static const int kGridSampleEvery = 5;
 static const int kGridLooks = 10;
 // Strongest repeat over its noise; a picture without a grid reaches about 2.
 static const double kGridConfidence = 4.0;
+// Without a width set, the bar for telling the user. Measured on raw frames:
+// PAL SNES 5.6 and up; GameCube and Wii, menus included, 3.6 at most.
+static const double kGridSuggest = 5.0;
+static const int kGridSuggestRuns = 3;
+
+// The subcarrier and its second harmonic folded back below Nyquist: on PAL at
+// 720 samples the latter sits at 2.91 samples, and 3D games do show it.
+bool VideoRenderer::NearCarrier(double f) const {
+  const double fc = 1.0 / std::max(1.5, carrierSamples_ * (double)source_.width / 720.0);
+  const double f2 = std::abs(2.0 * fc - std::round(2.0 * fc));
+  return std::abs(f / fc - 1.0) < 0.015 || std::abs(f / f2 - 1.0) < 0.015;
+}
 
 void VideoRenderer::AnalyzePixelGrid(const FrameView& frame) {
-  if (gridWanted_ <= 0 || !boundsValid_) return;
+  const bool detect = gridWanted_ <= 0;
+  if (detect && (!gridDetect_ || gridSuggest_ > 0)) return;
+  if (!boundsValid_) return;
   if (++gridFramesSeen_ % kGridSampleEvery != 0) return;
+  if (!detect && gridPeriod_ > 0.0 && analogueSource_) MeasureCardBlur(frame);
 
   const int w = source_.width;
   const int h = source_.height;
@@ -1309,9 +1329,10 @@ void VideoRenderer::AnalyzePixelGrid(const FrameView& frame) {
 
   // The setting's count across at most the whole line and at least three
   // quarters of it, the latter being far narrower than any console draws.
-  double lo = (double)gridWanted_ / (double)w;
-  double hi = (double)gridWanted_ / (0.75 * (double)w);
-  if (gridPeriod_ > 0.0 && !gridSearchWide_) {
+  // Without one, 256 to 320 across.
+  double lo = (double)(detect ? 256 : gridWanted_) / (double)w;
+  double hi = (double)(detect ? 320 : gridWanted_) / (0.75 * (double)w);
+  if (!detect && gridPeriod_ > 0.0 && !gridSearchWide_) {
     lo = std::max(lo, 0.985 / gridPeriod_);
     hi = std::min(hi, 1.015 / gridPeriod_);
   }
@@ -1323,6 +1344,7 @@ void VideoRenderer::AnalyzePixelGrid(const FrameView& frame) {
   const double df = 1.0 / (8.0 * n);
   double best = -1.0, bestF = lo, re = 0.0, im = 0.0;
   for (double f = lo; f <= hi; f += df) {
+    if (detect && NearCarrier(f)) continue;
     const double m = fit(f, &re, &im);
     if (m > best) { best = m; bestF = f; }
   }
@@ -1335,6 +1357,25 @@ void VideoRenderer::AnalyzePixelGrid(const FrameView& frame) {
   const double f = 0.5 * (l + r);
   const double strength = std::sqrt(fit(f, &re, &im) / noise);
   for (float& e : gridEnergy_) e *= 0.5f;
+  if (detect) {
+    // The same grid, clearly, a few evaluations running -- about a second and
+    // a half. A menu of a 3D game can hold a pattern that long, but not one
+    // this strong.
+    const double period = 1.0 / f;
+    const bool same = gridDetectPeriod_ > 0.0 && std::abs(period / gridDetectPeriod_ - 1.0) < 0.005;
+    gridDetectRun_ = strength < kGridSuggest || NearCarrier(f) ? 0 : same ? gridDetectRun_ + 1 : 1;
+    gridDetectPeriod_ = period;
+    if (gridDetectRun_ >= kGridSuggestRuns) {
+      // By the dot clock, not the picture's width, which a dark scene narrows:
+      // a 256 console fits about 285 of its pixels into a whole line, a 320 one
+      // (Neo Geo) 320 and more.
+      gridSuggest_ = w / period < 300.0 ? 256 : 320;
+      CAP_LOG("Pixel grid: looks like pixel art, %.4f samples per pixel, %.1f pixels in %d..%d "
+              "(strength %.1f), suggesting %d",
+              period, (x1 - x0 + 1) / period, x0, x1, strength, gridSuggest_);
+    }
+    return;
+  }
   if (strength < kGridConfidence) {
     // Keep the grid in use, but look across the whole range again next time.
     if (gridPeriod_ > 0.0 && !gridSearchWide_) {
@@ -1355,6 +1396,173 @@ void VideoRenderer::AnalyzePixelGrid(const FrameView& frame) {
     CAP_LOG("Pixel grid: %.4f samples per pixel, from %.2f, %.1f pixels in %d..%d (strength %.1f)",
             period, off, (x1 - x0 + 1) / period, x0, x1, strength);
   }
+}
+
+// ---------------------------------------------------------------- card blur
+//
+// How soft the card draws a console pixel, measured instead of assumed. With
+// the grid known, a line is flat pixels on it, blurred; every blur on the list
+// gets its least squares fit, and the one that leaves least behind is the
+// card's. kCardBlur below is one card on one console through composite;
+// another card, S-Video or RGB lands elsewhere, and the rebuild is only as good
+// as the blur it assumes. Six lines of every fifth frame, after Present, for
+// ten seconds; then it stops until the source changes.
+static const int kBlurSigmas = 12;  // 0.3 to 1.4 samples at 720 a line
+static const int kBlurRows = 6;
+static const int kBlurLooks = 100;
+static const double kBlurSmooth = 0.002;
+
+static double BlurSigma(int i, int width) { return (0.3 + 0.1 * i) * width / 720.0; }
+
+bool VideoRenderer::BuildBlurFit() {
+  blurFitFor_[0] = gridPeriod_;
+  blurFitFor_[1] = gridOffset_;
+  blurPixels_ = 0;
+  const double period = gridPeriod_;
+  const double reach = 3.5 * BlurSigma(kBlurSigmas - 1, source_.width);
+  // Whole pixels inside the picture, and the samples far enough in that every
+  // pixel they see is one of them.
+  const int k0 = (int)std::ceil((boundsL_ + 2 - gridOffset_) / period);
+  const int k1 = (int)std::floor((boundsR_ - 2 - gridOffset_) / period) - 1;
+  const int n = k1 - k0 + 1;
+  const double lo0 = gridOffset_ + k0 * period;
+  const int xa = (int)std::ceil(lo0 + reach);
+  const int xb = (int)std::floor(lo0 + n * period - reach - 0.5);
+  const int samples = xb - xa + 1;
+  const int taps = (int)std::ceil(2.0 * reach / period) + 2;
+  const int band = taps - 1, b1 = taps;
+  if (n < 32 || samples < 64 || taps > n) return false;
+
+  blurLead_.resize((size_t)samples);
+  for (int i = 0; i < samples; ++i) {
+    const double c = xa + i + 0.5;
+    blurLead_[(size_t)i] = std::clamp((int)std::floor((c - reach - lo0) / period), 0, n - taps);
+  }
+  blurFits_.resize(kBlurSigmas);
+  for (int s = 0; s < kBlurSigmas; ++s) {
+    BlurFit& fit = blurFits_[(size_t)s];
+    const double s2 = std::sqrt(2.0) * BlurSigma(s, source_.width);
+    fit.weight.resize((size_t)samples * taps);
+    // The normal equations, banded: m[k * b1 + j] is row k, column k - j.
+    std::vector<double>& m = fit.chol;
+    m.assign((size_t)n * b1, 0.0);
+    for (int i = 0; i < samples; ++i) {
+      const double c = xa + i + 0.5;
+      const int lead = blurLead_[(size_t)i];
+      float* wt = fit.weight.data() + (size_t)i * taps;
+      for (int t = 0; t < taps; ++t) {
+        const double lo = lo0 + (lead + t) * period;
+        wt[t] = (float)(0.5 * (std::erf((lo + period - c) / s2) - std::erf((lo - c) / s2)));
+      }
+      for (int t = 0; t < taps; ++t) {
+        for (int u = 0; u <= t; ++u) m[(size_t)(lead + t) * b1 + (t - u)] += (double)wt[t] * wt[u];
+      }
+    }
+    for (int k = 0; k < n; ++k) {
+      m[(size_t)k * b1] += kBlurSmooth * (k == 0 || k == n - 1 ? 1.0 : 2.0);
+      if (k > 0) m[(size_t)k * b1 + 1] -= kBlurSmooth;
+    }
+    // Cholesky in place.
+    for (int k = 0; k < n; ++k) {
+      for (int j = std::min(band, k); j >= 0; --j) {
+        const int col = k - j;
+        double v = m[(size_t)k * b1 + j];
+        for (int i = std::max(0, k - band); i < col; ++i) {
+          v -= m[(size_t)k * b1 + (k - i)] * m[(size_t)col * b1 + (col - i)];
+        }
+        if (j > 0) {
+          m[(size_t)k * b1 + j] = v / m[(size_t)col * b1];
+        } else {
+          if (v <= 0.0) return false;
+          m[(size_t)k * b1] = std::sqrt(v);
+        }
+      }
+    }
+  }
+  blurRow_.resize((size_t)samples);
+  blurRhs_.resize((size_t)n);
+  blurPixels_ = n;
+  blurTaps_ = taps;
+  blurBand_ = band;
+  blurX0_ = xa;
+  return true;
+}
+
+void VideoRenderer::MeasureCardBlur(const FrameView& frame) {
+  if (gridBlur_ > 0.0) return;
+  if (std::abs(gridPeriod_ - blurFitFor_[0]) > 0.002 || std::abs(gridOffset_ - blurFitFor_[1]) > 0.15) {
+    BuildBlurFit();
+  }
+  if (blurPixels_ <= 0) return;
+  size_t offset = 0, step = 1;
+  if (!LumaLayout(&offset, &step)) return;
+  const int w = source_.width, h = source_.height;
+  const size_t pitch = (size_t)w * step;
+  if (pitch * (size_t)h > frame.size) return;
+  const int lines = boundsB_ - boundsT_ + 1;
+  if (lines < 4 * kBlurRows) return;
+  if (blurLooks_ == 0) std::fill(std::begin(blurRes_), std::end(blurRes_), 0.0);
+
+  const int samples = (int)blurLead_.size(), n = blurPixels_, taps = blurTaps_, band = blurBand_;
+  const int b1 = band + 1;
+  for (int r = 0; r < kBlurRows; ++r) {
+    // Spread over the picture, other lines every look.
+    const int y = boundsT_ + (r * lines / kBlurRows + blurLooks_ * 7) % lines;
+    const int row = source_.bottomUp ? h - 1 - y : y;
+    const uint8_t* p = frame.data + offset + (size_t)row * pitch + (size_t)blurX0_ * step;
+    for (int i = 0; i < samples; ++i) blurRow_[(size_t)i] = p[(size_t)i * step];
+    for (int s = 0; s < kBlurSigmas; ++s) {
+      const BlurFit& fit = blurFits_[(size_t)s];
+      double* v = blurRhs_.data();
+      std::fill(v, v + n, 0.0);
+      for (int i = 0; i < samples; ++i) {
+        const float* wt = fit.weight.data() + (size_t)i * taps;
+        double* at = v + blurLead_[(size_t)i];
+        const double x = blurRow_[(size_t)i];
+        for (int t = 0; t < taps; ++t) at[t] += wt[t] * x;
+      }
+      // L L^T v = A^T x.
+      const double* l = fit.chol.data();
+      for (int k = 0; k < n; ++k) {
+        double a = v[k];
+        for (int j = 1; j <= std::min(band, k); ++j) a -= l[(size_t)k * b1 + j] * v[k - j];
+        v[k] = a / l[(size_t)k * b1];
+      }
+      for (int k = n - 1; k >= 0; --k) {
+        double a = v[k];
+        for (int j = 1; j <= band && k + j < n; ++j) a -= l[(size_t)(k + j) * b1 + j] * v[k + j];
+        v[k] = a / l[(size_t)k * b1];
+      }
+      double res = 0.0;
+      for (int i = 0; i < samples; ++i) {
+        const float* wt = fit.weight.data() + (size_t)i * taps;
+        const double* px = v + blurLead_[(size_t)i];
+        double a = -blurRow_[(size_t)i];
+        for (int t = 0; t < taps; ++t) a += wt[t] * px[t];
+        res += a * a;
+      }
+      blurRes_[s] += res;
+    }
+  }
+  if (++blurLooks_ < kBlurLooks) return;
+
+  int best = 0;
+  for (int s = 1; s < kBlurSigmas; ++s) {
+    if (blurRes_[s] < blurRes_[best]) best = s;
+  }
+  // The minimum is broad; a parabola through it and its neighbours places it
+  // between the steps.
+  double shift = 0.0;
+  if (best > 0 && best < kBlurSigmas - 1) {
+    const double a = blurRes_[best - 1], b = blurRes_[best], c = blurRes_[best + 1];
+    const double d = a - 2.0 * b + c;
+    if (d > 0.0) shift = std::clamp(0.5 * (a - c) / d, -0.5, 0.5);
+  }
+  gridBlur_ = BlurSigma(best, w) + shift * 0.1 * w / 720.0;
+  const double rows = (double)kBlurLooks * kBlurRows * samples;
+  CAP_LOG("Pixel grid: card blur %.2f samples (%.2f at 720), rms %.2f there, %.2f at 0.3, %.2f at 1.4",
+          gridBlur_, gridBlur_ * 720.0 / w, std::sqrt(blurRes_[best] / rows), std::sqrt(blurRes_[0] / rows),
+          std::sqrt(blurRes_[kBlurSigmas - 1] / rows));
 }
 
 // ---------------------------------------------------------------- grid kernel
@@ -3046,12 +3254,19 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
   const int wanted = image.nativeSnap && image.nativeWidth > 0 && image.nativeWidth < srcW
                          ? Clamp(image.nativeWidth, 64, 4096)
                          : 0;
-  if (wanted != gridWanted_) {
+  // No width at all on an analogue standard definition source: look for one.
+  // Never on HDMI, where a console's pixels arrive scaled by the console.
+  const bool detect = image.nativeWidth <= 0 && analogueSource_ && srcH <= kStandardLines;
+  if (wanted != gridWanted_ || detect != gridDetect_) {
     gridWanted_ = wanted;
+    gridDetect_ = detect;
     gridLooks_ = 0;
     gridEnergy_.clear();
     gridPeriod_ = 0.0;
     gridSearchWide_ = true;
+    gridDetectRun_ = 0;
+    gridDetectPeriod_ = 0.0;
+    gridSuggest_ = 0;
   }
   sc.nativeSpan = 0.0f;
   sc.nativeOffset = 0.0f;
@@ -3065,10 +3280,11 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
     sc.nativeOffset = (float)off;
     // Rebuilt rather than averaged where the blur is known, which takes an
     // analogue source. Worked out again only when the grid moves by more than
-    // its own measuring noise, or the demodulator's window changes.
+    // its own measuring noise, the blur has been measured, or the
+    // demodulator's window changes.
     if (analogueSource_) {
-      const double key[4] = {gridPeriod_, kCardBlur * srcW / 720.0, cb.carrierPeriod,
-                             cb.dotNotch > 0.0f ? cb.dotNotch : 0.0};
+      const double key[4] = {gridPeriod_, gridBlur_ > 0.0 ? gridBlur_ : kCardBlur * srcW / 720.0,
+                             cb.carrierPeriod, cb.dotNotch > 0.0f ? cb.dotNotch : 0.0};
       if (std::abs(key[0] - gridKernelFor_[0]) > 0.01 || key[1] != gridKernelFor_[1] ||
           key[2] != gridKernelFor_[2] || key[3] != gridKernelFor_[3]) {
         GridKernel(key[0], key[1], key[2], key[3], gridKernel_);

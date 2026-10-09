@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 
 #include "i18n.h"
 
@@ -726,6 +727,13 @@ const char* SearchKey(int entry) {
 
 int SearchTab(int entry) {
   return entry >= 0 && entry < kEntryCount ? kEntries[entry].tab : kTabSource;
+}
+
+int SearchEntryForKey(const char* key) {
+  for (int i = 0; i < kEntryCount; ++i) {
+    if (kEntries[i].key && std::strcmp(kEntries[i].key, key) == 0) return i;
+  }
+  return -1;
 }
 
 }  // namespace cap

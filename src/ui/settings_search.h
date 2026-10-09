@@ -45,5 +45,6 @@ const char* SearchLabel(int entry);  // in the current language
 std::string SearchPlace(int entry);  // "Tab › Section"
 const char* SearchKey(int entry);    // the anchor to jump to; nullptr for a whole tab
 int SearchTab(int entry);
+int SearchEntryForKey(const char* key);  // -1 if no entry jumps there
 
 }  // namespace cap

@@ -82,7 +82,8 @@ double App::IdleFloorMs() const {
   const bool toastUp = !toastText_.empty() && now - toastStart_ <= 2.5;
   const bool osdUp = now - volumeOsdStart_ <= kVolumeOsdSeconds;
   // Der Hinweis mit Knoepfen will auf die Maus antworten wie jeder andere.
-  const bool noticeUp = resolutionNoticeLines_ > 0 || !standardSearch_.colourNotice().empty();
+  const bool noticeUp = resolutionNoticeLines_ > 0 || !standardSearch_.colourNotice().empty() ||
+                        PixelArtSuggestion() > 0;
   if (embeddedPanel || cropTool_.active() || toastUp || osdUp || noticeUp) return 16.0;
   return 200.0;
 }
@@ -196,6 +197,41 @@ float App::DrawColourNotice() {
   const NoticeAnswer answer = DrawNotice(text, T("Norm suchen", "Find standard"),
                                          T("Ignorieren", "Ignore"), &height);
   if (answer != NoticeAnswer::None) standardSearch_.AnswerColourNotice(answer == NoticeAnswer::Primary);
+  return height > 0.0f ? height + 8.0f : 0.0f;
+}
+
+// Der Renderer schlaegt nur bei analogen Quellen ohne eingestellte Breite vor.
+// Die Breite wird hier trotzdem geprueft: gesetzt nimmt sie den Hinweis sofort
+// vom Bild, nicht erst mit dem naechsten Bild.
+int App::PixelArtSuggestion() const {
+  if (pixelArtIgnored_ || config_.active().image.nativeWidth > 0) return 0;
+  return renderer_.gridSuggestion();
+}
+
+// "Einstellen" setzt die Breite mit Einrasten, "Zeigen" oeffnet die
+// Einstellungen bei ihr und aendert nichts; "Ignorieren" gilt bis zum Ende der
+// Sitzung.
+float App::DrawPixelArtNotice() {
+  const int width = PixelArtSuggestion();
+  if (width <= 0) return 0.0f;
+  float height = 0.0f;
+  const NoticeAnswer answer =
+      DrawNotice(Format(T("Sieht nach Pixelgrafik aus, etwa %d Pixel breit. Breite der Quelle einstellen?",
+                          "Looks like pixel art, about %d pixels wide. Set the source width?"),
+                        width),
+                 T("Einstellen", "Set"), T("Ignorieren", "Ignore"), &height, T("Zeigen", "Show me"));
+  if (answer == NoticeAnswer::Primary) {
+    CAP_LOG("Pixel art suggestion taken: source width %d", width);
+    ImageSettings& image = config_.active().image;
+    image.nativeWidth = width;
+    image.nativeSnap = true;
+  } else if (answer == NoticeAnswer::Secondary) {
+    OpenSettings({});
+    settings_.JumpTo("nativewidth");
+  } else if (answer == NoticeAnswer::Dismiss) {
+    CAP_LOG("Pixel art suggestion ignored (%d)", width);
+    pixelArtIgnored_ = true;
+  }
   return height > 0.0f ? height + 8.0f : 0.0f;
 }
 
@@ -705,8 +741,10 @@ void App::DrawUi() {
   }
 
   // ---- toast ----
-  const float noticeLift = DrawResolutionNotice();
-  DrawToastStrip(noticeLift > 0.0f ? noticeLift : DrawColourNotice());
+  float noticeLift = DrawResolutionNotice();
+  if (noticeLift <= 0.0f) noticeLift = DrawColourNotice();
+  if (noticeLift <= 0.0f) noticeLift = DrawPixelArtNotice();
+  DrawToastStrip(noticeLift);
 
   DrawContextMenu();
 

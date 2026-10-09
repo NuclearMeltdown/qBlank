@@ -211,7 +211,7 @@
 <section class="reveal">
   <div class="wrap">
     <h2><span class="num">08</span>Es findet die Pixel der Konsole</h2>
-    <p class="lead">Eine Karte tastet eine Zeile 720-mal ab, ein SNES hat 256 gezeichnet. Sag qBlank die <em>Breite der Quelle</em>, und es misst, wo jedes Konsolenpixel im Bild liegt, und zeichnet es als einen Block. Bei einer analogen Quelle baut es jedes Pixel außerdem aus den Samples neu, über die die Karte es verwischt hat.</p>
+    <p class="lead">Eine Karte tastet eine Zeile 720-mal ab, ein SNES hat 256 gezeichnet. Sag qBlank die <em>Breite der Quelle</em>, und es misst, wo jedes Konsolenpixel im Bild liegt, und zeichnet es als einen Block. Bei einer analogen Quelle baut es jedes Pixel außerdem aus den Samples neu, über die die Karte es verwischt hat, und ist keine Breite angegeben, erkennt es Pixelgrafik und schlägt die Breite vor.</p>
     <figure>
       <img src="../pixel-grid-logo.png" alt="Links: das Logo von Super Mario World von einem PAL-SNES über Composite, in qBlank 5.6.0 aufs native Pixelraster eingerastet, Konturen grau und Farben verlaufen. Rechts: dasselbe Bild in 5.7.0, schwarze Konturen und eine Farbe pro Buchstabe">
       <figcaption>Ein PAL-SNES über Composite, dasselbe Bild in 5.6.0 und 5.7.0. Früher wurde das Raster angenommen, jetzt wird es gemessen, und die Kante, die die Karte über zwei, drei Pixel verschmiert hat, sitzt wieder auf einem.</figcaption>

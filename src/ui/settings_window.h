@@ -42,6 +42,8 @@ class SettingsWindow {
   // `live` must outlive the dialog; it is edited directly. `reason` is shown as
   // a banner, e.g. why the dialog opened by itself.
   void Open(Config* live, const std::string& reason = {});
+  // Shows the setting with that anchor, as picking it from the search does.
+  void JumpTo(const char* key);
   void Close();
   // Drops the banner; called once the condition that raised it is resolved.
   void ClearReason() { reason_.clear(); }

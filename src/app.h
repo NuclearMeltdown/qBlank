@@ -213,6 +213,10 @@ class App {
   // Der Hinweis der Nachkontrolle, dass die Videonorm nicht passen koennte.
   // Steht an derselben Stelle, also nur, wenn der zur Aufloesung nicht steht.
   float DrawColourNotice();
+  // Der Vorschlag, die Breite der Quelle einzustellen, wenn das Bild nach
+  // Pixelgrafik aussieht; die Breite, solange er steht, sonst 0.
+  int PixelArtSuggestion() const;
+  float DrawPixelArtNotice();
 
   // Dasselbe fuer den Wertebereich: das Urteil steht, bis sich das Bildformat
   // aendert, und eine Option im Treiber der Karte aendert es nicht. Wirft nur
@@ -422,6 +426,8 @@ class App {
   int resolutionIgnoredWidth_ = 0;
   int resolutionIgnoredHeight_ = 0;
   int resolutionIgnoredLines_ = 0;
+  // "Ignorieren" beim Pixelgrafik-Vorschlag, bis zum Ende der Sitzung.
+  bool pixelArtIgnored_ = false;
   DevicePropertyPages devicePages_;
   SettingsHost settingsHost_;
   Updater updater_;

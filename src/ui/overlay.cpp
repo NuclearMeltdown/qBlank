@@ -420,7 +420,7 @@ ToastResult DrawToast(const std::string& text, double age, double duration, bool
 }
 
 NoticeAnswer DrawNotice(const std::string& text, const char* primary, const char* dismiss,
-                        float* height) {
+                        float* height, const char* secondary) {
   NoticeAnswer answer = NoticeAnswer::None;
   const ImGuiViewport* vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(
@@ -445,6 +445,10 @@ NoticeAnswer DrawNotice(const std::string& text, const char* primary, const char
     ImGui::PopStyleColor(4);
     ImGui::SameLine();
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    if (secondary) {
+      if (ImGui::Button(secondary)) answer = NoticeAnswer::Secondary;
+      ImGui::SameLine();
+    }
     if (ImGui::Button(dismiss)) answer = NoticeAnswer::Dismiss;
     ImGui::PopStyleVar();
     if (height) *height = ImGui::GetWindowHeight();

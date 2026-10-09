@@ -808,6 +808,11 @@ bool SettingsWindow::DrawSearchResults(float footer) {
   return true;
 }
 
+void SettingsWindow::JumpTo(const char* key) {
+  const int entry = SearchEntryForKey(key);
+  if (entry >= 0) PickSearchHit(entry);
+}
+
 void SettingsWindow::PickSearchHit(int entry) {
   int tab = SearchTab(entry);
   const char* key = SearchKey(entry);

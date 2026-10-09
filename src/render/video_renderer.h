@@ -141,6 +141,10 @@ class VideoRenderer {
     return (float)(carrierSamples_ * (double)w / 720.0);
   }
 
+  // 256 or 320 when an analogue source without a width set looks like pixel
+  // art, else 0.
+  int gridSuggestion() const { return gridSuggest_; }
+
   const VideoFormatInfo& sourceFormat() const { return source_; }
   // What curve the incoming picture is encoded against. Kept apart from the
   // format: a card can send eight bit PQ, and ten bit says nothing about HDR.
@@ -609,6 +613,7 @@ class VideoRenderer {
   void AnalyzeInterlace(const FrameView& frame);
   void AnalyzeContentBounds(const FrameView& frame);
   void AnalyzePixelGrid(const FrameView& frame);
+  bool NearCarrier(double f) const;
   void AnalyzeSignal(const FrameView& frame);
   void AnalyzeChroma(const FrameView& frame);
   void SampleCrawl(const FrameView& frame);
@@ -786,6 +791,31 @@ class VideoRenderer {
   // worked out for: period, blur, carrier, demodulator window.
   float gridKernel_[8] = {};
   double gridKernelFor_[4] = {};
+  // Without a width set, an analogue source is still searched, for a grid of
+  // 256 or 320 pixels across; found clearly a few times running, it becomes
+  // the suggestion the app offers. Nothing snaps on it.
+  bool gridDetect_ = false;
+  int gridDetectRun_ = 0;        // evaluations in a row that found the same grid
+  double gridDetectPeriod_ = 0.0;
+  int gridSuggest_ = 0;          // 256 or 320 once found, else 0
+
+  // The card's blur, measured on a found grid (MeasureCardBlur). One table per
+  // candidate width: the weights each sample takes from the pixels it sees,
+  // and the banded Cholesky factor of the least squares system.
+  void MeasureCardBlur(const FrameView& frame);
+  bool BuildBlurFit();
+  struct BlurFit {
+    std::vector<float> weight;   // per sample, blurTaps_ weights
+    std::vector<double> chol;    // per pixel, blurBand_ + 1 entries of L
+  };
+  std::vector<BlurFit> blurFits_;
+  std::vector<int> blurLead_;    // per sample, the first pixel it sees
+  std::vector<double> blurRow_, blurRhs_;
+  int blurTaps_ = 0, blurBand_ = 0, blurPixels_ = 0, blurX0_ = 0;
+  double blurFitFor_[2] = {};    // period and offset the tables were built for
+  double blurRes_[12] = {};
+  int blurLooks_ = 0;
+  double gridBlur_ = 0.0;        // measured, in samples at the source width; 0 = not yet
 };
 
 }  // namespace cap

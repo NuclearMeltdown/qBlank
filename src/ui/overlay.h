@@ -127,10 +127,10 @@ ToastResult DrawToast(const std::string& text, double age, double duration,
 // Ein Hinweis mit zwei Knoepfen, an der Stelle der Toasts. Er blendet nicht
 // aus: was hier steht, braucht eine Antwort, und ein Toast, der nach zwei
 // Sekunden weg ist, bekommt keine. `height` bekommt die Hoehe, damit ein Toast
-// darueber Platz findet.
-enum class NoticeAnswer { None, Primary, Dismiss };
+// darueber Platz findet. `secondary` setzt einen dritten zwischen die beiden.
+enum class NoticeAnswer { None, Primary, Secondary, Dismiss };
 NoticeAnswer DrawNotice(const std::string& text, const char* primary, const char* dismiss,
-                        float* height);
+                        float* height, const char* secondary = nullptr);
 
 // Standard search, shown on the picture itself while it runs.
 //
