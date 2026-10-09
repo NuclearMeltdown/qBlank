@@ -51,7 +51,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Nearest, bilinear, Catmull-Rom, Lanczos3, sharp-bilinear.
 - Contrast adaptive sharpening; brightness, contrast, saturation, hue.
 - Aspect override, integer scaling, square pixels, quarter turns, line doubling for 240p and 288p.
-- **Native pixel grid**: one output pixel per console pixel, where the card samples a line 720 times and a SNES drew 256. The grid is measured from the picture; on analogue sources each pixel is rebuilt from the card's blurred samples and cleaned up.
+- **Native pixel grid**: one output pixel per console pixel, where the card samples a line 720 times and a SNES drew 256. The grid is measured from the picture; on analogue sources each pixel is rebuilt from the card's blurred samples and cleaned up. Without a width set, qBlank notices pixel art and suggests one.
 - **Freeze** (**F11**) holds the source, so a slider can be judged on a still picture.
 - **A/B compare** (**F12**) splits the picture, every filter off on one side, deinterlacing on both. Vertical or horizontal, chosen in the right-click menu.
 - **All filters off** (**Shift+F12**) shows the signal as it arrives, with deinterlacing, crop, aspect and range kept.
