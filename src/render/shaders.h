@@ -2863,6 +2863,7 @@ struct VSOut {
 };
 
 static const float kRegionLuma = 35.0 / 255.0;  // brightness spread within a region
+static const float kInnerLuma = 20.0 / 255.0;   // ... where the card measured it right
 static const float kSameHue = 0.819152;         // cos 35 degrees
 static const float kEdge = 50.0 / 255.0;        // a step this big on the way is an edge
 static const float kNoHue = 40.0 / 255.0;       // below this a pixel's own hue is noise
@@ -2874,6 +2875,7 @@ static const float kEdgeRamp = 40.0 / 255.0;    // ... and this much more a full
 static const float kStepNoise = 8.0 / 255.0;    // a thin line's step must beat noise
 static const float kColumn = 24.0 / 255.0;      // two pixels this close share a colour
 static const float kRing = 100.0 / 255.0;       // a step this big rings two pixels on
+static const float kModeStep = 80.0 / 255.0;    // a step this big leaves an error beside it
 
 float NativeKnot(int i) {
   if (i >= 8) return 0.0;
@@ -3111,7 +3113,7 @@ float4 Region(int bx, int row) {
       if (fit <= 0.0 || wd + wl < 1e-3) continue;
       fit *= PathOpen(bx, row, dx, dy, y);
       if (fit <= 0.0) continue;
-      float w = Window(d) * fit;
+      float w = Window((yj - y) / kInnerLuma) * fit;
       float s2 = sj * sj, g2 = kGrey * kGrey, a = j.a * fit;
       wd *= a / ((s2 + g2) * (s2 + g2));
       wl *= a * s2 * s2;
@@ -3138,21 +3140,28 @@ float4 Region(int bx, int row) {
 float4 Mode(int bx, int row) {
   float4 c = Block(bx, row, 0, 0);
   float y0 = Luma(c.rgb);
-  // The card's filter rings along the line beside a big step: the pixel two
-  // away still overshoots, though NearEdge sees it inside a flat area.
-  float near = max(c.a, Above(max(abs(BlockY(bx, row, -2, 0) - y0),
-                                  abs(BlockY(bx, row, 2, 0) - y0)), kRing));
+  float3 px[15];
+  float yj[15];
+  float step = 0.0;
+  [unroll]
+  for (int k = 0; k < 15; ++k) {
+    int dx = k % 5 - 2, dy = k / 5 - 1;
+    px[k] = Block(bx, row, dx, dy).rgb;
+    yj[k] = Luma(px[k]);
+    if (abs(dx) <= 1) step = max(step, abs(yj[k] - y0));
+  }
+  // The card errs beside a big step only, and along the line it still
+  // overshoots two pixels on. Beside a small one the error is below the noise,
+  // and evening it out takes the picture's own shading away.
+  float near = max(Above(step, kModeStep), Above(max(abs(yj[5] - y0), abs(yj[9] - y0)), kRing));
   if (near <= 0.0) return c;
   float2 co = Chroma(c.rgb, y0);
   float so = length(co);
-  float yj[15];
   float ok[15];
   [unroll]
   for (int k = 0; k < 15; ++k) {
     int dx = k % 5 - 2, dy = k / 5 - 1;
-    float4 j = Block(bx, row, dx, dy);
-    yj[k] = Luma(j.rgb);
-    float2 cj = Chroma(j.rgb, yj[k]);
+    float2 cj = Chroma(px[k], yj[k]);
     float sj = length(cj);
     float both = Above(sj, kGrey) * Above(so, kGrey);
     float same = both * SameHue(cj, co, sj, so) +
