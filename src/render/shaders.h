@@ -1148,9 +1148,22 @@ float3 MotionCompDelta(int x, int row) {
   float width = max(gCarrierPeriod, 2.0);
   float3 cur = MatchPatch(x, row, width);
 
+  // Standing still is measured twice: as it is, and with the last frame scaled
+  // to this one's brightness. In a fade every pixel changes, so standing still
+  // matches badly, and somewhere among the shifts lies darker picture that
+  // matches the dimmed patch better -- the old frame's letter on the new frame's
+  // background. Followed, that pulls in pieces of other places, and in a dark
+  // frame those show. A picture that only changed its brightness is standing
+  // still; the better of the two is what any shift has to beat.
+  float3 prev = float3(BoxLuma(x - 4, row, 1, width), BoxLuma(x, row, 1, width),
+                       BoxLuma(x + 4, row, 1, width));
+  const float3 third = float3(0.3333333, 0.3333333, 0.3333333);
+  float still = dot(abs(cur - prev), third);
+  float gain = clamp(dot(cur, third) / max(dot(prev, third), 1e-3), 0.4, 2.5);
+  still = min(still, dot(abs(cur - prev * gain), third));
+
   // Where standing still already fits within the margin, no shift can beat it
   // by the margin, and the search is skipped rather than asked to fail.
-  float still = MatchCost(cur, x, row, int2(0, 0), 1, width);
   if (still <= kMatchMargin) return float3(0.0, 0.0, 0.0);
   float cost;
   int2 d = SearchShift(cur, x, row, width, still, cost);
