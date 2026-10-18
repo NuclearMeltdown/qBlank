@@ -77,10 +77,15 @@ double App::IdleFloorMs() const {
   // Minimised nothing on screen animates, and the interface clock stands still:
   // a toast up at that moment would keep the floor short until the restore.
   if (minimized_) return 200.0;
+  // While pictures arrive, everything on screen moves along with them. Drawn in
+  // between as well, each of those frames put a present in the queue ahead of
+  // the next picture: 17 or 34 ms in the pipeline instead of under one, for as
+  // long as a toast stood or the panel was open.
+  if (lastPictureQpc_ != 0 && TicksToSeconds(ClockTicks() - lastPictureQpc_) < 0.1) return 200.0;
   const bool embeddedPanel = settings_.isOpen() && !config_.app.settingsSeparateWindow;
-  const double now = ImGui::GetTime();
-  const bool toastUp = !toastText_.empty() && now - toastStart_ <= 2.5;
-  const bool osdUp = now - volumeOsdStart_ <= kVolumeOsdSeconds;
+  // The toast clears itself once drawn past its time, so its text is the test.
+  const bool toastUp = !toastText_.empty();
+  const bool osdUp = ImGui::GetTime() - volumeOsdStart_ <= kVolumeOsdSeconds;
   // Der Hinweis mit Knoepfen will auf die Maus antworten wie jeder andere.
   const bool noticeUp = resolutionNoticeLines_ > 0 || !standardSearch_.colourNotice().empty() ||
                         PixelArtSuggestion() > 0;
@@ -375,6 +380,7 @@ void App::DrawSettingsWindowed() {
         newPicture = sink->frameReady().Wait(0);
       }
       const int64_t nowQpc = ClockTicks();
+      if (newPicture) lastPictureQpc_ = nowQpc;
       const double sinceRenderMs =
           lastRenderQpc_ == 0 ? 1e9 : TicksToSeconds(nowQpc - lastRenderQpc_) * 1000.0;
       const bool fieldDue = secondFieldPending_ && nowQpc >= secondFieldQpc_;

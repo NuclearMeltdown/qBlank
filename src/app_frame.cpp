@@ -62,6 +62,7 @@ int App::Run() {
     const double sinceRenderMs =
         lastRenderQpc_ == 0 ? 1e9 : TicksToSeconds(nowQpc - lastRenderQpc_) * 1000.0;
     const bool wokeOnPicture = lastWake_ == WaitResult::Signal;
+    if (wokeOnPicture) lastPictureQpc_ = nowQpc;
     // Due by the clock, not by *how* the wait ended.
     //
     // This used to read `lastWait_ == WAIT_TIMEOUT`, which is only ever true

@@ -492,6 +492,7 @@ class App {
   // queue -- see the comment at the call to RenderFrame.
   WaitResult lastWake_ = WaitResult::Timeout;
   int64_t lastRenderQpc_ = 0;
+  int64_t lastPictureQpc_ = 0;  // when a new picture last woke it
   int hdrDisplayPoll_ = 0;
   bool devicePagesWereBusy_ = false;
   // Guards the frame drawn from inside a window drag against re-entering itself.
