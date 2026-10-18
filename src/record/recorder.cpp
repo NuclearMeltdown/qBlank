@@ -422,14 +422,8 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
   // why it produced no file.
   const uint32_t session = session_.fetch_add(1, std::memory_order_relaxed) + 1;
   process_ = std::make_unique<ChildProcess>();
-  if (!process_->Start(spec, videoStream_.get(),
-                       [this, session](const std::string& line) { OnFfmpegSaid(line, session); },
-                       nullptr)) {
-    return fail(CAP_SAID(T("ffmpeg konnte nicht gestartet werden.", "Could not start ffmpeg.")));
-  }
 
   // --- state -------------------------------------------------------------
-  for (int i = 0; i < 3; ++i) slots_[i].assign(frameBytes_, 0);
   readyIdx_ = -1;
   heldIdx_ = -1;
   audioFramesWritten_.store(0, std::memory_order_relaxed);
@@ -456,7 +450,7 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
   if (micRate_ > 0) {
     micThread_ = std::thread(&Recorder::AudioThread, this, micStream_.get(), pullMic_, false);
   }
-  videoThread_ = std::thread(&Recorder::VideoThread, this);
+  videoThread_ = std::thread(&Recorder::VideoThread, this, std::move(spec), session);
 
   CAP_LOG("Recording started: %s, %dx%d @ %.3f fps, %s", PathToUtf8(outFile).c_str(), width_,
           height_, fps_, encoder->label.c_str());
@@ -591,7 +585,25 @@ bool Recorder::WriteAll(ChildStream* stream, const uint8_t* data, size_t size) {
 
 // ------------------------------------------------------------ writer threads
 
-void Recorder::VideoThread() {
+void Recorder::VideoThread(ProcessSpec spec, uint32_t session) {
+  // Here and not in Start: creating the process took six milliseconds and the
+  // three frame buffers a few more, and the picture waited for both.
+  if (!process_->Start(spec, videoStream_.get(),
+                       [this, session](const std::string& line) { OnFfmpegSaid(line, session); },
+                       nullptr)) {
+    Fail(CAP_SAID(T("ffmpeg konnte nicht gestartet werden.", "Could not start ffmpeg.")));
+    return;
+  }
+  // Filled with zeros on purpose: that touches every page now, and not on the
+  // render thread in the first copy that lands in them. PushVideo leaves the
+  // slots alone until they have the size of a frame.
+  {
+    std::vector<uint8_t> fresh[3];
+    for (std::vector<uint8_t>& slot : fresh) slot.assign(frameBytes_, 0);
+    std::lock_guard<std::mutex> lock(frameMutex_);
+    for (int i = 0; i < 3; ++i) slots_[i].swap(fresh[i]);
+  }
+
   while (running_.load(std::memory_order_relaxed)) {
     // Take the newest frame and keep holding it: when the timeline needs more
     // frames than actually arrived, this is what gets repeated.
@@ -668,7 +680,6 @@ void Recorder::VideoThread() {
     for (uint64_t i = written; i < target && running_.load(std::memory_order_relaxed); ++i) {
       if (!WriteAll(videoStream_.get(), held, frameBytes_)) {
         Fail(CAP_SAID(T("Verbindung zu ffmpeg abgebrochen.", "Lost the connection to ffmpeg.")));
-        running_.store(false, std::memory_order_relaxed);
         return;
       }
       videoFramesWritten_.fetch_add(1, std::memory_order_relaxed);
@@ -698,7 +709,6 @@ void Recorder::AudioThread(ChildStream* stream, AudioPullFn pull, bool countsAsC
     const size_t bytes = got * 2 * sizeof(float);
     if (!WriteAll(stream, (const uint8_t*)buffer.data(), bytes)) {
       Fail(CAP_SAID(T("Audiopipe abgebrochen.", "The audio pipe broke.")));
-      running_.store(false, std::memory_order_relaxed);
       break;
     }
     if (countsAsClock) {

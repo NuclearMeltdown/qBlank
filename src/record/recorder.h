@@ -89,6 +89,8 @@ class Recorder {
   // `main` is the sound you hear, and its sample count is the master clock; a
   // rate of 0 there hands the clock to the wall instead. `mic` is optional;
   // `micTrackMode` says whether it is mixed in, kept as its own track, or both.
+  // ffmpeg itself is started by the writer thread: an ffmpeg that cannot start
+  // shows up as failed() a moment later, not as false here.
   bool Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, int width, int height,
              double sourceFps, const AudioSource& main, const AudioSource& mic,
              MicTrackMode micTrackMode, std::string* error);
@@ -108,7 +110,8 @@ class Recorder {
   bool TakeFinished(Finished* out);
 
   bool recording() const { return running_.load(std::memory_order_relaxed); }
-  // Set when ffmpeg died on its own; the app should stop and report.
+  // Set when ffmpeg could not start or died on its own; the app should stop and
+  // report. recording() stays true until it does.
   bool failed() const { return failed_.load(std::memory_order_relaxed); }
 
   // Called from the render thread with a freshly read back frame. Its size is
@@ -132,7 +135,8 @@ class Recorder {
   uint64_t outputFileSize() const;
 
  private:
-  void VideoThread();
+  // Starts ffmpeg, then writes the frames to it.
+  void VideoThread(ProcessSpec spec, uint32_t session);
   // `countsAsClock` is true only for the main track, whose written frame count
   // drives the video timeline.
   void AudioThread(ChildStream* stream, AudioPullFn pull, bool countsAsClock);
