@@ -132,7 +132,10 @@ int App::Run() {
 }
 
 bool App::FeedsWhileHidden() const {
-  return recorder_.recording() || (virtualCamera_.running() && virtualCamera_.consumed());
+  // A recording that is starting waits for answers, and those are collected
+  // by a loop that runs.
+  return recorder_.recording() || recording_.starting() ||
+         (virtualCamera_.running() && virtualCamera_.consumed());
 }
 
 void App::RenderFrame() {

@@ -1002,30 +1002,6 @@ void App::UseDefaultFolder(std::string* configured, const std::string& asked) {
   settings_.InvalidateFolderFields();
 }
 
-std::filesystem::path App::ResolveOutputFolder(std::string* configured,
-                                               const std::filesystem::path& fallback) {
-  std::filesystem::path::string_type folder =
-      configured->empty() ? fallback.native() : Utf8ToPath(*configured).native();
-  while (!folder.empty() && (folder.back() == '\\' || folder.back() == '/')) folder.pop_back();
-
-  // Deleting the folder between two recordings is normal housekeeping, so the
-  // first answer is simply to make it again.
-  if (EnsureFolder(folder)) return folder;
-
-  // It cannot be created either -- an unplugged drive, a path that is no longer
-  // writable. Rather than refuse, fall back to the default and clear the custom
-  // path so the settings show where the files are actually going now.
-  CAP_WARN("Folder not available: %s", PathToUtf8(folder).c_str());
-  if (!configured->empty() && EnsureFolder(fallback)) {
-    Toast(T("Ordner nicht verfügbar, Standardordner wird benutzt.",
-            "Folder not available, using the default folder."));
-    configured->clear();
-    settings_.InvalidateFolderFields();
-    return fallback;
-  }
-  return {};
-}
-
 void App::ShowOutputFolder(std::string* configured, const std::filesystem::path& fallback) {
   folderJobs_.Ask([this, configured, asked = *configured, fallback] {
     const FolderChoice choice = ChooseFolder(asked, fallback);

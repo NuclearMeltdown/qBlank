@@ -261,10 +261,6 @@ class App {
  public:
   bool cropPickActive() const { return cropTool_.active(); }
  private:
-  // Makes sure an output folder exists. Recreates it when it was deleted, and
-  // falls back to the default when even that fails.
-  std::filesystem::path ResolveOutputFolder(std::string* configured,
-                                            const std::filesystem::path& fallback);
   // One place decides whether the GPU has to hand pictures back, and one place
   // hands them out -- the recorder and the camera both want the same frame, and
   // fetching it twice would give each of them every second one.
@@ -468,8 +464,7 @@ class App {
    public:
     explicit RecordingHost(App& app) : app_(app) {}
     bool CaptureRunning() const override;
-    std::filesystem::path ResolveOutputFolder(std::string* configured,
-                                              const std::filesystem::path& fallback) override;
+    void UseDefaultFolder(std::string* configured, const std::string& asked) override;
     void DropViewAids() override;
     void Toast(const std::string& text, const std::filesystem::path& file) override;
 

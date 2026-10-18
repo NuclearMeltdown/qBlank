@@ -323,9 +323,23 @@ std::vector<std::string> Recorder::BuildArguments(const RecordSettings& settings
 
 // -------------------------------------------------------------------- start
 
-bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, int width,
-                     int height, double sourceFps, const AudioSource& main,
-                     const AudioSource& mic, MicTrackMode micTrackMode, std::string* error) {
+std::filesystem::path NextRecordingFile(const std::filesystem::path& folder,
+                                        RecordContainer container) {
+  const std::filesystem::path named = folder / Utf8ToPath(TimestampedName(container));
+  std::filesystem::path outFile = named;
+  std::error_code exists;
+  for (int n = 2; std::filesystem::exists(outFile, exists); ++n) {
+    outFile = named;
+    outFile.replace_filename(Utf8ToPath(Format("%s_%d", PathToUtf8(named.stem()).c_str(), n)) +=
+                             named.extension());
+  }
+  return outFile;
+}
+
+bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path& outFile,
+                     const FfmpegInfo& ffmpeg, int width, int height, double sourceFps,
+                     const AudioSource& main, const AudioSource& mic, MicTrackMode micTrackMode,
+                     std::string* error) {
   Stop();
 
   auto fail = [&](const Said& said) {
@@ -360,28 +374,6 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
   frameBytes_ = (size_t)width_ * (size_t)height_ * 4;
   pullAudio_ = main.pull;
   pullMic_ = mic.pull;
-
-  std::string folderText = settings.outputFolder.empty() ? PathToUtf8(DefaultRecordFolder())
-                                                         : settings.outputFolder;
-  if (!folderText.empty() && (folderText.back() == '\\' || folderText.back() == '/')) {
-    folderText.pop_back();
-  }
-  const std::filesystem::path folder = Utf8ToPath(folderText);
-  if (!EnsureFolder(folder)) {
-    return fail(CAP_SAID(T("Zielordner konnte nicht angelegt werden: ", "Could not create the folder: ") +
-                         folderText));
-  }
-  // Named to the second, and a file cut within the same second as the last one
-  // started would otherwise land on it -- with "-y", while the ffmpeg before
-  // may still be writing it.
-  const std::filesystem::path named = folder / Utf8ToPath(TimestampedName(settings.container));
-  std::filesystem::path outFile = named;
-  std::error_code exists;
-  for (int n = 2; std::filesystem::exists(outFile, exists); ++n) {
-    outFile = named;
-    outFile.replace_filename(Utf8ToPath(Format("%s_%d", PathToUtf8(named.stem()).c_str(), n)) +=
-                             named.extension());
-  }
 
   // --- streams -----------------------------------------------------------
   // A generous buffer keeps a brief encoder stall from reaching back to the
@@ -724,18 +716,6 @@ void Recorder::OnFfmpegSaid(const std::string& line, uint32_t session) {
   if (session != session_.load(std::memory_order_relaxed)) return;
   std::lock_guard<std::mutex> lock(infoMutex_);
   if (error_.empty()) error_ = line;
-}
-
-uint64_t Recorder::outputFileSize() const {
-  std::filesystem::path path;
-  {
-    std::lock_guard<std::mutex> lock(infoMutex_);
-    if (file_.empty()) return 0;
-    path = Utf8ToPath(file_);
-  }
-  std::error_code ec;
-  const uintmax_t size = std::filesystem::file_size(path, ec);
-  return ec ? 0 : (uint64_t)size;
 }
 
 double Recorder::seconds() const {

@@ -58,6 +58,14 @@ struct RecordStats {
 // the estimate is a worst case there and the file usually turns out smaller.
 double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks);
 
+// Where the next recording in `folder` goes: named to the second, with a number
+// added when that name is taken -- a file cut within the same second as the
+// last one started would otherwise land on it, with "-y", while the ffmpeg
+// before may still be writing it. Looks at the disk, so never on the thread
+// that draws.
+std::filesystem::path NextRecordingFile(const std::filesystem::path& folder,
+                                        RecordContainer container);
+
 class Recorder {
  public:
   Recorder() = default;
@@ -90,10 +98,12 @@ class Recorder {
   // rate of 0 there hands the clock to the wall instead. `mic` is optional;
   // `micTrackMode` says whether it is mixed in, kept as its own track, or both.
   // ffmpeg itself is started by the writer thread: an ffmpeg that cannot start
-  // shows up as failed() a moment later, not as false here.
-  bool Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, int width, int height,
-             double sourceFps, const AudioSource& main, const AudioSource& mic,
-             MicTrackMode micTrackMode, std::string* error);
+  // shows up as failed() a moment later, not as false here. `outFile` is from
+  // NextRecordingFile, in a folder that exists.
+  bool Start(const RecordSettings& settings, const std::filesystem::path& outFile,
+             const FfmpegInfo& ffmpeg, int width, int height, double sourceFps,
+             const AudioSource& main, const AudioSource& mic, MicTrackMode micTrackMode,
+             std::string* error);
   // Ends the recording and returns at once. ffmpeg still has to write the
   // container's index, which can take seconds with a slow preset, and neither
   // the picture nor the next file of a split waits for that: it finishes on a
@@ -130,9 +140,6 @@ class Recorder {
   // stats() under their lock.
   double seconds() const;
   uint64_t bytesWritten() const { return bytesWritten_.load(std::memory_order_relaxed); }
-
-  // Size of the file being written, for the optional size based split.
-  uint64_t outputFileSize() const;
 
  private:
   // Starts ffmpeg, then writes the frames to it.

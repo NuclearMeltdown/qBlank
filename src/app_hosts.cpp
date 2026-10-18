@@ -16,9 +16,8 @@ void App::CropHost::CloseSettings() { app_.settings_.Close(); }
 bool App::RecordingHost::CaptureRunning() const {
   return app_.captureState_ == CaptureState::Running;
 }
-std::filesystem::path App::RecordingHost::ResolveOutputFolder(
-    std::string* configured, const std::filesystem::path& fallback) {
-  return app_.ResolveOutputFolder(configured, fallback);
+void App::RecordingHost::UseDefaultFolder(std::string* configured, const std::string& asked) {
+  app_.UseDefaultFolder(configured, asked);
 }
 void App::RecordingHost::DropViewAids() {
   if (app_.frozen_) {

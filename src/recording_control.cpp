@@ -59,6 +59,10 @@ void RecordingControl::StartEncoderProbe(bool full) {
     } else {
       EnsureUsableEncoder(&copy, config_.record.encoder);
     }
+    // The ffmpeg build belongs in here as well as the hardware: a different
+    // build can be missing an encoder the last one had, and would then be
+    // judged by a result it never produced.
+    probeSignature_ = GraphicsAdapterSignature() + " | " + copy.version;
     probeResult_ = std::move(copy);
     probing_.store(false, std::memory_order_relaxed);
     probeDone_.store(true, std::memory_order_release);
@@ -100,17 +104,11 @@ bool RecordingControl::RelocateFfmpeg() {
   probeThread_ = std::thread([this, path = config_.record.ffmpegPath]() {
     SystemThreadScope onThisThread;
     probeResult_ = LocateFfmpeg(path);
+    probeSignature_ = GraphicsAdapterSignature() + " | " + probeResult_.version;
     probing_.store(false, std::memory_order_relaxed);
     probeDone_.store(true, std::memory_order_release);
   });
   return true;
-}
-
-std::string RecordingControl::EncoderSignature() const {
-  // The ffmpeg build belongs in here as well as the hardware: a different build
-  // can be missing an encoder the last one had, and would then be judged by a
-  // result it never produced.
-  return GraphicsAdapterSignature() + " | " + ffmpeg_.version;
 }
 
 void RecordingControl::LoadCachedEncoders() {
@@ -118,7 +116,7 @@ void RecordingControl::LoadCachedEncoders() {
   RecordSettings& rec = config_.record;
   if (rec.encodersAvailable.empty() && rec.encoderProbeSignature.empty()) return;
 
-  if (rec.encoderProbeSignature != EncoderSignature()) {
+  if (rec.encoderProbeSignature != probeSignature_) {
     CAP_LOG("Encoder probe discarded: hardware or ffmpeg has changed");
     rec.encoderProbeSignature.clear();
     rec.encodersAvailable.clear();
@@ -137,7 +135,7 @@ void RecordingControl::SaveCachedEncoders() {
   for (const EncoderInfo& e : ffmpeg_.encoders) {
     if (e.tested && e.available) rec.encodersAvailable.push_back((int)e.id);
   }
-  rec.encoderProbeSignature = EncoderSignature();
+  rec.encoderProbeSignature = probeSignature_;
 
   // A selection that did not survive the test would silently fail at F9, so it
   // goes back to Auto rather than staying as a trap.
@@ -161,19 +159,12 @@ void RecordingControl::ToggleRecording() {
 void RecordingControl::StartRecording() {
   if (recorder_.recording() || startPending_) return;
 
-  // The path was resolved at startup and could have gone stale since -- a
-  // portable build on a stick that got unplugged, an antivirus quarantine, or
-  // simply someone tidying up. Checking costs one file attribute lookup and
-  // turns a confusing "ffmpeg exited with code 1" into an honest answer.
-  // Searching again is "ffmpeg -version" and takes a moment, so it happens on
-  // the worker, and the recording starts when it comes back with one.
+  // Searching for ffmpeg is "ffmpeg -version" and takes a moment, so it
+  // happens on the probe thread, and the recording starts when it comes back
+  // with one.
   if (locating_) {
     recordWhenLocated_ = true;
     return;
-  }
-  if (ffmpeg_.found && !IsFile(Utf8ToPath(ffmpeg_.path))) {
-    CAP_WARN("ffmpeg has disappeared: %s", ffmpeg_.path.c_str());
-    ffmpeg_ = FfmpegInfo{};
   }
   if (!ffmpeg_.found) {
     if (RelocateFfmpeg()) {
@@ -212,52 +203,96 @@ void RecordingControl::StartRecording() {
   if (wantAudio) audio_.SetTapEnabled(true);
   renderer_.SetReadbackEnabled(true);
 
-  // Resolve the folder before handing it over, so a deleted directory is
-  // recreated -- or answered with the default -- instead of failing the start.
-  RecordSettings settings = config_.record;
-  const std::filesystem::path folder =
-      host_.ResolveOutputFolder(&config_.record.outputFolder, DefaultRecordFolder());
-  if (folder.empty()) {
-    renderer_.SetReadbackEnabled(false);
-    audio_.SetTapEnabled(false);
+  // The microphone decides its own rate, and ffmpeg has to be told it on the
+  // command line. Opening one takes from a few milliseconds to, for a device
+  // that does not answer, three seconds; the picture goes on meanwhile, and
+  // FeedRecorder launches once it and the disk have answered.
+  pendingSettings_ = config_.record;
+  pendingAudio_ = wantAudio;
+  pendingFile_.clear();
+  startPending_ = true;
+  const uint32_t serial = ++startSerial_;
+  SyncMicrophone();
+
+  // What the disk has to say, on its own thread: a drive that has gone to
+  // sleep takes a second or more to answer.
+  //
+  // The ffmpeg path was resolved at startup and could have gone stale since --
+  // a portable build on a stick that got unplugged, an antivirus quarantine, or
+  // simply someone tidying up. Looking turns a confusing "ffmpeg exited with
+  // code 1" into an honest answer.
+  //
+  // The folder is made again if it was deleted, or answered with the default,
+  // instead of failing the start.
+  disk_.Ask([this, serial, ffmpegPath = ffmpeg_.path, asked = pendingSettings_.outputFolder,
+             container = pendingSettings_.container]() -> std::function<void()> {
+    StartCheck check;
+    check.ffmpegThere = IsFile(Utf8ToPath(ffmpegPath));
+    if (check.ffmpegThere) {
+      check.folder = ChooseFolder(asked, DefaultRecordFolder());
+      if (!check.folder.folder.empty()) {
+        check.freeKnown = DiskFreeBytes(check.folder.folder, &check.freeBytes);
+        check.file = NextRecordingFile(check.folder.folder, container);
+      }
+    }
+    return [this, serial, asked, check] { StartChecked(serial, asked, check); };
+  });
+}
+
+void RecordingControl::StartChecked(uint32_t serial, const std::string& askedFolder,
+                                    const StartCheck& check) {
+  if (!startPending_ || serial != startSerial_) return;  // called off meanwhile
+
+  if (!check.ffmpegThere) {
+    CAP_WARN("ffmpeg has disappeared: %s", ffmpeg_.path.c_str());
+    ffmpeg_ = FfmpegInfo{};
+    CancelStart();
+    if (RelocateFfmpeg()) {
+      recordWhenLocated_ = true;
+    } else {
+      host_.Toast(T("Encoder werden noch geprüft, gleich nochmal.",
+                    "Still testing encoders, try again in a moment."));
+    }
+    return;
+  }
+  if (check.folder.fellBack) host_.UseDefaultFolder(&config_.record.outputFolder, askedFolder);
+  if (check.folder.folder.empty()) {
+    CancelStart();
     host_.Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
     return;
   }
-  settings.outputFolder = PathToUtf8(folder);
 
   // Gar nicht erst anfangen, wenn der Platz schon jetzt nicht reicht: ffmpeg
   // wuerde starten, seinen Kopf schreiben und sterben, und liegen bliebe eine
   // Datei von ein paar Kilobyte, die aussieht wie eine Aufnahme.
-  uint64_t freeNow = 0;
-  if (DiskFreeBytes(folder, &freeNow) && freeNow < kDiskFloorBytes) {
-    renderer_.SetReadbackEnabled(false);
-    audio_.SetTapEnabled(false);
+  if (check.freeKnown && check.freeBytes < kDiskFloorBytes) {
+    CancelStart();
     host_.Toast(Format(T("Zu wenig Speicherplatz — nur noch %s frei.",
-                   "Not enough disk space — only %s free."),
-                 FormatBytes(freeNow).c_str()));
+                         "Not enough disk space — only %s free."),
+                       FormatBytes(check.freeBytes).c_str()));
     return;
   }
+  // Fresh, so the watch in FeedRecorder does not start on a number from
+  // before.
+  diskFreeKnown_ = check.freeKnown;
+  diskFreeBytes_ = check.freeBytes;
+  pendingFile_ = check.file;
+}
 
-  // The microphone decides its own rate, and ffmpeg has to be told it on the
-  // command line. Opening one takes from a few milliseconds to, for a device
-  // that does not answer, three seconds; the picture goes on meanwhile, and
-  // FeedRecorder launches once it has answered.
-  pendingSettings_ = std::move(settings);
-  pendingAudio_ = wantAudio;
-  startPending_ = true;
-  SyncMicrophone();
-  if (!mic_.opening()) LaunchRecording();
+void RecordingControl::CancelStart() {
+  startPending_ = false;
+  renderer_.SetReadbackEnabled(false);
+  audio_.SetTapEnabled(false);
 }
 
 void RecordingControl::LaunchRecording() {
-  startPending_ = false;
   // The source can have gone in the frames this waited.
   if (!host_.CaptureRunning() || !renderer_.hasFrame()) {
-    renderer_.SetReadbackEnabled(false);
-    audio_.SetTapEnabled(false);
+    CancelStart();
     host_.Toast(T("Kein Bild zum Aufnehmen.", "No picture to record."));
     return;
   }
+  startPending_ = false;
   const bool wantAudio = pendingAudio_;
   const bool wantMic = mic_.running() && mic_.sampleRate() > 0;
   if (wantMic) mic_.ResetBuffer();
@@ -341,14 +376,16 @@ void RecordingControl::LaunchRecording() {
   // ganze Bild von jetzt. Erst hier, weil alles davor noch abbrechen kann.
   host_.DropViewAids();
 
-  // Die Platzwarnung gilt je Aufnahme, und die naechste Abfrage soll nicht die
-  // Zahl von vor einer Sekunde benutzen, um sofort zu warnen oder zu schweigen.
+  // Die Platzwarnung gilt je Aufnahme. Die Zahl dazu ist die der Pruefung vor
+  // dem Start, nicht eine von vor einer Sekunde.
   diskWarned_ = false;
-  lastDiskCheck_ = -1000.0;
+  recordingFile_ = pendingFile_;
+  recordingBytes_ = 0;
 
-  const bool ok = recorder_.Start(pendingSettings_, ffmpeg_, renderer_.outputWidth(),
-                                  renderer_.outputHeight(), recordFps, mainTrack, micTrack,
-                                  config_.active().audio.micTrackMode, &error);
+  const bool ok = recorder_.Start(pendingSettings_, pendingFile_, ffmpeg_,
+                                  renderer_.outputWidth(), renderer_.outputHeight(), recordFps,
+                                  mainTrack, micTrack, config_.active().audio.micTrackMode,
+                                  &error);
 
   if (!ok) {
     renderer_.SetReadbackEnabled(false);
@@ -362,9 +399,7 @@ void RecordingControl::LaunchRecording() {
 void RecordingControl::StopRecording(bool announce) {
   recordWhenLocated_ = false;
   if (startPending_) {
-    startPending_ = false;
-    renderer_.SetReadbackEnabled(false);
-    audio_.SetTapEnabled(false);
+    CancelStart();
     return;
   }
   if (!recorder_.recording()) return;
@@ -394,6 +429,8 @@ void RecordingControl::CollectFinished() {
 }
 
 void RecordingControl::UpdateDiskSpace() {
+  disk_.Collect();
+
   // Nur wenn jemand hinsieht oder etwas davon abhaengt. Ein Laufwerk im
   // Sekundentakt zu befragen, waehrend niemand die Zahl braucht, weckt eine
   // schlafende Platte fuer nichts.
@@ -413,16 +450,35 @@ void RecordingControl::UpdateDiskSpace() {
   diskBytesPerSecond_ = EstimatedBytesPerSecond(config_.record, tracks);
 
   const double now = TicksToSeconds(ClockTicks());
-  if (now - lastDiskCheck_ > 1.0) {
+  if (!diskAsked_ && now - lastDiskCheck_ > 1.0) {
     lastDiskCheck_ = now;
-    // Absichtlich nicht ueber ResolveOutputFolder: das legt Ordner an und meldet
-    // sich mit Einblendungen, und beides hat eine Abfrage im Sekundentakt nicht
-    // zu tun. DiskFreeBytes geht selbst bis zum naechsten vorhandenen Elternteil
-    // hoch, der Ordner muss also noch gar nicht existieren.
-    const std::filesystem::path folder = config_.record.outputFolder.empty()
-                                             ? DefaultRecordFolder()
-                                             : Utf8ToPath(config_.record.outputFolder);
-    diskFreeKnown_ = DiskFreeBytes(folder, &diskFreeBytes_);
+    diskAsked_ = true;
+    // Absichtlich nicht ueber ChooseFolder: das legt Ordner an, und das hat
+    // eine Abfrage im Sekundentakt nicht zu tun. DiskFreeBytes geht selbst bis
+    // zum naechsten vorhandenen Elternteil hoch, der Ordner muss also noch gar
+    // nicht existieren.
+    const bool splitting = recorder_.recording() && config_.record.splitFiles;
+    disk_.Ask([this, folderText = config_.record.outputFolder, serial = startSerial_,
+               file = splitting ? recordingFile_ : std::filesystem::path()]()
+                  -> std::function<void()> {
+      const std::filesystem::path folder =
+          folderText.empty() ? DefaultRecordFolder() : Utf8ToPath(folderText);
+      uint64_t freeBytes = 0;
+      const bool known = DiskFreeBytes(folder, &freeBytes);
+      uint64_t fileBytes = 0;
+      if (!file.empty()) {
+        std::error_code ec;
+        const uintmax_t size = std::filesystem::file_size(file, ec);
+        if (!ec) fileBytes = (uint64_t)size;
+      }
+      return [this, known, freeBytes, fileBytes, serial] {
+        diskAsked_ = false;
+        diskFreeKnown_ = known;
+        diskFreeBytes_ = freeBytes;
+        // Only for the file it was asked about: a split since started another.
+        if (serial == startSerial_) recordingBytes_ = fileBytes;
+      };
+    });
   }
   settings_.SetDiskFree(diskFreeBytes_, diskFreeKnown_, diskBytesPerSecond_);
 }
@@ -464,7 +520,8 @@ void RecordingControl::SyncMicrophone() {
 
 void RecordingControl::FeedRecorder() {
   CollectFinished();
-  if (startPending_ && !mic_.opening()) LaunchRecording();
+  disk_.Collect();
+  if (startPending_ && !pendingFile_.empty() && !mic_.opening()) LaunchRecording();
   if (!recorder_.recording()) return;
 
   // ffmpeg did not start or died on its own: stop cleanly rather than filling a
@@ -547,17 +604,13 @@ void RecordingControl::FeedRecorder() {
   // Splitting is a restart, not a seamless cut: ffmpeg has to close the
   // container it is writing. A fraction of a second is lost at the boundary,
   // which is why this is off unless someone really is on FAT32.
-  if (config_.record.splitFiles) {
-    if (now - lastSplitCheck_ > 1.0) {
-      lastSplitCheck_ = now;
-      const uint64_t limit = (uint64_t)config_.record.splitSizeMb * 1024ull * 1024ull;
-      if (recorder_.outputFileSize() >= limit) {
-        CAP_LOG("Recording: size limit reached, new file");
-        StopRecording();
-        StartRecording();
-        return;
-      }
-    }
+  // The size is the one UpdateDiskSpace last had looked at, once a second.
+  if (config_.record.splitFiles &&
+      recordingBytes_ >= (uint64_t)config_.record.splitSizeMb * 1024ull * 1024ull) {
+    CAP_LOG("Recording: size limit reached, new file");
+    StopRecording();
+    StartRecording();
+    return;
   }
 
   // Der Platz auf dem Laufwerk. Eine volllaufende Platte bricht ffmpeg mitten
