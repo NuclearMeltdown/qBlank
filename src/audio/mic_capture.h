@@ -18,18 +18,16 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "audio/audio_devices.h"
 #include "audio/audio_ring.h"
 #include "audio/audio_stream.h"
 #include "config.h"
+#include "job_thread.h"
 
 namespace cap {
 
@@ -84,8 +82,6 @@ class MicCapture {
   // Runs on worker_. `generation` is the Start it belongs to; a Stop since then
   // makes it a no-op.
   void OpenOnWorker(const DeviceRef& device, uint32_t generation);
-  void Post(std::function<void()> job);
-  void WorkerLoop();
   void OnAudio(const float* interleaved, size_t frames);
   void Fail(const Said& said);
   // The device came up or gave up: either way Opened() may stop waiting.
@@ -96,14 +92,6 @@ class MicCapture {
   std::unique_ptr<AudioInput> input_;  // worker_ only
   std::vector<float> scratch_;  // the input's thread only
 
-  // One thread, so an open and the stop after it happen in the order asked for.
-  // Started with the first Start, ended by the destructor once its queue is
-  // empty.
-  std::thread worker_;
-  std::mutex jobMutex_;
-  std::condition_variable jobPosted_;
-  std::deque<std::function<void()>> jobs_;
-  bool quit_ = false;
   // A Start not yet followed by a Stop; the caller's thread only. The settings
   // ask for a stop every frame the microphone is not wanted, and only the first
   // has anything to hand to the worker.
@@ -131,6 +119,10 @@ class MicCapture {
   mutable std::mutex mutex_;
   std::string deviceName_;
   std::string lastError_;
+
+  // One thread, so an open and the stop after it happen in the order asked for.
+  // Last, because its jobs use everything above.
+  JobThread worker_;
 };
 
 }  // namespace cap

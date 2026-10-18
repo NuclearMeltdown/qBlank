@@ -7,7 +7,6 @@
 
 #include "common.h"
 #include "i18n.h"
-#include "platform.h"
 
 namespace cap {
 namespace {
@@ -19,39 +18,8 @@ const float kPeakDecay = 0.80f;
 
 }  // namespace
 
-MicCapture::~MicCapture() {
-  Stop();
-  {
-    std::lock_guard<std::mutex> lock(jobMutex_);
-    quit_ = true;
-  }
-  jobPosted_.notify_one();
-  if (worker_.joinable()) worker_.join();
-}
-
-void MicCapture::Post(std::function<void()> job) {
-  {
-    std::lock_guard<std::mutex> lock(jobMutex_);
-    jobs_.push_back(std::move(job));
-  }
-  if (!worker_.joinable()) worker_ = std::thread(&MicCapture::WorkerLoop, this);
-  jobPosted_.notify_one();
-}
-
-void MicCapture::WorkerLoop() {
-  SystemThreadScope onThisThread;
-  for (;;) {
-    std::function<void()> job;
-    {
-      std::unique_lock<std::mutex> lock(jobMutex_);
-      jobPosted_.wait(lock, [this] { return quit_ || !jobs_.empty(); });
-      if (jobs_.empty()) return;  // told to quit, and nothing left to do
-      job = std::move(jobs_.front());
-      jobs_.pop_front();
-    }
-    job();
-  }
-}
+// The worker lets the device go before it ends.
+MicCapture::~MicCapture() { Stop(); }
 
 void MicCapture::Fail(const Said& said) {
   {
@@ -107,7 +75,7 @@ void MicCapture::Start(const DeviceRef& device) {
   openStarted_ = std::chrono::steady_clock::now();
   started_ = true;
   const uint32_t generation = generation_.load(std::memory_order_relaxed);
-  Post([this, device, generation] { OpenOnWorker(device, generation); });
+  worker_.Post([this, device, generation] { OpenOnWorker(device, generation); });
 }
 
 void MicCapture::GiveUp(uint32_t generation) {
@@ -229,7 +197,7 @@ void MicCapture::Stop() {
   sampleRate_.store(0, std::memory_order_relaxed);
   peak_.store(0.0f, std::memory_order_relaxed);
   if (!started) return;
-  Post([this] {
+  worker_.Post([this] {
     if (input_) {
       input_->Stop();
       input_.reset();

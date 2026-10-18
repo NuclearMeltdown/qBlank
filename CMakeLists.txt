@@ -71,6 +71,7 @@ add_executable(qBlank WIN32
   src/text_win32.cpp
   src/wake_signal_win32.cpp
   src/i18n.cpp
+  src/job_thread.cpp
   src/app.cpp
   src/app_frame.cpp
   src/app_hosts.cpp
