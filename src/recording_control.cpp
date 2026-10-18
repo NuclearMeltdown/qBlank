@@ -387,29 +387,31 @@ void RecordingControl::SyncMicrophone(bool aboutToRecord) {
   // Changing the device is a fresh start, and clears a previous failure.
   if (!(micApplied_ == a.micDevice)) {
     micApplied_ = a.micDevice;
-    micAttempted_ = false;
     micFailed_ = false;
-    if (mic_.running()) mic_.Stop();
+    if (mic_.running() || mic_.opening()) mic_.Stop();
   }
 
-  if (wanted && !mic_.running() && !micFailed_) {
-    std::string error;
-    micAttempted_ = true;
-    if (!mic_.Start(a.micDevice, &error)) {
-      // Not fatal: the recording still happens, just without the second track.
-      // Latched, because retrying every frame would fill the log and the screen
-      // with the same message sixty times a second.
-      micFailed_ = true;
-      if (!error.empty()) host_.Toast(error);
-    }
-  } else if (!wanted && mic_.running()) {
+  // Not fatal: the recording still happens, just without the second track.
+  // Latched, because retrying every frame would fill the log and the screen
+  // with the same message sixty times a second.
+  std::string error;
+  if (wanted && !mic_.running() && !mic_.opening() && !micFailed_) {
+    if (!mic_.Start(a.micDevice, &error)) micFailed_ = true;
+  } else if (!wanted && (mic_.running() || mic_.opening())) {
     mic_.Stop();
-    micAttempted_ = false;
   }
+  // Opening takes a few milliseconds, and nothing but a recording that is
+  // about to begin has to wait for it: the level meter can look again next
+  // frame.
+  if (mic_.opening() && mic_.Opened(aboutToRecord ? 3000 : 0, &error) == MicCapture::Open::Failed) {
+    micFailed_ = true;
+  }
+  if (micFailed_ && !error.empty()) host_.Toast(error);
   mic_.SetGain(a.micGain);
 }
 
 void RecordingControl::FeedRecorder() {
+  CollectFinished();
   if (!recorder_.recording()) return;
 
   const double now = TicksToSeconds(ClockTicks());

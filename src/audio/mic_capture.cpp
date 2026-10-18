@@ -113,8 +113,8 @@ bool MicCapture::Start(const DeviceRef& device, std::string* error) {
     // Silence still has to decay, or the bar would hang at the last peak.
     peak_.store(peak_.load(std::memory_order_relaxed) * kPeakDecay, std::memory_order_relaxed);
   };
-  // Whatever happens, Start() must stop waiting. Failing to signal here would
-  // cost three seconds of frozen interface on every attempt.
+  // Whatever happens, Opened() must stop waiting. Failing to signal here would
+  // cost three seconds before a recording could start.
   events.onFailure = [this](const Said& said) {
     Fail(said);
     running_.store(false, std::memory_order_relaxed);
@@ -129,30 +129,42 @@ bool MicCapture::Start(const DeviceRef& device, std::string* error) {
     Stop();
     return false;
   }
-
-  // Opening the device takes a few milliseconds, and until it is done there is
-  // no sample rate to report. Returning early would let a recording start
-  // without the microphone track and never notice.
-  bool ready = false;
-  {
-    std::unique_lock<std::mutex> lock(readyMutex_);
-    ready = readyChanged_.wait_for(lock, std::chrono::milliseconds(3000), [this] { return ready_; });
-  }
-  if (!ready || startFailed_.load(std::memory_order_relaxed)) {
-    // What the input reported is in the log already; only silence is new.
-    const std::string reported = lastError();
-    if (reported.empty()) {
-      ReportError(error, CAP_SAID(T("Mikrofon antwortet nicht.", "The microphone is not responding.")));
-    } else if (error) {
-      *error = reported;
-    }
-    Stop();
-    return false;
-  }
+  opening_ = true;
+  openStarted_ = std::chrono::steady_clock::now();
   return true;
 }
 
+MicCapture::Open MicCapture::Opened(uint32_t waitMs, std::string* error) {
+  if (!opening_) return input_ ? Open::Ready : Open::Failed;
+
+  // Opening the device takes a few milliseconds, and until it is done there is
+  // no sample rate to report. A recording that started without it would lack
+  // the microphone track and never notice.
+  bool ready = false;
+  {
+    const auto deadline = openStarted_ + std::chrono::seconds(3);
+    const auto until =
+        std::min(deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMs));
+    std::unique_lock<std::mutex> lock(readyMutex_);
+    ready = readyChanged_.wait_until(lock, until, [this] { return ready_; });
+    if (!ready && std::chrono::steady_clock::now() < deadline) return Open::Pending;
+  }
+  opening_ = false;
+  if (ready && !startFailed_.load(std::memory_order_relaxed)) return Open::Ready;
+
+  // What the input reported is in the log already; only silence is new.
+  const std::string reported = lastError();
+  if (reported.empty()) {
+    ReportError(error, CAP_SAID(T("Mikrofon antwortet nicht.", "The microphone is not responding.")));
+  } else if (error) {
+    *error = reported;
+  }
+  Stop();
+  return Open::Failed;
+}
+
 void MicCapture::Stop() {
+  opening_ = false;
   running_.store(false, std::memory_order_relaxed);
   if (input_) {
     input_->Stop();

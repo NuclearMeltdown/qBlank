@@ -15,6 +15,7 @@
 // get wrong.
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -37,8 +38,18 @@ class MicCapture {
   MicCapture(const MicCapture&) = delete;
   MicCapture& operator=(const MicCapture&) = delete;
 
+  // Begins opening the device and returns without waiting for it; until it is
+  // open, sampleRate() is 0. False only when it could not even begin.
   bool Start(const DeviceRef& device, std::string* error);
   void Stop();
+
+  // Whether what Start began is still undecided.
+  bool opening() const { return opening_; }
+  enum class Open { Pending, Ready, Failed };
+  // Waits up to `waitMs` for the device Start is opening. A device that has not
+  // answered three seconds after Start counts as failed; a failed one is
+  // stopped, with the reason in `error`.
+  Open Opened(uint32_t waitMs, std::string* error);
 
   bool running() const { return running_.load(std::memory_order_relaxed); }
   int sampleRate() const { return sampleRate_.load(std::memory_order_relaxed); }
@@ -74,12 +85,14 @@ class MicCapture {
   std::vector<float> scratch_;  // the input's thread only
 
   // Set once the device is open and the sample rate is published, or once it
-  // has given up. Start() waits for it, because the caller needs the rate
+  // has given up. Opened() waits for it, because a recording needs the rate
   // before it can ask ffmpeg for a second input.
   std::mutex readyMutex_;
   std::condition_variable readyChanged_;
   bool ready_ = false;
   std::atomic<bool> startFailed_{false};
+  bool opening_ = false;  // the caller's thread only
+  std::chrono::steady_clock::time_point openStarted_;
 
   std::atomic<bool> running_{false};
   std::atomic<int> sampleRate_{0};

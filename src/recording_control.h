@@ -107,7 +107,6 @@ class RecordingControl {
   // What SyncMicrophone last acted on, so a failure is reported once instead of
   // once per frame. Cleared when the settings change.
   DeviceRef micApplied_;
-  bool micAttempted_ = false;
   bool micFailed_ = false;
   double lastSplitCheck_ = 0.0;
   // Die Bildrate der Quelle, wie sie beim Start der Aufnahme gemessen wurde --
