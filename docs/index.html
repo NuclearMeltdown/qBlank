@@ -80,6 +80,7 @@
       <div class="card"><h3>No graph clock</h3><p>The DirectShow graph runs without a reference clock, so nothing is held back waiting for a presentation time.</p></div>
       <div class="card"><h3>Tearing allowed</h3><p>A flip-model swap chain with one frame of queue and VSync off by default — the single biggest lever there is. Direct3D 11 by default, Vulkan as an option, under the same rules.</p></div>
       <div class="card"><h3>Conversion on the GPU</h3><p>YUY2, UYVY, NV12, planar 4:2:0, RGB and P010 are unpacked in a pixel shader. Nothing touches the CPU between arrival and drawing.</p></div>
+      <div class="card"><h3>Nothing waits on a disk</h3><p>Saving settings and screenshots, asking the drive for space, listing devices, opening folders: each area has a thread of its own. No frame waits on a disk or a driver, and no area waits on another.</p></div>
       <div class="card"><h3>And it shows you the bill</h3><p>The overlay times the stretch qBlank is answerable for: from a frame arriving to the present that hands it over, with upload, deinterlacing, filters and scaling inside. What the card does before and the screen after is not folded in.</p></div>
     </div>
   </div>
@@ -90,7 +91,7 @@
     <h2><span class="num">02</span>Record, capture, pass it on</h2>
     <p class="lead">For any DirectShow device: HDMI and analogue cards, USB dongles, webcams.</p>
     <div class="grid">
-      <div class="card"><h3>Recording</h3><p>H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265. The audio is the master clock, so the output is constant frame rate and does not drift — measured at 1&nbsp;ms over 15&nbsp;seconds. The free space on the drive is shown as the recording time it is worth, and a recording stops itself before the drive fills up.</p></div>
+      <div class="card"><h3>Recording</h3><p>H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265. The audio is the master clock, so the output is constant frame rate and does not drift — measured at 1&nbsp;ms over 15&nbsp;seconds. The free space on the drive is shown as the recording time it is worth, and a recording stops itself before the drive fills up. If the encoder cannot keep up, a notice says so.</p></div>
       <div class="card"><h3>Encoder controls</h3><p>Rate control, preset, tuning, look-ahead, adaptive quantisation and multipass, under one set of names translated into each vendor's own.</p></div>
       <div class="card"><h3>Audio</h3><p>The card's own audio or any Windows recording device, out through WASAPI, with clock drift corrected on the fly. A microphone can go on a track of its own in the recording, and is never played back.</p></div>
       <div class="card"><h3>Screenshots</h3><p>PNG or JPEG at source resolution through Windows Imaging Component, so no ffmpeg is needed. JPEG&nbsp;XR keeps the HDR range and needs none either; AVIF does. A switch grabs the finished window instead, interface and all, and <strong>Ctrl+F10</strong> puts the shot on the clipboard rather than on disk.</p></div>

@@ -74,6 +74,7 @@
       <div class="card"><h3>Keine Graph-Uhr</h3><p>Der DirectShow-Graph läuft ohne Referenzuhr. Nichts wird zurückgehalten, um auf einen Anzeigezeitpunkt zu warten.</p></div>
       <div class="card"><h3>Tearing erlaubt</h3><p>Eine Flip-Model-Swapchain mit einem Bild Warteschlange und standardmäßig ohne VSync: der größte Hebel, den es gibt. Standardmäßig Direct3D 11, Vulkan als Option, nach denselben Regeln.</p></div>
       <div class="card"><h3>Umwandlung auf der GPU</h3><p>YUY2, UYVY, NV12, planares 4:2:0, RGB und P010 werden in einem Pixel-Shader entpackt. Zwischen Eintreffen und Zeichnen fasst die CPU nichts an.</p></div>
+      <div class="card"><h3>Nichts wartet auf die Platte</h3><p>Einstellungen und Screenshots speichern, das Laufwerk nach Platz fragen, Geräte auflisten, Ordner öffnen: Jeder Bereich hat einen eigenen Thread. Kein Bild wartet auf eine Platte oder einen Treiber, und kein Bereich auf einen anderen.</p></div>
       <div class="card"><h3>Und es zeigt dir die Rechnung</h3><p>Die Statistik misst die Strecke, für die qBlank verantwortlich ist: vom Eintreffen eines Bildes bis zur Übergabe an die Anzeige, mit Upload, Deinterlacing, Filtern und Skalierung. Was die Karte davor und der Bildschirm danach tun, ist nicht eingerechnet.</p></div>
     </div>
   </div>
@@ -84,7 +85,7 @@
     <h2><span class="num">02</span>Aufnehmen, festhalten, weitergeben</h2>
     <p class="lead">Für jedes DirectShow-Gerät: HDMI- und analoge Karten, USB-Sticks, Webcams.</p>
     <div class="grid">
-      <div class="card"><h3>Aufnahme</h3><p>H.264, H.265 oder AV1 über NVENC, Quick Sync, AMF, x264 oder x265. Der Ton ist die Hauptuhr, deshalb hat die Aufnahme eine konstante Bildrate und driftet nicht: gemessen 1&nbsp;ms über 15&nbsp;Sekunden. Der freie Platz auf dem Laufwerk wird als Aufnahmezeit angezeigt, und eine Aufnahme stoppt selbst, bevor das Laufwerk voll ist.</p></div>
+      <div class="card"><h3>Aufnahme</h3><p>H.264, H.265 oder AV1 über NVENC, Quick Sync, AMF, x264 oder x265. Der Ton ist die Hauptuhr, deshalb hat die Aufnahme eine konstante Bildrate und driftet nicht: gemessen 1&nbsp;ms über 15&nbsp;Sekunden. Der freie Platz auf dem Laufwerk wird als Aufnahmezeit angezeigt, und eine Aufnahme stoppt selbst, bevor das Laufwerk voll ist. Kommt der Encoder nicht hinterher, sagt es ein Hinweis.</p></div>
       <div class="card"><h3>Encoder-Einstellungen</h3><p>Ratensteuerung, Preset, Tuning, Look-ahead, adaptive Quantisierung und Multipass unter einheitlichen Namen, übersetzt in die Begriffe jedes Herstellers.</p></div>
       <div class="card"><h3>Ton</h3><p>Der Ton der Karte oder jedes Windows-Aufnahmegerät, ausgegeben über WASAPI, Taktdrift wird laufend ausgeglichen. Ein Mikrofon kann auf eine eigene Spur der Aufnahme und wird nie wiedergegeben.</p></div>
       <div class="card"><h3>Screenshots</h3><p>PNG oder JPEG in Quellauflösung über die Windows Imaging Component, ganz ohne ffmpeg. JPEG&nbsp;XR behält den HDR-Umfang und braucht auch keins, AVIF schon. Ein Schalter nimmt stattdessen das fertige Fenster samt Oberfläche auf, und <strong>Strg+F10</strong> legt das Bild in die Zwischenablage statt auf die Platte.</p></div>
