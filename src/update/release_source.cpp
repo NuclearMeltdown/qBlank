@@ -170,7 +170,7 @@ const ReleaseSource& Releases() { return kSource; }
 // GitHub refuses requests without a user agent, and the API wants to be told
 // which version of itself to speak.
 bool FetchUrl(const std::string& url, bool api, std::string* out, FetchError* error,
-              int* httpStatus) {
+              int* httpStatus, const std::atomic<bool>* cancel) {
   HttpRequest request;
   request.url = url;
   request.userAgent = kAgent;
@@ -178,7 +178,16 @@ bool FetchUrl(const std::string& url, bool api, std::string* out, FetchError* er
 
   HttpResponse response;
   HttpError why = HttpError::None;
-  if (HttpGetString(request, out, &response, &why)) return true;
+  out->clear();
+  const bool ok = HttpGet(
+      request, &response,
+      [&](const void* data, size_t size) {
+        if (cancel && cancel->load(std::memory_order_relaxed)) return false;
+        out->append((const char*)data, size);
+        return true;
+      },
+      &why);
+  if (ok) return true;
   if (error) *error = Reason(why);
   if (httpStatus) *httpStatus = response.status;
   return false;

@@ -108,6 +108,7 @@ void Updater::CleanUpPreviousBuild() {
 }
 
 Updater::~Updater() {
+  quit_.store(true, std::memory_order_relaxed);
   if (thread_.joinable()) thread_.join();
 }
 
@@ -182,7 +183,6 @@ void Updater::Run(bool install) {
 
   // ---- install ----
   s.state = UpdateStatus::State::Downloading;
-  s.percent = 0;
   s.error = UpdateError::None;
   SetStatus(s);
 
@@ -196,7 +196,7 @@ void Updater::Run(bool install) {
 
   std::string data;
   FetchError error = FetchError::None;
-  if (!FetchUrl(downloadUrl_, false, &data, &error, &s.httpStatus)) {
+  if (!FetchUrl(downloadUrl_, false, &data, &error, &s.httpStatus, &quit_)) {
     s.state = UpdateStatus::State::Failed;
     s.error = Translate(error);
     SetStatus(s);
@@ -260,7 +260,6 @@ void Updater::Run(bool install) {
 
   CAP_LOG("Update to %s installed, restart pending", s.latestVersion.c_str());
   s.state = UpdateStatus::State::Ready;
-  s.percent = 100;
   SetStatus(s);
   busy_.store(false, std::memory_order_release);
 }

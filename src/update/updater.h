@@ -54,7 +54,6 @@ struct UpdateStatus {
   std::string pageUrl;        // where that release is on the web, as it said itself
   UpdateError error = UpdateError::None;
   int httpStatus = 0;  // only with UpdateError::HttpStatus
-  int percent = 0;     // download progress
   // Whether finding something is worth interrupting anybody for. True only for
   // the check made at startup: somebody who pressed "check now" is already
   // looking at the answer, and a dialog on top of it is just in the way.
@@ -108,6 +107,8 @@ class Updater {
   std::string downloadUrl_;  // filled by the check, used by the install
   std::thread thread_;
   std::atomic<bool> busy_{false};
+  // Set by the destructor: closing the program does not sit out a download.
+  std::atomic<bool> quit_{false};
 };
 
 }  // namespace cap

@@ -25,6 +25,7 @@
 // reader: the migrator shipped for the old name compiles it too, and must stay
 // small.
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -73,8 +74,9 @@ const ReleaseSource& Releases();
 // A plain GET, with this program's user agent and the answer in memory. `api`
 // only picks the Accept header. Anything that went wrong is one of the reasons
 // above, which is what the windows in front of this can put into words.
+// `cancel`, when given, stops the body part way once it is set.
 bool FetchUrl(const std::string& url, bool api, std::string* out, FetchError* error,
-              int* httpStatus);
+              int* httpStatus, const std::atomic<bool>* cancel = nullptr);
 
 // The newest release: by number first, by name if that fails.
 bool FetchLatestRelease(Release* out, FetchError* error, int* httpStatus);
