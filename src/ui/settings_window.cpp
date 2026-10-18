@@ -3806,7 +3806,8 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
       if (!item.done || item.ok) continue;
       ImGui::TextDisabled("- %s", item.error.c_str());
     }
-  }}
+  }
+}
 
 void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
   RecordSettings& rec = cfg().record;

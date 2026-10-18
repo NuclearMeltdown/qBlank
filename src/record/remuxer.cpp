@@ -146,9 +146,29 @@ void Remuxer::Run(std::filesystem::path ffmpegPath) {
     spec.Add("-movflags", "+faststart");
     spec.Add(PathToUtf8(output));
 
+    // Started and waited for here rather than run to the end, so that Cancel --
+    // and closing the program, which cancels -- does not have to sit out a
+    // remux of a long recording.
     std::string captured;
-    int exitCode = 0;
-    const bool started = RunAndCollect(spec, &captured, &exitCode, 30 * 60 * 1000);
+    ChildProcess process;
+    const bool started = process.Start(
+        spec, nullptr,
+        [&captured](const std::string& line) {
+          if (captured.size() > 1 << 16) return;  // a child that never stops talking
+          captured += line;
+          captured += '\n';
+        },
+        nullptr);
+    while (started && !process.Exited(100) && !cancel_.load(std::memory_order_relaxed)) {
+    }
+    const int exitCode = process.WaitOrKill(0);
+    // A file that was done before the cancel came is kept.
+    if (cancel_.load(std::memory_order_relaxed) && exitCode < 0) {
+      RemoveFile(output);
+      SetMessage(T("Abgebrochen.", "Cancelled."));
+      state_.store(State::Failed, std::memory_order_relaxed);
+      return;
+    }
 
     const bool good = started && exitCode == 0 && IsFile(output);
     Said failure;

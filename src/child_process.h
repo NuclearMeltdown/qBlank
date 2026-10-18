@@ -13,7 +13,7 @@
 // with a space in it is exactly what those rules get wrong. One argument here is
 // one argument in the child; the quoting belongs to the backend.
 //
-// The Windows half is process_win32.cpp.
+// The Windows half is child_process_win32.cpp.
 
 #include <cstddef>
 #include <cstdint>
@@ -130,6 +130,10 @@ class ChildProcess {
              std::string* error);
 
   bool started() const;
+
+  // Waits up to `timeoutMs` for it to end and leaves it running when it does
+  // not. True once it has ended, or when nothing was started.
+  bool Exited(uint32_t timeoutMs);
 
   // Waits up to `timeoutMs` for it to end and kills it when it does not, then
   // joins the error reader. Returns its exit code, or -1 when it had to be

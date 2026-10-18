@@ -436,6 +436,10 @@ bool ChildProcess::Start(const ProcessSpec& spec, ChildStream* input, ErrorLineF
 
 bool ChildProcess::started() const { return impl_->process != nullptr; }
 
+bool ChildProcess::Exited(uint32_t timeoutMs) {
+  return !impl_->process || ::WaitForSingleObject(impl_->process, timeoutMs) != WAIT_TIMEOUT;
+}
+
 int ChildProcess::WaitOrKill(uint32_t timeoutMs) {
   int code = 0;
   if (impl_->process) {

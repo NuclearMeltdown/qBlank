@@ -45,6 +45,8 @@ class Remuxer {
   bool Start(const std::filesystem::path& ffmpegPath,
              const std::vector<std::filesystem::path>& inputs);
 
+  // Kills the ffmpeg that is running and keeps nothing of its file. Returns at
+  // once; state() says when the thread is through.
   void Cancel();
 
   State state() const { return state_.load(std::memory_order_relaxed); }
