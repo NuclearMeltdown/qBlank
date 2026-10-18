@@ -29,6 +29,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Flip-model swap chain, maximum frame latency of one, tearing permitted, VSync off.
 - Direct3D 11 by default; Vulkan as an option under *Settings → General*, with the same passes and the same rules.
 - Format conversion on the GPU: YUY2, UYVY, YVYU, NV12, planar 4:2:0, RGB, P010.
+- Nothing on the render thread waits on a disk, a driver or the shell: each area has a thread of its own.
 
 [Latency](../../wiki/Latency)
 
@@ -125,9 +126,10 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - 60 to 50 Hz mid-recording **cuts the file and continues in a new one**.
 - Rate control, preset, tuning, look-ahead, adaptive quantisation and multipass under one set of names.
 - Free space shown as remaining recording time; a recording will not start on a full drive and stops itself before one fills up.
+- A notice when the encoder cannot keep up.
 
 **Screenshots** · [wiki](../../wiki/Screenshots)
-- At source resolution, taken **before the interface is drawn**.
+- At source resolution, taken **before the interface is drawn** — or the whole window with it, if you ask.
 - PNG and JPEG through Windows Imaging Component — **no ffmpeg needed**.
 - HDR sources can keep their range as JPEG XR or AVIF.
 - **Ctrl+F10** puts the shot on the clipboard instead of on disk.
@@ -211,7 +213,7 @@ it the build is Direct3D 11 only, with a warning.
 build.bat
 ```
 
-- `qBlank.exe` lands in the repository root, about 2.4 MB, static CRT.
+- `qBlank.exe` lands in the repository root, about 2.7 MB, static CRT.
 - `build.bat keep` retains the build tree, `build.bat debug` builds a debug configuration.
 - Settings live in `qBlank.json` beside the executable; nothing goes into the registry.
 - Prebuilt executables are attached to each [release](../../releases). [Building](../../wiki/Building)
