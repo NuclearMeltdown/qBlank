@@ -3789,9 +3789,10 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::Spacing();
   ImGui::SeparatorText(T("Screenshots", "Screenshots"));
   Anchor("shots");
-  ImGui::TextWrapped(T("Einzelbild aus der Quelle, ohne die Bedienoberfläche. Benötigt kein ffmpeg.",
-                       "Single frame from the source, without the interface. Does not need "
-                       "ffmpeg."));
+  ImGui::TextWrapped(T("Einzelbild aus der Quelle, auf Wunsch mit der Bedienoberfläche. Benötigt "
+                       "kein ffmpeg.",
+                       "Single frame from the source, with the interface if you like. Does not "
+                       "need ffmpeg."));
   ImGui::Spacing();
 
   ImGui::Checkbox(T("Bedienoberfläche mit aufnehmen", "Include the interface"),
