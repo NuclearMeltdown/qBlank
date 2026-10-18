@@ -324,6 +324,7 @@ class WasapiOutput : public AudioOutput {
 
     HRESULT hr = E_FAIL;
     bool usingExclusive = false;
+    bool clientInitialised = false;  // tried exclusive, successfully or not
     StreamFormat fmt;
     WAVEFORMATEX pcm = {};  // must outlive `candidate`
 
@@ -344,6 +345,7 @@ class WasapiOutput : public AudioOutput {
                         : nullptr;
       }
       if (candidate) {
+        clientInitialised = true;
         hr = client->Initialize(AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
                                 minPeriod, minPeriod, candidate, nullptr);
         if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
@@ -372,6 +374,9 @@ class WasapiOutput : public AudioOutput {
     }
 
     if (!usingExclusive) {
+      // A client goes through Initialize once. After a refused exclusive try
+      // it has to be activated afresh before shared mode can have it.
+      if (clientInitialised) client.Reset();
       if (!client) {
         if (FAILED(endpoint->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client))) {
           ::CoTaskMemFree(mixFormat);
