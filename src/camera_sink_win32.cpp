@@ -1,5 +1,9 @@
 #include "camera_sink.h"
 
+#include <atomic>
+#include <mutex>
+#include <thread>
+
 #include "text_win32.h"
 #include "vcam/vcam_shared.h"
 #include "vcam/virtual_camera.h"
@@ -14,6 +18,16 @@ namespace cap {
 // the rest of the program reads.
 struct CameraSink::Impl {
   VirtualCamera camera;
+
+  std::thread setup;
+  std::atomic<bool> settingUp{false};
+  std::mutex resultMutex;
+  bool hasResult = false;
+  SetupResult result;
+
+  ~Impl() {
+    if (setup.joinable()) setup.join();
+  }
 };
 
 CameraSink::CameraSink() : impl_(std::make_unique<Impl>()) {}
@@ -31,12 +45,38 @@ CameraSink::Setup CameraSink::Status() {
   }
 }
 
-bool CameraSink::InstallSystemWide(std::string* error) {
-  return VirtualCamera::InstallSource(error);
+void CameraSink::ChangeSetupAsync(bool install) {
+  Impl& impl = *impl_;
+  if (impl.settingUp.exchange(true, std::memory_order_acq_rel)) return;
+  if (impl.setup.joinable()) impl.setup.join();
+  // Registering under a running camera would pull the source out from under
+  // its readers.
+  impl.camera.Stop();
+  impl.setup = std::thread([&impl, install] {
+    SetupResult result;
+    result.install = install;
+    result.ok = install ? VirtualCamera::InstallSource(&result.error)
+                        : VirtualCamera::UninstallSource(&result.error);
+    {
+      std::lock_guard<std::mutex> lock(impl.resultMutex);
+      impl.result = std::move(result);
+      impl.hasResult = true;
+    }
+    impl.settingUp.store(false, std::memory_order_release);
+  });
 }
 
-bool CameraSink::RemoveSystemWide(std::string* error) {
-  return VirtualCamera::UninstallSource(error);
+bool CameraSink::changingSetup() const {
+  return impl_->settingUp.load(std::memory_order_acquire);
+}
+
+bool CameraSink::TakeSetupResult(SetupResult* out) {
+  if (impl_->settingUp.load(std::memory_order_acquire)) return false;
+  std::lock_guard<std::mutex> lock(impl_->resultMutex);
+  if (!impl_->hasResult) return false;
+  *out = std::move(impl_->result);
+  impl_->hasResult = false;
+  return true;
 }
 
 void CameraSink::CleanUpOldInstalls() { VirtualCamera::CleanUpOldSources(); }

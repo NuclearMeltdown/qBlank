@@ -54,10 +54,19 @@ class CameraSink {
   // the settings tab caches it.
   static Setup Status();
 
-  // Both ask the user for administrator rights and wait for the answer. False
-  // with `error` filled when the user declines or the step fails.
-  static bool InstallSystemWide(std::string* error);
-  static bool RemoveSystemWide(std::string* error);
+  // Installs the system wide part, or removes it. Both ask the user for
+  // administrator rights and wait for the answer, so they run on a thread of
+  // their own and the picture goes on meanwhile. The camera goes off first. A
+  // request while one is still running is ignored.
+  void ChangeSetupAsync(bool install);
+  bool changingSetup() const;
+  struct SetupResult {
+    bool install = false;
+    bool ok = false;
+    std::string error;  // also when the user declined
+  };
+  // How the last ChangeSetupAsync went, once.
+  bool TakeSetupResult(SetupResult* out);
 
   // Removes what earlier installations left behind. Called once at start, when
   // whatever had those files open has usually let go.

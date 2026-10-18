@@ -474,29 +474,23 @@ void App::FeedFrameConsumers() {
 }
 
 void App::UpdateVirtualCamera() {
+  // The camera is off while it is being installed or removed.
   const int request = settings_.takeVirtualCameraRequest();
-  if (request != 0) {
-    // Installing while it runs would pull the source out from under a reader,
-    // so it goes off first either way.
-    const bool wasOn = config_.app.virtualCamera;
-    if (virtualCamera_.running()) virtualCamera_.Stop();
-
-    std::string error;
-    const bool ok = request == 1 ? CameraSink::InstallSystemWide(&error)
-                                 : CameraSink::RemoveSystemWide(&error);
-    if (ok) {
-      Toast(request == 1 ? T("Kamera installiert.", "Camera installed.")
-                         : T("Kamera deinstalliert.", "Camera uninstalled."));
-      if (request == 2) config_.app.virtualCamera = false;
+  if (request != 0) virtualCamera_.ChangeSetupAsync(request == 1);
+  CameraSink::SetupResult setup;
+  if (virtualCamera_.TakeSetupResult(&setup)) {
+    if (setup.ok) {
+      Toast(setup.install ? T("Kamera installiert.", "Camera installed.")
+                          : T("Kamera deinstalliert.", "Camera uninstalled."));
+      if (!setup.install) config_.app.virtualCamera = false;
     } else {
-      Toast(error);
-      config_.app.virtualCamera = wasOn;
+      Toast(setup.error);
     }
   }
 
   virtualCamera_.SetWideOffered(config_.app.cameraHdr);
 
-  const bool want = config_.app.virtualCamera;
+  const bool want = config_.app.virtualCamera && !virtualCamera_.changingSetup();
   if (want && !virtualCamera_.running() && !virtualCamera_.starting()) {
     virtualCamera_.StartAsync();
   } else if (!want && (virtualCamera_.running() || virtualCamera_.starting())) {
