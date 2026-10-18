@@ -122,7 +122,7 @@ struct D3D11Display final : Display::Impl {
   bool BeginFrame(const float clearColor[4]) override;
   void EndFrame(bool vsync) override;
   void SubmitHidden() override;
-  bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) override;
+  std::unique_ptr<StillCopy> CopyBackBuffer() override;
 
   bool InitUi() override;
   void ShutdownUi() override;
@@ -315,51 +315,96 @@ bool D3D11Display::BeginFrame(const float clearColor[4]) {
   return true;
 }
 
-bool D3D11Display::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
-  if (!rgba || !swapchain_ || !context_ || !device_) return false;
-  if (hdrOutput_) return false;  // scRGB-Float, siehe Kommentar in der Kopfdatei
-  if (width_ <= 0 || height_ <= 0) return false;
+std::unique_ptr<StillCopy> D3D11Display::CopyBackBuffer() {
+  if (!swapchain_ || !context_) return nullptr;
+  if (hdrOutput_) return nullptr;  // scRGB-Float, siehe Kommentar in der Kopfdatei
+  if (width_ <= 0 || height_ <= 0) return nullptr;
 
   ComPtr<ID3D11Texture2D> back;
-  if (FAILED(CAP_HR(swapchain_->GetBuffer(0, IID_PPV_ARGS(&back)))) || !back) return false;
-
+  if (FAILED(CAP_HR(swapchain_->GetBuffer(0, IID_PPV_ARGS(&back)))) || !back) return nullptr;
   D3D11_TEXTURE2D_DESC td = {};
   back->GetDesc(&td);
+  return QueueStillCopy(context_.Get(), back.Get(), (int)td.Width, (int)td.Height);
+}
+
+// ---------------------------------------------------------------------- stills
+
+namespace {
+
+bool StillLayoutOf(DXGI_FORMAT format, StillLayout* layout) {
+  switch (format) {
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: *layout = StillLayout::Rgba8; return true;
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: *layout = StillLayout::Bgra8; return true;
+    case DXGI_FORMAT_R16G16B16A16_FLOAT: *layout = StillLayout::Half4; return true;
+    default: return false;
+  }
+}
+
+class D3D11StillCopy : public StillCopy {
+ public:
+  D3D11StillCopy(ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11Texture2D> staging)
+      : context_(std::move(context)), staging_(std::move(staging)) {}
+  ~D3D11StillCopy() override { Unmap(); }
+
+  void Unmap() override {
+    if (mapped_.pData) context_->Unmap(staging_.Get(), 0);
+    mapped_ = {};
+  }
+
+  Map TryMap(const uint8_t** data, size_t* rowPitch) override {
+    if (!mapped_.pData) {
+      const HRESULT hr = context_->Map(staging_.Get(), 0, D3D11_MAP_READ,
+                                       D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped_);
+      if (hr == DXGI_ERROR_WAS_STILL_DRAWING) return Map::Pending;
+      if (FAILED(CAP_HR(hr))) {
+        mapped_ = {};
+        return Map::Failed;
+      }
+    }
+    *data = (const uint8_t*)mapped_.pData;
+    *rowPitch = mapped_.RowPitch;
+    return Map::Ready;
+  }
+
+ private:
+  const ComPtr<ID3D11DeviceContext> context_;
+  const ComPtr<ID3D11Texture2D> staging_;
+  D3D11_MAPPED_SUBRESOURCE mapped_ = {};
+};
+
+}  // namespace
+
+std::unique_ptr<StillCopy> QueueStillCopy(ID3D11DeviceContext* context, ID3D11Texture2D* source,
+                                          int width, int height) {
+  if (!context || !source || width <= 0 || height <= 0) return nullptr;
+  D3D11_TEXTURE2D_DESC td = {};
+  source->GetDesc(&td);
+  StillLayout layout;
+  if (!StillLayoutOf(td.Format, &layout) || (UINT)width > td.Width || (UINT)height > td.Height) {
+    return nullptr;
+  }
+
+  // A staging texture of its own rather than a slot from the readback ring: the
+  // ring only exists while recording, and its slots are deliberately two frames
+  // stale. A screenshot is the picture that was on screen when the key went
+  // down.
   td.Usage = D3D11_USAGE_STAGING;
   td.BindFlags = 0;
   td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
   td.MiscFlags = 0;
-
+  ComPtr<ID3D11Device> device;
+  source->GetDevice(&device);
   ComPtr<ID3D11Texture2D> staging;
-  if (FAILED(CAP_HR(device_->CreateTexture2D(&td, nullptr, &staging)))) return false;
-  context_->CopyResource(staging.Get(), back.Get());
+  if (!device || FAILED(CAP_HR(device->CreateTexture2D(&td, nullptr, &staging)))) return nullptr;
+  context->CopyResource(staging.Get(), source);
 
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (FAILED(CAP_HR(context_->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))) return false;
-
-  const int w = (int)td.Width;
-  const int h = (int)td.Height;
-  const size_t rowBytes = (size_t)w * 4;
-  rgba->resize(rowBytes * (size_t)h);
-  const uint8_t* src = (const uint8_t*)mapped.pData;
-  for (int y = 0; y < h; ++y) {
-    const uint8_t* s = src + (size_t)y * (size_t)mapped.RowPitch;
-    uint8_t* d = rgba->data() + (size_t)y * rowBytes;
-    // Der Rueckpuffer ist BGRA, die Speicherroutinen erwarten RGBA. Und das
-    // Alpha wird gesetzt statt uebernommen: was auf dem Bildschirm deckend
-    // aussieht, muss in der Datei deckend sein.
-    for (int x = 0; x < w; ++x) {
-      d[x * 4 + 0] = s[x * 4 + 2];
-      d[x * 4 + 1] = s[x * 4 + 1];
-      d[x * 4 + 2] = s[x * 4 + 0];
-      d[x * 4 + 3] = 0xFF;
-    }
-  }
-  context_->Unmap(staging.Get(), 0);
-
-  if (width) *width = w;
-  if (height) *height = h;
-  return true;
+  auto copy = std::make_unique<D3D11StillCopy>(context, std::move(staging));
+  copy->width = width;
+  copy->height = height;
+  copy->layout = layout;
+  return copy;
 }
 
 void D3D11Display::SubmitHidden() {

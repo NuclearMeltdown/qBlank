@@ -96,8 +96,8 @@ void Display::SubmitHidden() {
   if (impl_) impl_->SubmitHidden();
 }
 
-bool Display::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
-  return impl_ && impl_->GrabBackBuffer(rgba, width, height);
+std::unique_ptr<StillCopy> Display::CopyBackBuffer() {
+  return impl_ ? impl_->CopyBackBuffer() : nullptr;
 }
 
 int Display::width() const { return impl_ ? impl_->width_ : 0; }

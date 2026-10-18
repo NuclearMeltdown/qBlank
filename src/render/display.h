@@ -32,6 +32,8 @@
 #include <string>
 #include <vector>
 
+#include "render/still_copy.h"
+
 struct ImDrawData;
 
 namespace cap {
@@ -118,14 +120,16 @@ class Display {
   // since, presents nothing. No BeginFrame before it.
   void SubmitHidden();
 
-  // Liest den Rueckpuffer als RGBA aus, also das Bild samt allem, was darauf
-  // gezeichnet wurde. Muss vor dem Present passieren -- danach ist der Inhalt
-  // eines Flip-Puffers undefiniert.
+  // Kopiert den Rueckpuffer fuer ein Standbild heraus, also das Bild samt
+  // allem, was darauf gezeichnet wurde -- eingereiht, nicht abgewartet, siehe
+  // still_copy.h. Muss vor dem Present passieren, danach ist der Inhalt eines
+  // Flip-Puffers undefiniert.
   //
-  // Nur im Acht-Bit-Modus. Ist die HDR-Ausgabe aktiv, ist der Puffer scRGB in
-  // halben Gleitkommazahlen, und ihn ohne Pruefung auf echter Hardware nach
-  // SDR umzurechnen hiesse, ungetestete Farbmathematik auszuliefern.
-  bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height);
+  // Nur im Acht-Bit-Modus, sonst null. Ist die HDR-Ausgabe aktiv, ist der
+  // Puffer scRGB in halben Gleitkommazahlen, und ihn ohne Pruefung auf echter
+  // Hardware nach SDR umzurechnen hiesse, ungetestete Farbmathematik
+  // auszuliefern.
+  std::unique_ptr<StillCopy> CopyBackBuffer();
 
   int width() const;
   int height() const;

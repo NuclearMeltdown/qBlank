@@ -175,8 +175,12 @@ class App {
   // `includeUi` false grabs the picture itself at source resolution; true grabs
   // the finished window, overlay and all, at window resolution.
   void WriteScreenshot(bool includeUi, bool toClipboard);
-  // Says how the shots handed to the writer came out.
+  // Hands the copies the GPU has finished to screenshotJobs_, and says how the
+  // saved ones came out.
   void CollectScreenshots();
+  void ReportScreenshot(const ScreenshotResult& r);
+  // Before the device goes: reads out what is mapped, drops what is not.
+  void DropStills();
   // Haelt an, was in die Textur geht -- der Zulauf laeuft weiter, die Filter
   // auch. Ein Standbild ist zum Hinsehen da: an einem stehenden Bild laesst
   // sich ein Regler beurteilen, an einem laufenden nicht.
@@ -382,7 +386,16 @@ class App {
 
   bool screenshotPending_ = false;
   bool screenshotToClipboard_ = false;
-  ScreenshotWriter screenshotWriter_;
+  // Copies still on the GPU, and copies whose bytes the saving thread has not
+  // read out yet: the copy has to outlive that. Oldest first.
+  struct PendingShot {
+    std::unique_ptr<StillCopy> copy;
+    ScreenshotJob job;
+  };
+  std::deque<PendingShot> pendingShots_;
+  // Taken and not yet reported, so a held key cannot pile them up.
+  int shotsInFlight_ = 0;
+  static constexpr int kMaxShotsInFlight = 4;
   // Standbild: siehe ToggleFreeze. Kein Profilwert, sondern ein Zustand -- ein
   // angehaltenes Bild soll einen Neustart nicht ueberleben.
   bool frozen_ = false;
@@ -559,10 +572,11 @@ class App {
 
   // Last, so they finish before anything their jobs touch is gone. Separate,
   // because nothing on one has to wait for the other: finding a folder to
-  // open, writing the settings. The one that answers wakes the loop, which may
-  // be asleep with the window minimised.
+  // open, writing the settings, saving screenshots. Those that answer wake the
+  // loop, which may be asleep with the window minimised.
   JobThread folderJobs_{WakeEventLoop};
   JobThread configJobs_;
+  JobThread screenshotJobs_{WakeEventLoop};
 };
 
 }  // namespace cap

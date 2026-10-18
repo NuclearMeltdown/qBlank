@@ -35,6 +35,8 @@
 #include <string>
 #include <vector>
 
+#include "render/still_copy.h"
+
 namespace cap {
 
 class Display;
@@ -311,22 +313,16 @@ class RenderPasses {
   virtual int hdrRecordHeight() const = 0;
   virtual bool CreateHdrRecord(int width, int height) = 0;
   virtual void RecordHdr(PassImage from, float paperWhiteNits, int slot) = 0;
-  // Waits for the GPU. The caller queues two frames ahead so it does not.
+  // Does not wait for the GPU either.
   virtual bool MapHdrReadback(int slot, MappedImage* mapped) = 0;
   virtual void UnmapHdrReadback(int slot) = 0;
 
   // ---- stills ----
-  //
-  // Both wait for the GPU, which a still is allowed to do: it happens when
-  // somebody presses a key, not sixty times a second.
 
-  // Eight bit RGBA, tightly packed, alpha opaque.
-  virtual bool ReadStill(PassImage from, int width, int height,
-                         std::vector<uint8_t>* pixels) = 0;
-  // Linear light, four half floats per pixel. The stride comes back in bytes
-  // because the backend's own row padding is part of what is returned.
-  virtual bool ReadStillHalf(PassImage from, int rows, std::vector<uint16_t>* out,
-                             int* strideBytes) = 0;
+  // `width` by `height` of `from`, from its top left, queued for a still: eight
+  // bits a channel, or linear light in half floats, as `from` holds it. Null
+  // when it cannot be made. Waits for nothing, see still_copy.h.
+  virtual std::unique_ptr<StillCopy> CopyStill(PassImage from, int width, int height) = 0;
 
  protected:
   // Whether pass one has to run, for CleanAndConvert. Its picture depends on

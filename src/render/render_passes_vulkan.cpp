@@ -152,9 +152,9 @@ class VulkanPasses : public RenderPasses {
   bool MapHdrReadback(int slot, MappedImage* mapped) override;
   void UnmapHdrReadback(int slot) override {}
 
-  bool ReadStill(PassImage from, int width, int height, std::vector<uint8_t>* pixels) override;
-  bool ReadStillHalf(PassImage from, int rows, std::vector<uint16_t>* out,
-                     int* strideBytes) override;
+  std::unique_ptr<StillCopy> CopyStill(PassImage from, int width, int height) override {
+    return vk_ ? vk_->CopyStill(Image(from), width, height) : nullptr;
+  }
 
  private:
   // One per shader, target format and blend. A failed one is kept as null, so
@@ -1422,77 +1422,10 @@ void VulkanPasses::RecordHdr(PassImage from, float paperWhiteNits, int slot) {
 bool VulkanPasses::MapHdrReadback(int slot, MappedImage* mapped) {
   if (!vk_ || slot < 0 || slot >= kReadbackSlots) return false;
   Readback& readback = hdrReadback_[slot];
-  if (!readback.buffer || !vk_->Wait(readback.serial)) return false;
+  if (!readback.buffer || !vk_->Completed(readback.serial)) return false;
   vk_->Invalidate(readback.buffer);
   mapped->data = readback.buffer.mapped;
   mapped->rowPitch = (size_t)readback.width * 4;
-  return true;
-}
-
-// ---------------------------------------------------------------------- stills
-
-bool VulkanPasses::ReadStill(PassImage from, int width, int height,
-                             std::vector<uint8_t>* pixels) {
-  if (!vk_) return false;
-  // A buffer of its own rather than a slot from the readback ring, as in
-  // Direct3D 11: the ring only exists while recording, and its slots are two
-  // frames old. A screenshot is the picture on screen when the key went down.
-  Readback staging;
-  if (!CreateReadback(width, height, &staging)) return false;
-  const bool copied = CopyOut(vk_->Commands(), Image(from), &staging);
-  if (!copied || !vk_->Flush()) {
-    ReleaseReadback(&staging);
-    return false;
-  }
-  vk_->Invalidate(staging.buffer);
-
-  const size_t rowBytes = (size_t)staging.width * 4;
-  pixels->resize(rowBytes * (size_t)staging.height);
-  const uint8_t* src = staging.buffer.mapped;
-  for (int y = 0; y < staging.height; ++y) {
-    uint8_t* dst = pixels->data() + (size_t)y * rowBytes;
-    memcpy(dst, src + (size_t)y * rowBytes, rowBytes);
-    // Whatever ended up in the alpha channel, a screenshot of opaque video is
-    // opaque.
-    for (size_t x = 3; x < rowBytes; x += 4) dst[x] = 0xFF;
-  }
-  ReleaseReadback(&staging);
-  return true;
-}
-
-bool VulkanPasses::ReadStillHalf(PassImage from, int rows, std::vector<uint16_t>* out,
-                                 int* strideBytes) {
-  if (!vk_) return false;
-  VulkanImage* source = Image(from);
-  if (!source || !*source || TexelBytes(source->format) != 8) return false;
-  VkCommandBuffer cmd = vk_->Commands();
-  if (!cmd) return false;
-
-  // The whole picture, tightly packed: the stride is the picture's own width.
-  const size_t pitch = (size_t)source->width * 8;
-  rows = std::max(0, std::min(rows, source->height));
-  VulkanBuffer staging;
-  if (!vk_->CreateBuffer((VkDeviceSize)pitch * (VkDeviceSize)source->height,
-                         VK_BUFFER_USAGE_TRANSFER_DST_BIT, VulkanMemory::Readback, &staging)) {
-    return false;
-  }
-  vk_->Transition(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  VkBufferImageCopy region = {};
-  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-  region.imageExtent = {(uint32_t)source->width, (uint32_t)source->height, 1};
-  vkCmdCopyImageToBuffer(cmd, source->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                         staging.buffer, 1, &region);
-  vk_->HostReadBarrier(cmd);
-  if (!vk_->Flush()) {
-    vk_->DestroyBuffer(&staging);
-    return false;
-  }
-  vk_->Invalidate(staging);
-
-  out->resize(pitch / sizeof(uint16_t) * (size_t)rows);
-  memcpy(out->data(), staging.mapped, out->size() * sizeof(uint16_t));
-  *strideBytes = (int)pitch;
-  vk_->DestroyBuffer(&staging);
   return true;
 }
 

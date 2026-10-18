@@ -217,6 +217,10 @@ void App::Shutdown() {
   settingsHost_.Destroy();
   StopCapture();
   mic_.Stop();
+  // While the window is still there: a copy to the clipboard belongs to it.
+  DropStills();
+  screenshotJobs_.Drain();
+  screenshotJobs_.Collect();
   renderer_.Shutdown();
   ShutdownImGui();
   display_.Shutdown();
@@ -368,6 +372,9 @@ bool App::StartGraphics() {
 // the start makes it; window, capture and settings stay as they are.
 void App::RestartGraphics() {
   CAP_WARN("Graphics device lost, starting the graphics again");
+  DropStills();
+  // The copies already handed to the saving thread are of this device too.
+  screenshotJobs_.Drain();
   renderer_.Shutdown();
   ShutdownImGui();
   display_.Shutdown();

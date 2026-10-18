@@ -109,9 +109,9 @@ class D3D11Passes : public RenderPasses {
   bool MapHdrReadback(int slot, MappedImage* mapped) override;
   void UnmapHdrReadback(int slot) override;
 
-  bool ReadStill(PassImage from, int width, int height, std::vector<uint8_t>* pixels) override;
-  bool ReadStillHalf(PassImage from, int rows, std::vector<uint16_t>* out,
-                     int* strideBytes) override;
+  std::unique_ptr<StillCopy> CopyStill(PassImage from, int width, int height) override {
+    return QueueStillCopy(NativeContext(*display_), Texture(from), width, height);
+  }
 
  private:
   bool CreateShaders(std::string* error);
@@ -1348,7 +1348,10 @@ void D3D11Passes::RecordHdr(PassImage from, float paperWhiteNits, int slot) {
 
 bool D3D11Passes::MapHdrReadback(int slot, MappedImage* mapped) {
   D3D11_MAPPED_SUBRESOURCE sub = {};
-  if (FAILED(dc()->Map(hdrReadbackTex_[slot].Get(), 0, D3D11_MAP_READ, 0, &sub))) return false;
+  if (FAILED(dc()->Map(hdrReadbackTex_[slot].Get(), 0, D3D11_MAP_READ,
+                       D3D11_MAP_FLAG_DO_NOT_WAIT, &sub))) {
+    return false;
+  }
   mapped->data = (const uint8_t*)sub.pData;
   mapped->rowPitch = sub.RowPitch;
   return true;
@@ -1356,81 +1359,6 @@ bool D3D11Passes::MapHdrReadback(int slot, MappedImage* mapped) {
 
 void D3D11Passes::UnmapHdrReadback(int slot) {
   dc()->Unmap(hdrReadbackTex_[slot].Get(), 0);
-}
-
-// ---------------------------------------------------------------------- stills
-
-bool D3D11Passes::ReadStill(PassImage from, int width, int height,
-                            std::vector<uint8_t>* pixels) {
-  // A staging texture of its own rather than a slot from the readback ring: the
-  // ring only exists while recording, and its slots are deliberately two frames
-  // stale. A screenshot should be the picture that was on screen when the key
-  // went down.
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)width;
-  td.Height = (UINT)height;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_STAGING;
-  td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-  ComPtr<ID3D11Texture2D> staging;
-  if (FAILED(CAP_HR(NativeDevice(*display_)->CreateTexture2D(&td, nullptr, &staging)))) {
-    return false;
-  }
-
-  ID3D11DeviceContext* dc = NativeContext(*display_);
-  dc->CopyResource(staging.Get(), Texture(from));
-
-  // Blocking map: D3D11_MAP_READ without DO_NOT_WAIT flushes and waits.
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (FAILED(CAP_HR(dc->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))) return false;
-
-  const size_t rowBytes = (size_t)width * 4;
-  pixels->resize(rowBytes * (size_t)height);
-  const uint8_t* src = (const uint8_t*)mapped.pData;
-  for (int y = 0; y < height; ++y) {
-    uint8_t* dst = pixels->data() + (size_t)y * rowBytes;
-    memcpy(dst, src + (size_t)y * (size_t)mapped.RowPitch, rowBytes);
-    // The pipeline carries an alpha channel it has no use for. Whatever ended up
-    // in it, a screenshot of opaque video is opaque.
-    for (size_t x = 3; x < rowBytes; x += 4) dst[x] = 0xFF;
-  }
-  dc->Unmap(staging.Get(), 0);
-  return true;
-}
-
-bool D3D11Passes::ReadStillHalf(PassImage from, int rows, std::vector<uint16_t>* out,
-                                int* strideBytes) {
-  ID3D11Texture2D* source = Texture(from);
-  if (!source) return false;
-
-  D3D11_TEXTURE2D_DESC td = {};
-  source->GetDesc(&td);
-  td.Usage = D3D11_USAGE_STAGING;
-  td.BindFlags = 0;
-  td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-  td.MiscFlags = 0;
-
-  ComPtr<ID3D11Texture2D> staging;
-  if (FAILED(CAP_HR(NativeDevice(*display_)->CreateTexture2D(&td, nullptr, &staging)))) {
-    return false;
-  }
-
-  ID3D11DeviceContext* dc = NativeContext(*display_);
-  dc->CopyResource(staging.Get(), source);
-
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (FAILED(CAP_HR(dc->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))) return false;
-
-  out->resize((size_t)mapped.RowPitch / sizeof(uint16_t) * rows);
-  memcpy(out->data(), mapped.pData, out->size() * sizeof(uint16_t));
-  dc->Unmap(staging.Get(), 0);
-
-  *strideBytes = (int)mapped.RowPitch;
-  return true;
 }
 
 }  // namespace

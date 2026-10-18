@@ -197,10 +197,9 @@ bool VideoRenderer::EnsureIntermediate(int width, int height) {
 // It reuses the scaling shader at one to one with nearest sampling, because
 // that shader already knows how to turn linear light into an ordinary picture
 // and there is no reason to have two copies of that curve.
-bool VideoRenderer::GrabStillHalf(std::vector<uint16_t>* out, int* width, int* height,
-                                  int* strideBytes) {
-  if (!passes_->hasIntermediate() || !display_ || hdrTransfer_ == Transfer::Sdr) return false;
-  if (!passes_->intermediateWide()) return false;
+std::unique_ptr<StillCopy> VideoRenderer::CopyStillHalf() {
+  if (!passes_->hasIntermediate() || !display_ || hdrTransfer_ == Transfer::Sdr) return nullptr;
+  if (!passes_->intermediateWide()) return nullptr;
 
   // Square pixels here too, and in linear light so nothing about the range is
   // decided on the way. A still is allowed the extra pass; it happens when
@@ -209,17 +208,12 @@ bool VideoRenderer::GrabStillHalf(std::vector<uint16_t>* out, int* width, int* h
   int fromW = passes_->intermediateWidth();
   int fromH = passes_->intermediateHeight();
   if (deliveryHalfNeeded()) {
-    if (!RenderDelivery(true)) return false;
+    if (!RenderDelivery(true)) return nullptr;
     from = PassImage::DeliveryHalf;
     fromW = deliveryWidth_;
     fromH = deliveryHeight_;
   }
-
-  if (!passes_->ReadStillHalf(from, fromH, out, strideBytes)) return false;
-
-  *width = fromW;
-  *height = fromH;
-  return true;
+  return passes_->CopyStill(from, fromW, fromH);
 }
 
 bool VideoRenderer::EnsureHdrRecord(int width, int height) {
@@ -2743,10 +2737,10 @@ void VideoRenderer::ReleaseReadback() {
   readbackMapped_ = -1;
 }
 
-bool VideoRenderer::GrabStill(std::vector<uint8_t>* pixels, int* width, int* height) {
-  if (!pixels || !passes_->hasIntermediate() || !display_ ||
-      passes_->intermediateWidth() <= 0 || passes_->intermediateHeight() <= 0) {
-    return false;
+std::unique_ptr<StillCopy> VideoRenderer::CopyStill() {
+  if (!passes_->hasIntermediate() || !display_ || passes_->intermediateWidth() <= 0 ||
+      passes_->intermediateHeight() <= 0) {
+    return nullptr;
   }
 
   // Same two reasons as the recording path: square pixels, and eight bits out
@@ -2755,16 +2749,11 @@ bool VideoRenderer::GrabStill(std::vector<uint8_t>* pixels, int* width, int* hei
   // correct -- copying a half float intermediate straight into an eight bit
   // staging texture never was a legal copy.
   const bool viaDelivery = deliveryNeeded();
-  if (viaDelivery && !RenderDelivery(false)) return false;
+  if (viaDelivery && !RenderDelivery(false)) return nullptr;
   const PassImage from = viaDelivery ? PassImage::Delivery : PassImage::Intermediate;
   const int fromW = viaDelivery ? deliveryWidth_ : passes_->intermediateWidth();
   const int fromH = viaDelivery ? deliveryHeight_ : passes_->intermediateHeight();
-
-  if (!passes_->ReadStill(from, fromW, fromH, pixels)) return false;
-
-  if (width) *width = fromW;
-  if (height) *height = fromH;
-  return true;
+  return passes_->CopyStill(from, fromW, fromH);
 }
 
 // Shape the picture wants to be seen in, width over height.

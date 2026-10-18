@@ -116,6 +116,7 @@ add_executable(qBlank WIN32
   src/render/display.cpp
   src/render/display_win32.cpp
   src/render/render_passes.cpp
+  src/render/still_copy.cpp
   src/render/render_passes_win32.cpp
   src/render/video_renderer.cpp
   src/ui/file_dialog.cpp

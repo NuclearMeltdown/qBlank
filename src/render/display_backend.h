@@ -29,7 +29,7 @@ struct Display::Impl {
   virtual bool BeginFrame(const float clearColor[4]) = 0;
   virtual void EndFrame(bool vsync) = 0;
   virtual void SubmitHidden() = 0;
-  virtual bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) = 0;
+  virtual std::unique_ptr<StillCopy> CopyBackBuffer() = 0;
 
   virtual bool InitUi() = 0;
   virtual void ShutdownUi() = 0;

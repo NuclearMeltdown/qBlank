@@ -487,18 +487,6 @@ bool VulkanDevice::Completed(uint64_t serial) {
   return true;
 }
 
-bool VulkanDevice::Wait(uint64_t serial) {
-  if (!device_) return false;
-  if (serial > submittedSerial_) return Flush();
-  if (serial > completedSerial_) {
-    // One submission in flight, so the fence is the one that serial signals.
-    vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
-    completedSerial_ = submittedSerial_;
-    RunDeferred();
-  }
-  return true;
-}
-
 void VulkanDevice::Defer(std::function<void(VkDevice)> destroy) {
   if (!device_) return;
   // While nothing is being recorded the last submission is the last thing that
@@ -750,12 +738,102 @@ void VulkanDevice::DestroyBuffer(VulkanBuffer* buffer) {
   });
 }
 
+void VulkanDevice::FreeBuffer(VulkanBuffer* buffer) {
+  if (!buffer || !buffer->buffer) return;
+  vkDestroyBuffer(device_, buffer->buffer, nullptr);
+  vkFreeMemory(device_, buffer->memory, nullptr);
+  *buffer = VulkanBuffer();
+}
+
 void VulkanDevice::Invalidate(const VulkanBuffer& buffer) {
   if (!device_ || !buffer.memory || buffer.coherent) return;
   VkMappedMemoryRange range = {VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
   range.memory = buffer.memory;
   range.size = VK_WHOLE_SIZE;
   vkInvalidateMappedMemoryRanges(device_, 1, &range);
+}
+
+// ---------------------------------------------------------------------- stills
+
+namespace {
+
+bool StillLayoutOf(VkFormat format, StillLayout* layout) {
+  switch (format) {
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SRGB: *layout = StillLayout::Rgba8; return true;
+    case VK_FORMAT_B8G8R8A8_UNORM:
+    case VK_FORMAT_B8G8R8A8_SRGB: *layout = StillLayout::Bgra8; return true;
+    case VK_FORMAT_R16G16B16A16_SFLOAT: *layout = StillLayout::Half4; return true;
+    default: return false;
+  }
+}
+
+class VulkanStillCopy : public StillCopy {
+ public:
+  VulkanStillCopy(VulkanDevice* device, const VulkanBuffer& buffer, uint64_t serial, size_t pitch)
+      : device_(device), buffer_(buffer), serial_(serial), pitch_(pitch) {}
+  // Once mapped, the GPU is done with it, and it may go from the saving thread.
+  ~VulkanStillCopy() override {
+    if (ready_) {
+      device_->FreeBuffer(&buffer_);
+    } else {
+      device_->DestroyBuffer(&buffer_);
+    }
+  }
+
+  Map TryMap(const uint8_t** data, size_t* rowPitch) override {
+    if (!ready_) {
+      if (device_->lost()) return Map::Failed;
+      if (!device_->Completed(serial_)) return Map::Pending;
+      device_->Invalidate(buffer_);
+      ready_ = true;
+    }
+    *data = buffer_.mapped;
+    *rowPitch = pitch_;
+    return Map::Ready;
+  }
+
+ private:
+  VulkanDevice* const device_;
+  VulkanBuffer buffer_;
+  const uint64_t serial_;
+  const size_t pitch_;
+  bool ready_ = false;
+};
+
+}  // namespace
+
+std::unique_ptr<StillCopy> VulkanDevice::CopyStill(VulkanImage* image, int width, int height) {
+  StillLayout layout;
+  if (!image || !*image || !StillLayoutOf(image->format, &layout) || width <= 0 ||
+      height <= 0 || width > image->width || height > image->height) {
+    return nullptr;
+  }
+  VkCommandBuffer cmd = Commands();
+  if (!cmd) return nullptr;
+
+  // A buffer of its own rather than a slot from the readback ring, as in
+  // Direct3D 11: the ring only exists while recording, and its slots are two
+  // frames old. A screenshot is the picture on screen when the key went down.
+  const size_t pitch = (size_t)width * (layout == StillLayout::Half4 ? 8 : 4);
+  VulkanBuffer buffer;
+  if (!CreateBuffer((VkDeviceSize)pitch * (VkDeviceSize)height, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                    VulkanMemory::Readback, &buffer)) {
+    return nullptr;
+  }
+  Transition(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  VkBufferImageCopy region = {};
+  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  region.imageExtent = {(uint32_t)width, (uint32_t)height, 1};
+  vkCmdCopyImageToBuffer(cmd, image->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.buffer, 1,
+                         &region);
+  HostReadBarrier(cmd);
+
+  auto copy = std::make_unique<VulkanStillCopy>(this, buffer, RecordingSerial(), pitch);
+  copy->width = width;
+  copy->height = height;
+  copy->layout = layout;
+  return copy;
 }
 
 }  // namespace cap

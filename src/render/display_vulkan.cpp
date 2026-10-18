@@ -81,7 +81,7 @@ struct VulkanDisplay final : Display::Impl {
   bool BeginFrame(const float clearColor[4]) override;
   void EndFrame(bool vsync) override;
   void SubmitHidden() override;
-  bool GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) override;
+  std::unique_ptr<StillCopy> CopyBackBuffer() override;
 
   bool InitUi() override;
   void ShutdownUi() override;
@@ -606,50 +606,11 @@ void VulkanDisplay::EndFrame(bool vsync) {
   }
 }
 
-bool VulkanDisplay::GrabBackBuffer(std::vector<uint8_t>* rgba, int* width, int* height) {
-  if (!rgba) return false;
-  if (hdrOutput_) return false;  // scRGB-Float, siehe Kommentar in display.h
+std::unique_ptr<StillCopy> VulkanDisplay::CopyBackBuffer() {
+  if (hdrOutput_) return nullptr;  // scRGB-Float, siehe Kommentar in display.h
   VulkanImage* image = device_.backBuffer();
-  if (!image || !transferSrc_) return false;
-
-  const int w = image->width;
-  const int h = image->height;
-  const size_t rowBytes = (size_t)w * 4;
-  VulkanBuffer buffer;
-  if (!device_.CreateBuffer((VkDeviceSize)rowBytes * (VkDeviceSize)h,
-                            VK_BUFFER_USAGE_TRANSFER_DST_BIT, VulkanMemory::Readback, &buffer)) {
-    return false;
-  }
-
-  VkCommandBuffer cmd = device_.Commands();
-  device_.Transition(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  VkBufferImageCopy region = {};
-  region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  region.imageSubresource.layerCount = 1;
-  region.imageExtent = {(uint32_t)w, (uint32_t)h, 1};
-  vkCmdCopyImageToBuffer(cmd, image->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.buffer, 1,
-                         &region);
-  device_.HostReadBarrier(cmd);
-  const bool ok = device_.Flush();
-  if (ok) {
-    device_.Invalidate(buffer);
-    rgba->resize(rowBytes * (size_t)h);
-    const uint8_t* src = buffer.mapped;
-    uint8_t* dst = rgba->data();
-    // Das Alpha wird gesetzt statt uebernommen: was auf dem Bildschirm deckend
-    // aussieht, muss in der Datei deckend sein.
-    const bool bgra = image->format == VK_FORMAT_B8G8R8A8_UNORM;
-    for (size_t i = 0; i < (size_t)w * (size_t)h; ++i) {
-      dst[i * 4 + 0] = src[i * 4 + (bgra ? 2 : 0)];
-      dst[i * 4 + 1] = src[i * 4 + 1];
-      dst[i * 4 + 2] = src[i * 4 + (bgra ? 0 : 2)];
-      dst[i * 4 + 3] = 0xFF;
-    }
-    if (width) *width = w;
-    if (height) *height = h;
-  }
-  device_.DestroyBuffer(&buffer);
-  return ok;
+  if (!image || !transferSrc_) return nullptr;
+  return device_.CopyStill(image, image->width, image->height);
 }
 
 // ------------------------------------------------------------------ interface

@@ -28,11 +28,12 @@ int App::Run() {
       // minimised. So they are drawn, on the same short wait as below while
       // either is on screen; otherwise the loop blocks and costs nothing. The
       // settings embedded in the picture are minimised along with it and do not
-      // count.
+      // count. A screenshot taken just before is looked after the same way:
+      // nothing says when the GPU is done with it.
       Tick();
       DrawSettingsWindowed();
       DrawTrayMenu();
-      if (settingsHost_.visible() || trayPopup_.isOpen()) {
+      if (settingsHost_.visible() || trayPopup_.isOpen() || !pendingShots_.empty()) {
         lastWake_ = WaitForEventsOr(nullptr, 16);
       } else if (virtualCamera_.running()) {
         // A program can start reading the camera at any moment, and nothing
@@ -585,12 +586,12 @@ void App::UpdateHdr() {
 }
 
 void App::WriteScreenshot(bool includeUi, bool toClipboard) {
-  RecordSettings& rec = config_.record;
+  if (shotsInFlight_ >= kMaxShotsInFlight) {
+    Toast(T("Screenshots werden noch gespeichert.", "Still saving screenshots."));
+    return;
+  }
 
-  std::vector<uint8_t> pixels;
-  std::vector<uint16_t> halfPixels;
-  int width = 0, height = 0, halfStride = 0;
-  bool wide = false;
+  std::unique_ptr<StillCopy> copy;
   std::string note;
 
   if (includeUi) {
@@ -599,12 +600,14 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
     // possible in eight bit -- an HDR back buffer is scRGB float, and the
     // conversion out of it is not something to guess at. There, the picture
     // itself is saved instead and the message says so.
-    if (!display_.GrabBackBuffer(&pixels, &width, &height)) {
+    copy = display_.CopyBackBuffer();
+    if (!copy) {
       includeUi = false;
       note = T(" (ohne Oberfläche, HDR-Ausgabe)", " (without interface, HDR output)");
     }
   }
 
+  bool wide = false;
   if (!includeUi) {
     // Keeping the range only means anything when there is a range to keep, so
     // the setting and the source both have to say so. Otherwise this is an
@@ -612,43 +615,20 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
     // the ordinary path: there is no way to hand a wide range over it.
     wide = !toClipboard && config_.app.screenshotHdr &&
            renderer_.hdrTransfer() != VideoRenderer::Transfer::Sdr;
-    if (wide) {
-      if (!renderer_.GrabStillHalf(&halfPixels, &width, &height, &halfStride)) {
-        Toast(T("Kein Bild zum Speichern.", "No picture to save."));
-        return;
-      }
-    } else if (!renderer_.GrabStill(&pixels, &width, &height)) {
+    copy = wide ? renderer_.CopyStillHalf() : renderer_.CopyStill();
+    if (!copy) {
       Toast(T("Kein Bild zum Speichern.", "No picture to save."));
       return;
     }
   }
 
-  if (toClipboard) {
-    std::string clipError;
-    if (!CopyScreenshotToClipboard(&window_, pixels.data(), width, height, &clipError)) {
-      Toast(T("Kopieren fehlgeschlagen: ", "Copy failed: ") + clipError);
-      return;
-    }
-    Toast(T("In der Zwischenablage", "On the clipboard") +
-          Format(" (%dx%d)", width, height) + note);
-    CAP_LOG("Screenshot copied to the clipboard (%dx%d)", width, height);
-    return;
-  }
-
-  ScreenshotWriter::Job job;
-  job.folder = ResolveOutputFolder(&rec.screenshotFolder, DefaultScreenshotFolder());
-  if (job.folder.empty()) {
-    Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
-    CAP_ERR("Screenshot: folder not available");
-    return;
-  }
-  // Saved on the writer's thread, see CollectScreenshots for the message.
-  job.wide = wide;
-  job.pixels = std::move(pixels);
-  job.halfPixels = std::move(halfPixels);
-  job.width = width;
-  job.height = height;
-  job.halfStride = halfStride;
+  // Everything the saving thread needs, as it stands now: the settings may
+  // change before the GPU is done.
+  const RecordSettings& rec = config_.record;
+  ScreenshotJob job;
+  job.toClipboard = toClipboard;
+  job.clipboardOwner = &window_;
+  job.folder = rec.screenshotFolder;
   job.format = rec.screenshotFormat;
   job.jpegQuality = rec.jpegQuality;
   job.hdrFormat = config_.app.hdrShotFormat;
@@ -657,26 +637,80 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
   }
   job.paperWhiteNits = config_.app.paperWhiteNits;
   job.note = std::move(note);
-  if (!screenshotWriter_.Queue(std::move(job))) {
-    Toast(T("Screenshots werden noch gespeichert.", "Still saving screenshots."));
-  }
+  pendingShots_.push_back({std::move(copy), std::move(job)});
+  ++shotsInFlight_;
 }
 
 void App::CollectScreenshots() {
-  ScreenshotWriter::Result r;
-  while (screenshotWriter_.Take(&r)) {
-    if (r.noFolder) {
-      Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
-      CAP_ERR("Screenshot: folder not available: %s", PathToUtf8(r.path).c_str());
-    } else if (!r.ok) {
-      Toast(T("Screenshot fehlgeschlagen: ", "Screenshot failed: ") + r.error);
+  while (!pendingShots_.empty()) {
+    PendingShot& shot = pendingShots_.front();
+    if (!shot.job.pixels) {
+      const uint8_t* data = nullptr;
+      size_t pitch = 0;
+      const StillCopy::Map map = shot.copy->TryMap(&data, &pitch);
+      if (map == StillCopy::Map::Pending) break;
+      if (map == StillCopy::Map::Failed) {
+        --shotsInFlight_;
+        pendingShots_.pop_front();
+        Toast(T("Screenshot fehlgeschlagen.", "Screenshot failed."));
+        continue;
+      }
+      shot.job.pixels = std::make_shared<StillPixels>(*shot.copy, data, pitch);
+      screenshotJobs_.Ask([this, job = shot.job] {
+        const ScreenshotResult r = SaveShot(job);
+        return [this, r] { ReportScreenshot(r); };
+      });
+    }
+    // The copy stays until its bytes are out. Then it goes on the saving
+    // thread, and so do the bytes if the save is already done: freeing either
+    // costs a millisecond or two.
+    if (!shot.job.pixels->read()) break;
+    shot.copy->Unmap();
+    std::shared_ptr<StillCopy> copy(std::move(shot.copy));
+    screenshotJobs_.Post([copy, pixels = std::move(shot.job.pixels)]() mutable {
+      copy.reset();
+      pixels.reset();
+    });
+    pendingShots_.pop_front();
+  }
+  screenshotJobs_.Collect();
+}
+
+void App::ReportScreenshot(const ScreenshotResult& r) {
+  --shotsInFlight_;
+  if (r.fellBack) UseDefaultFolder(&config_.record.screenshotFolder, r.askedFolder);
+  if (r.clipboard) {
+    if (!r.ok) {
+      Toast(T("Kopieren fehlgeschlagen: ", "Copy failed: ") + r.error);
+      return;
+    }
+    Toast(T("In der Zwischenablage", "On the clipboard") + Format(" (%dx%d)", r.width, r.height) +
+          r.note);
+    CAP_LOG("Screenshot copied to the clipboard (%dx%d)", r.width, r.height);
+  } else if (r.noFolder) {
+    Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
+    CAP_ERR("Screenshot: folder not available: %s", PathToUtf8(r.path).c_str());
+  } else if (!r.ok) {
+    Toast(T("Screenshot fehlgeschlagen: ", "Screenshot failed: ") + r.error);
+  } else {
+    // The file name, not the whole path: the path is long, and the point of
+    // the message is "it worked and it is called this".
+    Toast(T("Screenshot: ", "Screenshot: ") + PathToUtf8(r.path.filename()) + r.note, r.path);
+    CAP_LOG("Screenshot saved: %s (%dx%d)", PathToUtf8(r.path).c_str(), r.width, r.height);
+  }
+}
+
+void App::DropStills() {
+  for (PendingShot& shot : pendingShots_) {
+    if (shot.job.pixels) {
+      // Handed over: the bytes come out now, and the save goes on without the copy.
+      shot.job.pixels->Read();
     } else {
-      // The file name, not the whole path: the path is long, and the point of
-      // the message is "it worked and it is called this".
-      Toast(T("Screenshot: ", "Screenshot: ") + PathToUtf8(r.path.filename()) + r.note, r.path);
-      CAP_LOG("Screenshot saved: %s (%dx%d)", PathToUtf8(r.path).c_str(), r.width, r.height);
+      --shotsInFlight_;
+      CAP_WARN("Screenshot dropped: the graphics went before the copy was done");
     }
   }
+  pendingShots_.clear();
 }
 
 }  // namespace cap

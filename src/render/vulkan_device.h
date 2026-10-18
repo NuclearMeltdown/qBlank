@@ -16,8 +16,11 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
+
+#include "render/still_copy.h"
 
 namespace cap {
 
@@ -114,8 +117,6 @@ class VulkanDevice {
   uint64_t RecordingSerial() const { return submittedSerial_ + 1; }
   // Whether that one has finished on the GPU. Never waits.
   bool Completed(uint64_t serial);
-  // Waits until it has, submitting first if it is the one being recorded.
-  bool Wait(uint64_t serial);
 
   // Runs `destroy` once the GPU is done with everything recorded so far.
   void Defer(std::function<void(VkDevice)> destroy);
@@ -134,6 +135,9 @@ class VulkanDevice {
   bool CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VulkanMemory memory,
                     VulkanBuffer* out);
   void DestroyBuffer(VulkanBuffer* buffer);
+  // At once, on any thread, for a buffer the GPU is known to be done with and
+  // nothing else touches. Freeing a large mapping costs a millisecond or more.
+  void FreeBuffer(VulkanBuffer* buffer);
   // Before the CPU reads a readback buffer the GPU wrote.
   void Invalidate(const VulkanBuffer& buffer);
 
@@ -143,6 +147,11 @@ class VulkanDevice {
   void Transition(VkCommandBuffer cmd, VulkanImage* image, VkImageLayout layout);
   // Fills a whole image with one colour through a rendering of its own.
   void Clear(VkCommandBuffer cmd, VulkanImage* image, const float color[4]);
+  // `width` by `height` of `image`, from its top left, queued in the recording
+  // for a still -- for the passes and the back buffer alike. Null when it is
+  // smaller than that or in a format a still cannot hold. The copy uses this
+  // device and goes before it; see still_copy.h.
+  std::unique_ptr<StillCopy> CopyStill(VulkanImage* image, int width, int height);
 
   // ---- the frame ----
 

@@ -251,10 +251,9 @@ class VideoRenderer {
   bool FetchHdrReadback(ReadbackFrame* out);
 
   // The picture as linear light, four half floats per pixel, 1.0 being diffuse
-  // white. For a screenshot that keeps the range. Blocks on the GPU, which a
-  // still is allowed to do -- it happens when somebody presses a key, not sixty
-  // times a second.
-  bool GrabStillHalf(std::vector<uint16_t>* out, int* width, int* height, int* strideBytes);
+  // white, for a screenshot that keeps the range. Queued, not waited for: see
+  // still_copy.h. Must be called on the render thread.
+  std::unique_ptr<StillCopy> CopyStillHalf();
   void ReleaseHdrReadback();
 
   // ---- automatic level detection ----
@@ -459,11 +458,10 @@ class VideoRenderer {
   // nur schaedlich, denn beide zu verlieren sieht man sofort.
   void ResetRangeAnalysis();
 
-  // Copies the current picture out once, tightly packed, in
-  // kReadbackPixelFormat. Unlike the recording path this waits for the GPU,
-  // which costs a millisecond or two -- acceptable for a key press, not for
-  // every frame. Alpha comes back opaque. Must be called on the render thread.
-  bool GrabStill(std::vector<uint8_t>* pixels, int* width, int* height);
+  // The current picture once, for a screenshot: eight bits, square pixels,
+  // the tone curve laid on. Queued, not waited for: see still_copy.h. Must be
+  // called on the render thread.
+  std::unique_ptr<StillCopy> CopyStill();
 
  private:
   void QueueReadback();
