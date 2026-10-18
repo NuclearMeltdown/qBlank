@@ -73,12 +73,6 @@ class Recorder {
     bool active() const { return sampleRate > 0 && pull != nullptr; }
   };
 
-  // Which tracks end up in the file when both sources are in use.
-  MicTrackMode micTrackMode_ = MicTrackMode::Both;
-
-  // `main` is the sound you hear, and its sample count is the master clock; a
-  // rate of 0 there hands the clock to the wall instead. `mic` is optional and
-  // becomes a second track -- never mixed in, so it stays separable later.
   // The picture the writer will be handed: which ffmpeg pixel format it is in,
   // and whether it carries the full range on the PQ curve. Set before Start.
   void SetPixelFormat(const char* ffmpegName, bool hdr) {
@@ -86,19 +80,14 @@ class Recorder {
     hdr_ = hdr;
   }
 
-
- private:
-  // Everything the settings say, in the words this particular encoder uses.
-  std::vector<std::string> EncoderOptions(const RecordSettings& settings,
-                                          const EncoderInfo& encoder) const;
-
- public:
-
   // Which family an encoder belongs to. The settings are one set of names; what
   // each vendor actually calls them is another, and this is the seam.
   enum class Family { Software, Nvenc, Amf, Qsv };
   static Family FamilyOf(const std::string& ffmpegName);
 
+  // `main` is the sound you hear, and its sample count is the master clock; a
+  // rate of 0 there hands the clock to the wall instead. `mic` is optional;
+  // `micTrackMode` says whether it is mixed in, kept as its own track, or both.
   bool Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, int width, int height,
              double sourceFps, const AudioSource& main, const AudioSource& mic,
              MicTrackMode micTrackMode, std::string* error);
@@ -140,6 +129,10 @@ class Recorder {
   bool WriteAll(ChildStream* stream, const uint8_t* data, size_t size);
   int PickWriteSlotLocked() const;
 
+  // Everything the settings say, in the words this particular encoder uses.
+  std::vector<std::string> EncoderOptions(const RecordSettings& settings,
+                                          const EncoderInfo& encoder) const;
+
   // The whole encode, one argument per entry. Nothing here is quoted: the
   // quoting belongs to whoever starts the process, and a file name with a space
   // in it is one argument either way.
@@ -168,6 +161,8 @@ class Recorder {
   AudioPullFn pullAudio_;
   AudioPullFn pullMic_;
   int micRate_ = 0;
+  // Which tracks end up in the file when both sources are in use.
+  MicTrackMode micTrackMode_ = MicTrackMode::Both;
 
   int width_ = 0;
   int height_ = 0;

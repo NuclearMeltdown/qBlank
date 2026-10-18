@@ -1286,59 +1286,71 @@ R"HLSL(// ----------------------------------------------------------------------
 // further down needs to weigh it against the local excursion rather than against
 // a fixed threshold. Computed once in main and handed to whoever needs it.
 )HLSL"
-R"HLSL(float Triangle(float t, float slope) { return max(0.0, 1.0 - t * slope); }
-
-// The same triangle smoothed with [1, 2, 1] / 4. Written on the weight rather
-// than on the samples, which is the same filter and costs no extra fetches.
-float SmoothTriangle(float k, float slope) {
-  return (Triangle(abs(k - 1.0), slope) + 2.0 * Triangle(abs(k), slope) +
-          Triangle(abs(k + 1.0), slope)) * 0.25;
+R"HLSL(// The triangle smoothed with [1, 2, 1] / 4, for three centres at once. Written
+// on the weight rather than on the samples, which is the same filter and costs
+// no extra fetches.
+float3 SmoothTriangle3(float3 k, float slope) {
+  return (max(0.0, 1.0 - abs(k - 1.0) * slope) + 2.0 * max(0.0, 1.0 - abs(k) * slope) +
+          max(0.0, 1.0 - abs(k + 1.0) * slope)) * 0.25;
 }
 
+// Worked out for this pixel and both of its neighbours, and the three averaged
+// at the end -- the reason is written there. One pass over the taps serves all
+// three, so this reads two samples more than one pixel alone would. `c` holds
+// the three centres; `.y` is this pixel.
 )HLSL"
-R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag, float handled) {
+R"HLSL(float3 BandwidthRestoreBox(float3 rgb, int x, int row, float carrierMag, float handled) {
   float width = max(gCarrierPeriod, 2.0);
   float slopeA = 1.0 / width;              // a triangle one carrier period wide
   float slopeB = 0.5 / width;              // and one of two
   int r = (int)ceil(2.0 * width) + 1;      // the wider of them, plus the smoothing
+  const float3 c = float3(-1.0, 0.0, 1.0);
 
-  float y = Luma(rgb);
-  float sa = 0.0, na = 0.0, sb = 0.0, nb = 0.0;
-  float lo = y, hi = y;                    // the sample either side: the bound
-  float wlo = y, whi = y, step = 0.0;      // the narrow window: the measurement
+  float y0 = Luma(rgb);
+  float yl = y0, yr = y0;
+  float3 sa = 0.0, sb = 0.0;
+  float na = 0.0, nb = 0.0;
+  // The ranges start empty, and a tap outside a centre's window is pushed four
+  // out of range before it is compared, so min and max pass over it without a
+  // branch.
+  float3 lo = y0 + 4.0, hi = y0 - 4.0, wlo = lo, whi = hi, jump = 0.0;
   float prev = 0.0;
-  bool havePrev = false;
-  for (int k = -r; k <= r; ++k) {
+  for (int k = -r - 1; k <= r + 1; ++k) {
     float l = Luma(CleanTapAt(int2(x + k, row), handled));
-    float t = abs(float(k));
-    float wa = SmoothTriangle(float(k), slopeA);
-    float wb = SmoothTriangle(float(k), slopeB);
+    if (k == -1) yl = l;
+    if (k == 1) yr = l;
+    float3 kc = float(k) - c;
+    float3 t = abs(kc);
+    float3 wa = SmoothTriangle3(kc, slopeA);
+    float3 wb = SmoothTriangle3(kc, slopeB);
+    sa += l * wa;
+    sb += l * wb;
+    na += wa.y;
+    nb += wb.y;
     // What the limiter at the end goes by: the sample either side, and no
     // further. The narrow window was tried there first and is too wide to hold
     // anything -- it is a carrier period, three samples on PAL, so a pixel three
     // samples into a bright plateau still has the dark side of the edge inside
     // it, the bound opens to the full step, and the overshoot lobe sits exactly
     // there.
-    if (t <= 1.0) { lo = min(lo, l); hi = max(hi, l); }
+    float3 near = step(t, 1.0);                  // |k - c| <= 1
     // Over one carrier period, how far the line travels and the largest distance
     // it covers between two neighbouring samples. Both are needed below, and
     // only their ratio is used, so neither has to mean anything on its own. The
     // width is stated rather than taken from `wa > 0`, so that changing the
     // kernel above cannot quietly move the ruler this measures with.
-    if (t <= width) {
-      wlo = min(wlo, l);
-      whi = max(whi, l);
-      if (havePrev) step = max(step, abs(l - prev));
-      prev = l;
-      havePrev = true;
-    }
-    sa += l * wa;
-    na += wa;
-    sb += l * wb;
-    nb += wb;
+    float3 inWin = step(t, width);               // |k - c| <= width
+    float3 prevIn = step(abs(kc - 1.0), width);  // and the sample before it
+    lo = min(lo, l + (1.0 - near) * 4.0);
+    hi = max(hi, l - (1.0 - near) * 4.0);
+    wlo = min(wlo, l + (1.0 - inWin) * 4.0);
+    whi = max(whi, l - (1.0 - inWin) * 4.0);
+    if (k > -r - 1) jump = max(jump, abs(l - prev) * inWin * prevIn);
+    prev = l;
   }
-  float narrow = sa / max(na, 1e-4);
-  float wide = sb / max(nb, 1e-4);
+  lo.y = min(lo.y, y0); hi.y = max(hi.y, y0);
+  wlo.y = min(wlo.y, y0); whi.y = max(whi.y, y0);
+  float3 y = float3(yl, y0, yr);
 
   // At the peak of that band the difference of the two windows comes to 0.471 of
   // the signal, and this used to stand at 2.8 -- the top of the slider a little
@@ -1358,8 +1370,9 @@ R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag, flo
   // slider, so the whole travel is usable. The old one was dead above a fifth --
   // the clamp saturated and turning it further bought nothing but more of the
   // pattern it drew -- and this is close to linear.
-  float add = (narrow - wide) * gBandwidth * 2.0;
-
+  float3 add = (sa / max(na, 1e-4) - sb / max(nb, 1e-4)) * gBandwidth * 2.0;
+)HLSL"
+R"HLSL(
   // And the part the shape of the filter cannot do. The band that composite
   // rolled off and the band its colour crosstalk lives in are the same band --
   // that is not a flaw in any particular filter, it is what putting colour on a
@@ -1400,8 +1413,8 @@ R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag, flo
   // ramp that starts at zero costs the structured half about a tenth and takes
   // the flat half from 1.71 down to 1.30. Nothing here is free of carrier, so
   // nothing should be exempt from the question.
-  float share = carrierMag / max(whi - wlo, 1e-4);
-  add *= saturate((0.24 - share) / 0.24);
+  float3 ext = max(whi - wlo, 1e-4);
+  add *= saturate((0.24 - carrierMag / ext) / 0.24);
 
   // And the question the limiter cannot answer, because by the time it runs the
   // lift already exists: was anything lost here at all?
@@ -1417,13 +1430,14 @@ R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag, flo
   // outline, which is inside its neighbours' range the whole way, so nothing
   // stops it and the outline simply comes out a sample wider on each side.
   //
-  // `step / (whi - wlo)` is that width, measured rather than assumed: the share
+  // `jump / (whi - wlo)` is that width, measured rather than assumed: the share
   // of the local travel that one sample already covers. A third or so for an
   // edge the chain actually softened, one whole for an edge that is already
   // hard. Below half, full lift; from there it closes, and by three quarters
   // this does nothing at all.
-  add *= saturate((0.75 - step / max(whi - wlo, 1e-4)) * 4.0);
-
+  add *= saturate((0.75 - jump / ext) * 4.0);
+)HLSL"
+R"HLSL(
   // Bounded by what the line actually holds around here -- and bounded against
   // the neighbourhood, not against the size of the correction, which is the
   // whole of the difference.
@@ -1461,72 +1475,16 @@ R"HLSL(float3 BandwidthRestore(float3 rgb, int x, int row, float carrierMag, flo
   // allowance; dropping the bound entirely reaches 1.6, but then 1.6% of the
   // picture runs past 12/255 and the worst of it reaches 33.
   float slack = 6.0 / 255.0;
-  float lifted = clamp(y + add, lo - slack, hi + slack);
-  return rgb + (lifted - y);
-}
-
-)HLSL"
-R"HLSL(// What main runs: BandwidthRestore above, which stays as the single pixel form
-// the reasoning is written on, worked out for this pixel and both of its
-// neighbours, and the three averaged. The limiter at the end is a decision taken
-// per pixel, and a decision taken per pixel writes a pattern at pixel rate:
-// measured on a still title, it put three times the energy back into the
-// carrier band that the crawl average had just taken out of it, and that is the
-// dotted texture a still frame shows. A three sample box has its null on the
-// carrier (0.02 left there on PAL), so whatever the limiter draws in that band
-// cancels, whatever the picture. The box costs the lift a third in its
-// passband, which the 1.4 gives back. One pass over the taps serves all three
-// pixels, so this reads two samples more than the single one did.
-float3 SmoothTriangle3(float3 k, float slope) {
-  return (max(0.0, 1.0 - abs(k - 1.0) * slope) + 2.0 * max(0.0, 1.0 - abs(k) * slope) +
-          max(0.0, 1.0 - abs(k + 1.0) * slope)) * 0.25;
-}
-
-float3 BandwidthRestoreBox(float3 rgb, int x, int row, float carrierMag, float handled) {
-  float width = max(gCarrierPeriod, 2.0);
-  float slopeA = 1.0 / width;
-  float slopeB = 0.5 / width;
-  int r = (int)ceil(2.0 * width) + 1;
-  const float3 c = float3(-1.0, 0.0, 1.0);
-
-  float y0 = Luma(rgb);
-  float yl = y0, yr = y0;
-  float3 sa = 0.0, sb = 0.0;
-  float na = 0.0, nb = 0.0;
-  float3 lo = y0 + 4.0, hi = y0 - 4.0, wlo = lo, whi = hi, jump = 0.0;
-  float prev = 0.0;
-  for (int k = -r - 1; k <= r + 1; ++k) {
-    float l = Luma(CleanTapAt(int2(x + k, row), handled));
-    if (k == -1) yl = l;
-    if (k == 1) yr = l;
-    float3 kc = float(k) - c;
-    float3 t = abs(kc);
-    float3 wa = SmoothTriangle3(kc, slopeA);
-    float3 wb = SmoothTriangle3(kc, slopeB);
-    sa += l * wa;
-    sb += l * wb;
-    na += wa.y;
-    nb += wb.y;
-    float3 near = step(t, 1.0);                  // |k - c| <= 1
-    float3 inWin = step(t, width);               // |k - c| <= width
-    float3 prevIn = step(abs(kc - 1.0), width);  // and the sample before it
-    lo = min(lo, l + (1.0 - near) * 4.0);
-    hi = max(hi, l - (1.0 - near) * 4.0);
-    wlo = min(wlo, l + (1.0 - inWin) * 4.0);
-    whi = max(whi, l - (1.0 - inWin) * 4.0);
-    if (k > -r - 1) jump = max(jump, abs(l - prev) * inWin * prevIn);
-    prev = l;
-  }
-  lo.y = min(lo.y, y0); hi.y = max(hi.y, y0);
-  wlo.y = min(wlo.y, y0); whi.y = max(whi.y, y0);
-  float3 y = float3(yl, y0, yr);
-
-  float3 add = (sa / max(na, 1e-4) - sb / max(nb, 1e-4)) * gBandwidth * 2.0;
-  float3 ext = max(whi - wlo, 1e-4);
-  add *= saturate((0.24 - carrierMag / ext) / 0.24);
-  add *= saturate((0.75 - jump / ext) * 4.0);
-  float slack = 6.0 / 255.0;
   float3 d = clamp(y + add, lo - slack, hi + slack) - y;
+
+  // And the three averaged. The limiter is still a decision taken per pixel,
+  // and a decision taken per pixel writes a pattern at pixel rate: measured on a
+  // still title, it put three times the energy back into the carrier band that
+  // the crawl average had just taken out of it, and that is the dotted texture a
+  // still frame shows. A three sample box has its null on the carrier (0.02 left
+  // there on PAL), so whatever the limiter draws in that band cancels, whatever
+  // the picture. The box costs the lift a third in its passband, which the 1.4
+  // gives back.
   return rgb + (d.x + d.y + d.z) * (1.4 / 3.0);
 }
 

@@ -147,9 +147,13 @@ class DShowCaptureDevice final : public CaptureDevice {
     events_.Reset();
     control_.Reset();
     pin_.Reset();
-    if (purpose_ == Purpose::Probe) sink_.Reset();  // the probe has always let go of it first
-    filter_.Reset();
-    sink_.Reset();
+    if (purpose_ == Purpose::Probe) {
+      sink_.Reset();  // the probe has always let go of it first
+      filter_.Reset();
+    } else {
+      filter_.Reset();
+      sink_.Reset();
+    }
     builder_.Reset();
     graph_.Reset();
   }

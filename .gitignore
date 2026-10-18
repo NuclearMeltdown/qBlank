@@ -38,7 +38,3 @@ compile_commands.json
 # Python helper leftovers in tools/
 __pycache__/
 *.pyc
-
-# Compiled shaders, written next to the exe on first run. Keyed by a hash of the
-# source, so they are regenerated whenever the shader changes.
-shader-*.cso
