@@ -94,6 +94,7 @@ class App {
   bool InitImGui();
   void ShutdownImGui();
   bool StartGraphics();
+  void RestartGraphics();
 
   void Tick();
   // Draws into the window, or while minimised only for recording and camera.

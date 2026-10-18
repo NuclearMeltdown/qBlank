@@ -39,6 +39,7 @@ struct Display::Impl {
 
   DisplayCapability display_;
   bool hdrOutput_ = false;
+  bool deviceLost_ = false;
   int width_ = 0;
   int height_ = 0;
   // Asked of DXGI in both backends: the settings window and the tray menu

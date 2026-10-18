@@ -380,6 +380,7 @@ void D3D11Display::EndFrame(bool vsync) {
   } else if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
     CAP_ERR("Graphics device lost: %s",
             HrToEnglish(device_ ? device_->GetDeviceRemovedReason() : hr).c_str());
+    deviceLost_ = true;
   }
 }
 

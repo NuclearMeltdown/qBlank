@@ -102,6 +102,8 @@ class VulkanDevice {
   bool Submit(VkSemaphore signal = VK_NULL_HANDLE);
   // Submits and waits for the GPU.
   bool Flush();
+  // A submission or a wait came back VK_ERROR_DEVICE_LOST.
+  bool lost() const { return lost_; }
   void WaitIdle();
 
   // The next submission waits on this before it writes colour, as the
@@ -182,6 +184,7 @@ class VulkanDevice {
   VkSemaphore acquireWait_ = VK_NULL_HANDLE;
   uint64_t submittedSerial_ = 0;
   uint64_t completedSerial_ = 0;
+  bool lost_ = false;
 
   struct Deferred {
     uint64_t serial;

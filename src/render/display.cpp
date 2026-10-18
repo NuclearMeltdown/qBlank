@@ -90,6 +90,8 @@ void Display::EndFrame(bool vsync) {
   if (impl_) impl_->EndFrame(vsync);
 }
 
+bool Display::deviceLost() const { return impl_ && impl_->deviceLost_; }
+
 void Display::SubmitHidden() {
   if (impl_) impl_->SubmitHidden();
 }

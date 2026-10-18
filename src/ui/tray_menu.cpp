@@ -289,7 +289,9 @@ void TrayMenu::Place(int width, int height) {
 }
 
 int TrayMenu::Draw(bool dark, unsigned accent) {
-  if (!open_ || !imgui_ || !surface_.hasTarget()) return 0;
+  if (!open_ || !imgui_) return 0;
+  if (surface_.lost() && !surface_.Recover(window_, imgui_)) return 0;
+  if (!surface_.hasTarget()) return 0;
   // The same ceiling as the settings window: far above any refresh rate, and
   // still a ceiling.
   const uint32_t now = TickMilliseconds();

@@ -236,8 +236,9 @@ void SettingsHost::ApplyTheme(bool darkMode, unsigned accentColor) {
 }
 
 bool SettingsHost::BeginFrame(bool darkMode, unsigned accentColor) {
-  if (!created() || !visible_ || !imgui_ || !surface_.hasTarget()) return false;
-  if (window_.minimized()) return false;
+  if (!created() || !visible_ || !imgui_) return false;
+  if (surface_.lost() && !surface_.Recover(window_, imgui_)) return false;
+  if (!surface_.hasTarget() || window_.minimized()) return false;
   // Covered by something else: stop drawing and ask cheaply whether that is
   // still true, rather than paying for a present nobody can see.
   if (surface_.StillOccluded()) return false;

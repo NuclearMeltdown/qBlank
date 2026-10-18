@@ -134,6 +134,11 @@ bool App::FeedsWhileHidden() const {
 }
 
 void App::RenderFrame() {
+  // Found by the last frame's present, or by this one's acquire on Vulkan.
+  if (display_.deviceLost()) {
+    RestartGraphics();
+    if (!running_) return;
+  }
   const int64_t now = ClockTicks();
   const Profile& profile = config_.active();
   // Minimised, the frame still goes through every pass, to the recording and

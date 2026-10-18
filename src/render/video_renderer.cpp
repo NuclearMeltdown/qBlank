@@ -80,15 +80,16 @@ bool VideoRenderer::SetSourceFormat(const VideoFormatInfo& info, std::string* er
     return false;
   }
   const bool same = source_.width == info.width && source_.height == info.height &&
-                    source_.subtypeLabel == info.subtypeLabel && planeCount_ > 0;
+                    source_.subtypeLabel == info.subtypeLabel;
   source_ = info;
-  if (same) return true;
+  if (same && planeCount_ > 0) return true;
 
   // New format means a new measurement. The verdicts themselves should not
   // change -- the source decides its levels and its field structure, not the
   // pixel format we asked for -- but the evidence has to be gathered from the
-  // new byte layout.
-  ResetAnalysis();
+  // new byte layout. The same format without textures is the graphics started
+  // again after a lost device; what was measured still holds.
+  if (!same) ResetAnalysis();
 
   ReleaseSourceTextures();
 

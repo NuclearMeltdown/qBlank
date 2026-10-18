@@ -470,6 +470,7 @@ bool VulkanDisplay::Acquire() {
     if (result != VK_TIMEOUT && result != VK_NOT_READY) {
       CAP_ERR("Vulkan acquire failed: %s", VkResultName(result));
       recreatePending_ = true;
+      if (result == VK_ERROR_DEVICE_LOST) deviceLost_ = true;
     }
     return false;
   }
@@ -546,6 +547,7 @@ void VulkanDisplay::SubmitHidden() {
   // The passes began the command buffer themselves; no image was acquired, so
   // there is nothing to wait for and nothing to present.
   if (!inFrame_) device_.Submit();
+  if (device_.lost()) deviceLost_ = true;
 }
 
 void VulkanDisplay::EndFrame(bool vsync) {
@@ -571,6 +573,7 @@ void VulkanDisplay::EndFrame(bool vsync) {
   // it would wait forever.
   if (!device_.Submit(renderDone_[index])) {
     recreatePending_ = true;
+    if (device_.lost()) deviceLost_ = true;
     return;
   }
 
@@ -599,6 +602,7 @@ void VulkanDisplay::EndFrame(bool vsync) {
   } else {
     CAP_ERR("Vulkan present failed: %s", VkResultName(result));
     recreatePending_ = true;
+    if (result == VK_ERROR_DEVICE_LOST || device_.lost()) deviceLost_ = true;
   }
 }
 

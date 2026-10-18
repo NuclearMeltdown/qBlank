@@ -362,6 +362,23 @@ bool App::StartGraphics() {
   return true;
 }
 
+// A lost device takes everything made on it along: the passes, the source
+// textures, the interface's renderer, the icon. All of it is made again the way
+// the start makes it; window, capture and settings stay as they are.
+void App::RestartGraphics() {
+  CAP_WARN("Graphics device lost, starting the graphics again");
+  renderer_.Shutdown();
+  ShutdownImGui();
+  display_.Shutdown();
+  idleIcon_ = UiImage();
+  sourceFormatGen_ = 0;  // the next frame sets the source textures up again
+  if (!StartGraphics()) {
+    running_ = false;
+    return;
+  }
+  LoadIdleIcon();
+}
+
 // --------------------------------------------------------------------- ImGui
 
 bool App::InitImGui() {

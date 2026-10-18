@@ -108,6 +108,11 @@ class Display {
   // with tearing allowed where the system supports it.
   void EndFrame(bool vsync);
 
+  // True once the device has gone: a driver update, a reset after the GPU hung,
+  // the adapter pulled. Nothing drawn after that reaches the screen, and
+  // everything made on the device has to be made again.
+  bool deviceLost() const;
+
   // In place of a frame while the window is minimised and the picture only
   // goes to the recording or the camera: hands the GPU what the passes queued
   // since, presents nothing. No BeginFrame before it.

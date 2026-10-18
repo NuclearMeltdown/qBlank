@@ -19,6 +19,9 @@ struct UiSurface::Impl {
   int width = 0;
   int height = 0;
   bool occluded = false;
+  bool lost = false;
+  bool allowTearing = false;
+  uint32_t lastRecoverTick = 0;
   // The flags have to match in three places -- creation, resize and present --
   // or the resize fails and the present blocks anyway.
   UINT swapchainFlags = 0;
@@ -100,6 +103,7 @@ bool UiSurface::Attach(const Window& window, bool allowTearing, std::string* err
   // one has been retired. The thread that owns both windows was therefore
   // parked for better than half of every second, not pumping messages, which
   // is why the *desktop's* cursor stuttered and not only the preview.
+  s.allowTearing = allowTearing;
   s.swapchainFlags = allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u;
   s.presentFlags = allowTearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
   desc.Flags = s.swapchainFlags;
@@ -203,6 +207,10 @@ void UiSurface::Present(const float clear[4]) {
   // way.
   const HRESULT hr = s.swapchain->Present(0, s.presentFlags);
   s.occluded = hr == DXGI_STATUS_OCCLUDED;
+  if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+    if (!s.lost) CAP_ERR("Interface window lost its graphics device");
+    s.lost = true;
+  }
 
   // And unbind. Defensive now rather than necessary -- the preview sets its own
   // targets at the start of every pass -- but leaving a presented back buffer
@@ -210,6 +218,32 @@ void UiSurface::Present(const float clear[4]) {
   // unrelated.
   ID3D11RenderTargetView* none[] = {nullptr};
   s.ctx->OMSetRenderTargets(1, none, nullptr);
+}
+
+bool UiSurface::lost() const { return impl_->lost; }
+
+bool UiSurface::Recover(const Window& window, ImGuiContext* ui) {
+  Impl& s = *impl_;
+  const uint32_t now = TickMilliseconds();
+  if (s.lastRecoverTick != 0 && now - s.lastRecoverTick < 1000) return false;
+  s.lastRecoverTick = now;
+
+  ImGuiContext* previous = ImGui::GetCurrentContext();
+  ImGui::SetCurrentContext(ui);
+  ShutdownUi();
+  ReleaseSwapchain();
+  ReleaseDevice();
+  std::string error;
+  const bool ok = CreateDevice(&error) && Attach(window, s.allowTearing, &error) && InitUi();
+  ImGui::SetCurrentContext(previous);
+  if (!ok) {
+    CAP_WARN("Interface window has no graphics device yet: %s", error.c_str());
+    return false;
+  }
+  s.lost = false;
+  s.occluded = false;
+  CAP_LOG("Interface window has a new graphics device");
+  return true;
 }
 
 int UiSurface::width() const { return impl_->width; }

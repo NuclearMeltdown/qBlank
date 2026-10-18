@@ -405,7 +405,9 @@ VkCommandBuffer VulkanDevice::Commands() {
   // The one frame in flight: whatever went before has to be finished before its
   // buffer, and everything it read, can be used again.
   if (completedSerial_ < submittedSerial_) {
-    vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+    if (vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) == VK_ERROR_DEVICE_LOST) {
+      lost_ = true;
+    }
     completedSerial_ = submittedSerial_;
   }
   RunDeferred();
@@ -453,6 +455,7 @@ bool VulkanDevice::Submit(VkSemaphore signal) {
     // The fence will never be signalled for this one; waiting on it would hang.
     completedSerial_ = submittedSerial_;
     CAP_ERR("Vulkan submit failed: %s", VkResultName(result));
+    if (result == VK_ERROR_DEVICE_LOST) lost_ = true;
     return false;
   }
   return true;

@@ -35,6 +35,8 @@
 
 #include "window.h"
 
+struct ImGuiContext;
+
 namespace cap {
 
 class UiSurface {
@@ -74,6 +76,12 @@ class UiSurface {
   void NewUiFrame();
   // Clears to `clear`, draws what the interface built, and puts it on screen.
   void Present(const float clear[4]);
+
+  // The device went away under a present -- a driver update, a GPU reset. The
+  // window stays; Recover makes the device, the chain and `ui`'s renderer
+  // backend again on it, at most once a second while that keeps failing.
+  bool lost() const;
+  bool Recover(const Window& window, ImGuiContext* ui);
 
   int width() const;
   int height() const;
