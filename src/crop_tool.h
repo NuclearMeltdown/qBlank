@@ -41,7 +41,9 @@ class CropTool {
   // Dragging the crop edges on the picture instead of typing four numbers.
   struct CropPick {
     bool active = false;
-    ImageSettings saved;              // restored on cancel
+    // The crop as it was, restored on cancel. Only the crop: anything else
+    // changed from the context menu meanwhile stays changed.
+    int savedLeft = 0, savedRight = 0, savedTop = 0, savedBottom = 0;
     int left = 0, right = 0, top = 0, bottom = 0;  // source pixels
     int drag = -1;                    // 0 left, 1 right, 2 top, 3 bottom
   } cropPick_;

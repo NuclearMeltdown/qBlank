@@ -244,11 +244,10 @@ void CropTool::BeginCropPick() {
   }
 
   ImageSettings& img = config_.active().image;
-  cropPick_.saved = img;
-  cropPick_.left = img.cropLeft;
-  cropPick_.right = img.cropRight;
-  cropPick_.top = img.cropTop;
-  cropPick_.bottom = img.cropBottom;
+  cropPick_.left = cropPick_.savedLeft = img.cropLeft;
+  cropPick_.right = cropPick_.savedRight = img.cropRight;
+  cropPick_.top = cropPick_.savedTop = img.cropTop;
+  cropPick_.bottom = cropPick_.savedBottom = img.cropBottom;
   cropPick_.drag = -1;
   cropPick_.active = true;
 
@@ -261,12 +260,11 @@ void CropTool::BeginCropPick() {
 void CropTool::EndCropPick(bool apply) {
   if (!cropPick_.active) return;
   ImageSettings& img = config_.active().image;
-  img = cropPick_.saved;
+  img.cropLeft = apply ? cropPick_.left : cropPick_.savedLeft;
+  img.cropRight = apply ? cropPick_.right : cropPick_.savedRight;
+  img.cropTop = apply ? cropPick_.top : cropPick_.savedTop;
+  img.cropBottom = apply ? cropPick_.bottom : cropPick_.savedBottom;
   if (apply) {
-    img.cropLeft = cropPick_.left;
-    img.cropRight = cropPick_.right;
-    img.cropTop = cropPick_.top;
-    img.cropBottom = cropPick_.bottom;
     CAP_LOG("Crop set: left %d, right %d, top %d, bottom %d", img.cropLeft,
             img.cropRight, img.cropTop, img.cropBottom);
   }
