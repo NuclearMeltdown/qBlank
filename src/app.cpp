@@ -76,8 +76,16 @@ void FrameDelayLine::Push(const FrameView& frame, int64_t qpc) {
   e.sequence = frame.sequence;
   queue_.push_back(std::move(e));
 
-  // A pathological setting must not eat all memory.
-  while (queue_.size() > 64) queue_.pop_front();
+  // A pathological source must not eat all memory. The line holds what
+  // arrives within the delay and no more, so this only bites when frames
+  // come in far faster than any card delivers: a budget in bytes, not a
+  // count, which would shorten the delay at high frame rates. One gigabyte
+  // holds the longest delay, half a second, of 1080p RGB32 at 240 fps.
+  constexpr size_t kBudget = size_t(1) << 30;
+  while (queue_.size() > 2 && queue_.size() * frame.size > kBudget) {
+    pool_.push_back(std::move(queue_.front()));
+    queue_.pop_front();
+  }
 }
 
 bool FrameDelayLine::Pop(FrameView* out, int64_t qpc) {
