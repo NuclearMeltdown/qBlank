@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "app_identity_win32.h"
+#include "common.h"
 #include "text_win32.h"
 
 namespace cap {
@@ -20,6 +21,21 @@ bool Shell(const wchar_t* verb, const std::wstring& what, const wchar_t* args) {
   const HINSTANCE result =
       ::ShellExecuteW(nullptr, verb, what.c_str(), args, nullptr, SW_SHOWNORMAL);
   return (INT_PTR)result > 32;
+}
+
+// The shell wants a single-threaded apartment, and the thread that draws is in
+// the multithreaded one for DirectShow -- besides having no time to wait for
+// Explorer. So a short thread of its own for each request; they are a click
+// apart.
+template <typename Work>
+void OnShellThread(Work work) {
+  // Only whoever is in front may pass that on -- and that is us right now, it
+  // was just clicked. Otherwise the window would open behind the picture.
+  ::AllowSetForegroundWindow(ASFW_ANY);
+  std::thread([work = std::move(work)] {
+    ComScope com(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    work();
+  }).detach();
 }
 
 // The user's own start menu and desktop, not the ones shared by everybody on
@@ -59,29 +75,26 @@ bool StartsThisCopy(const std::wstring& lnk) {
 
 }  // namespace
 
-bool OpenUrl(const std::string& url) { return Shell(L"open", ToWide(url), nullptr); }
-
-bool OpenFolder(const std::filesystem::path& folder) {
-  return Shell(L"open", folder.native(), nullptr);
+void OpenUrl(const std::string& url) {
+  OnShellThread([wide = ToWide(url)] { Shell(L"open", wide, nullptr); });
 }
 
-bool OpenFile(const std::filesystem::path& file) { return Shell(L"open", file.native(), nullptr); }
+void OpenFolder(const std::filesystem::path& folder) {
+  OnShellThread([folder] {
+    EnsureFolder(folder);
+    Shell(L"open", folder.native(), nullptr);
+  });
+}
 
-// Explorer, mit der Datei markiert. SHOpenFolderAndSelectItems nimmt ein
-// Fenster, das den Ordner schon zeigt, statt ein neues danebenzustellen, will
-// aber ein STA -- und der rufende Faden ist wegen DirectShow MTA. Also ein
-// kurzer eigener. Geht es dort schief, tut es explorer /select auch, nur eben
-// mit einem Fenster mehr.
-//
-// Deswegen ist das Ja hier eines auf die Frage, ob es losgeschickt wurde: was
-// der eigene Faden herausfindet, kommt zu spaet, um es noch zu melden.
-bool ShowFileInFolder(const std::filesystem::path& file) {
-  // Nur wer vorn ist, darf das weitergeben -- und das sind wir gerade, es
-  // wurde eben auf uns geklickt. Sonst ginge der Explorer hinter dem Bild auf.
-  ::AllowSetForegroundWindow(ASFW_ANY);
-  std::wstring native = file.native();
-  std::thread([native] {
-    ComScope com(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+void OpenFile(const std::filesystem::path& file) {
+  OnShellThread([file] { Shell(L"open", file.native(), nullptr); });
+}
+
+// SHOpenFolderAndSelectItems nimmt ein Fenster, das den Ordner schon zeigt,
+// statt ein neues danebenzustellen. Geht es schief, tut es explorer /select
+// auch, nur eben mit einem Fenster mehr.
+void ShowFileInFolder(const std::filesystem::path& file) {
+  OnShellThread([native = file.native()] {
     HRESULT hr = E_FAIL;
     if (PIDLIST_ABSOLUTE item = ::ILCreateFromPathW(native.c_str())) {
       hr = ::SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
@@ -89,10 +102,9 @@ bool ShowFileInFolder(const std::filesystem::path& file) {
     }
     if (FAILED(hr)) {
       const std::wstring args = L"/select,\"" + native + L"\"";
-      ::ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+      Shell(L"open", L"explorer.exe", args.c_str());
     }
-  }).detach();
-  return true;
+  });
 }
 
 void ShowFatalMessage(const std::string& text) {

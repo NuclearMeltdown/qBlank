@@ -5,10 +5,11 @@
 // and the answer is somebody else's program, not ours. And leaving a way back
 // to this program there: a shortcut in the start menu or on the desktop.
 //
-// None of the opening waits for anything. The call succeeds when the request
-// was accepted, not when the other program has finished doing it, and a false
-// only means it could not be handed over at all. The shortcuts are plain files
-// and done when the call returns.
+// None of the opening waits for anything: the request goes off on a thread of
+// its own and the call returns at once, so a sleeping network drive or a
+// browser that takes its time to start never holds up a frame. What happens
+// out there comes too late to report, and nobody here could act on it. The
+// shortcuts are plain files and done when the call returns.
 //
 // The Windows half is desktop_win32.cpp.
 
@@ -18,17 +19,18 @@
 namespace cap {
 
 // A http or https address in the user's browser.
-bool OpenUrl(const std::string& url);
+void OpenUrl(const std::string& url);
 
-// A folder in the file manager.
-bool OpenFolder(const std::filesystem::path& folder);
+// A folder in the file manager, made first when it is not there: one deleted
+// since it was chosen opens empty rather than as an error.
+void OpenFolder(const std::filesystem::path& folder);
 
 // A file in whatever is registered for it. A log opens in a text editor.
-bool OpenFile(const std::filesystem::path& file);
+void OpenFile(const std::filesystem::path& file);
 
 // The folder the file is in, with the file itself picked out. Falls back to
 // showing the plain folder when the desktop cannot do better.
-bool ShowFileInFolder(const std::filesystem::path& file);
+void ShowFileInFolder(const std::filesystem::path& file);
 
 // The last thing said by a program that cannot start: no window of ours exists
 // yet, so this has to be the desktop's own way of showing a message. Blocks

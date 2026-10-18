@@ -3493,9 +3493,7 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
 
   ImGui::SameLine();
   if (ImGui::Button((std::string(T("Öffnen", "Open")) + "##" + id).c_str())) {
-    const std::filesystem::path folder = value->empty() ? defaultFolder : Utf8ToPath(*value);
-    EnsureFolder(folder);
-    OpenFolder(folder);
+    OpenFolder(value->empty() ? defaultFolder : Utf8ToPath(*value));
   }
 }
 
