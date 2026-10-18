@@ -506,7 +506,7 @@ void DrawSearchResult(const std::string& text, const std::string& detail, double
   ImGui::PopStyleVar();
 }
 
-void DrawRecordIndicator(double seconds, OsdCorner volumeCorner) {
+void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind) {
   // Opposite corner to the volume readout: both can appear at once, and a
   // number sliding out from under a dot looks like a bug.
   OsdCorner corner = OsdCorner::TopRight;
@@ -536,6 +536,10 @@ void DrawRecordIndicator(double seconds, OsdCorner volumeCorner) {
     const int total = (int)seconds;
     ImGui::Text("%s  %02d:%02d:%02d", T("Aufnahme", "REC"), total / 3600, (total / 60) % 60,
                 total % 60);
+    if (encoderBehind) {
+      ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s",
+                         T("Encoder überlastet", "Encoder overloaded"));
+    }
   }
   ImGui::End();
 }

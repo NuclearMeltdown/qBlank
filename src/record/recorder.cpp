@@ -428,6 +428,7 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   lastAudioProgressTicks_ = 0;
   audioStallLogged_ = false;
   failed_.store(false, std::memory_order_relaxed);
+  encoderBehind_.store(false, std::memory_order_relaxed);
   {
     std::lock_guard<std::mutex> lock(infoMutex_);
     file_ = PathToUtf8(outFile);
@@ -596,6 +597,14 @@ void Recorder::VideoThread(ProcessSpec spec, uint32_t session) {
     for (int i = 0; i < 3; ++i) slots_[i].swap(fresh[i]);
   }
 
+  // When the writer last had nothing left to write. An encoder that keeps up
+  // gets there after every frame; one that does not never gets there again,
+  // because the pipe blocks for longer than a frame lasts. A slow source looks
+  // nothing like that: the held frame goes out again at once. The start gets
+  // longer, for ffmpeg opening its encoder while the first frames pile up.
+  int64_t caughtUpTicks = ClockTicks();
+  bool everCaughtUp = false;
+
   while (running_.load(std::memory_order_relaxed)) {
     // Take the newest frame and keep holding it: when the timeline needs more
     // frames than actually arrived, this is what gets repeated.
@@ -650,6 +659,12 @@ void Recorder::VideoThread(ProcessSpec spec, uint32_t session) {
 
     uint64_t written = videoFramesWritten_.load(std::memory_order_relaxed);
     if (written >= target) {
+      caughtUpTicks = now;
+      everCaughtUp = true;
+      if (encoderBehind_.load(std::memory_order_relaxed)) {
+        encoderBehind_.store(false, std::memory_order_relaxed);
+        CAP_LOG("Recording: the encoder caught up again");
+      }
       // On the wall clock the next frame falls due at a known time. On the
       // audio clock the audio thread says when it moved; the timeout is then
       // only there to notice the audio stopping.
@@ -663,6 +678,13 @@ void Recorder::VideoThread(ProcessSpec spec, uint32_t session) {
         frameReady_.wait_for(lock, std::chrono::microseconds((int64_t)(wait * 1e6)));
       }
       continue;
+    }
+
+    if (!encoderBehind_.load(std::memory_order_relaxed) &&
+        TicksToSeconds(now - caughtUpTicks) > (everCaughtUp ? 3.0 : 8.0)) {
+      encoderBehind_.store(true, std::memory_order_relaxed);
+      CAP_WARN("Recording: the encoder is not keeping up, %.1f s behind",
+               (double)(target - written) / fps_);
     }
 
     // Every frame in the timeline has to be written -- skipping one would make

@@ -123,6 +123,9 @@ class Recorder {
   // Set when ffmpeg could not start or died on its own; the app should stop and
   // report. recording() stays true until it does.
   bool failed() const { return failed_.load(std::memory_order_relaxed); }
+  // The encoder has not kept up for seconds on end, and the file repeats frames
+  // to stay in step with the sound. Clears once it catches up again.
+  bool encoderBehind() const { return encoderBehind_.load(std::memory_order_relaxed); }
 
   // Called from the render thread with a freshly read back frame. Its size is
   // passed along and checked: a frame of a different shape than the one the
@@ -175,6 +178,7 @@ class Recorder {
   bool hdr_ = false;
   std::atomic<bool> running_{false};
   std::atomic<bool> failed_{false};
+  std::atomic<bool> encoderBehind_{false};
 
   // Handed to closer_ by Stop together with the streams, so the next Start
   // gets a fresh one while the old ffmpeg is still finishing.

@@ -379,6 +379,7 @@ void RecordingControl::LaunchRecording() {
   // Die Platzwarnung gilt je Aufnahme. Die Zahl dazu ist die der Pruefung vor
   // dem Start, nicht eine von vor einer Sekunde.
   diskWarned_ = false;
+  encoderWarned_ = false;
   recordingFile_ = pendingFile_;
   recordingBytes_ = 0;
 
@@ -531,6 +532,16 @@ void RecordingControl::FeedRecorder() {
     StopRecording();
     host_.Toast(stats.error.empty() ? T("Aufnahme abgebrochen.", "Recording aborted.") : stats.error);
     return;
+  }
+
+  // Der Encoder schafft die Bilder nicht so schnell, wie sie kommen. Einmal je
+  // Aufnahme, wie die Platzwarnung; solange es anhaelt, sagt es die Anzeige im
+  // Bild.
+  if (!encoderWarned_ && recorder_.encoderBehind()) {
+    encoderWarned_ = true;
+    host_.Toast(T("Encoder kommt nicht hinterher — schnellere Voreinstellung, kleinere Auflösung "
+                  "oder Bildrate wählen.",
+                  "Encoder overloaded — try a faster preset, or a lower resolution or frame rate."));
   }
 
   const double now = TicksToSeconds(ClockTicks());

@@ -161,7 +161,8 @@ void DrawSearchResult(const std::string& text, const std::string& detail, double
 void DrawVolumeOsd(float volume, bool muted, OsdCorner corner, double age, double duration);
 
 // Recording indicator: a pulsing dot and the elapsed time, in the corner
-// opposite the volume readout so the two never overlap.
-void DrawRecordIndicator(double seconds, OsdCorner volumeCorner);
+// opposite the volume readout so the two never overlap. A second line while
+// the encoder is not keeping up.
+void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind);
 
 }  // namespace cap
