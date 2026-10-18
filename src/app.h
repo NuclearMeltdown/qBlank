@@ -25,6 +25,7 @@
 #include "common.h"
 #include "config.h"
 #include "crop_tool.h"
+#include "job_thread.h"
 #include "record/ffmpeg_download.h"
 #include "record/recorder.h"
 #include "record/screenshot_writer.h"
@@ -275,6 +276,8 @@ class App {
   void UpdatePowerRequest();
   void SaveWindowPlacement();
   void SaveConfig();
+  // Hands serialised settings to configJobs_ for the disk.
+  void WriteConfig(std::string text, bool reportFailure);
 
   bool HandleKeyDown(Key key, bool ctrl, bool shift, bool alt);
   // Every key press from either window comes through here. `busy` is true when
@@ -548,6 +551,9 @@ class App {
   bool firstRun_ = false;
   int64_t lastMouseMoveQpc_ = 0;
   Point lastMousePos_;
+
+  // Last, so it finishes before anything its jobs touch is gone.
+  JobThread configJobs_;
 };
 
 }  // namespace cap

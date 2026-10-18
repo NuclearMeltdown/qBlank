@@ -1074,9 +1074,10 @@ bool Config::Load(std::string* error) {
   return true;
 }
 
-bool Config::Save(std::string* error) const {
+bool Config::Save(std::string* error) const { return Write(Serialize(), error); }
+
+bool Config::Write(const std::string& text, std::string* error) {
   if (error) error->clear();
-  const std::string text = Serialize();
   if (!ReplaceWholeFile(FilePath(), text.data(), text.size())) {
     ReportError(error,
                 CAP_SAID(T("Konfiguration konnte nicht geschrieben werden (Schreibrechte im Programmordner?)",

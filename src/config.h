@@ -817,6 +817,9 @@ struct Config {
   // success `error` can still carry a note for the log.
   bool Load(std::string* error = nullptr);
   bool Save(std::string* error = nullptr) const;
+  // The writing half of Save, for text serialised earlier: the disk can then
+  // be left to another thread, the config itself never is.
+  static bool Write(const std::string& text, std::string* error = nullptr);
 
   // The exact text Save would write. Comparing two of these is how the app
   // notices that something changed without having to hand-write an equality

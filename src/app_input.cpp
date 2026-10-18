@@ -212,6 +212,7 @@ bool App::OnWindowEvent(const WindowEvent& e) {
     case WindowEvent::Kind::SessionEnd:
       if (e.ending) {
         SaveConfig();
+        configJobs_.Drain();
         CAP_LOG("Windows session ending");
         LogEnd();
       }

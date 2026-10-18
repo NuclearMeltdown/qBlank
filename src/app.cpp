@@ -820,11 +820,11 @@ void App::MaybeSaveConfig() {
     }
   }
 
-  // Wait for the user to stop fiddling before touching the disk.
+  // Wait for the user to stop fiddling before touching the disk. Unasked, so
+  // unreported: a failure is said when the user saves on purpose.
   if (configDirty_ && now - lastConfigChange_ >= 1.0) {
     configDirty_ = false;
-    std::string error;
-    config_.Save(&error);
+    WriteConfig(lastSerialized_, false);
   }
 }
 
@@ -834,8 +834,17 @@ void App::SaveConfig() {
   // window moved and then left alone would come back somewhere else.
   RememberSettingsWindow();
   SaveWindowPlacement();
-  std::string error;
-  if (!config_.Save(&error)) Toast(error);
+  lastSerialized_ = config_.Serialize();
+  configDirty_ = false;
+  WriteConfig(lastSerialized_, true);
+}
+
+void App::WriteConfig(std::string text, bool reportFailure) {
+  configJobs_.Ask([this, text = std::move(text), reportFailure]() -> std::function<void()> {
+    std::string error;
+    if (Config::Write(text, &error) || !reportFailure) return {};
+    return [this, error] { Toast(error); };
+  });
 }
 
 void App::QuitAndRestart() {
@@ -1128,6 +1137,7 @@ void App::Tick() {
   if (ffmpegDownloader_.TakeInstalled()) ffmpegRelocate_ = true;
   if (settings_.takeFfmpegPathChanged()) ffmpegRelocate_ = true;
   CollectScreenshots();
+  configJobs_.Collect();
   if (ffmpegRelocate_ && recording_.RelocateFfmpeg()) ffmpegRelocate_ = false;
   // Erst entscheiden, ob der Decoder ueberhaupt befragt wird, dann das
   // Ergebnis benutzen. Beim Start der Aufnahme steht das Format noch nicht
