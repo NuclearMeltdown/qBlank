@@ -66,9 +66,13 @@ class RecordingControl {
   bool RelocateFfmpeg();
 
   void ToggleRecording();
+  // Checks what can be checked at once and then hands over to LaunchRecording,
+  // which waits for the things that take a moment -- a microphone being opened,
+  // ffmpeg being searched for -- without holding up a single frame.
   void StartRecording();
   // Returns before ffmpeg has finished the file. `announce` toasts it as saved
-  // once that happened, see CollectFinished.
+  // once that happened, see CollectFinished. A start still waiting is called
+  // off.
   void StopRecording(bool announce = false);
   // Hands the readback frame to the recorder, if one is running.
   void FeedRecorder();
@@ -76,10 +80,10 @@ class RecordingControl {
   // Sekunde. Die Einstellungen zeigen ihn an, die laufende Aufnahme haengt
   // daran.
   void UpdateDiskSpace();
-  // Starts or stops the microphone to match the settings and what is going on.
-  // `aboutToRecord` starts it for a recording that has not begun yet -- the
-  // sample rate has to be known before ffmpeg is given its command line.
-  void SyncMicrophone(bool aboutToRecord = false);
+  // Starts or stops the microphone to match the settings and what is going on,
+  // a recording that is about to begin included: its sample rate has to be
+  // known before ffmpeg is given its command line.
+  void SyncMicrophone();
 
   // The ffmpeg in use. Located at startup, replaced when it has gone missing
   // or a download brought a new one.
@@ -88,6 +92,8 @@ class RecordingControl {
 
  private:
   void CollectFinished();
+  // The second half of StartRecording, once the microphone has answered.
+  void LaunchRecording();
 
   Config& config_;
   Recorder& recorder_;
@@ -108,6 +114,14 @@ class RecordingControl {
   std::atomic<bool> probeDone_{false};
   // What probeThread_ is doing: searching rather than testing. UI thread only.
   bool locating_ = false;
+  // A recording that has passed its checks and waits for the microphone, with
+  // the settings it passed them with. UI thread only.
+  bool startPending_ = false;
+  RecordSettings pendingSettings_;
+  bool pendingAudio_ = false;
+  // F9 found no ffmpeg and the search for it is still out; it starts once that
+  // came back with one.
+  bool recordWhenLocated_ = false;
   // What SyncMicrophone last acted on, so a failure is reported once instead of
   // once per frame. Cleared when the settings change.
   DeviceRef micApplied_;

@@ -76,12 +76,22 @@ bool RecordingControl::CollectEncoderProbe() {
   }
   locating_ = false;
   LoadCachedEncoders();
+  settings_.InvalidateFolderFields();
+  if (recordWhenLocated_) {
+    recordWhenLocated_ = false;
+    if (ffmpeg_.found) {
+      StartRecording();
+    } else {
+      host_.Toast(T("ffmpeg fehlt — in den Einstellungen unter Aufnahme holen.",
+                    "ffmpeg is missing — fetch it under Recording in the settings."));
+    }
+  }
   return true;
 }
 
 bool RecordingControl::RelocateFfmpeg() {
   if (probing_.load(std::memory_order_relaxed) || probeDone_.load(std::memory_order_acquire) ||
-      recorder_.recording()) {
+      recorder_.recording() || startPending_) {
     return false;
   }
   if (probeThread_.joinable()) probeThread_.join();
@@ -141,7 +151,7 @@ void RecordingControl::SaveCachedEncoders() {
 }
 
 void RecordingControl::ToggleRecording() {
-  if (recorder_.recording()) {
+  if (recorder_.recording() || startPending_ || recordWhenLocated_) {
     StopRecording(true);
   } else {
     StartRecording();
@@ -149,15 +159,16 @@ void RecordingControl::ToggleRecording() {
 }
 
 void RecordingControl::StartRecording() {
-  if (recorder_.recording()) return;
+  if (recorder_.recording() || startPending_) return;
 
   // The path was resolved at startup and could have gone stale since -- a
   // portable build on a stick that got unplugged, an antivirus quarantine, or
   // simply someone tidying up. Checking costs one file attribute lookup and
   // turns a confusing "ffmpeg exited with code 1" into an honest answer.
+  // Searching again is "ffmpeg -version" and takes a moment, so it happens on
+  // the worker, and the recording starts when it comes back with one.
   if (locating_) {
-    host_.Toast(T("ffmpeg wird noch gesucht, gleich nochmal.",
-                  "Still looking for ffmpeg, try again in a moment."));
+    recordWhenLocated_ = true;
     return;
   }
   if (ffmpeg_.found && !IsFile(Utf8ToPath(ffmpeg_.path))) {
@@ -165,12 +176,12 @@ void RecordingControl::StartRecording() {
     ffmpeg_ = FfmpegInfo{};
   }
   if (!ffmpeg_.found) {
-    ffmpeg_ = LocateFfmpeg(config_.record.ffmpegPath);
-    settings_.InvalidateFolderFields();
-  }
-  if (!ffmpeg_.found) {
-    host_.Toast(T("ffmpeg fehlt — in den Einstellungen unter Aufnahme holen.",
-            "ffmpeg is missing — fetch it under Recording in the settings."));
+    if (RelocateFfmpeg()) {
+      recordWhenLocated_ = true;
+    } else {
+      host_.Toast(T("Encoder werden noch geprüft, gleich nochmal.",
+                    "Still testing encoders, try again in a moment."));
+    }
     return;
   }
   if (!host_.CaptureRunning() || !renderer_.hasFrame()) {
@@ -201,12 +212,6 @@ void RecordingControl::StartRecording() {
   if (wantAudio) audio_.SetTapEnabled(true);
   renderer_.SetReadbackEnabled(true);
 
-  // Start the microphone before asking it for its rate: the device decides that,
-  // and ffmpeg has to be told it on the command line.
-  SyncMicrophone(true);
-  const bool wantMic = mic_.running() && mic_.sampleRate() > 0;
-  if (wantMic) mic_.ResetBuffer();
-
   // Resolve the folder before handing it over, so a deleted directory is
   // recreated -- or answered with the default -- instead of failing the start.
   RecordSettings settings = config_.record;
@@ -232,6 +237,30 @@ void RecordingControl::StartRecording() {
                  FormatBytes(freeNow).c_str()));
     return;
   }
+
+  // The microphone decides its own rate, and ffmpeg has to be told it on the
+  // command line. Opening one takes from a few milliseconds to, for a device
+  // that does not answer, three seconds; the picture goes on meanwhile, and
+  // FeedRecorder launches once it has answered.
+  pendingSettings_ = std::move(settings);
+  pendingAudio_ = wantAudio;
+  startPending_ = true;
+  SyncMicrophone();
+  if (!mic_.opening()) LaunchRecording();
+}
+
+void RecordingControl::LaunchRecording() {
+  startPending_ = false;
+  // The source can have gone in the frames this waited.
+  if (!host_.CaptureRunning() || !renderer_.hasFrame()) {
+    renderer_.SetReadbackEnabled(false);
+    audio_.SetTapEnabled(false);
+    host_.Toast(T("Kein Bild zum Aufnehmen.", "No picture to record."));
+    return;
+  }
+  const bool wantAudio = pendingAudio_;
+  const bool wantMic = mic_.running() && mic_.sampleRate() > 0;
+  if (wantMic) mic_.ResetBuffer();
 
   const VideoFormatInfo format = renderer_.sourceFormat();
   std::string error;
@@ -317,7 +346,7 @@ void RecordingControl::StartRecording() {
   diskWarned_ = false;
   lastDiskCheck_ = -1000.0;
 
-  const bool ok = recorder_.Start(settings, ffmpeg_, renderer_.outputWidth(),
+  const bool ok = recorder_.Start(pendingSettings_, ffmpeg_, renderer_.outputWidth(),
                                   renderer_.outputHeight(), recordFps, mainTrack, micTrack,
                                   config_.active().audio.micTrackMode, &error);
 
@@ -331,6 +360,13 @@ void RecordingControl::StartRecording() {
 }
 
 void RecordingControl::StopRecording(bool announce) {
+  recordWhenLocated_ = false;
+  if (startPending_) {
+    startPending_ = false;
+    renderer_.SetReadbackEnabled(false);
+    audio_.SetTapEnabled(false);
+    return;
+  }
   if (!recorder_.recording()) return;
   if (announce) announceFile_ = recorder_.stats().file;
   recorder_.Stop();
@@ -391,7 +427,7 @@ void RecordingControl::UpdateDiskSpace() {
   settings_.SetDiskFree(diskFreeBytes_, diskFreeKnown_, diskBytesPerSecond_);
 }
 
-void RecordingControl::SyncMicrophone(bool aboutToRecord) {
+void RecordingControl::SyncMicrophone() {
   const AudioSettings& a = config_.active().audio;
 
   // Held open only while it is actually being used: during a recording, and
@@ -399,7 +435,7 @@ void RecordingControl::SyncMicrophone(bool aboutToRecord) {
   // microphone open the rest of the time would light up the Windows privacy
   // indicator for no reason and tell the user something untrue.
   const bool wanted =
-      a.micEnabled && (aboutToRecord || recorder_.recording() || settings_.isOpen());
+      a.micEnabled && (startPending_ || recorder_.recording() || settings_.isOpen());
 
   // Changing the device is a fresh start, and clears a previous failure.
   if (!(micApplied_ == a.micDevice)) {
@@ -413,14 +449,13 @@ void RecordingControl::SyncMicrophone(bool aboutToRecord) {
   // with the same message sixty times a second.
   std::string error;
   if (wanted && !mic_.running() && !mic_.opening() && !micFailed_) {
-    if (!mic_.Start(a.micDevice, &error)) micFailed_ = true;
+    mic_.Start(a.micDevice);
   } else if (!wanted && (mic_.running() || mic_.opening())) {
     mic_.Stop();
   }
-  // Opening takes a few milliseconds, and nothing but a recording that is
-  // about to begin has to wait for it: the level meter can look again next
-  // frame.
-  if (mic_.opening() && mic_.Opened(aboutToRecord ? 3000 : 0, &error) == MicCapture::Open::Failed) {
+  // Opening happens on the microphone's thread; this only looks whether it is
+  // done, once a frame, and a recording waiting for it starts the frame after.
+  if (mic_.opening() && mic_.Opened(0, &error) == MicCapture::Open::Failed) {
     micFailed_ = true;
   }
   if (micFailed_ && !error.empty()) host_.Toast(error);
@@ -429,7 +464,17 @@ void RecordingControl::SyncMicrophone(bool aboutToRecord) {
 
 void RecordingControl::FeedRecorder() {
   CollectFinished();
+  if (startPending_ && !mic_.opening()) LaunchRecording();
   if (!recorder_.recording()) return;
+
+  // ffmpeg did not start or died on its own: stop cleanly rather than filling a
+  // dead pipe. First, because nothing below means anything for it.
+  if (recorder_.failed()) {
+    const RecordStats stats = recorder_.stats();
+    StopRecording();
+    host_.Toast(stats.error.empty() ? T("Aufnahme abgebrochen.", "Recording aborted.") : stats.error);
+    return;
+  }
 
   const double now = TicksToSeconds(ClockTicks());
 
@@ -549,15 +594,6 @@ void RecordingControl::FeedRecorder() {
                    FormatBytes(diskFreeBytes_).c_str(), FormatDuration(left).c_str()));
     }
   }
-
-  // ffmpeg died on its own: stop cleanly rather than filling a dead pipe.
-  if (recorder_.failed()) {
-    const RecordStats stats = recorder_.stats();
-    StopRecording();
-    host_.Toast(stats.error.empty() ? T("Aufnahme abgebrochen.", "Recording aborted.") : stats.error);
-    return;
-  }
-
 }
 
 }  // namespace cap

@@ -7,6 +7,7 @@
 
 #include "common.h"
 #include "i18n.h"
+#include "platform.h"
 
 namespace cap {
 namespace {
@@ -20,6 +21,36 @@ const float kPeakDecay = 0.80f;
 
 MicCapture::~MicCapture() {
   Stop();
+  {
+    std::lock_guard<std::mutex> lock(jobMutex_);
+    quit_ = true;
+  }
+  jobPosted_.notify_one();
+  if (worker_.joinable()) worker_.join();
+}
+
+void MicCapture::Post(std::function<void()> job) {
+  {
+    std::lock_guard<std::mutex> lock(jobMutex_);
+    jobs_.push_back(std::move(job));
+  }
+  if (!worker_.joinable()) worker_ = std::thread(&MicCapture::WorkerLoop, this);
+  jobPosted_.notify_one();
+}
+
+void MicCapture::WorkerLoop() {
+  SystemThreadScope onThisThread;
+  for (;;) {
+    std::function<void()> job;
+    {
+      std::unique_lock<std::mutex> lock(jobMutex_);
+      jobPosted_.wait(lock, [this] { return quit_ || !jobs_.empty(); });
+      if (jobs_.empty()) return;  // told to quit, and nothing left to do
+      job = std::move(jobs_.front());
+      jobs_.pop_front();
+    }
+    job();
+  }
 }
 
 void MicCapture::Fail(const Said& said) {
@@ -60,8 +91,35 @@ size_t MicCapture::Read(float* out, size_t frames) {
   return ring_.Read(out, frames);
 }
 
-bool MicCapture::Start(const DeviceRef& device, std::string* error) {
+void MicCapture::Start(const DeviceRef& device) {
   Stop();
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    lastError_.clear();
+  }
+  startFailed_.store(false, std::memory_order_relaxed);
+  {
+    std::lock_guard<std::mutex> lock(readyMutex_);
+    ready_ = false;
+  }
+  running_.store(true, std::memory_order_relaxed);
+  opening_ = true;
+  openStarted_ = std::chrono::steady_clock::now();
+  started_ = true;
+  const uint32_t generation = generation_.load(std::memory_order_relaxed);
+  Post([this, device, generation] { OpenOnWorker(device, generation); });
+}
+
+void MicCapture::GiveUp(uint32_t generation) {
+  if (generation != generation_.load(std::memory_order_relaxed)) return;
+  running_.store(false, std::memory_order_relaxed);
+  startFailed_.store(true, std::memory_order_relaxed);
+  SignalReady();
+}
+
+void MicCapture::OpenOnWorker(const DeviceRef& device, uint32_t generation) {
+  // Stopped again before it came to this: there is nothing to open.
+  if (generation != generation_.load(std::memory_order_relaxed)) return;
 
   AudioDeviceInfo info;
   if (device.empty()) {
@@ -70,72 +128,69 @@ bool MicCapture::Start(const DeviceRef& device, std::string* error) {
     // resolve.
     info.name = T("Systemstandard", "System default");
   } else if (!ResolveAudioDevice(device, true, &info)) {
-    const Said said = CAP_SAID(T("Mikrofon nicht gefunden.", "Microphone not found."));
-    if (error) *error = said.shown;
-    Fail(said);
-    return false;
+    Fail(CAP_SAID(T("Mikrofon nicht gefunden.", "Microphone not found.")));
+    GiveUp(generation);
+    return;
   }
   // A capture card's embedded audio is not a microphone; it belongs on the
   // main path, not here.
   if (info.cardAudio) {
-    const Said said = CAP_SAID(T("Dieses Gerät ist ein ", "That device is a ") + info.via +
-                               T("-Eingang und kommt hier nicht in Frage.",
-                                 " input and does not belong here."));
-    if (error) *error = said.shown;
-    Fail(said);
-    return false;
+    Fail(CAP_SAID(T("Dieses Gerät ist ein ", "That device is a ") + info.via +
+                  T("-Eingang und kommt hier nicht in Frage.", " input and does not belong here.")));
+    GiveUp(generation);
+    return;
   }
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
     deviceName_ = info.name;
-    lastError_.clear();
   }
 
   // Four seconds. The recorder drains this continuously; the headroom is for
   // the moment ffmpeg takes to open its end of the pipe.
   ring_.Reset(4 * 48000);
-  startFailed_.store(false, std::memory_order_relaxed);
-  {
-    std::lock_guard<std::mutex> lock(readyMutex_);
-    ready_ = false;
-  }
-  running_.store(true, std::memory_order_relaxed);
 
+  // Each of these first asks whether its session is still the current one.
+  auto current = [this, generation] {
+    return generation == generation_.load(std::memory_order_relaxed);
+  };
   AudioInputEvents events;
-  events.onFormat = [this](int sampleRate, int /*channels*/) {
+  events.onFormat = [this, current](int sampleRate, int /*channels*/) {
+    if (!current()) return;
     ring_.Reset((size_t)sampleRate * 4);
     sampleRate_.store(sampleRate, std::memory_order_relaxed);
-    SignalReady();  // Start() may return now
+    SignalReady();
   };
-  events.onAudio = [this](const float* data, size_t frames) { OnAudio(data, frames); };
-  events.onQuiet = [this]() {
+  events.onAudio = [this, current](const float* data, size_t frames) {
+    if (current()) OnAudio(data, frames);
+  };
+  events.onQuiet = [this, current]() {
     // Silence still has to decay, or the bar would hang at the last peak.
+    if (!current()) return;
     peak_.store(peak_.load(std::memory_order_relaxed) * kPeakDecay, std::memory_order_relaxed);
   };
   // Whatever happens, Opened() must stop waiting. Failing to signal here would
   // cost three seconds before a recording could start.
-  events.onFailure = [this](const Said& said) {
+  events.onFailure = [this, generation, current](const Said& said) {
+    if (!current()) return;
     Fail(said);
-    running_.store(false, std::memory_order_relaxed);
-    startFailed_.store(true, std::memory_order_relaxed);
-    SignalReady();
+    GiveUp(generation);
   };
 
   std::string err;
   input_ = CreateAudioInput(info);
   if (!input_->Start(info, AudioRole::Microphone, std::move(events), &err)) {
-    if (error) *error = err;
-    Stop();
-    return false;
+    input_.reset();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (lastError_.empty()) lastError_ = err;
+    }
+    GiveUp(generation);
   }
-  opening_ = true;
-  openStarted_ = std::chrono::steady_clock::now();
-  return true;
 }
 
 MicCapture::Open MicCapture::Opened(uint32_t waitMs, std::string* error) {
-  if (!opening_) return input_ ? Open::Ready : Open::Failed;
+  if (!opening_) return running() ? Open::Ready : Open::Failed;
 
   // Opening the device takes a few milliseconds, and until it is done there is
   // no sample rate to report. A recording that started without it would lack
@@ -166,12 +221,20 @@ MicCapture::Open MicCapture::Opened(uint32_t waitMs, std::string* error) {
 void MicCapture::Stop() {
   opening_ = false;
   running_.store(false, std::memory_order_relaxed);
-  if (input_) {
-    input_->Stop();
-    input_.reset();
-  }
+  const bool started = started_;
+  started_ = false;
+  // Before the rest: what the old device still delivers from here on belongs to
+  // no one.
+  if (started) generation_.fetch_add(1, std::memory_order_relaxed);
   sampleRate_.store(0, std::memory_order_relaxed);
   peak_.store(0.0f, std::memory_order_relaxed);
+  if (!started) return;
+  Post([this] {
+    if (input_) {
+      input_->Stop();
+      input_.reset();
+    }
+  });
 }
 
 void MicCapture::OnAudio(const float* interleaved, size_t frames) {

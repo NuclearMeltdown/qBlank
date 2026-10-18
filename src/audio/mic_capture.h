@@ -18,9 +18,12 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "audio/audio_devices.h"
@@ -38,9 +41,12 @@ class MicCapture {
   MicCapture(const MicCapture&) = delete;
   MicCapture& operator=(const MicCapture&) = delete;
 
-  // Begins opening the device and returns without waiting for it; until it is
-  // open, sampleRate() is 0. False only when it could not even begin.
-  bool Start(const DeviceRef& device, std::string* error);
+  // Both return at once. Finding the device, opening it and letting it go again
+  // happen on the microphone's own thread: the device list alone is a round
+  // of system calls, a DirectShow device builds a whole graph, and stopping
+  // waits for the capture thread. Until the device is open sampleRate() is 0,
+  // and one that cannot be found or opened is reported by Opened().
+  void Start(const DeviceRef& device);
   void Stop();
 
   // Whether what Start began is still undecided.
@@ -75,14 +81,36 @@ class MicCapture {
   size_t Read(float* out, size_t frames);
 
  private:
+  // Runs on worker_. `generation` is the Start it belongs to; a Stop since then
+  // makes it a no-op.
+  void OpenOnWorker(const DeviceRef& device, uint32_t generation);
+  void Post(std::function<void()> job);
+  void WorkerLoop();
   void OnAudio(const float* interleaved, size_t frames);
   void Fail(const Said& said);
-  // Lets Start() stop waiting, whether the device came up or gave up.
+  // The device came up or gave up: either way Opened() may stop waiting.
   void SignalReady();
+  void GiveUp(uint32_t generation);
 
   AudioRing ring_;
-  std::unique_ptr<AudioInput> input_;
+  std::unique_ptr<AudioInput> input_;  // worker_ only
   std::vector<float> scratch_;  // the input's thread only
+
+  // One thread, so an open and the stop after it happen in the order asked for.
+  // Started with the first Start, ended by the destructor once its queue is
+  // empty.
+  std::thread worker_;
+  std::mutex jobMutex_;
+  std::condition_variable jobPosted_;
+  std::deque<std::function<void()>> jobs_;
+  bool quit_ = false;
+  // A Start not yet followed by a Stop; the caller's thread only. The settings
+  // ask for a stop every frame the microphone is not wanted, and only the first
+  // has anything to hand to the worker.
+  bool started_ = false;
+  // Counted up by every Stop. A device being let go of on the worker can still
+  // deliver for a moment, and none of it may reach the next session.
+  std::atomic<uint32_t> generation_{0};
 
   // Set once the device is open and the sample rate is published, or once it
   // has given up. Opened() waits for it, because a recording needs the rate
