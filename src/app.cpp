@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "desktop.h"
+#include "files.h"
 #include "i18n.h"
 #include "imgui_internal.h"
 #include "platform.h"
@@ -985,6 +986,15 @@ void App::ToggleBypass() {
   Toast(bypass_ ? T("Alle Filter aus", "All filters off") : T("Filter wieder an", "Filters back on"));
 }
 
+void App::UseDefaultFolder(std::string* configured, const std::string& asked) {
+  // Chosen anew while the disk was asked: that choice stands.
+  if (*configured != asked) return;
+  Toast(T("Ordner nicht verfügbar, Standardordner wird benutzt.",
+          "Folder not available, using the default folder."));
+  configured->clear();
+  settings_.InvalidateFolderFields();
+}
+
 std::filesystem::path App::ResolveOutputFolder(std::string* configured,
                                                const std::filesystem::path& fallback) {
   std::filesystem::path::string_type folder =
@@ -1010,12 +1020,17 @@ std::filesystem::path App::ResolveOutputFolder(std::string* configured,
 }
 
 void App::ShowOutputFolder(std::string* configured, const std::filesystem::path& fallback) {
-  const std::filesystem::path folder = ResolveOutputFolder(configured, fallback);
-  if (folder.empty()) {
-    Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
-    return;
-  }
-  OpenFolder(folder);
+  folderJobs_.Ask([this, configured, asked = *configured, fallback] {
+    const FolderChoice choice = ChooseFolder(asked, fallback);
+    return [this, configured, asked, choice] {
+      if (choice.fellBack) UseDefaultFolder(configured, asked);
+      if (choice.folder.empty()) {
+        Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
+        return;
+      }
+      OpenFolder(choice.folder);
+    };
+  });
 }
 
 void App::RemeasureRange() {
@@ -1137,6 +1152,7 @@ void App::Tick() {
   if (ffmpegDownloader_.TakeInstalled()) ffmpegRelocate_ = true;
   if (settings_.takeFfmpegPathChanged()) ffmpegRelocate_ = true;
   CollectScreenshots();
+  folderJobs_.Collect();
   configJobs_.Collect();
   if (ffmpegRelocate_ && recording_.RelocateFfmpeg()) ffmpegRelocate_ = false;
   // Erst entscheiden, ob der Decoder ueberhaupt befragt wird, dann das

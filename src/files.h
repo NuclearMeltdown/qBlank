@@ -32,6 +32,17 @@ bool PathExists(const std::filesystem::path& path);
 // True when there is a file there. A folder answers false.
 bool IsFile(const std::filesystem::path& path);
 
+// Where files meant for the folder `configured` names go: that folder, made
+// again if it was deleted -- normal housekeeping between two recordings -- or
+// `fallback` when it cannot be made, an unplugged drive or a path no longer
+// writable. An empty `configured` means `fallback`. The folder is empty when
+// neither can be had. Touches the disk, so never on the thread that draws.
+struct FolderChoice {
+  std::filesystem::path folder;
+  bool fellBack = false;  // `configured` was set and could not be used
+};
+FolderChoice ChooseFolder(const std::string& configured, const std::filesystem::path& fallback);
+
 // When the file was last written, in seconds since 1970-01-01 UTC, 0 when that
 // cannot be told. For comparing two files and for showing a date -- no promise
 // beyond whole seconds.

@@ -263,6 +263,9 @@ float SystemUiScale();
 bool PumpEvents();
 // Sleeps until there is something to deliver.
 void WaitForEvents();
+// Makes the sleep in WaitForEvents or WaitForEventsOr end, from any thread: for
+// work finished elsewhere that the loop is to pick up.
+void WakeEventLoop();
 
 enum class WaitResult { Signal, Input, Timeout, Failed };
 // Sleeps until there is something to deliver, `signal` is given, or the time

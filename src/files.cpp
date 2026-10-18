@@ -27,6 +27,24 @@ bool IsFile(const std::filesystem::path& path) {
   return std::filesystem::is_regular_file(path, ec);
 }
 
+FolderChoice ChooseFolder(const std::string& configured, const std::filesystem::path& fallback) {
+  std::filesystem::path::string_type folder =
+      configured.empty() ? fallback.native() : Utf8ToPath(configured).native();
+  while (!folder.empty() && (folder.back() == '\\' || folder.back() == '/')) folder.pop_back();
+
+  FolderChoice choice;
+  if (EnsureFolder(folder)) {
+    choice.folder = folder;
+    return choice;
+  }
+  CAP_WARN("Folder not available: %s", PathToUtf8(folder).c_str());
+  if (!configured.empty() && EnsureFolder(fallback)) {
+    choice.folder = fallback;
+    choice.fellBack = true;
+  }
+  return choice;
+}
+
 std::vector<std::filesystem::path> FilesWithExtension(const std::filesystem::path& folder,
                                                       const std::string& extension) {
   std::vector<std::filesystem::path> out;

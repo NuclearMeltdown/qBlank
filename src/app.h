@@ -191,7 +191,12 @@ class App {
   void ChooseCompare(bool horizontal);
   void ToggleBypass();
   void DrawToolbarStrip();
+  // Opens the folder `configured` names, made again if it is gone, or
+  // `fallback` when that cannot be. Asks the disk on folderJobs_.
   void ShowOutputFolder(std::string* configured, const std::filesystem::path& fallback);
+  // `asked`, the folder `configured` held, could not be used and the default
+  // was taken instead: clears it, so the settings show where the files go now.
+  void UseDefaultFolder(std::string* configured, const std::string& asked);
   // Whether the deinterlacer should run at all. Only interesting when
   // "interlaced sources only" is ticked, and then it is the measurement that
   // decides, not the media type.
@@ -552,7 +557,11 @@ class App {
   int64_t lastMouseMoveQpc_ = 0;
   Point lastMousePos_;
 
-  // Last, so it finishes before anything its jobs touch is gone.
+  // Last, so they finish before anything their jobs touch is gone. Separate,
+  // because nothing on one has to wait for the other: finding a folder to
+  // open, writing the settings. The one that answers wakes the loop, which may
+  // be asleep with the window minimised.
+  JobThread folderJobs_{WakeEventLoop};
   JobThread configJobs_;
 };
 

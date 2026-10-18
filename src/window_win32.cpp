@@ -5,6 +5,7 @@
 #include <windowsx.h>  // GET_X_LPARAM
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 #include "app_identity_win32.h"
@@ -1137,7 +1138,11 @@ float SystemUiScale() {
   return dpi > 0 ? (float)dpi / 96.0f : 1.0f;
 }
 
+// The thread that pumps, for WakeEventLoop. There is one.
+static std::atomic<DWORD> g_loopThread{0};
+
 bool PumpEvents() {
+  g_loopThread.store(::GetCurrentThreadId(), std::memory_order_relaxed);
   MSG msg = {};
   while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
     if (msg.message == WM_QUIT) return false;
@@ -1149,6 +1154,15 @@ bool PumpEvents() {
 
 void WaitForEvents() {
   ::WaitMessage();
+}
+
+void WakeEventLoop() {
+  // A message of no meaning is enough: the wait ends on any. Lost while a
+  // modal loop pumps instead, which is no loss -- the loop looks again when
+  // that one ends.
+  if (const DWORD thread = g_loopThread.load(std::memory_order_relaxed)) {
+    ::PostThreadMessageW(thread, WM_NULL, 0, 0);
+  }
 }
 
 WaitResult WaitForEventsOr(const WakeSignal* signal, int timeoutMs) {
