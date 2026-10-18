@@ -373,8 +373,8 @@ if(qblank_vulkan_ready)
   # machine without it must still start qBlank on Direct3D 11. So the DLL is
   # loaded on first use rather than with the executable, and nothing uses it
   # before src/render/display_vulkan_win32.cpp has checked that it is there.
+  # delayimp is linked further down, for the shader compiler.
   if(MSVC)
-    target_link_libraries(qBlank PRIVATE delayimp)
     target_link_options(qBlank PRIVATE /DELAYLOAD:vulkan-1.dll)
   endif()
 endif()
@@ -385,6 +385,13 @@ target_link_libraries(qBlank PRIVATE
   winmm avrt dwmapi shlwapi shcore winhttp bcrypt windowscodecs
   user32 gdi32 advapi32 comdlg32 propsys
 )
+# Only the interface's Direct3D 11 backend compiles shaders at runtime -- its
+# own two, with D3DCompile, the first time it draws. On Vulkan that is the
+# settings window or the tray menu opening, and until then nothing loads it.
+if(MSVC)
+  target_link_libraries(qBlank PRIVATE delayimp)
+  target_link_options(qBlank PRIVATE /DELAYLOAD:d3dcompiler_47.dll)
+endif()
 
 if(MSVC)
   target_compile_options(qBlank PRIVATE /W3 /permissive- /Zc:__cplusplus /utf-8 /MP)
@@ -465,7 +472,9 @@ set_target_properties(CapViewMigrator PROPERTIES
 )
 
 # Diagnostic console tool: prints the devices, formats and inputs qBlank sees.
-add_executable(qblank_probe
+# Not part of a normal build, like the camera test below:
+# `cmake --build build --target qblank_probe`.
+add_executable(qblank_probe EXCLUDE_FROM_ALL
   src/tools/probe_main.cpp
   src/tools/mf_probe.cpp
   src/record/ffmpeg_locator.cpp
@@ -525,7 +534,7 @@ set_target_properties(qBlank PROPERTIES
 # DLL directly, so it needs neither an installation nor administrator rights,
 # and reports what a real consumer would see -- offered formats, the negotiated
 # one, the frame rate that actually arrived, and whether the picture was blank.
-add_executable(qblank_vcam_test src/tools/vcam_test.cpp)
+add_executable(qblank_vcam_test EXCLUDE_FROM_ALL src/tools/vcam_test.cpp)
 target_include_directories(qblank_vcam_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(qblank_vcam_test PRIVATE
   UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
