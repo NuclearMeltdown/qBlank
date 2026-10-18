@@ -315,7 +315,9 @@ AudioFill AudioEngine::FillOutput(float* out, size_t frames) {
   }
 
   // Advance: everything up to `shift` is used up, the rest stays for the next
-  // period so no sample is ever silently dropped.
+  // period so no sample is ever silently dropped. `shift` is never more than
+  // one short of `needed`, so what stays is a frame at most and the erase moves
+  // two floats -- no ring needed.
   if (shift > 0) {
     prev_[0] = pending_[(shift - 1) * 2 + 0];
     prev_[1] = pending_[(shift - 1) * 2 + 1];
