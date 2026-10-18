@@ -472,8 +472,20 @@ bool App::StartCapture(std::string* error) {
   // vorhin, obwohl es das schon nicht mehr gibt.
   applied_.format = config_.active().capture.format;
 
+  // Ohne Texturen kaeme kein Bild, und die Anzeige sagte "Kein Signal", obwohl
+  // die Karte eins liefert. Also wie ein Kartenfehler: Meldung und spaeter ein
+  // neuer Versuch. Ein noch unbekanntes Format ist kein Fehler und bringt keinen
+  // Text mit; das erste Bild meldet es nach (RenderFrame).
   std::string rendererError;
-  renderer_.SetSourceFormat(capture_.format(), &rendererError);
+  if (!renderer_.SetSourceFormat(capture_.format(), &rendererError) &&
+      !rendererError.empty()) {
+    StopCapture();
+    captureState_ = CaptureState::Reconnecting;
+    captureError_ = rendererError;
+    nextRetryQpc_ = ClockTicks() + SecondsToTicks(kRetrySeconds);
+    if (error) *error = rendererError;
+    return false;
+  }
 
   captureState_ = CaptureState::Running;
   captureError_.clear();
