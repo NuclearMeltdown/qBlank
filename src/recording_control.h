@@ -67,7 +67,9 @@ class RecordingControl {
 
   void ToggleRecording();
   void StartRecording();
-  void StopRecording();
+  // Returns before ffmpeg has finished the file. `announce` toasts it as saved
+  // once that happened, see CollectFinished.
+  void StopRecording(bool announce = false);
   // Hands the readback frame to the recorder, if one is running.
   void FeedRecorder();
   // Fragt den freien Platz auf dem Aufnahmelaufwerk ab, hoechstens einmal je
@@ -85,6 +87,8 @@ class RecordingControl {
   bool probing() const { return probing_.load(std::memory_order_relaxed); }
 
  private:
+  void CollectFinished();
+
   Config& config_;
   Recorder& recorder_;
   VideoRenderer& renderer_;
@@ -109,6 +113,8 @@ class RecordingControl {
   DeviceRef micApplied_;
   bool micFailed_ = false;
   double lastSplitCheck_ = 0.0;
+  // The file a stop by hand is waiting to call saved.
+  std::string announceFile_;
   // Die Bildrate der Quelle, wie sie beim Start der Aufnahme gemessen wurde --
   // ungedoppelt, also ohne das Bobbing eingerechnet. Verglichen wird die rohe
   // Rate, damit ein Deinterlacer, den jemand mitten in der Aufnahme umstellt,

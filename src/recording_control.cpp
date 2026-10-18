@@ -142,7 +142,7 @@ void RecordingControl::SaveCachedEncoders() {
 
 void RecordingControl::ToggleRecording() {
   if (recorder_.recording()) {
-    StopRecording();
+    StopRecording(true);
   } else {
     StartRecording();
   }
@@ -330,14 +330,31 @@ void RecordingControl::StartRecording() {
   host_.Toast(T("Aufnahme läuft", "Recording"));
 }
 
-void RecordingControl::StopRecording() {
+void RecordingControl::StopRecording(bool announce) {
   if (!recorder_.recording()) return;
-  const RecordStats stats = recorder_.stats();
+  if (announce) announceFile_ = recorder_.stats().file;
   recorder_.Stop();
   renderer_.SetReadbackEnabled(false);
   audio_.SetTapEnabled(false);
-  host_.Toast(Format(T("Aufnahme gespeichert (%.0f s)", "Recording saved (%.0f s)"), stats.seconds),
-        Utf8ToPath(stats.file));
+}
+
+void RecordingControl::CollectFinished() {
+  // "Saved" only once ffmpeg has really let go of the file, and only for a stop
+  // someone asked for: a split goes straight on into the next file, and a full
+  // disk or a dead ffmpeg says so itself.
+  Recorder::Finished done;
+  while (recorder_.TakeFinished(&done)) {
+    if (!done.complete) {
+      host_.Toast(T("ffmpeg musste beendet werden, die Datei ist vielleicht unvollständig.",
+                    "ffmpeg had to be stopped, the file may be incomplete."),
+                  Utf8ToPath(done.file));
+    } else if (done.file == announceFile_) {
+      host_.Toast(Format(T("Aufnahme gespeichert (%.0f s)", "Recording saved (%.0f s)"),
+                         done.seconds),
+                  Utf8ToPath(done.file));
+    }
+    if (done.file == announceFile_) announceFile_.clear();
+  }
 }
 
 void RecordingControl::UpdateDiskSpace() {

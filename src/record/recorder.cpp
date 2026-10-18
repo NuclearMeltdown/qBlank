@@ -1,6 +1,7 @@
 #include "record/recorder.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <system_error>
@@ -41,6 +42,7 @@ double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks) 
 
 Recorder::~Recorder() {
   Stop();
+  if (closer_.joinable()) closer_.join();
 }
 
 void Recorder::Fail(const Said& said) {
@@ -369,7 +371,17 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
     return fail(CAP_SAID(T("Zielordner konnte nicht angelegt werden: ", "Could not create the folder: ") +
                          folderText));
   }
-  const std::filesystem::path outFile = folder / Utf8ToPath(TimestampedName(settings.container));
+  // Named to the second, and a file cut within the same second as the last one
+  // started would otherwise land on it -- with "-y", while the ffmpeg before
+  // may still be writing it.
+  const std::filesystem::path named = folder / Utf8ToPath(TimestampedName(settings.container));
+  std::filesystem::path outFile = named;
+  std::error_code exists;
+  for (int n = 2; std::filesystem::exists(outFile, exists); ++n) {
+    outFile = named;
+    outFile.replace_filename(Utf8ToPath(Format("%s_%d", PathToUtf8(named.stem()).c_str(), n)) +=
+                             named.extension());
+  }
 
   // --- streams -----------------------------------------------------------
   // A generous buffer keeps a brief encoder stall from reaching back to the
@@ -408,8 +420,11 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
   // it on its error stream, and a windowed program has nowhere for that to go --
   // which is how the first version of this managed to say nothing at all about
   // why it produced no file.
-  if (!process_.Start(spec, videoStream_.get(),
-                      [this](const std::string& line) { OnFfmpegSaid(line); }, nullptr)) {
+  const uint32_t session = session_.fetch_add(1, std::memory_order_relaxed) + 1;
+  process_ = std::make_unique<ChildProcess>();
+  if (!process_->Start(spec, videoStream_.get(),
+                       [this, session](const std::string& line) { OnFfmpegSaid(line, session); },
+                       nullptr)) {
     return fail(CAP_SAID(T("ffmpeg konnte nicht gestartet werden.", "Could not start ffmpeg.")));
   }
 
@@ -451,27 +466,50 @@ bool Recorder::Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, i
 void Recorder::Stop() {
   const bool wasRunning = running_.exchange(false, std::memory_order_relaxed);
 
+  { std::lock_guard<std::mutex> lock(frameMutex_); }
+  frameReady_.notify_all();
   if (videoThread_.joinable()) videoThread_.join();
   if (audioThread_.joinable()) audioThread_.join();
   if (micThread_.joinable()) micThread_.join();
 
-  // Closing the streams is what tells ffmpeg they ended. It then writes the
-  // container index and exits -- an MP4 killed before that point has no moov
-  // atom and will not play at all.
+  if (process_ && process_->started()) {
+    Finished done;
+    {
+      std::lock_guard<std::mutex> lock(infoMutex_);
+      done.file = file_;
+    }
+    done.seconds = seconds();
+    const unsigned long long frames = videoFramesWritten_.load(std::memory_order_relaxed);
+
+    // Closing the streams is what tells ffmpeg they ended. It then writes the
+    // container index and exits -- an MP4 killed before that point has no moov
+    // atom and will not play at all.
+    std::thread previous = std::move(closer_);
+    closer_ = std::thread([this, previous = std::move(previous), process = std::move(process_),
+                           video = std::move(videoStream_), audio = std::move(audioStream_),
+                           mic = std::move(micStream_), done = std::move(done), frames,
+                           wasRunning]() mutable {
+      if (previous.joinable()) previous.join();
+      video.reset();
+      audio.reset();
+      mic.reset();
+      const int code = process->WaitOrKill(15000);
+      if (code < 0) {
+        CAP_WARN("ffmpeg did not exit and was terminated - the file may be incomplete");
+        done.complete = false;
+      }
+      if (wasRunning) CAP_LOG("Recording stopped, ffmpeg exit code %d, %llu frames", code, frames);
+
+      std::lock_guard<std::mutex> lock(finishedMutex_);
+      finished_.push_back(std::move(done));
+      anyFinished_.store(true, std::memory_order_release);
+    });
+  }
+  // A Start that failed before ffmpeg ran leaves streams and nothing to wait for.
+  process_.reset();
   videoStream_.reset();
   audioStream_.reset();
   micStream_.reset();
-
-  if (process_.started()) {
-    const int code = process_.WaitOrKill(15000);
-    if (code < 0) {
-      CAP_WARN("ffmpeg did not exit and was terminated - the file may be incomplete");
-    }
-    if (wasRunning) {
-      CAP_LOG("Recording stopped, ffmpeg exit code %d, %llu frames", code,
-              (unsigned long long)videoFramesWritten_.load());
-    }
-  }
 
   {
     std::lock_guard<std::mutex> lock(frameMutex_);
@@ -480,6 +518,17 @@ void Recorder::Stop() {
     heldIdx_ = -1;
   }
   pullAudio_ = nullptr;
+}
+
+bool Recorder::TakeFinished(Finished* out) {
+  // Asked every frame, and almost always the answer is no.
+  if (!anyFinished_.load(std::memory_order_acquire)) return false;
+  std::lock_guard<std::mutex> lock(finishedMutex_);
+  if (finished_.empty()) return false;
+  *out = std::move(finished_.front());
+  finished_.erase(finished_.begin());
+  anyFinished_.store(!finished_.empty(), std::memory_order_relaxed);
+  return true;
 }
 
 // --------------------------------------------------------------- frame feed
@@ -531,6 +580,7 @@ void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int heigh
     if (readyIdx_ >= 0) dropped_.fetch_add(1, std::memory_order_relaxed);
     readyIdx_ = slot;
   }
+  frameReady_.notify_one();
 }
 
 bool Recorder::WriteAll(ChildStream* stream, const uint8_t* data, size_t size) {
@@ -548,7 +598,11 @@ void Recorder::VideoThread() {
     const uint8_t* held = nullptr;
     bool fresh = false;
     {
-      std::lock_guard<std::mutex> lock(frameMutex_);
+      std::unique_lock<std::mutex> lock(frameMutex_);
+      // Nothing to repeat before the first frame.
+      frameReady_.wait(lock, [this] {
+        return readyIdx_ >= 0 || heldIdx_ >= 0 || !running_.load(std::memory_order_relaxed);
+      });
       if (readyIdx_ >= 0) {
         heldIdx_ = readyIdx_;
         readyIdx_ = -1;
@@ -558,10 +612,7 @@ void Recorder::VideoThread() {
         held = slots_[heldIdx_].data();
       }
     }
-    if (!held) {
-      SleepMilliseconds(2);
-      continue;
-    }
+    if (!held) continue;
 
     // How many frames the timeline should contain by now.
     //
@@ -595,7 +646,18 @@ void Recorder::VideoThread() {
 
     uint64_t written = videoFramesWritten_.load(std::memory_order_relaxed);
     if (written >= target) {
-      SleepMilliseconds(1);
+      // On the wall clock the next frame falls due at a known time. On the
+      // audio clock the audio thread says when it moved; the timeout is then
+      // only there to notice the audio stopping.
+      double wait = 0.05;
+      if (!audioIsMaster) {
+        wait = (double)(written + 1) / fps_ - TicksToSeconds(now - startTicks_);
+        wait = std::clamp(wait, 0.001, 0.05);
+      }
+      std::unique_lock<std::mutex> lock(frameMutex_);
+      if (readyIdx_ < 0 && running_.load(std::memory_order_relaxed)) {
+        frameReady_.wait_for(lock, std::chrono::microseconds((int64_t)(wait * 1e6)));
+      }
       continue;
     }
 
@@ -639,12 +701,17 @@ void Recorder::AudioThread(ChildStream* stream, AudioPullFn pull, bool countsAsC
       running_.store(false, std::memory_order_relaxed);
       break;
     }
-    if (countsAsClock) audioFramesWritten_.fetch_add(got, std::memory_order_relaxed);
+    if (countsAsClock) {
+      audioFramesWritten_.fetch_add(got, std::memory_order_relaxed);
+      { std::lock_guard<std::mutex> lock(frameMutex_); }
+      frameReady_.notify_one();
+    }
   }
 }
 
-void Recorder::OnFfmpegSaid(const std::string& line) {
+void Recorder::OnFfmpegSaid(const std::string& line, uint32_t session) {
   CAP_WARN("ffmpeg: %s", line.c_str());
+  if (session != session_.load(std::memory_order_relaxed)) return;
   std::lock_guard<std::mutex> lock(infoMutex_);
   if (error_.empty()) error_ = line;
 }

@@ -16,6 +16,7 @@
 //      output, which both MKV and MP4 prefer.
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -91,7 +92,20 @@ class Recorder {
   bool Start(const RecordSettings& settings, const FfmpegInfo& ffmpeg, int width, int height,
              double sourceFps, const AudioSource& main, const AudioSource& mic,
              MicTrackMode micTrackMode, std::string* error);
+  // Ends the recording and returns at once. ffmpeg still has to write the
+  // container's index, which can take seconds with a slow preset, and neither
+  // the picture nor the next file of a split waits for that: it finishes on a
+  // thread of its own, and TakeFinished says when.
   void Stop();
+
+  // A file whose ffmpeg has exited since the last call. `complete` is false
+  // when it had to be killed, and the file may then not play.
+  struct Finished {
+    std::string file;
+    double seconds = 0.0;
+    bool complete = true;
+  };
+  bool TakeFinished(Finished* out);
 
   bool recording() const { return running_.load(std::memory_order_relaxed); }
   // Set when ffmpeg died on its own; the app should stop and report.
@@ -123,8 +137,9 @@ class Recorder {
   // drives the video timeline.
   void AudioThread(ChildStream* stream, AudioPullFn pull, bool countsAsClock);
   // One line of whatever ffmpeg wrote to its error stream, from the reader
-  // thread inside ChildProcess.
-  void OnFfmpegSaid(const std::string& line);
+  // thread inside ChildProcess. `session` is the Start it belongs to: an ffmpeg
+  // still closing the previous file must not put its words on the next one.
+  void OnFfmpegSaid(const std::string& line, uint32_t session);
   void Fail(const Said& said);
   bool WriteAll(ChildStream* stream, const uint8_t* data, size_t size);
   int PickWriteSlotLocked() const;
@@ -150,10 +165,20 @@ class Recorder {
   std::atomic<bool> running_{false};
   std::atomic<bool> failed_{false};
 
-  ChildProcess process_;
+  // Handed to closer_ by Stop together with the streams, so the next Start
+  // gets a fresh one while the old ffmpeg is still finishing.
+  std::unique_ptr<ChildProcess> process_;
   std::unique_ptr<ChildStream> videoStream_;  // ffmpeg's standard input
   std::unique_ptr<ChildStream> audioStream_;  // opened by name, one per track
   std::unique_ptr<ChildStream> micStream_;
+  std::atomic<uint32_t> session_{0};
+
+  // The newest closing ffmpeg. Each one joins the one before it, so this is
+  // the only thread the destructor has to wait for.
+  std::thread closer_;
+  std::mutex finishedMutex_;
+  std::vector<Finished> finished_;
+  std::atomic<bool> anyFinished_{false};
 
   std::thread videoThread_;
   std::thread audioThread_;
@@ -173,6 +198,9 @@ class Recorder {
   // Triple buffer, same shape as the capture sink: the writer holds one slot
   // while it works, so the render thread always has somewhere to write.
   mutable std::mutex frameMutex_;
+  // Wakes the video writer: a new frame, audio that moved the timeline on, or
+  // Stop.
+  std::condition_variable frameReady_;
   std::vector<uint8_t> slots_[3];
   int readyIdx_ = -1;
   int heldIdx_ = -1;
