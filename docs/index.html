@@ -65,7 +65,7 @@
       <div><b>GPLv3</b><span>free and open source</span></div>
     </div>
     <figure>
-      <img src="viewer.jpg" alt="qBlank in fullscreen showing a console at 1080p60, with the statistics overlay reading a frame age of 1.2 ms">
+      <img src="viewer.jpg" width="1920" height="1080" alt="qBlank in fullscreen showing a console at 1080p60, with the statistics overlay reading a frame age of 1.2 ms">
       <figcaption>The viewer in fullscreen. The overlay is not a mock-up — it is qBlank's own statistics panel reporting the source format, the measured rate and, at the bottom, the time a frame spends inside qBlank.</figcaption>
     </figure>
   </div>
@@ -107,11 +107,11 @@
     <p class="lead">Every setting takes effect on the next frame, so it is judged on the picture rather than from memory. Where a value is easier to see than to type, it is set on the picture itself.</p>
     <div class="pair">
       <figure>
-        <img src="compare-split.jpg" alt="A GameCube title screen split down the middle by a white line: the filters off on the left half, on on the right">
+        <img src="compare-split.jpg" width="1754" height="1418" alt="A GameCube title screen split down the middle by a white line: the filters off on the left half, on on the right">
         <figcaption><strong>F12</strong> splits the live picture, filters off on one side and on on the other &mdash; vertically or horizontally, chosen in the right-click menu. The divider can be dragged, and <strong>F11</strong> holds the source still.</figcaption>
       </figure>
       <figure>
-        <img src="crop-configure.jpg" alt="The crop editor: white handles on all four edges of the picture and a toolbar with the four values, the resulting size, Apply and Cancel">
+        <img src="crop-configure.jpg" width="900" height="719" alt="The crop editor: white handles on all four edges of the picture and a toolbar with the four values, the resulting size, Apply and Cancel">
         <figcaption>The crop is dragged on the running picture, and <strong>F8</strong> finds the border by itself &mdash; measured across two seconds, so a fade to black is not read as the picture shrinking. Kept per picture size.</figcaption>
       </figure>
     </div>
@@ -138,7 +138,7 @@
     <h2><span class="num">04</span>It cleans up composite</h2>
     <p class="lead">Composite carries colour and brightness on one wire and they leak into each other. Most viewers leave that alone. qBlank removes it in real time, and the numbers behind every setting were measured on real hardware rather than guessed.</p>
     <figure>
-      <img src="composite-before-after.png" alt="The same GameCube frame over composite: filter off on the left, dot crawl beading along every letter edge and across the colour bars, the average of what stands still on and clean on the right">
+      <img src="composite-before-after.png" width="1468" height="442" alt="The same GameCube frame over composite: filter off on the left, dot crawl beading along every letter edge and across the colour bars, the average of what stands still on and clean on the right">
       <figcaption>A GameCube over composite at 576i, filter off and on. The crop was not chosen by eye — it is where the measured difference between the two frames is largest across the parts of the picture that stand still.</figcaption>
     </figure>
     <table>
@@ -149,11 +149,11 @@
     </table>
     <div class="note">The two are told about each other: the averaging reports how much of the job it did, and the demodulator only handles the rest. Turning both up used to make the picture worse than either alone.</div>
     <figure>
-      <img src="compare-dotcrawl.jpg" alt="A GameCube title screen under F12, magnified across the divider: the logo and the lettering beaded with dot crawl on the left half, clean on the right">
+      <img src="compare-dotcrawl.jpg" width="1000" height="502" alt="A GameCube title screen under F12, magnified across the divider: the logo and the lettering beaded with dot crawl on the left half, clean on the right">
       <figcaption>A title screen under <strong>F12</strong>, close up across the divider. This is where dot crawl shows worst: large flat colour against a hard edge, standing still long enough for the crawl to walk through it. Left of the line is what the cable delivers.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="settings-composite.png" alt="The Composite filter section of the settings: colour shimmer, the average of what stands still with its conditions, the demodulator at step 9 of 9 and restore bandwidth">
+      <img src="settings-composite.png" width="436" height="347" alt="The Composite filter section of the settings: colour shimmer, the average of what stands still with its conditions, the demodulator at step 9 of 9 and restore bandwidth">
       <figcaption>The section that does it. Under the demodulator is the reading it is working to: 81&nbsp;% of the pattern gone for 17&nbsp;% of the sharpness at a window of nine samples.</figcaption>
     </figure>
   </div>
@@ -164,11 +164,11 @@
     <h2><span class="num">05</span>Five deinterlacers, and it measures which you need</h2>
     <p class="lead">Whether a source is interlaced is measured from the picture, not read from the media type — a media type is entitled to say so and frequently does not.</p>
     <figure>
-      <img src="deinterlace-before-after.png" alt="Left: a kart driving past a 480i barrier, woven, the chevrons torn into interlacing combs. Right: the same moment through YADIF, clean">
+      <img src="deinterlace-before-after.png" width="1468" height="496" alt="Left: a kart driving past a 480i barrier, woven, the chevrons torn into interlacing combs. Right: the same moment through YADIF, clean">
       <figcaption>480i from a GameCube, the same moment in two runs of one replay. Left, weaving: combing on everything that moves. Right, YADIF. A 240p or 288p console whose fields hold the same lines is detected separately and handled without interpolation at all.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="settings-fields.png" alt="The Fields section of the settings: Only apply to interlaced sources, the reading Measured: interlaced, YADIF and the field order">
+      <img src="settings-fields.png" width="436" height="187" alt="The Fields section of the settings: Only apply to interlaced sources, the reading Measured: interlaced, YADIF and the field order">
       <figcaption><em>Measured: interlaced</em> is the reading, not the media type &mdash; so the deinterlacer can stay on while a 240p console is plugged in: it only runs where the measurement says it is needed.</figcaption>
     </figure>
   </div>
@@ -195,18 +195,18 @@
     <h2><span class="num">07</span>And it can put the cathode ray tube back</h2>
     <p class="lead">240p artwork was drawn for a display that had gaps between its lines and a coloured mask over its phosphors. On a flat panel the absence of both is itself a distortion. Off by default, and display only &mdash; a recording takes the picture from upstream of this pass.</p>
     <figure>
-      <img src="crt-scanlines.png" alt="Left: the Super Mario World title screen at 240p, magnified six times. Right: the same picture with scanlines at 0.35, a dark gap between each pair of picture lines">
+      <img src="crt-scanlines.png" width="1468" height="442" alt="Left: the Super Mario World title screen at 240p, magnified six times. Right: the same picture with scanlines at 0.35, a dark gap between each pair of picture lines">
       <figcaption>A 240p console in a window six times its height. The gaps follow the <em>source's</em> line grid, not the screen's, and the brightness lost to them is put back &mdash; the slider changes structure, not exposure. Below twice the source height there is nowhere to put a gap, and rather than doing nothing quietly the control says so, with the figure it is working from.</figcaption>
     </figure>
     <div class="grid">
       <div class="card"><h3>Say what the console draws</h3><p>A card that starts at 720p, or a dongle with a scaler of its own, hands over 1080 lines from a console that drew 480 &mdash; and nothing in the picture says reliably which number is real. <em>Source lines</em> is where you say it: 240 and 288 for a 60 or 50&nbsp;Hz SNES, Mega Drive, PS1 or N64, 480 and 576 for a GameCube, PS2, Dreamcast or Wii. PAL&nbsp;60 is the odd one &mdash; NTSC's raster at PAL's colour.</p></div>
       <div class="card"><h3>Then the gaps land where they belong</h3><p>The declared count becomes the number of output rows per real picture line, which is where a scaled capture stops being a problem: 1080 lines from a 480-line console is 2.25 rows each, and the scanlines sit on the lines the console actually drew rather than on the ones the scaler invented.</p></div>    </div>
     <figure>
-      <img src="crt-mask.png" alt="Three panels magnified to the pixel: mask off, an aperture grille with its vertical stripes, and a shadow mask whose triads step sideways every other row">
+      <img src="crt-mask.png" width="1480" height="442" alt="Three panels magnified to the pixel: mask off, an aperture grille with its vertical stripes, and a shadow mask whose triads step sideways every other row">
       <figcaption>Magnified to the pixel, because a triad is three of them. An aperture grille is vertical stripes, the way a Trinitron worked; a shadow mask steps its triads sideways every other line. Both stop at half strength &mdash; past that the brightness compensation has to lift the peak far enough to clip the channels apart from one another, and what arrives is a colour cast rather than a stronger effect.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="settings-crt-colour.png" alt="The Cathode ray tube and Colour sections of the settings: source lines, scanlines and mask, and under them the range and matrix with the measurement they were taken from">
+      <img src="settings-crt-colour.png" width="436" height="391" alt="The Cathode ray tube and Colour sections of the settings: source lines, scanlines and mask, and under them the range and matrix with the measurement they were taken from">
       <figcaption>Three controls, and directly under them the colour range &mdash; measured from the picture rather than assumed from the input: full range, 53.41&nbsp;% of the samples below 16, and a line saying what that means for an analogue source.</figcaption>
     </figure>
     <div class="note">Both pictures were made by running the shader's own <code>Scanline()</code> and <code>Mask()</code> over a still, rather than photographed off the screen: the effects are display-only by design, so a screenshot taken inside qBlank does not contain them.</div>
@@ -218,11 +218,11 @@
     <h2><span class="num">08</span>It finds the console's pixels</h2>
     <p class="lead">A card samples a line 720 times; a SNES drew 256. Tell qBlank the <em>Source width</em>, and it measures where each console pixel lies in the picture and draws it as one block. On an analogue source it also rebuilds each pixel from the samples the card blurred across it, and if the width is not set, it notices pixel art and suggests the width.</p>
     <figure>
-      <img src="pixel-grid-logo.png" alt="Left: the Super Mario World logo from a PAL SNES over composite, snapped to the native pixel grid in qBlank 5.6.0, outlines grey and colours bleeding. Right: the same frame in 5.7.0, black outlines and one colour per letter">
+      <img src="pixel-grid-logo.png" width="1468" height="451" alt="Left: the Super Mario World logo from a PAL SNES over composite, snapped to the native pixel grid in qBlank 5.6.0, outlines grey and colours bleeding. Right: the same frame in 5.7.0, black outlines and one colour per letter">
       <figcaption>A PAL SNES over composite, the same frame in 5.6.0 and 5.7.0. The grid used to be assumed; now it is measured, and the edge the card smeared over two or three pixels is put back on one.</figcaption>
     </figure>
     <figure>
-      <img src="pixel-grid-text.png" alt="Left: the copyright line in 5.6.0, blurred and in many shades of blue. Right: 5.7.0, one cyan with a black outline">
+      <img src="pixel-grid-text.png" width="1468" height="166" alt="Left: the copyright line in 5.6.0, blurred and in many shades of blue. Right: 5.7.0, one cyan with a black outline">
       <figcaption>The card desaturates by position, so one colour arrives as many. Pixels of the same brightness and hue are made one colour again &mdash; at no cost in latency.</figcaption>
     </figure>
   </div>

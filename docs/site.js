@@ -41,13 +41,90 @@ function L(en, german) { return de ? german : en; }
 
 // The language switch is a plain link and works without this. What this adds
 // is memory: a language picked by hand is kept, and the head of each English
-// page reads it before painting (see the inline script there).
+// page reads it before painting (see the inline script there). And the place:
+// both languages are built block for block alike, so the block a third of the
+// way down the screen, and how far into it, is found again on the other page.
 (function(){
+  var KEY = 'qblank-pos';
+  function blocks() { return document.querySelectorAll('header, .page-head, section, h3, figure, table, .card, .note'); }
+  // Unmoved by the transform the scroll reveal starts a section with.
+  function top(el) { for (var y = 0; el; el = el.offsetParent) y += el.offsetTop; return y; }
+  function line() { return window.innerHeight / 3; }
+  function page(path) { return path.replace(/index\.html$/, ''); }
+
   var link = document.getElementById('langSwitch');
-  if (!link) return;
-  link.addEventListener('click', function(){
+  if (link) link.addEventListener('click', function(){
     try { localStorage.setItem('qblank-lang', link.getAttribute('hreflang')); } catch (e) {}
+    // The block that starts last above the line. If the line runs through it,
+    // how far in, as a share of it; if it has ended, how far below its start:
+    // the text after a heading is longer in one language than in the other.
+    var y = window.scrollY + line(), list = blocks(), at = -1;
+    for (var i = 0; i < list.length && top(list[i]) <= y; ++i) at = i;
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    var pos = {to: page(link.pathname), n: list.length, i: at, r: max > 0 ? window.scrollY / max : 0, t: Date.now()};
+    if (at >= 0) {
+      var d = y - top(list[at]), h = list[at].offsetHeight;
+      if (d < h) pos.f = d / h; else pos.d = d;
+    }
+    try { sessionStorage.setItem(KEY, JSON.stringify(pos)); } catch (e) {}
   });
+
+  var pos = null;
+  try { pos = JSON.parse(sessionStorage.getItem(KEY)); sessionStorage.removeItem(KEY); } catch (e) {}
+  if (!pos || pos.to !== page(location.pathname) || Date.now() - pos.t > 15000) return;
+  var root = document.documentElement, moved = false;
+  function restore(){
+    if (moved) return;
+    var list = blocks(), y;
+    if (list.length === pos.n && pos.i >= 0) {
+      var el = list[pos.i];
+      y = top(el) + (pos.f !== undefined ? pos.f * el.offsetHeight : pos.d) - line();
+    } else {
+      y = pos.r * (root.scrollHeight - window.innerHeight);
+    }
+    root.style.scrollBehavior = 'auto';
+    window.scrollTo(0, Math.max(0, y));
+    root.style.scrollBehavior = '';
+  }
+  restore();
+  // Pictures without a set size still grow as they load; once they have, the
+  // place is taken again, unless you have started scrolling yourself.
+  ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(function(e){
+    window.addEventListener(e, function(){ moved = true; }, {once: true, passive: true});
+  });
+  if (document.readyState !== 'complete') window.addEventListener('load', restore);
+})();
+
+// The contents of the manual mark the section you are reading. On a narrow
+// screen they are a bar along the top that scrolls sideways, and it keeps the
+// marked one in view.
+(function(){
+  var toc = document.querySelector('.toc');
+  if (!toc) return;
+  var links = [].filter.call(toc.querySelectorAll('a[href^="#"]'), function(a){
+    return document.getElementById(a.getAttribute('href').slice(1));
+  });
+  var on = null;
+  // Ten positions, at most once a frame: browsers send scroll no more often.
+  function mark(){
+    var y = Math.min(window.innerHeight / 3, 160), pick = links[0];
+    links.forEach(function(a){
+      if (document.getElementById(a.getAttribute('href').slice(1)).getBoundingClientRect().top <= y) pick = a;
+    });
+    // The last sections can be too short to reach the line: at the bottom of
+    // the page it is the last one you are reading.
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) pick = links[links.length - 1];
+    if (pick === on) return;
+    if (on) on.classList.remove('on');
+    on = pick;
+    on.classList.add('on');
+    if (toc.scrollWidth > toc.clientWidth) {
+      toc.scrollTo({left: on.offsetLeft - toc.clientWidth / 3, behavior: 'smooth'});
+    }
+  }
+  window.addEventListener('scroll', mark, {passive: true});
+  window.addEventListener('resize', mark);
+  mark();
 })();
 
 // The copy button beside the winget command. The clipboard is only there on a

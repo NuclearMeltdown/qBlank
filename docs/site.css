@@ -233,6 +233,10 @@ footer .made{margin-top:18px}
 .toc b{display:block;color:var(--dim);font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
 .toc a{display:block;padding:5px 0 5px 12px;color:var(--dim);border-left:2px solid var(--line)}
 .toc a:hover{color:var(--text);border-left-color:var(--accent);text-decoration:none}
+/* the section you are reading, marked by the script as you scroll */
+.toc a.on{color:var(--text);border-left-color:var(--accent)}
+.toc a.home{border-left-color:transparent;padding-left:0;margin-bottom:18px}
+.toc a.home:hover{color:var(--accent-soft)}
 .doc section{padding:0 0 52px;scroll-margin-top:24px}
 .doc h2{font-size:clamp(1.4rem,3vw,1.75rem);margin-bottom:14px}
 .doc h3{font-size:1.02rem;font-weight:640;margin:26px 0 8px}
@@ -253,9 +257,25 @@ kbd{
   padding:3px 7px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;
   background:var(--bg-raised);color:var(--text);white-space:nowrap;
 }
+/* On a narrow screen the contents become a bar along the top that stays while
+   you scroll, sideways if it does not fit. The two switches sit at its right
+   end: the bar stops short of them, and its background and line are carried
+   on under them by two shadows. */
 @media (max-width:860px){
   .doc{grid-template-columns:minmax(0,1fr);gap:28px}
-  .toc{position:static;columns:2;column-gap:24px}
+  .toc{
+    top:0;z-index:40;margin:0 80px 0 -24px;padding:0 4px 0 14px;min-height:62px;
+    display:flex;align-items:center;overflow-x:auto;white-space:nowrap;scrollbar-width:none;
+    background:var(--bg);border-bottom:1px solid var(--line);
+    box-shadow:104px -1px 0 var(--bg),104px 0 0 var(--line);
+  }
+  .toc::-webkit-scrollbar{display:none}
+  .toc b{display:none}
+  .toc a,.toc a.home{flex:none;margin:0;padding:8px 10px;border-left:0;border-bottom:2px solid transparent}
+  .toc a.on{border-bottom-color:var(--accent)}
+  .doc section{scroll-margin-top:78px}
+  .theme-toggle{top:12px;right:12px;width:38px;height:38px}
+  .lang{top:12px;right:58px;height:38px;min-width:38px;padding:0 10px}
 }
-@media (max-width:520px){.toc{columns:1}.doc td:first-child{white-space:normal}}
+@media (max-width:520px){.doc td:first-child{white-space:normal}}
 @media (prefers-reduced-motion:reduce){.lang:hover{transform:none}}

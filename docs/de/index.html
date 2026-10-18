@@ -59,7 +59,7 @@
       <div><b>GPLv3</b><span>frei und quelloffen</span></div>
     </div>
     <figure>
-      <img src="../viewer.jpg" alt="qBlank im Vollbild mit einer Konsole in 1080p60; die Statistik zeigt ein Bildalter von 1,2 ms">
+      <img src="../viewer.jpg" width="1920" height="1080" alt="qBlank im Vollbild mit einer Konsole in 1080p60; die Statistik zeigt ein Bildalter von 1,2 ms">
       <figcaption>Der Viewer im Vollbild. Die Einblendung ist kein Mock-up, sondern qBlanks eigene Statistik: Quellformat, gemessene Bildrate und ganz unten die Zeit, die ein Bild in qBlank verbringt.</figcaption>
     </figure>
   </div>
@@ -101,11 +101,11 @@
     <p class="lead">Jede Einstellung wirkt ab dem nächsten Bild, du beurteilst sie also am Bild statt aus dem Gedächtnis. Wo ein Wert leichter zu sehen als einzutippen ist, stellst du ihn direkt am Bild ein.</p>
     <div class="pair">
       <figure>
-        <img src="../compare-split.jpg" alt="Ein GameCube-Titelbild, in der Mitte von einer weißen Linie geteilt: links Filter aus, rechts an">
+        <img src="../compare-split.jpg" width="1754" height="1418" alt="Ein GameCube-Titelbild, in der Mitte von einer weißen Linie geteilt: links Filter aus, rechts an">
         <figcaption><strong>F12</strong> teilt das laufende Bild, auf einer Seite Filter aus, auf der anderen an &mdash; senkrecht oder waagerecht, wählbar im Rechtsklickmenü. Die Trennlinie lässt sich ziehen, und <strong>F11</strong> hält die Quelle an.</figcaption>
       </figure>
       <figure>
-        <img src="../crop-configure.jpg" alt="Der Zuschnitt-Editor: weiße Griffe an allen vier Bildkanten und eine Leiste mit den vier Werten, der resultierenden Größe, Übernehmen und Abbrechen">
+        <img src="../crop-configure.jpg" width="900" height="719" alt="Der Zuschnitt-Editor: weiße Griffe an allen vier Bildkanten und eine Leiste mit den vier Werten, der resultierenden Größe, Übernehmen und Abbrechen">
         <figcaption>Der Zuschnitt wird am laufenden Bild gezogen, und <strong>F8</strong> findet den Rand selbst &mdash; über zwei Sekunden gemessen, damit eine Abblende nach Schwarz nicht als schrumpfendes Bild gilt. Gespeichert je Bildgröße.</figcaption>
       </figure>
     </div>
@@ -132,7 +132,7 @@
     <h2><span class="num">04</span>Es räumt Composite auf</h2>
     <p class="lead">Composite führt Farbe und Helligkeit über eine Leitung, und beide sickern ineinander. Die meisten Viewer lassen das, wie es ist. qBlank entfernt es in Echtzeit, und die Zahlen hinter jeder Einstellung wurden an echter Hardware gemessen statt geraten.</p>
     <figure>
-      <img src="../composite-before-after.png" alt="Dasselbe GameCube-Bild über Composite: links Filter aus, Dot Crawl an jeder Buchstabenkante und über den Farbbalken, rechts mit gemitteltem Stillstand sauber">
+      <img src="../composite-before-after.png" width="1468" height="442" alt="Dasselbe GameCube-Bild über Composite: links Filter aus, Dot Crawl an jeder Buchstabenkante und über den Farbbalken, rechts mit gemitteltem Stillstand sauber">
       <figcaption>Ein GameCube über Composite in 576i, Filter aus und an. Der Ausschnitt ist nicht nach Auge gewählt, sondern dort, wo der gemessene Unterschied zwischen beiden Bildern in den stillstehenden Teilen am größten ist.</figcaption>
     </figure>
     <table>
@@ -143,11 +143,11 @@
     </table>
     <div class="note">Die beiden wissen voneinander: Das Mitteln meldet, wie viel der Arbeit es erledigt hat, und der Demodulator übernimmt nur den Rest. Früher machte es das Bild schlechter als jeder allein, beide hochzudrehen.</div>
     <figure>
-      <img src="../compare-dotcrawl.jpg" alt="Ein GameCube-Titelbild unter F12, vergrößert über die Trennlinie: Logo und Schrift links mit Dot Crawl, rechts sauber">
+      <img src="../compare-dotcrawl.jpg" width="1000" height="502" alt="Ein GameCube-Titelbild unter F12, vergrößert über die Trennlinie: Logo und Schrift links mit Dot Crawl, rechts sauber">
       <figcaption>Ein Titelbild unter <strong>F12</strong>, nah an der Trennlinie. Hier zeigt sich Dot Crawl am schlimmsten: große flache Farbe an einer harten Kante, lange genug still, dass der Crawl hindurchwandert. Links der Linie ist, was das Kabel liefert.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="../settings-composite.png" alt="Der Abschnitt Composite-Filter der Einstellungen: Farbschimmern, Stillstehendes mitteln mit seinen Bedingungen, der Demodulator auf Stufe 9 von 9 und Bandbreite wiederherstellen">
+      <img src="../settings-composite.png" width="436" height="347" alt="Der Abschnitt Composite-Filter der Einstellungen: Farbschimmern, Stillstehendes mitteln mit seinen Bedingungen, der Demodulator auf Stufe 9 von 9 und Bandbreite wiederherstellen">
       <figcaption>Der Abschnitt, der es macht (im Bild die englische Oberfläche). Unter dem Demodulator steht der Messwert, auf den er hinarbeitet: 81&nbsp;% des Musters weg für 17&nbsp;% der Schärfe bei einem Fenster von neun Samples.</figcaption>
     </figure>
   </div>
@@ -158,11 +158,11 @@
     <h2><span class="num">05</span>Fünf Deinterlacer, und es misst, welchen du brauchst</h2>
     <p class="lead">Ob eine Quelle interlaced ist, wird am Bild gemessen, nicht aus dem Medientyp gelesen &mdash; ein Medientyp darf das angeben und tut es oft nicht.</p>
     <figure>
-      <img src="../deinterlace-before-after.png" alt="Links: ein Kart fährt an einer Absperrung in 480i vorbei, gewebt, die Pfeile von Kammartefakten zerrissen. Rechts: derselbe Moment mit YADIF, sauber">
+      <img src="../deinterlace-before-after.png" width="1468" height="496" alt="Links: ein Kart fährt an einer Absperrung in 480i vorbei, gewebt, die Pfeile von Kammartefakten zerrissen. Rechts: derselbe Moment mit YADIF, sauber">
       <figcaption>480i von einem GameCube, derselbe Moment in zwei Durchläufen einer Aufzeichnung. Links Weave: Kammartefakte an allem, was sich bewegt. Rechts YADIF. Eine Konsole mit 240p oder 288p, deren Halbbilder dieselben Zeilen tragen, wird getrennt erkannt und ganz ohne Interpolation behandelt.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="../settings-fields.png" alt="Der Abschnitt Halbbilder der Einstellungen: Nur auf Interlaced-Quellen anwenden, die Anzeige Gemessen: interlaced, YADIF und die Halbbildfolge">
+      <img src="../settings-fields.png" width="436" height="187" alt="Der Abschnitt Halbbilder der Einstellungen: Nur auf Interlaced-Quellen anwenden, die Anzeige Gemessen: interlaced, YADIF und die Halbbildfolge">
       <figcaption><em>Gemessen: interlaced</em> ist die Messung, nicht der Medientyp &mdash; der Deinterlacer kann also anbleiben, während eine 240p-Konsole steckt: Er läuft nur dort, wo die Messung sagt, dass er gebraucht wird.</figcaption>
     </figure>
   </div>
@@ -189,7 +189,7 @@
     <h2><span class="num">07</span>Und es kann die Bildröhre zurückbringen</h2>
     <p class="lead">240p-Grafik wurde für einen Bildschirm gezeichnet, der Lücken zwischen seinen Zeilen und eine farbige Maske über seinen Leuchtstoffen hatte. Auf einem Flachbildschirm ist das Fehlen beider selbst eine Verfälschung. Standardmäßig aus und nur für die Anzeige &mdash; eine Aufnahme nimmt das Bild vor diesem Schritt ab.</p>
     <figure>
-      <img src="../crt-scanlines.png" alt="Links: der Titelbildschirm von Super Mario World in 240p, sechsfach vergrößert. Rechts: dasselbe Bild mit Scanlines auf 0,35, eine dunkle Lücke zwischen je zwei Bildzeilen">
+      <img src="../crt-scanlines.png" width="1468" height="442" alt="Links: der Titelbildschirm von Super Mario World in 240p, sechsfach vergrößert. Rechts: dasselbe Bild mit Scanlines auf 0,35, eine dunkle Lücke zwischen je zwei Bildzeilen">
       <figcaption>Eine 240p-Konsole in einem Fenster mit der sechsfachen Höhe. Die Lücken folgen dem Zeilenraster der <em>Quelle</em>, nicht dem des Bildschirms, und die Helligkeit, die sie kosten, wird zurückgegeben &mdash; der Regler ändert die Struktur, nicht die Belichtung. Unter der doppelten Quellhöhe ist kein Platz für eine Lücke, und statt still nichts zu tun, sagt der Regler das, mit der Zahl, von der er ausgeht.</figcaption>
     </figure>
     <div class="grid">
@@ -197,11 +197,11 @@
       <div class="card"><h3>Dann landen die Lücken, wo sie hingehören</h3><p>Die angegebene Zahl wird zur Anzahl Ausgabezeilen pro echter Bildzeile, und damit ist eine skalierte Aufnahme kein Problem mehr: 1080 Zeilen von einer 480-Zeilen-Konsole sind 2,25 Zeilen pro Bildzeile, und die Scanlines liegen auf den Zeilen, die die Konsole wirklich gezeichnet hat, nicht auf denen, die der Scaler erfunden hat.</p></div>
     </div>
     <figure>
-      <img src="../crt-mask.png" alt="Drei Felder, bis aufs Pixel vergrößert: Maske aus, ein Streifengitter mit senkrechten Streifen und eine Lochmaske, deren Tripel jede zweite Zeile seitlich versetzt sind">
+      <img src="../crt-mask.png" width="1480" height="442" alt="Drei Felder, bis aufs Pixel vergrößert: Maske aus, ein Streifengitter mit senkrechten Streifen und eine Lochmaske, deren Tripel jede zweite Zeile seitlich versetzt sind">
       <figcaption>Bis aufs Pixel vergrößert, weil ein Tripel drei davon ist. Ein Streifengitter besteht aus senkrechten Streifen, wie bei einer Trinitron; eine Lochmaske versetzt ihre Tripel jede zweite Zeile seitlich. Beide enden bei halber Stärke &mdash; darüber müsste der Helligkeitsausgleich die Spitzen so weit anheben, dass die Kanäle getrennt voneinander clippen, und heraus käme ein Farbstich statt eines stärkeren Effekts.</figcaption>
     </figure>
     <figure class="ui">
-      <img src="../settings-crt-colour.png" alt="Die Abschnitte Bildröhre und Farbe der Einstellungen: Quellzeilen, Scanlines und Maske, darunter Umfang und Matrix mit der Messung, aus der sie stammen">
+      <img src="../settings-crt-colour.png" width="436" height="391" alt="Die Abschnitte Bildröhre und Farbe der Einstellungen: Quellzeilen, Scanlines und Maske, darunter Umfang und Matrix mit der Messung, aus der sie stammen">
       <figcaption>Drei Regler und direkt darunter der Farbumfang &mdash; am Bild gemessen statt vom Eingang angenommen: voller Umfang, 53,41&nbsp;% der Samples unter 16, und eine Zeile, die sagt, was das für eine analoge Quelle bedeutet.</figcaption>
     </figure>
     <div class="note">Beide Bilder entstanden, indem die Shader-Funktionen <code>Scanline()</code> und <code>Mask()</code> über ein Standbild liefen, nicht als Foto vom Bildschirm: Die Effekte sind bewusst nur für die Anzeige, ein Screenshot in qBlank enthält sie also nicht.</div>
@@ -213,11 +213,11 @@
     <h2><span class="num">08</span>Es findet die Pixel der Konsole</h2>
     <p class="lead">Eine Karte tastet eine Zeile 720-mal ab, ein SNES hat 256 gezeichnet. Sag qBlank die <em>Breite der Quelle</em>, und es misst, wo jedes Konsolenpixel im Bild liegt, und zeichnet es als einen Block. Bei einer analogen Quelle baut es jedes Pixel außerdem aus den Samples neu, über die die Karte es verwischt hat, und ist keine Breite angegeben, erkennt es Pixelgrafik und schlägt die Breite vor.</p>
     <figure>
-      <img src="../pixel-grid-logo.png" alt="Links: das Logo von Super Mario World von einem PAL-SNES über Composite, in qBlank 5.6.0 aufs native Pixelraster eingerastet, Konturen grau und Farben verlaufen. Rechts: dasselbe Bild in 5.7.0, schwarze Konturen und eine Farbe pro Buchstabe">
+      <img src="../pixel-grid-logo.png" width="1468" height="451" alt="Links: das Logo von Super Mario World von einem PAL-SNES über Composite, in qBlank 5.6.0 aufs native Pixelraster eingerastet, Konturen grau und Farben verlaufen. Rechts: dasselbe Bild in 5.7.0, schwarze Konturen und eine Farbe pro Buchstabe">
       <figcaption>Ein PAL-SNES über Composite, dasselbe Bild in 5.6.0 und 5.7.0. Früher wurde das Raster angenommen, jetzt wird es gemessen, und die Kante, die die Karte über zwei, drei Pixel verschmiert hat, sitzt wieder auf einem.</figcaption>
     </figure>
     <figure>
-      <img src="../pixel-grid-text.png" alt="Links: die Copyright-Zeile in 5.6.0, verwaschen und in vielen Blautönen. Rechts: 5.7.0, ein einziges Cyan mit schwarzer Kontur">
+      <img src="../pixel-grid-text.png" width="1468" height="166" alt="Links: die Copyright-Zeile in 5.6.0, verwaschen und in vielen Blautönen. Rechts: 5.7.0, ein einziges Cyan mit schwarzer Kontur">
       <figcaption>Die Karte entsättigt je nach Bildstelle, eine Farbe kommt also als viele an. Pixel gleicher Helligkeit und gleichen Farbtons werden wieder eine Farbe &mdash; ohne Kosten bei der Latenz.</figcaption>
     </figure>
   </div>
