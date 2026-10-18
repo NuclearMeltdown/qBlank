@@ -270,7 +270,7 @@ void RecordingControl::StartRecording() {
   // wird nichts -- die Dauer stimmte auf 10,41 s genau -- aber die Datei nennt
   // eine Bildrate, die die Quelle nie hatte, und traegt sie mit.
   //
-  // Der Deinterlacer weiter unten in `Tick` steht vor derselben Frage und
+  // Der Deinterlacer in `RenderFrame` steht vor derselben Frage und
   // beantwortet sie seit jeher so: die gemessene Ankunftsrate gewinnt, wenn es
   // eine gibt. Hier gilt dasselbe -- nur muss das Bobbing dazu, weil dabei aus
   // jedem Halbbild ein Vollbild wird und wirklich doppelt so viele verschiedene

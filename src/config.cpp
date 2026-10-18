@@ -5,6 +5,7 @@
 
 #include "app_files.h"
 #include "files.h"
+#include "i18n.h"
 #include "json.h"
 #include "platform.h"
 
@@ -698,11 +699,11 @@ Profile ReadProfile(const json::Value& v) {
   p.image.fieldOrder = ReadEnum<FieldOrder>(i, "fieldOrder", 3, FieldOrder::Auto);
   p.image.lineDouble = i["lineDouble"].AsBool(false);
   p.image.rotation = ReadEnum<Rotation>(i, "rotation", kRotationCount, Rotation::None);
-  p.image.chromaSoft = i["chromaSoft"].AsInt(0);
-  p.image.temporalDenoise = (float)i["temporalDenoise"].AsNumber(0.0);
+  p.image.chromaSoft = Clamp(i["chromaSoft"].AsInt(0), 0, 8);
+  p.image.temporalDenoise = (float)Clamp(i["temporalDenoise"].AsNumber(0.0), 0.0, 1.0);
   p.image.extendedHistory = i["extendedHistory"].AsBool(false);
   p.image.avoidGhosting = i["avoidGhosting"].AsBool(false);
-  p.image.dotNotch = (float)i["dotNotch"].AsNumber(0.0);
+  p.image.dotNotch = (float)Clamp(i["dotNotch"].AsNumber(0.0), 0.0, 1.0);
   p.image.motionCompensate = i["motionCompensate"].AsBool(false);
   p.image.bandwidthRestore = (float)Clamp(i["bandwidthRestore"].AsNumber(0.0), 0.0, 1.0);
   p.image.adaptiveChroma = i["adaptiveChroma"].AsBool(false);
@@ -792,13 +793,15 @@ std::string FormatSel::Label() const {
   std::string fpsText;
   if (fps > 0.0) {
     fpsText = Format("%.2f", fps);
-    // German decimal comma; the rest of the UI is German too.
-    for (char& c : fpsText) {
-      if (c == '.') c = ',';
-    }
-    // Trim a trailing ",00" so 60 fps reads as "60" and 59.94 stays "59,94".
-    if (fpsText.size() > 3 && fpsText.compare(fpsText.size() - 3, 3, ",00") == 0) {
+    // Trim a trailing ".00" so 60 fps reads as "60" and 59.94 stays "59.94".
+    if (fpsText.size() > 3 && fpsText.compare(fpsText.size() - 3, 3, ".00") == 0) {
       fpsText.resize(fpsText.size() - 3);
+    }
+    // The decimal comma in German only.
+    if (!SpeakingEnglish()) {
+      for (char& c : fpsText) {
+        if (c == '.') c = ',';
+      }
     }
   }
   std::string out = Format("%dx%d", width, height);
@@ -960,7 +963,7 @@ bool Config::Load(std::string* error) {
   app.preventSleep = a["preventSleep"].AsBool(true);
   app.showStats = a["showStats"].AsBool(false);
   app.showToolbar = a["showToolbar"].AsBool(true);
-  app.settingsSeparateWindow = a["settingsSeparateWindow"].AsBool(false);
+  app.settingsSeparateWindow = a["settingsSeparateWindow"].AsBool(true);
   app.settingsTab = a["settingsTab"].AsInt(0);
   app.fileToastHints = Clamp(a["fileToastHints"].AsInt(0), 0, 1000);
   app.settingsPanelX = a["settingsPanelX"].AsInt(-1);
@@ -975,8 +978,8 @@ bool Config::Load(std::string* error) {
   app.virtualCamera = a["virtualCamera"].AsBool(false);
   app.hdrInput = ReadEnum<HdrInput>(a, "hdrInput", kHdrInputCount, HdrInput::Auto);
   app.hdrOutput = ReadEnum<HdrOutput>(a, "hdrOutput", kHdrOutputCount, HdrOutput::Auto);
-  app.paperWhiteNits = (float)a["paperWhiteNits"].AsNumber(203.0);
-  app.sourcePeakNits = (float)a["sourcePeakNits"].AsNumber(1000.0);
+  app.paperWhiteNits = (float)Clamp(a["paperWhiteNits"].AsNumber(203.0), 80.0, 400.0);
+  app.sourcePeakNits = (float)Clamp(a["sourcePeakNits"].AsNumber(1000.0), 200.0, 10000.0);
   app.recordHdr = a["recordHdr"].AsBool(false);
   app.screenshotHdr = a["screenshotHdr"].AsBool(false);
   app.hdrShotFormat = ReadEnum<HdrShotFormat>(a, "hdrShotFormat", kHdrShotFormatCount,
@@ -995,7 +998,7 @@ bool Config::Load(std::string* error) {
   app.windowH = Clamp(a["windowH"].AsInt(720), 120, 16384);
   app.maximized = a["maximized"].AsBool(false);
   app.startFullscreen = a["startFullscreen"].AsBool(false);
-  app.fullscreenMonitor = a["fullscreenMonitor"].AsInt(-1);
+  app.fullscreenMonitor = std::max(a["fullscreenMonitor"].AsInt(-1), -1);
 
   const json::Value& r = root["record"];
   record.outputFolder = r["outputFolder"].AsString();
@@ -1006,7 +1009,7 @@ bool Config::Load(std::string* error) {
   record.bitrateKbps = Clamp(r["bitrateKbps"].AsInt(20000), 500, 500000);
   record.rateControl = ReadEnum<RateControl>(r, "rateControl", kRateControlCount,
                                           RateControl::Cbr);
-  record.qualityLevel = (int)r["qualityLevel"].AsNumber(23);
+  record.qualityLevel = Clamp(r["qualityLevel"].AsInt(23), 1, 51);
   record.preset = ReadEnum<EncoderPreset>(r, "preset", kEncoderPresetCount, EncoderPreset::Auto);
   record.tune = ReadEnum<EncoderTune>(r, "tune", kEncoderTuneCount, EncoderTune::Auto);
   record.multipass = ReadEnum<Multipass>(r, "multipass", kMultipassCount, Multipass::Auto);
@@ -1021,7 +1024,9 @@ bool Config::Load(std::string* error) {
   const json::Value& enc = r["encodersAvailable"];
   for (size_t i = 0; i < enc.Size(); ++i) {
     const int id = enc.At(i).AsInt(-1);
-    if (id >= 0 && id < 10) record.encodersAvailable.push_back(id);
+    if (id >= 0 && id < kRecordEncoderCount && !IsAutoEncoder((RecordEncoder)id)) {
+      record.encodersAvailable.push_back(id);
+    }
   }
   record.screenshotFolder = r["screenshotFolder"].AsString();
   record.screenshotFormat = ReadEnum<ScreenshotFormat>(r, "screenshotFormat", 2,

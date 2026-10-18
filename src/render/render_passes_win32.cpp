@@ -517,7 +517,7 @@ bool D3D11Passes::CreatePlane(int index, int width, int height, PlaneFormat form
   // The history copies. Written by the GPU rather than the CPU, so they are
   // plain default resources; they are allocated whether or not anything reads
   // them, because switching a filter on mid-stream should not have to
-  // reallocate anything. Three copies of a 480 line frame is under two
+  // reallocate anything. Seven copies of a 576 line frame are under six
   // megabytes.
   td.Usage = D3D11_USAGE_DEFAULT;
   td.CPUAccessFlags = 0;

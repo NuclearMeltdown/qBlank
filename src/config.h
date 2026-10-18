@@ -450,7 +450,7 @@ struct ImageSettings {
   // Waagerecht gilt sie ausdruecklich nicht; dafuer gibt es nativeWidth, und die
   // beiden haben verschiedene Voraussetzungen. Siehe dort.
   int sourceLines = 0;
-  float scanlines = 0.0f;   // 0..1, how dark the gaps between source lines go
+  float scanlines = 0.0f;   // 0..0.5, how dark the gaps between source lines go
   int mask = 0;             // 0 off, 1 aperture grille, 2 shadow mask
   float maskStrength = 0.35f;
   Deinterlace deinterlace = Deinterlace::Bob;

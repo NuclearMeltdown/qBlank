@@ -1,9 +1,11 @@
 # A copy of a source file without its // comments, for the build.
 #
-# The HLSL in src/render/shaders.h is compiled when qBlank starts, so it goes
-# into the executable as text -- and about two thirds of that text are
-# comments: the measurements and the reasons behind each filter. They belong in
-# the source, where they are read. The executable only needs the code.
+# The HLSL in src/render/shaders.h is compiled by fxc and dxc during the build,
+# from files that src/tools/hlsl_dump.cpp writes out of this copy. About two
+# thirds of shaders.h are comments: the measurements and the reasons behind
+# each filter. They belong in the source, where they are read. The compilers
+# only need the code, and a change to a comment alone leaves this copy as it
+# was, so it does not set off the half minute of shader compiling.
 #
 # Every // up to the end of its line goes, inside the HLSL strings and outside
 # them. That is only safe because nothing in shaders.h uses // for anything

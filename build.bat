@@ -1,7 +1,8 @@
 @echo off
 rem Baut qBlank.
 rem
-rem   build.bat            Release, raeumt danach auf: es bleibt nur qBlank.exe
+rem   build.bat            Release, raeumt danach auf: der build-Ordner faellt, qBlank.exe
+rem                        liegt im Wurzelordner
 rem   build.bat keep       Release, behaelt den build-Ordner fuer schnelle Neubauten
 rem   build.bat debug      Debug-Build, behaelt den build-Ordner
 setlocal

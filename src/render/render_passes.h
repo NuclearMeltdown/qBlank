@@ -24,7 +24,7 @@
 // Two backends: render_passes_win32.cpp for Direct3D 11 and
 // render_passes_vulkan.cpp for Vulkan, each drawing with the device of the
 // display it is given. In Vulkan every pass is one full screen triangle into
-// one colour attachment with one uniform block and at most twelve sampled
+// one colour attachment with one uniform block and at most twenty-five sampled
 // images, begun and ended as its own dynamic rendering; the plane uploads go
 // through host visible buffers into images on the device, the readbacks are
 // copies into host visible buffers. The HLSL is the same file for both: the

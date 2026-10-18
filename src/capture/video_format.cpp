@@ -1,5 +1,7 @@
 #include "capture/video_format.h"
 
+#include "i18n.h"
+
 namespace cap {
 
 const char* RangeName(ColorInfo::Range value) {
@@ -8,7 +10,7 @@ const char* RangeName(ColorInfo::Range value) {
     case ColorInfo::Range::Limited: return "Limited (16-235)";
     case ColorInfo::Range::From48To208: return "48-208";
     case ColorInfo::Range::From64To127: return "64-127";
-    default: return "unbekannt";
+    default: return T("unbekannt", "unknown");
   }
 }
 
@@ -19,7 +21,7 @@ const char* MatrixName(ColorInfo::Matrix value) {
     case ColorInfo::Matrix::SMPTE240M: return "SMPTE 240M";
     case ColorInfo::Matrix::BT2020_10: return "BT.2020 (10 Bit)";
     case ColorInfo::Matrix::BT2020_12: return "BT.2020 (12 Bit)";
-    default: return "unbekannt";
+    default: return T("unbekannt", "unknown");
   }
 }
 
@@ -32,7 +34,7 @@ const char* PrimariesName(ColorInfo::Primaries value) {
     case ColorInfo::Primaries::SMPTE240M: return "SMPTE 240M";
     case ColorInfo::Primaries::BT2020: return "BT.2020";
     case ColorInfo::Primaries::DCIP3: return "DCI-P3";
-    default: return "unbekannt";
+    default: return T("unbekannt", "unknown");
   }
 }
 
@@ -42,11 +44,12 @@ const char* TransferName(ColorInfo::Transfer value) {
     case ColorInfo::Transfer::Gamma22: return "Gamma 2.2";
     case ColorInfo::Transfer::BT709: return "BT.709";
     case ColorInfo::Transfer::SRGB: return "sRGB";
-    case ColorInfo::Transfer::BT2020Constant: return "BT.2020 (konstante Luminanz)";
+    case ColorInfo::Transfer::BT2020Constant:
+      return T("BT.2020 (konstante Luminanz)", "BT.2020 (constant luminance)");
     case ColorInfo::Transfer::BT2020: return "BT.2020";
     case ColorInfo::Transfer::PQ: return "PQ / ST.2084 (HDR10)";
     case ColorInfo::Transfer::HLG: return "HLG (HDR)";
-    default: return "unbekannt";
+    default: return T("unbekannt", "unknown");
   }
 }
 
