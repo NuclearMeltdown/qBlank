@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "app_identity.h"
+#include "app_identity_win32.h"
 #include "backends/imgui_impl_win32.h"
 #include "imgui.h"
 #include "keys_win32.h"
@@ -600,8 +600,8 @@ CreateResult Window::Create(const WindowSpec& spec) {
   Impl& w = *impl_;
   if (w.hwnd) return CreateResult::Ok;
   w.role = spec.role;
-  // From the one name in app_identity.h, so a rename does not leave a window
-  // class behind that still says what the program used to be called.
+  // From the one name in app_identity_win32.h, so a rename does not leave a
+  // window class behind that still says what the program used to be called.
   w.className = WindowClassName(ToWide(spec.id).c_str());
   const HINSTANCE instance = Instance();
 

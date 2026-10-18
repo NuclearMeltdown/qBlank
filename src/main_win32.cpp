@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "app_identity.h"
+#include "app_identity_win32.h"
 #include "common_win32.h"
 #include "platform.h"
 #include "program.h"

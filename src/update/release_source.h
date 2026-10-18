@@ -18,8 +18,8 @@
 //
 // Between them, an ordinary update survives a rename of the program: the new
 // build arrives under the old file name, and corrects it on its first start --
-// see AdoptOwnName in app_identity.h. That is the whole reason a rename after
-// this one needs no migrator.
+// see AdoptOwnName in app_identity_win32.h. That is the whole reason a rename
+// after this one needs no migrator.
 //
 // This file deliberately depends on nothing but the HTTP interface and the JSON
 // reader: the migrator shipped for the old name compiles it too, and must stay

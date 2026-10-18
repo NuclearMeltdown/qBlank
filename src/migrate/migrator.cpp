@@ -45,7 +45,7 @@
 // file is, what it is called, how to repoint a shortcut. Everything derived from
 // kAppName belongs to the program, not to this bridge -- kAppName in a build
 // made today already says the new name, and this file must never assume it.
-#include "app_identity.h"
+#include "app_identity_win32.h"
 #include "i18n.h"
 #include "json.h"
 #include "resource.h"

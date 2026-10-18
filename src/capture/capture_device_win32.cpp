@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "capture/dshow_util.h"
-#include "capture/frame_sink.h"
+#include "capture/frame_sink_win32.h"
 #include "common_win32.h"
 #include "i18n.h"
 #include "text_win32.h"

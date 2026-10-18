@@ -1,10 +1,11 @@
 #pragma once
 
-// Writes a single frame to disk as PNG or JPEG.
+// Writes a single frame to disk, or onto the clipboard.
 //
-// This goes through WIC, which ships with Windows, rather than through ffmpeg.
-// A screenshot is the one output that should work on a fresh machine where
-// nobody has pressed the download button yet.
+// PNG, JPEG and JPEG XR go through what the system ships -- WIC on Windows,
+// in screenshot_win32.cpp -- rather than through ffmpeg. A screenshot is the
+// one output that should work on a fresh machine where nobody has pressed the
+// download button yet. Only AVIF needs ffmpeg.
 
 #include <cstdint>
 #include <filesystem>
@@ -19,23 +20,23 @@ class Window;
 
 // Saves tightly packed pixels in VideoRenderer::kReadbackPixelFormat order.
 // Returns false and fills `error` on failure.
+bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, int width, int height,
+                    ScreenshotFormat format, int jpegQuality, std::string* error);
+
 // A screenshot that keeps the range, as JPEG XR holding scRGB half floats --
 // which is what Windows itself writes for an HDR screenshot, and therefore what
 // the Photos app opens as one. `halfRgba` is four half floats per pixel of
 // linear light with 1.0 meaning diffuse white; `paperWhiteNits` is what that
 // white should be, and scRGB fixes its own 1.0 at eighty nits.
+bool SaveScreenshotHdr(const std::filesystem::path& path, const uint16_t* halfRgba, int width,
+                       int height, int stride, float paperWhiteNits, std::string* error);
+
 // The same picture as AVIF, by way of ffmpeg. Ten bit PQ in BT.2020, with the
 // colour description that makes it an HDR image rather than a dark one. Needs
 // ffmpeg present -- unlike everything else about screenshots.
 bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem::path& ffmpegPath,
                         const uint16_t* halfRgba, int width, int height, int stride,
                         float paperWhiteNits, std::string* error);
-
-bool SaveScreenshotHdr(const std::filesystem::path& path, const uint16_t* halfRgba, int width,
-                       int height, int stride, float paperWhiteNits, std::string* error);
-
-bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, int width, int height,
-                    ScreenshotFormat format, int jpegQuality, std::string* error);
 
 // The same picture, but onto the clipboard instead of into a file: paste it
 // into a chat, a forum post or an image editor without a detour over disk.

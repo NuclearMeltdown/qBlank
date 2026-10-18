@@ -18,7 +18,7 @@
 
 #include <stdint.h>
 
-#include "app_identity.h"
+#include "app_identity_win32.h"
 
 namespace cap {
 namespace vcam {

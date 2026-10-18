@@ -1,4 +1,4 @@
-#include "capture/frame_sink.h"
+#include "capture/frame_sink_win32.h"
 
 #include <cstring>
 #include <new>

@@ -9,7 +9,7 @@
 //
 // The capture backend writes, the render thread reads. How frames get here is
 // the backend's business -- on Windows a DirectShow renderer filter, see
-// frame_sink.h.
+// frame_sink_win32.h.
 
 #include <cstddef>
 #include <cstdint>

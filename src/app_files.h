@@ -4,8 +4,8 @@
 // of the program works in: the name as UTF-8, files as std::filesystem::path.
 //
 // The Windows side of the same -- the wide name, the window class, correcting
-// the executable's name after a rename -- is app_identity.h. The name itself is
-// spelled out once, in app_name.h.
+// the executable's name after a rename -- is app_identity_win32.h. The name
+// itself is spelled out once, in app_name.h.
 
 #include <filesystem>
 #include <string>

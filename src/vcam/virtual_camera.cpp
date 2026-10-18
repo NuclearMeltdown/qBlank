@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "common.h"
-#include "app_identity.h"
+#include "app_identity_win32.h"
 #include "i18n.h"
 #include "inflate.h"
 #include "text_win32.h"

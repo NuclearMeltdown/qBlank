@@ -237,7 +237,8 @@ void Updater::Run(bool install) {
   //
   // The new build takes the old file's name, whatever that name is. If the
   // program has been renamed since, the build that just arrived notices at its
-  // next start and corrects its own name -- see AdoptOwnName in app_identity.h.
+  // next start and corrects its own name -- see AdoptOwnName in
+  // app_identity_win32.h.
   RemoveFile(old);
   if (!RenameOver(exe, old)) {
     RemoveFile(fresh);

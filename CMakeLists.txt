@@ -57,7 +57,7 @@ add_executable(qBlank WIN32
   src/program.cpp
   src/app_files.cpp
   src/app_files_win32.cpp
-  src/app_identity.cpp
+  src/app_identity_win32.cpp
   src/common.cpp
   src/common_win32.cpp
   src/platform_win32.cpp
@@ -92,7 +92,7 @@ add_executable(qBlank WIN32
   src/capture/capture_device_win32.cpp
   src/capture/dshow_util.cpp
   src/capture/frame_buffer.cpp
-  src/capture/frame_sink.cpp
+  src/capture/frame_sink_win32.cpp
   src/capture/video_capture.cpp
   src/capture/video_format.cpp
   src/capture/video_standard.cpp
@@ -110,6 +110,7 @@ add_executable(qBlank WIN32
   src/record/recorder.cpp
   src/record/remuxer.cpp
   src/record/screenshot.cpp
+  src/record/screenshot_win32.cpp
   src/record/screenshot_writer.cpp
   src/render/display.cpp
   src/render/display_win32.cpp
@@ -437,7 +438,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/res/migrator.rc.in"
 
 add_executable(CapViewMigrator WIN32 EXCLUDE_FROM_ALL
   src/migrate/migrator.cpp
-  src/app_identity.cpp
+  src/app_identity_win32.cpp
   src/i18n.cpp
   src/json.cpp
   src/update/release_source.cpp
@@ -470,7 +471,7 @@ add_executable(qblank_probe
   src/record/ffmpeg_locator.cpp
   src/app_files.cpp
   src/app_files_win32.cpp
-  src/app_identity.cpp
+  src/app_identity_win32.cpp
   src/common.cpp
   src/common_win32.cpp
   src/platform_win32.cpp
@@ -489,7 +490,7 @@ add_executable(qblank_probe
   src/capture/capture_device_win32.cpp
   src/capture/dshow_util.cpp
   src/capture/frame_buffer.cpp
-  src/capture/frame_sink.cpp
+  src/capture/frame_sink_win32.cpp
   src/capture/video_capture.cpp
   src/capture/video_format.cpp
   src/capture/video_standard.cpp
