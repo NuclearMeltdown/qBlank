@@ -237,10 +237,18 @@ class DShowCaptureDevice final : public CaptureDevice {
       return FormatAttempt::Refused;
     }
 
-    // Direct connection keeps the graph at two filters. Only fall back to
-    // intelligent connect when the capture format needs a decoder (MJPG).
+    // Direct connection keeps the graph at two filters. Intelligent connect is
+    // only for a format that needs a decoder (MJPG and the other compressed
+    // ones). For any other a refused direct connection is the answer: the
+    // builder would try every registered filter first, seconds per candidate,
+    // and at best slip in a converter this format was not picked to avoid.
+    GUID subtype;
+    const bool needsDecoder =
+        !SubtypeFromLabel(format.subtype, &subtype) || !IsRendererSubtype(subtype);
     hr = graph_->ConnectDirect(pin_.Get(), sinkPin, nullptr);
-    if (FAILED(hr) && !IsDeviceBusyError(hr)) hr = graph_->Connect(pin_.Get(), sinkPin);
+    if (FAILED(hr) && !IsDeviceBusyError(hr) && needsDecoder) {
+      hr = graph_->Connect(pin_.Get(), sinkPin);
+    }
 
     if (SUCCEEDED(hr)) return FormatAttempt::Accepted;
     if (IsDeviceBusyError(hr)) return FormatAttempt::Busy;
