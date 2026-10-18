@@ -73,6 +73,37 @@ function L(en, german) { return de ? german : en; }
   });
 })();
 
+// The note beside the winget command. Until the package is merged into the
+// community repository it says "coming soon"; from then on its folder there
+// lists the versions, and the note names the newest instead. Read from
+// winget-pkgs itself, so nothing here has to change on the day of the merge.
+(function(){
+  var note = document.querySelector('.cmd .soon');
+  if (!note) return;
+  function parts(v) { return v.split('.').map(Number); }
+  function newer(a, b) {
+    var p = parts(a), q = parts(b);
+    for (var i = 0; i < Math.max(p.length, q.length); ++i) {
+      if ((p[i] || 0) !== (q[i] || 0)) return (p[i] || 0) > (q[i] || 0);
+    }
+    return false;
+  }
+  fetch('https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/n/NuclearMeltdown/qBlank')
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(list){
+      if (!Array.isArray(list)) return;
+      var best = '';
+      list.forEach(function(x){
+        if (x.type === 'dir' && /^\d+(\.\d+)*$/.test(x.name) && (!best || newer(x.name, best))) best = x.name;
+      });
+      if (!best) return;
+      note.textContent = 'v' + best;
+      note.title = L('The version on winget', 'Die Version auf winget');
+      note.classList.add('ver');
+    })
+    .catch(function(){});
+})();
+
 // Scroll reveal, and nothing that breaks without JavaScript: the sections are
 // visible by default if this never runs.
 (function(){

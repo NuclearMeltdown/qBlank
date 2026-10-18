@@ -93,6 +93,7 @@ h1{font-size:clamp(2.6rem,7vw,4.2rem);font-weight:700;letter-spacing:-.03em;marg
   font:600 .68rem/1 "Segoe UI",system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;
   color:var(--accent-soft);white-space:nowrap;user-select:none;
 }
+.soon.ver{text-transform:none;letter-spacing:.02em}
 @media (max-width:420px){
   .cmd{padding-left:14px;font-size:.84rem}
   .soon{margin-left:6px;padding:4px 7px;letter-spacing:.03em}
