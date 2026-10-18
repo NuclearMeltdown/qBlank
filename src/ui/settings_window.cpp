@@ -295,6 +295,7 @@ void SettingsWindow::Close() {
 }
 
 void SettingsWindow::InvalidateDeviceLists() {
+  ForgetAudioDevices();
   listsValid_ = false;
   probedId_.clear();
   probed_ = DeviceProbeResult{};

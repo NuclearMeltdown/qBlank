@@ -8,6 +8,7 @@
 #include <functiondiscoverykeys_devpkey.h>
 
 #include <algorithm>
+#include <mutex>
 
 #include "capture/dshow_util.h"
 #include "i18n.h"
@@ -94,6 +95,15 @@ std::vector<AudioDeviceInfo> EnumerateWasapi(bool capture) {
   return devices;
 }
 
+// The DirectShow inputs, read once and kept until the devices change. Asking
+// DirectShow binds every audio input's moniker, and one graph rebuild asked
+// three times -- to find the card's audio, to resolve it, and for the
+// microphone. Only these are kept: WASAPI is quick to ask, and it holds the
+// system default, which changes without any device coming or going.
+std::mutex dshowMutex;
+std::vector<AudioDeviceInfo> dshowDevices;
+bool dshowListed = false;
+
 std::vector<AudioDeviceInfo> EnumerateDShowAudio() {
   std::vector<AudioDeviceInfo> devices;
   for (const VideoDeviceInfo& d : EnumerateAudioCaptureDShowDevices()) {
@@ -119,13 +129,28 @@ std::vector<AudioDeviceInfo> ListAudioDevices(bool capture) {
   if (capture) {
     // Add DirectShow-only inputs. Anything already present as a sound device is
     // skipped: WASAPI is the better path when both exist.
-    for (AudioDeviceInfo& ds : EnumerateDShowAudio()) {
+    std::vector<AudioDeviceInfo> dshow;
+    {
+      std::lock_guard<std::mutex> lock(dshowMutex);
+      if (!dshowListed) {
+        dshowDevices = EnumerateDShowAudio();
+        dshowListed = true;
+      }
+      dshow = dshowDevices;
+    }
+    for (AudioDeviceInfo& ds : dshow) {
       const bool duplicate = std::any_of(devices.begin(), devices.end(),
                                          [&](const AudioDeviceInfo& w) { return w.name == ds.name; });
       if (!duplicate) devices.push_back(std::move(ds));
     }
   }
   return devices;
+}
+
+void ForgetAudioDevices() {
+  std::lock_guard<std::mutex> lock(dshowMutex);
+  dshowListed = false;
+  dshowDevices.clear();
 }
 
 ComPtr<IMMDevice> OpenAudioEndpoint(const AudioDeviceInfo& info, bool capture) {

@@ -41,6 +41,11 @@ std::vector<AudioDeviceInfo> EnumerateAudioDevices(bool capture);
 // half; EnumerateAudioDevices sorts them.
 std::vector<AudioDeviceInfo> ListAudioDevices(bool capture);
 
+// The devices changed, or someone asked for a fresh look: the next list is read
+// from the system again. Defined by the platform half, which may keep what was
+// slow to find out until then.
+void ForgetAudioDevices();
+
 // Resolves a saved reference to a live device: exact id first, then name.
 bool ResolveAudioDevice(const DeviceRef& ref, bool capture, AudioDeviceInfo* out);
 
