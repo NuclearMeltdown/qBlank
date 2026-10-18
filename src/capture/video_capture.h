@@ -74,8 +74,9 @@ class VideoCapture {
   // caller has no other way to learn which.
   const FormatSel& connectedFormat() const { return connectedFormat_; }
 
-  // Opens a device briefly to read its capabilities. Do not call this for the
-  // device that is currently running -- use capabilities() instead.
+  // Opens a device briefly to read its capabilities. From any thread: it waits
+  // while a Start opens a card, and refuses a device that is streaming -- for
+  // that one, capabilities().
   static DeviceProbeResult Probe(const DeviceRef& device);
 
   // Drains the device's event queue. Returns true when it reported a fatal

@@ -22,6 +22,7 @@ struct ImGuiContext;
 #include "ui/file_dialog.h"
 #include "ui/settings_search.h"
 #include "camera_sink.h"
+#include "job_thread.h"
 #include "window.h"
 
 namespace cap {
@@ -282,26 +283,35 @@ class SettingsWindow {
   Config* live_ = nullptr;
   Config snapshot_;  // state when the dialog opened, for Discard
 
-  bool listsValid_ = false;
+  // Read on deviceJobs_. Stale until the first answer, and again after each
+  // request to read them anew; busy while one is out.
+  bool listsStale_ = true;
+  bool listsBusy_ = false;
   std::vector<VideoDeviceInfo> videoDevices_;
   std::vector<AudioDeviceInfo> audioInputs_;
   std::vector<AudioDeviceInfo> audioOutputs_;
   std::vector<MonitorInfoEntry> monitors_;
 
   // Whether the start menu and the desktop have a shortcut to this copy. Read
-  // from disk once per opening, and again after each button, not every frame.
+  // from disk on setupJobs_, once per opening and again after each button.
   bool shortcutsRead_ = false;
+  bool shortcutsBusy_ = false;
   bool shortcutStartMenu_ = false;
   bool shortcutDesktop_ = false;
   bool shortcutFailed_ = false;
 
-  // Capabilities of the device the dialog last probed, keyed by its id.
+  // Capabilities of the device the dialog last probed, keyed by its id, and
+  // the one asked on deviceJobs_ and not back yet. An answer from before the
+  // devices were last read anew counts for nothing: probeRound_.
   std::string probedId_;
   DeviceProbeResult probed_;
+  std::string probingId_;
+  int probeRound_ = 0;
 
   // Resolved embedded audio device for the current video device, for display.
   std::string embeddedAudioName_;
   std::string embeddedAudioForDevice_;
+  bool embeddedLooking_ = false;
 
   // Custom format entry.
   bool customFormat_ = false;
@@ -328,6 +338,9 @@ class SettingsWindow {
   char ffmpegPathBuffer_[512] = {};
   char shotFolderBuffer_[512] = {};
   bool recordBuffersLoaded_ = false;
+  // Asked of the system with the buffers, not on every frame.
+  std::filesystem::path recordFolderDefault_;
+  std::filesystem::path shotFolderDefault_;
 
   // Index into Hotkeys::items currently being rebound, -1 when idle.
   int captureAction_ = -1;
@@ -367,7 +380,8 @@ class SettingsWindow {
   // nur einmal -- sonst finge es jedes Bild die Eingabe neu ein.
   bool namePopupFocus_ = false;
   int virtualCameraRequest_ = 0;
-  int vcamStatus_ = 0;
+  int vcamStatus_ = -1;  // -1 until the first answer
+  bool vcamAsking_ = false;
   double vcamStatusChecked_ = -10.0;
   bool vcamRunning_ = false;
   std::vector<CameraSink::Consumer> vcamConsumers_;
@@ -420,6 +434,13 @@ class SettingsWindow {
   float inputPeak_ = 0.0f;
   float micPeak_ = 0.0f;
   bool micRunning_ = false;
+
+  // Last, so they finish before anything their answers touch is gone. Two,
+  // because neither has to wait for the other: the devices -- the lists, the
+  // probe, the card's own audio -- and what is set up on the system for this
+  // copy -- the shortcuts, the camera's registration.
+  JobThread deviceJobs_{WakeEventLoop};
+  JobThread setupJobs_{WakeEventLoop};
 };
 
 }  // namespace cap

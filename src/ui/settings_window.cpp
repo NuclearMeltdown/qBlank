@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 
 #include "app_files.h"
 #include "desktop.h"
@@ -204,7 +205,7 @@ void SettingsWindow::Open(Config* live, const std::string& reason) {
   reason_ = reason;
   open_ = true;
   restorePos_ = true;
-  listsValid_ = false;
+  listsStale_ = true;
   shortcutsRead_ = false;
   shortcutFailed_ = false;
   renameTarget_ = -1;
@@ -296,18 +297,40 @@ void SettingsWindow::Close() {
 
 void SettingsWindow::InvalidateDeviceLists() {
   ForgetAudioDevices();
-  listsValid_ = false;
+  listsStale_ = true;
+  ++probeRound_;
   probedId_.clear();
+  probingId_.clear();
   probed_ = DeviceProbeResult{};
   embeddedAudioForDevice_.clear();
+  embeddedLooking_ = false;
 }
 
+// DirectShow binds every device to name it, and the sound devices are asked
+// one by one: nothing for the thread that draws.
 void SettingsWindow::RefreshDeviceLists() {
-  videoDevices_ = EnumerateVideoDevices();
-  audioInputs_ = EnumerateAudioDevices(true);
-  audioOutputs_ = EnumerateAudioDevices(false);
-  monitors_ = EnumerateMonitors();
-  listsValid_ = true;
+  listsStale_ = false;
+  listsBusy_ = true;
+  deviceJobs_.Ask([this] {
+    struct Lists {
+      std::vector<VideoDeviceInfo> video;
+      std::vector<AudioDeviceInfo> inputs;
+      std::vector<AudioDeviceInfo> outputs;
+      std::vector<MonitorInfoEntry> monitors;
+    };
+    auto lists = std::make_shared<Lists>();
+    lists->video = EnumerateVideoDevices();
+    lists->inputs = EnumerateAudioDevices(true);
+    lists->outputs = EnumerateAudioDevices(false);
+    lists->monitors = EnumerateMonitors();
+    return [this, lists] {
+      videoDevices_ = std::move(lists->video);
+      audioInputs_ = std::move(lists->inputs);
+      audioOutputs_ = std::move(lists->outputs);
+      monitors_ = std::move(lists->monitors);
+      listsBusy_ = false;
+    };
+  });
 }
 
 const DeviceProbeResult& SettingsWindow::CapsFor(const DeviceRef& device,
@@ -322,13 +345,23 @@ const DeviceProbeResult& SettingsWindow::CapsFor(const DeviceRef& device,
   }
 
   const std::string key = device.id.empty() ? device.name : device.id;
-  if (!probeAllowed_) return probed_;
-  if (probedId_ != key) {
+  if (probedId_ == key) return probed_;
+  if (probingId_ != key && probeAllowed_) {
     CAP_LOG("Querying the capabilities of '%s'", device.name.c_str());
-    probed_ = VideoCapture::Probe(device);
-    probedId_ = key;
+    probingId_ = key;
+    deviceJobs_.Ask([this, device, key, round = probeRound_] {
+      auto result = std::make_shared<DeviceProbeResult>(VideoCapture::Probe(device));
+      return [this, key, round, result] {
+        if (round != probeRound_) return;
+        if (probingId_ == key) probingId_.clear();
+        probed_ = std::move(*result);
+        probedId_ = key;
+      };
+    });
   }
-  return probed_;
+  // Nothing until the answer is in: the formats of the device before would be
+  // taken for this one's.
+  return kEmpty;
 }
 
 void SettingsWindow::EnsureValidFormat(const DeviceProbeResult& caps) {
@@ -509,8 +542,10 @@ void SettingsWindow::DrawTabStrip() {
 SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
                                             FfmpegInfo* ffmpeg) {
   if (!open_ || !live_) return Result::None;
+  deviceJobs_.Collect();
+  setupJobs_.Collect();
   PollFileDialog(ffmpeg);
-  if (!listsValid_) RefreshDeviceLists();
+  if (listsStale_ && !listsBusy_) RefreshDeviceLists();
 
   Result result = Result::None;
 
@@ -1070,7 +1105,8 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   ImGui::SetNextItemWidth(-150.0f);
   if (ImGui::BeginCombo("##videodev", preview)) {
     if (videoDevices_.empty()) {
-      ImGui::TextDisabled(T("Keine Videogeräte gefunden", "No video devices found"));
+      ImGui::TextDisabled(listsBusy_ ? T("Suche Geräte …", "Looking for devices …")
+                                     : T("Keine Videogeräte gefunden", "No video devices found"));
     }
     // Nichts auszuwählen ist auch eine Auswahl. Niemand braucht das im Betrieb;
     // es ist der einzige Weg, den leeren Zustand zu sehen, ohne die
@@ -1352,24 +1388,33 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     if (embeddedAudioForDevice_ != p.capture.video.id) {
       embeddedAudioForDevice_ = p.capture.video.id;
       embeddedAudioName_.clear();
-      VideoDeviceInfo vinfo;
-      vinfo.name = p.capture.video.name;
-      vinfo.id = p.capture.video.id;
-      AudioDeviceInfo found;
-      if (!p.capture.video.empty() && FindEmbeddedAudioDevice(vinfo, &found)) {
-        embeddedAudioName_ = found.name;
+      embeddedLooking_ = !p.capture.video.empty();
+      if (embeddedLooking_) {
+        VideoDeviceInfo vinfo;
+        vinfo.name = p.capture.video.name;
+        vinfo.id = p.capture.video.id;
+        deviceJobs_.Ask([this, vinfo, round = probeRound_] {
+          AudioDeviceInfo found;
+          std::string name = FindEmbeddedAudioDevice(vinfo, &found) ? found.name : std::string();
+          return [this, id = vinfo.id, round, name] {
+            if (round != probeRound_ || id != embeddedAudioForDevice_) return;
+            embeddedAudioName_ = name;
+            embeddedLooking_ = false;
+          };
+        });
       }
     }
     char shown[256];
     std::snprintf(shown, sizeof(shown), "%s",
-                  embeddedAudioName_.empty()
+                  embeddedLooking_ ? T("Suche …", "Looking …")
+                  : embeddedAudioName_.empty()
                       ? T("— nichts Passendes gefunden —", "— nothing matching found —")
                       : embeddedAudioName_.c_str());
     ImGui::BeginDisabled(true);
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputText("##embedded", shown, sizeof(shown), ImGuiInputTextFlags_ReadOnly);
     ImGui::EndDisabled();
-    if (embeddedAudioName_.empty() && !p.capture.video.empty()) {
+    if (!embeddedLooking_ && embeddedAudioName_.empty() && !p.capture.video.empty()) {
       ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.35f, 1.0f),
                          T("Nichts gefunden — Haken entfernen und manuell wählen.",
                            "Nothing found — untick and choose manually."));
@@ -1407,7 +1452,9 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   Anchor("format");
 
   if (!caps.ok || caps.caps.empty()) {
-    ImGui::TextDisabled(T("Erst ein Videogerät auswählen.", "Select a video device first."));
+    ImGui::TextDisabled(!probingId_.empty()
+                            ? T("Frage das Gerät ab …", "Asking the device …")
+                            : T("Erst ein Videogerät auswählen.", "Select a video device first."));
     return;
   }
 
@@ -3234,20 +3281,39 @@ void SettingsWindow::DrawGeneralTab() {
   ImGui::Spacing();
   ImGui::SeparatorText(T("Verknüpfungen", "Shortcuts"));
   Anchor("shortcutsec");
-  if (!shortcutsRead_) {
-    shortcutStartMenu_ = HasShortcut(ShortcutPlace::StartMenu);
-    shortcutDesktop_ = HasShortcut(ShortcutPlace::Desktop);
-    shortcutsRead_ = true;
+  if (!shortcutsRead_ && !shortcutsBusy_) {
+    shortcutsBusy_ = true;
+    setupJobs_.Ask([this] {
+      const bool startMenu = HasShortcut(ShortcutPlace::StartMenu);
+      const bool desktop = HasShortcut(ShortcutPlace::Desktop);
+      return [this, startMenu, desktop] {
+        shortcutStartMenu_ = startMenu;
+        shortcutDesktop_ = desktop;
+        shortcutsRead_ = true;
+        shortcutsBusy_ = false;
+      };
+    });
   }
   // Buttons, not checkboxes: they act at once, and Discard could not take a
   // file back off the desktop. Each says what it would do, which is also what
-  // tells whether the shortcut is there.
+  // tells whether the shortcut is there -- so they wait while that is asked.
   const auto shortcutButton = [&](ShortcutPlace place, bool* has, const char* add,
                                   const char* remove, const char* anchor) {
+    ImGui::BeginDisabled(!shortcutsRead_ || shortcutsBusy_);
     if (ImGui::Button(*has ? remove : add)) {
-      shortcutFailed_ = !(*has ? RemoveShortcut(place) : CreateShortcut(place));
-      *has = HasShortcut(place);
+      const bool adding = !*has;
+      shortcutsBusy_ = true;
+      setupJobs_.Ask([this, place, has, adding] {
+        const bool ok = adding ? CreateShortcut(place) : RemoveShortcut(place);
+        const bool now = HasShortcut(place);
+        return [this, has, ok, now] {
+          shortcutFailed_ = !ok;
+          *has = now;
+          shortcutsBusy_ = false;
+        };
+      });
     }
+    ImGui::EndDisabled();
     Anchor(anchor);
   };
   shortcutButton(ShortcutPlace::StartMenu, &shortcutStartMenu_,
@@ -3607,6 +3673,8 @@ void SettingsWindow::LoadRecordBuffers() {
   std::snprintf(ffmpegPathBuffer_, sizeof(ffmpegPathBuffer_), "%s", rec.ffmpegPath.c_str());
   std::snprintf(folderBuffer_, sizeof(folderBuffer_), "%s", rec.outputFolder.c_str());
   std::snprintf(shotFolderBuffer_, sizeof(shotFolderBuffer_), "%s", rec.screenshotFolder.c_str());
+  recordFolderDefault_ = DefaultRecordFolder();
+  shotFolderDefault_ = DefaultScreenshotFolder();
   recordBuffersLoaded_ = true;
 }
 
@@ -3679,7 +3747,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
                      "0 = source frame rate. Lower drops frames, resolution unchanged."));
 
   FolderRow("recfolder", kPickRecordFolder, folderBuffer_, sizeof(folderBuffer_),
-            &rec.outputFolder, DefaultRecordFolder());
+            &rec.outputFolder, recordFolderDefault_);
 
   // Was auf das Laufwerk noch draufgeht. Die Zeit ist die eigentliche Auskunft:
   // "412 GB frei" beantwortet die Frage nicht, die jemand vor einer Aufnahme
@@ -3754,7 +3822,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::EndDisabled();
 
   FolderRow("shotfolder", kPickShotFolder, shotFolderBuffer_, sizeof(shotFolderBuffer_),
-            &rec.screenshotFolder, DefaultScreenshotFolder());
+            &rec.screenshotFolder, shotFolderDefault_);
   ImGui::Spacing();
   DrawVirtualCameraBlock();
   ImGui::Spacing();
@@ -3774,7 +3842,7 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
     request.mode = FileDialogRequest::Mode::OpenFiles;
     request.title = T("Aufnahmen auswählen", "Select recordings");
     request.startPath =
-        rec.outputFolder.empty() ? DefaultRecordFolder() : Utf8ToPath(rec.outputFolder);
+        rec.outputFolder.empty() ? recordFolderDefault_ : Utf8ToPath(rec.outputFolder);
     request.filters = {{T("Aufnahmen", "Recordings"), "*.mkv;*.mp4;*.mov;*.avi;*.ts"},
                        {T("Alle Dateien", "All files"), "*.*"}};
     picker_.Start(request, UiWindow(), kPickRemux);
@@ -3961,12 +4029,19 @@ void SettingsWindow::DrawVirtualCameraBlock() {
   ImGui::SeparatorText(T("Virtuelle Kamera", "Virtual camera"));
   Anchor("vcam");
 
-  // The registration is a registry read; caching it keeps this off the disk on
-  // every frame, and the two buttons below refresh it when they change it.
+  // The registration is a registry read and a look at the file, on setupJobs_
+  // every two seconds; the two buttons below ask again at once.
   const double now = ImGui::GetTime();
-  if (now - vcamStatusChecked_ > 2.0) {
-    vcamStatus_ = (int)CameraSink::Status();
+  if (now - vcamStatusChecked_ > 2.0 && !vcamAsking_) {
     vcamStatusChecked_ = now;
+    vcamAsking_ = true;
+    setupJobs_.Ask([this] {
+      const int status = (int)CameraSink::Status();
+      return [this, status] {
+        vcamStatus_ = status;
+        vcamAsking_ = false;
+      };
+    });
   }
   const auto status = (CameraSink::Setup)vcamStatus_;
 
@@ -3982,6 +4057,7 @@ void SettingsWindow::DrawVirtualCameraBlock() {
                    CameraSink::DeviceName().c_str(), AppNameUtf8().c_str())
                 .c_str());
   ImGui::Spacing();
+  if (vcamStatus_ < 0) return;  // not known yet
 
   if (status != CameraSink::Setup::Installed) {
     ImGui::TextWrapped(

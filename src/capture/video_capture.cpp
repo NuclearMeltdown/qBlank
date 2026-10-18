@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <mutex>
+#include <utility>
 #include <vector>
 
 #include "common.h"
@@ -21,8 +23,21 @@ std::string BusyMessage(const DeviceRef& device) {
            "keeps retrying on its own.");
 }
 
-// The requested format first, then the same resolution in every other format
-// the card offers, cheapest first, and finally the driver's own default.
+// The settings window probes from a thread of its own, so a probe can meet a
+// Start. Cards are opened one at a time, and a probe stays off a card that is
+// streaming: two graphs on one card is nothing a driver has to survive.
+std::mutex cardsMutex;
+std::vector<std::pair<const VideoCapture*, VideoDeviceInfo>> streaming;
+
+// Matched the way the settings window tells the running device: by id, or by
+// name when the id is not to be had.
+bool IsStreaming(const DeviceRef& device) {
+  return std::any_of(streaming.begin(), streaming.end(), [&](const auto& s) {
+    return (!device.id.empty() && s.second.id == device.id) ||
+           (!device.name.empty() && s.second.name == device.name);
+  });
+}
+
 // Welche Videonorm bei dieser Quelle ankommt, oder 0, wenn es sich nicht sagen
 // laesst. Aus ihr kommen zwei Dinge: das Raster, an dem die Aufloesung haengt,
 // und die Halbbildrate.
@@ -122,6 +137,13 @@ DeviceProbeResult VideoCapture::Probe(const DeviceRef& device) {
     return out;
   }
 
+  // Held to the end; `dev` goes before it.
+  std::lock_guard<std::mutex> lock(cardsMutex);
+  if (IsStreaming(device)) {
+    out.error = T("Das Gerät läuft gerade.", "The device is running.");
+    return out;
+  }
+
   std::unique_ptr<CaptureDevice> dev = CaptureDevice::Create();
   Said failure;
   if (!dev->Open(device, CaptureDevice::Purpose::Probe, &out.device, &failure)) {
@@ -169,10 +191,14 @@ bool VideoCapture::Start(const CaptureSettings& settings, std::string* error) {
 
   device_ = CaptureDevice::Create();
   Said failure;
-  if (!device_->Open(settings.video, CaptureDevice::Purpose::Stream, &capabilities_.device,
-                     &failure)) {
-    return fail(failure);
+  bool opened = false;
+  {
+    std::lock_guard<std::mutex> lock(cardsMutex);
+    opened = device_->Open(settings.video, CaptureDevice::Purpose::Stream, &capabilities_.device,
+                           &failure);
+    if (opened) streaming.emplace_back(this, capabilities_.device);
   }
+  if (!opened) return fail(failure);
 
   // Bevor irgendetwas anderes eingestellt wird, und bei jedem Start neu: was in
   // diesen Reglern steht, wird angewendet, bevor das Bild ueberhaupt bei uns
@@ -345,6 +371,11 @@ void VideoCapture::Teardown() {
   if (device_) device_->Close();
   device_.reset();
   connectedFormat_ = FormatSel{};
+  // Only once the card is let go.
+  std::lock_guard<std::mutex> lock(cardsMutex);
+  streaming.erase(std::remove_if(streaming.begin(), streaming.end(),
+                                 [this](const auto& s) { return s.first == this; }),
+                  streaming.end());
 }
 
 VideoFormatInfo VideoCapture::format() const {
