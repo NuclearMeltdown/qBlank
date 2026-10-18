@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank — Troubleshooting</title>
+<meta name="description" content="Common qBlank problems and what helps: black picture, wrong colours, no sound, a hanging card, recording, the virtual camera and input lag.">
+<link rel="icon" href="icon.png">
+<link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/faq.html">
+<link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/faq.html">
+<link rel="stylesheet" href="site.css">
+<script>
+// The same as on the front page: theme and language before anything is painted.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
+})();
+</script>
+</head>
+<body>
+
+<a class="lang" id="langSwitch" href="de/faq.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+<button class="theme-toggle" id="themeToggle" type="button" hidden>
+  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+</button>
+
+<div class="page-head">
+  <div class="wrap">
+    <a href="./"><img class="logo" src="icon.png" alt="qBlank"></a>
+    <h1>Troubleshooting</h1>
+    <p class="tag">Common problems and what helps. Not listed? <a href="https://github.com/NuclearMeltdown/qBlank/issues">Report it</a>.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <a class="home" href="./">&larr; Home</a>
+    <a class="pg" href="manual.html">Manual</a>
+    <a class="pg" href="install.html">Download and install</a>
+    <a class="pg cur" href="faq.html" aria-current="page">Troubleshooting</a>
+    <div class="secs">
+      <a href="#picture">Picture</a>
+      <a href="#sound">Sound</a>
+      <a href="#card">The card</a>
+      <a href="#record">Recording</a>
+      <a href="#camera">Virtual camera</a>
+      <a href="#lag">Input lag</a>
+      <a href="#help">Still stuck</a>
+    </div>
+    <a class="pg" href="changelog.html">Changelog</a>
+  </nav>
+
+  <main>
+    <section id="picture">
+      <h2>Picture</h2>
+      <h3>The picture stays black</h3>
+      <p>qBlank says in the picture what it sees:</p>
+      <ul>
+        <li><em>No signal</em>: is the console on, and is <strong>Source &rarr; Card input</strong> the connector it is plugged into?</li>
+        <li><em>The card is receiving noise only</em>: check the cable and the input.</li>
+        <li><em>Already in use by another program</em>: most cards hand their picture to one program only. Close OBS, the manufacturer's tool or a second qBlank. qBlank keeps trying by itself.</li>
+        <li><em>Not found</em>: is the card plugged in? Then <em>Refresh</em> under <strong>Source</strong>.</li>
+      </ul>
+      <p><kbd>F5</kbd> restarts the capture, <kbd>Shift</kbd>+<kbd>F5</kbd> reinitialises the card.</p>
+      <h3>No colour, or the wrong colours</h3>
+      <p><strong>Source &rarr; Video standard</strong> on <em>Automatic</em>, then <kbd>F7</kbd>. If it mixes up PAL 60 and NTSC, set the region below it to where you live.</p>
+      <h3>Black looks grey, or crushed</h3>
+      <p><kbd>F6</kbd> measures the range again, or set <em>Range</em> in <strong>Picture &rarr; Colour</strong> by hand. It often happens after an option was changed in the card's driver.</p>
+      <h3>Lines comb apart when something moves</h3>
+      <p>Turn on deinterlacing in <strong>Picture &rarr; Fields</strong>. If the picture then jumps up and down, switch the <em>Field order</em>.</p>
+      <h3>Is a filter to blame?</h3>
+      <p><kbd>Shift</kbd>+<kbd>F12</kbd> turns all filters off and shows the signal as it arrives. <kbd>F12</kbd> splits the picture into with and without.</p>
+    </section>
+
+    <section id="sound">
+      <h2>Sound</h2>
+      <h3>No sound</h3>
+      <ul>
+        <li><strong>Source &rarr; Source audio</strong>: <em>Use the video device's embedded audio</em>, or the right recording device.</li>
+        <li><strong>Audio &rarr; Playback</strong>: the right output device.</li>
+        <li><kbd>M</kbd> mutes. If <em>Input level</em> under <strong>Audio &rarr; Volume</strong> does not move, nothing arrives from the card.</li>
+      </ul>
+      <h3>Sound out of step with the picture</h3>
+      <p><strong>Audio &rarr; Delay &rarr; A/V offset</strong>. Positive delays the sound. Negative delays the picture and adds input lag.</p>
+      <h3>Crackling or dropouts</h3>
+      <p>Raise the <em>Audio buffer</em> under <strong>Audio &rarr; Delay</strong>. 20&ndash;40&nbsp;ms is typical.</p>
+    </section>
+
+    <section id="card">
+      <h2>The card</h2>
+      <h3>&ldquo;Connection lost&rdquo;</h3>
+      <p>The card dropped out, for example over a loose USB cable. qBlank reconnects by itself as soon as it is back.</p>
+      <h3>The card hangs</h3>
+      <p>Some drivers hang when the input is switched many times in quick succession, so switch calmly. If qBlank hangs along with the card, do not end it in Task Manager: killing it while it holds the card can lock the driver until Windows restarts. Restart the PC instead.</p>
+    </section>
+
+    <section id="record">
+      <h2>Recording</h2>
+      <h3>Recording does not start</h3>
+      <p>Recording needs ffmpeg: <strong>Encoder &rarr; Download ffmpeg</strong>. If the chosen encoder does not work on this PC, qBlank goes back to <em>Automatic</em>. <em>Test encoders</em> shows which ones work.</p>
+      <h3>&ldquo;Encoder overloaded&rdquo;</h3>
+      <p>Pick a faster <em>Preset</em>, or a lower resolution or frame rate. A hardware encoder (NVENC, Quick Sync, AMF) takes the load off the CPU.</p>
+      <h3>The MP4 will not open</h3>
+      <p>An MP4 that was not closed properly, after a crash for example, cannot be opened. MKV survives that. Record to MKV and turn it into MP4 afterwards with <strong>Recording &rarr; Rewrap to MP4</strong>: seconds, and no quality lost.</p>
+      <h3>Recording stopped by itself</h3>
+      <p>The disk was nearly full. The Recording tab shows the free space as recording time. On a FAT32 drive, turn on <em>Split at size</em>: no file there can pass 4&nbsp;GB.</p>
+    </section>
+
+    <section id="camera">
+      <h2>Virtual camera</h2>
+      <h3>It shows a notice instead of the picture</h3>
+      <p>qBlank is not running, or the camera is not turned on under <strong>Recording &rarr; Virtual camera</strong>.</p>
+      <h3>Squashed or cut off after the source changed</h3>
+      <p>A program picks the format when it opens the camera and keeps it. Open the camera again in that program.</p>
+      <h3>&ldquo;Points nowhere&rdquo;</h3>
+      <p>qBlank was moved after the camera was installed. Install it once more.</p>
+    </section>
+
+    <section id="lag">
+      <h2>Input lag</h2>
+      <h3>How do I get the lowest latency?</h3>
+      <ul>
+        <li><em>VSync</em> off under <strong>Display &rarr; Graphics</strong>. It can tear.</li>
+        <li>An uncompressed <em>Colour format</em> under <strong>Source</strong>. MJPG costs latency.</li>
+        <li>No negative <em>A/V offset</em>: that delays the picture.</li>
+      </ul>
+      <p><kbd>F1</kbd> shows how long a frame spends inside qBlank.</p>
+    </section>
+
+    <section id="help">
+      <h2>Still stuck</h2>
+      <h3>Report a bug</h3>
+      <p>Turn on <em>Write a log to qBlank.log</em> under <strong>General &rarr; Other</strong>, make the problem happen, then <a href="https://github.com/NuclearMeltdown/qBlank/issues">open an issue</a> with <code>qBlank.log</code> attached. <strong>About &rarr; Report a bug</strong> leads there too.</p>
+      <h3>Start over with default settings</h3>
+      <p>Close qBlank and rename or delete <code>qBlank.json</code> beside the program.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Home</a> · <a href="manual.html">Manual</a> · <a href="install.html">Download</a> · <a href="changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

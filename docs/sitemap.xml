@@ -21,4 +21,34 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/manual.html"/>
     <xhtml:link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/manual.html"/>
   </url>
+  <url>
+    <loc>https://nuclearmeltdown.github.io/qBlank/install.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/install.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/install.html"/>
+  </url>
+  <url>
+    <loc>https://nuclearmeltdown.github.io/qBlank/de/install.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/install.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/install.html"/>
+  </url>
+  <url>
+    <loc>https://nuclearmeltdown.github.io/qBlank/faq.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/faq.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/faq.html"/>
+  </url>
+  <url>
+    <loc>https://nuclearmeltdown.github.io/qBlank/de/faq.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/faq.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/faq.html"/>
+  </url>
+  <url>
+    <loc>https://nuclearmeltdown.github.io/qBlank/changelog.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/changelog.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/changelog.html"/>
+  </url>
+  <url>
+    <loc>https://nuclearmeltdown.github.io/qBlank/de/changelog.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/changelog.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/changelog.html"/>
+  </url>
 </urlset>

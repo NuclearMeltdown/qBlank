@@ -87,6 +87,8 @@ function L(en, german) { return de ? german : en; }
     root.style.scrollBehavior = '';
   }
   restore();
+  // The changelog has its blocks only once the releases are in.
+  window.qbPlace = restore;
   // Pictures without a set size still grow as they load; once they have, the
   // place is taken again, unless you have started scrolling yourself.
   ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(function(e){
@@ -95,18 +97,23 @@ function L(en, german) { return de ? german : en; }
   if (document.readyState !== 'complete') window.addEventListener('load', restore);
 })();
 
-// The contents of the manual mark the section you are reading. On a narrow
-// screen they are a bar along the top that scrolls sideways, and it keeps the
-// marked one in view.
+// The contents of a page mark the section you are reading. On a narrow screen
+// they are a bar along the top that scrolls sideways, and it keeps the marked
+// one in view. The changelog writes its sections later and calls qbToc then.
 (function(){
   var toc = document.querySelector('.toc');
   if (!toc) return;
-  var links = [].filter.call(toc.querySelectorAll('a[href^="#"]'), function(a){
-    return document.getElementById(a.getAttribute('href').slice(1));
-  });
-  var on = null;
+  var links = [], on = null;
+  function collect(){
+    if (on) on.classList.remove('on');
+    on = null;
+    links = [].filter.call(toc.querySelectorAll('a[href^="#"]'), function(a){
+      return document.getElementById(a.getAttribute('href').slice(1));
+    });
+  }
   // Ten positions, at most once a frame: browsers send scroll no more often.
   function mark(){
+    if (!links.length) return;
     var y = Math.min(window.innerHeight / 3, 160), pick = links[0];
     links.forEach(function(a){
       if (document.getElementById(a.getAttribute('href').slice(1)).getBoundingClientRect().top <= y) pick = a;
@@ -120,11 +127,14 @@ function L(en, german) { return de ? german : en; }
     on.classList.add('on');
     if (toc.scrollWidth > toc.clientWidth) {
       toc.scrollTo({left: on.offsetLeft - toc.clientWidth / 3, behavior: 'smooth'});
+    } else if (toc.scrollHeight > toc.clientHeight) {
+      toc.scrollTo({top: on.offsetTop - toc.clientHeight / 3, behavior: 'smooth'});
     }
   }
   window.addEventListener('scroll', mark, {passive: true});
   window.addEventListener('resize', mark);
-  mark();
+  window.qbToc = function(){ collect(); mark(); };
+  qbToc();
 })();
 
 // The copy button beside the winget command. The clipboard is only there on a
@@ -242,4 +252,117 @@ function pickProgram(assets) {
                                  : L('Download the latest release', 'Neueste Version herunterladen');
     })
     .catch(function(){});
+})();
+
+// The changelog is the release notes themselves, read from GitHub, so a new
+// release needs nothing here. The notes are Markdown, and only the part of it
+// they use is understood: headings, bold lines as headings, lists, tables,
+// paragraphs, code, bold, italics and links. Everything is escaped first.
+(function(){
+  var box = document.getElementById('releases');
+  if (!box) return;
+  var KEY = 'qblank-rels';
+
+  function inline(s){
+    s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // Code and links are put aside, or the emphasis rules would reach into them.
+    var kept = [];
+    function keep(html){ kept.push(html); return '\u0000' + (kept.length - 1) + '\u0000'; }
+    s = s.replace(/`([^`]+)`/g, function(m, c){ return keep('<code>' + c + '</code>'); });
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function(m, t, u){ return keep('<a href="' + u + '">' + t + '</a>'); });
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^\w*])\*(\S(?:[^*]*?\S)?)\*(?![\w*])/g, '$1<em>$2</em>');
+    s = s.replace(/(^|[^\w])_(\S(?:[^_]*?\S)?)_(?!\w)/g, '$1<em>$2</em>');
+    return s.replace(/\u0000(\d+)\u0000/g, function(m, i){ return kept[i]; });
+  }
+  function cells(row){
+    return row.trim().replace(/^\||\|$/g, '').split('|');
+  }
+
+  function md(src){
+    var out = [], para = [], list = null, rows = null;
+    function flush(){
+      if (para.length) out.push('<p>' + inline(para.join(' ')) + '</p>');
+      para = [];
+      if (list) out.push('<ul>' + list.map(function(t){
+        var k = /^(Added|Changed|Fixed|Removed|Improved):\s*/.exec(t);
+        return '<li>' + (k ? '<b class="kind">' + k[1] + '</b>' + inline(t.slice(k[0].length)) : inline(t)) + '</li>';
+      }).join('') + '</ul>');
+      list = null;
+      if (rows) out.push('<table>' + rows.map(function(r, i){
+        var tag = i ? 'td' : 'th';
+        return '<tr>' + cells(r).map(function(c){ return '<' + tag + '>' + inline(c.trim()) + '</' + tag + '>'; }).join('') + '</tr>';
+      }).join('') + '</table>');
+      rows = null;
+    }
+    src.replace(/\r/g, '').split('\n').forEach(function(ln){
+      var t = ln.trim(), m;
+      if (!t) { flush(); return; }
+      if (/^\|/.test(t)) {
+        if (!rows) { flush(); rows = []; }
+        if (!/^\|?[\s:|-]+$/.test(t)) rows.push(t);
+        return;
+      }
+      if ((m = /^#+\s+(.*)$/.exec(t)) || (m = /^\*\*([^*]+)\*\*:?$/.exec(t))) {
+        flush(); out.push('<h4>' + inline(m[1]) + '</h4>'); return;
+      }
+      if ((m = /^[-*+]\s+(.*)$/.exec(t))) {
+        if (para.length || rows) flush();
+        (list = list || []).push(m[1]);
+        return;
+      }
+      t = t.replace(/^>\s?/, '');
+      // An indented line, or one straight after an item, carries the item on.
+      if (list) list[list.length - 1] += ' ' + t;
+      else { if (rows) flush(); para.push(t); }
+    });
+    flush();
+    return out.join('');
+  }
+
+  var when = new Intl.DateTimeFormat(L('en-GB', 'de-DE'), {day: 'numeric', month: 'long', year: 'numeric'});
+  function show(rels){
+    var groups = {};
+    rels.forEach(function(r){
+      var major = parseInt(r.tag_name.replace(/^\D+/, ''), 10) || 0;
+      (groups[major] = groups[major] || []).push(r);
+    });
+    var majors = Object.keys(groups).map(Number).sort(function(a, b){ return b - a; });
+    box.innerHTML = majors.map(function(n){
+      return '<section id="v' + n + '"><h2>Version ' + n + (n <= 3 ? ' · CapView' : '') + '</h2>' +
+        groups[n].sort(function(a, b){ return a.published_at < b.published_at ? 1 : -1; }).map(function(r){
+          return '<article class="rel"><h3><a href="' + r.html_url + '">' + inline(r.tag_name) + '</a>' +
+                 '<span class="when">' + when.format(new Date(r.published_at)) + '</span></h3>' +
+                 md(r.body || '') + '</article>';
+        }).join('') + '</section>';
+    }).join('');
+    var secs = document.querySelector('.toc .secs');
+    if (secs) secs.innerHTML = majors.map(function(n){ return '<a href="#v' + n + '">Version ' + n + '</a>'; }).join('');
+    if (window.qbToc) qbToc();
+    if (window.qbPlace) qbPlace();
+    else if (location.hash) {
+      var el = document.getElementById(location.hash.slice(1));
+      if (el) el.scrollIntoView();
+    }
+  }
+
+  // Kept for a few minutes, so the language switch does not ask GitHub again:
+  // without a sign-in it answers sixty times an hour.
+  var cached = null;
+  try { cached = JSON.parse(sessionStorage.getItem(KEY)); } catch (e) {}
+  if (cached && Date.now() - cached.t < 600000) { show(cached.rels); return; }
+  fetch('https://api.github.com/repos/NuclearMeltdown/qBlank/releases?per_page=100')
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(); })
+    .then(function(list){
+      var rels = list.filter(function(r){ return !r.draft; }).map(function(r){
+        return {tag_name: r.tag_name, html_url: r.html_url, published_at: r.published_at, body: r.body};
+      });
+      try { sessionStorage.setItem(KEY, JSON.stringify({t: Date.now(), rels: rels})); } catch (e) {}
+      show(rels);
+    })
+    .catch(function(){
+      var note = document.getElementById('relNote');
+      if (note) note.innerHTML = L('GitHub did not answer. The notes are on the ', 'GitHub hat nicht geantwortet. Die Notizen stehen auf der ') +
+        '<a href="https://github.com/NuclearMeltdown/qBlank/releases">' + L('releases page', 'Release-Seite') + '</a>.';
+    });
 })();

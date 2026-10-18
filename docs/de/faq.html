@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank — Fehlersuche</title>
+<meta name="description" content="Häufige Probleme mit qBlank und was hilft: schwarzes Bild, falsche Farben, kein Ton, hängende Karte, Aufnahme, virtuelle Kamera und Eingabeverzögerung.">
+<link rel="icon" href="../icon.png">
+<link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/faq.html">
+<link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/faq.html">
+<link rel="stylesheet" href="../site.css">
+<script>
+// Vor dem ersten Zeichnen, damit ein gemerktes Design nicht erst als Blitz des
+// anderen erscheint.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+
+<a class="lang" id="langSwitch" href="../faq.html" hreflang="en" lang="en" title="English">EN</a>
+<button class="theme-toggle" id="themeToggle" type="button" hidden>
+  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+</button>
+
+<div class="page-head">
+  <div class="wrap">
+    <a href="./"><img class="logo" src="../icon.png" alt="qBlank"></a>
+    <h1>Fehlersuche</h1>
+    <p class="tag">Häufige Probleme und was hilft. Nicht dabei? <a href="https://github.com/NuclearMeltdown/qBlank/issues">Melde es</a>.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <a class="home" href="./">&larr; Startseite</a>
+    <a class="pg" href="manual.html">Handbuch</a>
+    <a class="pg" href="install.html">Download und Installation</a>
+    <a class="pg cur" href="faq.html" aria-current="page">Fehlersuche</a>
+    <div class="secs">
+      <a href="#picture">Bild</a>
+      <a href="#sound">Ton</a>
+      <a href="#card">Die Karte</a>
+      <a href="#record">Aufnahme</a>
+      <a href="#camera">Virtuelle Kamera</a>
+      <a href="#lag">Eingabeverzögerung</a>
+      <a href="#help">Immer noch nicht?</a>
+    </div>
+    <a class="pg" href="changelog.html">Änderungen</a>
+  </nav>
+
+  <main>
+    <section id="picture">
+      <h2>Bild</h2>
+      <h3>Das Bild bleibt schwarz</h3>
+      <p>qBlank sagt im Bild, was es sieht:</p>
+      <ul>
+        <li><em>Kein Signal</em>: Ist die Konsole an, und ist <strong>Quelle &rarr; Eingang der Karte</strong> der Anschluss, an dem sie steckt?</li>
+        <li><em>Die Karte empfängt nur Rauschen</em>: Kabel und Eingang prüfen.</li>
+        <li><em>Wird bereits von einem anderen Programm benutzt</em>: Die meisten Karten geben ihr Bild nur einem Programm. Schließe OBS, das Hersteller-Tool oder ein zweites qBlank. qBlank versucht es von allein weiter.</li>
+        <li><em>Nicht gefunden</em>: Ist die Karte angeschlossen? Dann <em>Aktualisieren</em> unter <strong>Quelle</strong>.</li>
+      </ul>
+      <p><kbd>F5</kbd> startet die Aufnahme neu, <kbd>Umschalt</kbd>+<kbd>F5</kbd> liest die Karte neu ein.</p>
+      <h3>Keine Farbe oder falsche Farben</h3>
+      <p><strong>Quelle &rarr; Videonorm</strong> auf <em>Automatisch</em>, dann <kbd>F7</kbd>. Verwechselt es PAL 60 und NTSC, stell die Region darunter auf dein Land.</p>
+      <h3>Schwarz wirkt grau oder säuft ab</h3>
+      <p><kbd>F6</kbd> misst den Wertebereich neu, oder stell den <em>Wertebereich</em> unter <strong>Bild &rarr; Farbe</strong> von Hand ein. Das passiert oft, nachdem im Treiber der Karte eine Option geändert wurde.</p>
+      <h3>Zeilen kämmen auseinander, wenn sich etwas bewegt</h3>
+      <p>Schalte das Deinterlacing unter <strong>Bild &rarr; Halbbilder</strong> ein. Springt das Bild dann auf und ab, dreh die <em>Halbbildreihenfolge</em> um.</p>
+      <h3>Ist ein Filter schuld?</h3>
+      <p><kbd>Umschalt</kbd>+<kbd>F12</kbd> schaltet alle Filter ab und zeigt das Signal, wie es ankommt. <kbd>F12</kbd> teilt das Bild in mit und ohne.</p>
+    </section>
+
+    <section id="sound">
+      <h2>Ton</h2>
+      <h3>Kein Ton</h3>
+      <ul>
+        <li><strong>Quelle &rarr; Ton der Quelle</strong>: <em>Eingebettetes Audio des Videogeräts verwenden</em> oder das richtige Aufnahmegerät.</li>
+        <li><strong>Ton &rarr; Wiedergabe</strong>: das richtige Ausgabegerät.</li>
+        <li><kbd>M</kbd> schaltet stumm. Bewegt sich der <em>Eingangspegel</em> unter <strong>Ton &rarr; Lautstärke</strong> nicht, kommt von der Karte nichts an.</li>
+      </ul>
+      <h3>Ton und Bild laufen auseinander</h3>
+      <p><strong>Ton &rarr; Verzögerung &rarr; A/V-Versatz</strong>. Positiv verzögert den Ton. Negativ verzögert das Bild und kostet Eingabeverzögerung.</p>
+      <h3>Knacken oder Aussetzer</h3>
+      <p>Den <em>Tonpuffer</em> unter <strong>Ton &rarr; Verzögerung</strong> erhöhen. 20&ndash;40&nbsp;ms sind üblich.</p>
+    </section>
+
+    <section id="card">
+      <h2>Die Karte</h2>
+      <h3>&bdquo;Verbindung unterbrochen&ldquo;</h3>
+      <p>Die Karte ist weggefallen, etwa über ein lockeres USB-Kabel. qBlank verbindet sich von selbst neu, sobald sie wieder da ist.</p>
+      <h3>Die Karte hängt</h3>
+      <p>Manche Treiber hängen, wenn der Eingang oft kurz hintereinander gewechselt wird. Also in Ruhe umschalten. Hängt qBlank mit der Karte, beende es nicht im Task-Manager: Wird es beendet, während es die Karte hält, kann das den Treiber bis zum Neustart von Windows blockieren. Starte lieber den PC neu.</p>
+    </section>
+
+    <section id="record">
+      <h2>Aufnahme</h2>
+      <h3>Die Aufnahme startet nicht</h3>
+      <p>Zum Aufnehmen braucht qBlank ffmpeg: <strong>Encoder &rarr; ffmpeg herunterladen</strong>. Läuft der gewählte Encoder auf diesem PC nicht, geht qBlank zurück auf <em>Automatisch</em>. <em>Encoder testen</em> zeigt, welche laufen.</p>
+      <h3>&bdquo;Encoder kommt nicht hinterher&ldquo;</h3>
+      <p>Wähl eine schnellere <em>Voreinstellung</em> oder eine kleinere Auflösung oder Bildrate. Ein Hardware-Encoder (NVENC, Quick Sync, AMF) nimmt der CPU die Last ab.</p>
+      <h3>Die MP4 lässt sich nicht öffnen</h3>
+      <p>Eine MP4, die nicht sauber abgeschlossen wurde, etwa nach einem Absturz, lässt sich nicht öffnen. MKV übersteht das. Nimm als MKV auf und mach danach mit <strong>Aufnahme &rarr; Nach MP4 umpacken</strong> eine MP4 daraus: Sekunden, ohne Qualitätsverlust.</p>
+      <h3>Die Aufnahme hat von selbst aufgehört</h3>
+      <p>Der Speicherplatz war fast aufgebraucht. Der Reiter Aufnahme zeigt den freien Platz als Aufnahmezeit. Auf einem FAT32-Laufwerk <em>Bei Größe aufteilen</em> einschalten: Dort kann keine Datei größer als 4&nbsp;GB werden.</p>
+    </section>
+
+    <section id="camera">
+      <h2>Virtuelle Kamera</h2>
+      <h3>Sie zeigt einen Hinweis statt des Bildes</h3>
+      <p>qBlank läuft nicht, oder die Kamera ist unter <strong>Aufnahme &rarr; Virtuelle Kamera</strong> nicht eingeschaltet.</p>
+      <h3>Gestaucht oder abgeschnitten, nachdem die Quelle gewechselt hat</h3>
+      <p>Ein Programm wählt das Format, wenn es die Kamera öffnet, und behält es. Öffne die Kamera in dem Programm neu.</p>
+      <h3>&bdquo;Zeigt ins Leere&ldquo;</h3>
+      <p>qBlank wurde verschoben, nachdem die Kamera installiert war. Installiere sie einmal neu.</p>
+    </section>
+
+    <section id="lag">
+      <h2>Eingabeverzögerung</h2>
+      <h3>Wie komme ich auf die geringste Latenz?</h3>
+      <ul>
+        <li><em>VSync</em> aus unter <strong>Anzeige &rarr; Grafik</strong>. Das kann reißen.</li>
+        <li>Ein unkomprimiertes <em>Farbformat</em> unter <strong>Quelle</strong>. MJPG kostet Latenz.</li>
+        <li>Kein negativer <em>A/V-Versatz</em>: Der verzögert das Bild.</li>
+      </ul>
+      <p><kbd>F1</kbd> zeigt, wie lange ein Bild in qBlank verbringt.</p>
+    </section>
+
+    <section id="help">
+      <h2>Immer noch nicht?</h2>
+      <h3>Einen Fehler melden</h3>
+      <p>Schalte <em>Protokoll in qBlank.log schreiben</em> unter <strong>Allgemein &rarr; Sonstiges</strong> ein, lass das Problem auftreten und <a href="https://github.com/NuclearMeltdown/qBlank/issues">eröffne ein Issue</a> mit <code>qBlank.log</code> im Anhang. <strong>Über &rarr; Fehler melden</strong> führt auch dorthin.</p>
+      <h3>Mit Standardwerten neu anfangen</h3>
+      <p>qBlank schließen und <code>qBlank.json</code> neben dem Programm umbenennen oder löschen.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>Lizenz GPLv3 · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Startseite</a> · <a href="manual.html">Handbuch</a> · <a href="install.html">Download</a> · <a href="changelog.html">Änderungen</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> (englisch)</div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

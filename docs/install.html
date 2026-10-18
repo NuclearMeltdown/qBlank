@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank — Download and install</title>
+<meta name="description" content="Download qBlank, where to put it, getting past SmartScreen, first steps, updates, moving over from CapView and removing it again.">
+<link rel="icon" href="icon.png">
+<link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/install.html">
+<link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/install.html">
+<link rel="stylesheet" href="site.css">
+<script>
+// The same as on the front page: theme and language before anything is painted.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
+})();
+</script>
+</head>
+<body>
+
+<a class="lang" id="langSwitch" href="de/install.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+<button class="theme-toggle" id="themeToggle" type="button" hidden>
+  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+</button>
+
+<div class="page-head">
+  <div class="wrap">
+    <a href="./"><img class="logo" src="icon.png" alt="qBlank"></a>
+    <h1>Download and install</h1>
+    <p class="tag">One file, no installer. A minute from the download to the first picture.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <a class="home" href="./">&larr; Home</a>
+    <a class="pg" href="manual.html">Manual</a>
+    <a class="pg cur" href="install.html" aria-current="page">Download and install</a>
+    <div class="secs">
+      <a href="#download">Download</a>
+      <a href="#needs">What you need</a>
+      <a href="#folder">Where to put it</a>
+      <a href="#smartscreen">SmartScreen</a>
+      <a href="#setup">First steps</a>
+      <a href="#updates">Updates</a>
+      <a href="#capview">Coming from CapView</a>
+      <a href="#remove">Removing it</a>
+    </div>
+    <a class="pg" href="faq.html">Troubleshooting</a>
+    <a class="pg" href="changelog.html">Changelog</a>
+  </nav>
+
+  <main>
+    <section id="download">
+      <h2>Download</h2>
+      <p>qBlank is a single <code>qBlank.exe</code> of about 2.7&nbsp;MB.</p>
+      <div class="cta">
+        <a class="btn btn-main" id="dl" href="https://github.com/NuclearMeltdown/qBlank/releases/latest">Download the latest release</a>
+        <div class="cmd">
+          <code id="cmd">winget install qBlank</code>
+          <span class="soon">coming soon</span>
+          <button class="copy" id="copyCmd" type="button" aria-label="Copy the command" title="Copy the command" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+          </button>
+        </div>
+      </div>
+      <p>The release also carries <code>CapView.exe</code>. It is only for <a href="#capview">moving an old CapView over</a>; new users need just <code>qBlank.exe</code>.</p>
+    </section>
+
+    <section id="needs">
+      <h2>What you need</h2>
+      <ul>
+        <li>Windows 10 or 11, 64-bit.</li>
+        <li>A DirectShow capture device: almost any card, USB ones included.</li>
+        <li>For recording, ffmpeg. qBlank fetches it when you ask, see <a href="#setup">first steps</a>.</li>
+      </ul>
+    </section>
+
+    <section id="folder">
+      <h2>Where to put it</h2>
+      <p>In a folder of its own that you can write to, for example <code>C:\Games\qBlank</code>. Not under <code>Program Files</code>: qBlank keeps everything beside itself, and Windows does not let programs write there.</p>
+      <table>
+        <tr><th>Beside the program</th><th>What it is</th></tr>
+        <tr><td><code>qBlank.json</code></td><td>Settings and profiles</td></tr>
+        <tr><td><code>qBlank.log</code></td><td>The log, only if you turn it on</td></tr>
+        <tr><td><code>ffmpeg</code></td><td>ffmpeg, if qBlank downloaded it</td></tr>
+      </table>
+      <p>Nothing goes into the registry, except the virtual camera if you install it.</p>
+    </section>
+
+    <section id="smartscreen">
+      <h2>SmartScreen</h2>
+      <p>qBlank is not code-signed: a certificate costs money every year. So on the first start Windows may say <em>Windows protected your PC</em>. Click <em>More info</em>, then <em>Run anyway</em>.</p>
+      <p>The whole source is <a href="https://github.com/NuclearMeltdown/qBlank">on GitHub</a> for anyone to read.</p>
+    </section>
+
+    <section id="setup">
+      <h2>First steps</h2>
+      <ol>
+        <li>Start qBlank and press <kbd>F2</kbd>. Under <strong>Source &rarr; Video device</strong>, pick your card. The picture appears at once.</li>
+        <li>Shortcuts: <strong>General &rarr; Shortcuts</strong> adds them to the Start menu and the desktop.</li>
+        <li>To record: <strong>Encoder &rarr; Download ffmpeg</strong>, about 106&nbsp;MB from gyan.dev, checked against its SHA-256.</li>
+        <li>For OBS, Discord or the browser: <strong>Recording &rarr; Virtual camera &rarr; Install camera</strong>. It asks once for administrator rights.</li>
+      </ol>
+      <p>Everything else is in the <a href="manual.html">manual</a>.</p>
+    </section>
+
+    <section id="updates">
+      <h2>Updates</h2>
+      <p><strong>Settings &rarr; About</strong> checks for a new version at startup if you let it, or on <em>Check now</em>. <em>Download and install</em> replaces the program. The old one is moved aside and removed on the next start, so a failed update breaks nothing. Settings and profiles stay.</p>
+      <p>Installed through winget, <code>winget upgrade qBlank</code> works too.</p>
+    </section>
+
+    <section id="capview">
+      <h2>Coming from CapView</h2>
+      <p>Up to version 3.7, qBlank was called CapView. In CapView 3.7, <strong>Settings &rarr; Updates</strong> finds the new version by itself. The small <code>CapView.exe</code> in every release then does the move:</p>
+      <ul>
+        <li>it downloads qBlank,</li>
+        <li>unregisters a virtual camera registered from that folder,</li>
+        <li>points the desktop and Start menu shortcuts at qBlank,</li>
+        <li>and starts it.</li>
+      </ul>
+      <p>Settings and profiles come along: a <code>CapView.json</code> beside the program is taken over.</p>
+    </section>
+
+    <section id="remove">
+      <h2>Removing it</h2>
+      <ol>
+        <li>Installed the virtual camera? <strong>Recording &rarr; Virtual camera &rarr; Uninstall camera</strong> first.</li>
+        <li><strong>General &rarr; Shortcuts</strong> removes the shortcuts.</li>
+        <li>Close qBlank and delete its folder. Nothing else is left behind.</li>
+      </ol>
+      <p>Installed through winget, <code>winget uninstall qBlank</code> takes the place of the last step.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Home</a> · <a href="manual.html">Manual</a> · <a href="faq.html">Troubleshooting</a> · <a href="changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

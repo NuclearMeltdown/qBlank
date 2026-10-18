@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank — Änderungen</title>
+<meta name="description" content="Jede Version von qBlank, die neueste zuerst, mit ihren Release Notes.">
+<link rel="icon" href="../icon.png">
+<link rel="alternate" hreflang="en" href="https://nuclearmeltdown.github.io/qBlank/changelog.html">
+<link rel="alternate" hreflang="de" href="https://nuclearmeltdown.github.io/qBlank/de/changelog.html">
+<link rel="stylesheet" href="../site.css">
+<script>
+// Vor dem ersten Zeichnen, damit ein gemerktes Design nicht erst als Blitz des
+// anderen erscheint.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+
+<a class="lang" id="langSwitch" href="../changelog.html" hreflang="en" lang="en" title="English">EN</a>
+<button class="theme-toggle" id="themeToggle" type="button" hidden>
+  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+</button>
+
+<div class="page-head">
+  <div class="wrap">
+    <a href="./"><img class="logo" src="../icon.png" alt="qBlank"></a>
+    <h1>Änderungen</h1>
+    <p class="tag">Jede Version, die neueste zuerst.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <a class="home" href="./">&larr; Startseite</a>
+    <a class="pg" href="manual.html">Handbuch</a>
+    <a class="pg" href="install.html">Download und Installation</a>
+    <a class="pg" href="faq.html">Fehlersuche</a>
+    <a class="pg cur" href="changelog.html" aria-current="page">Änderungen</a>
+    <div class="secs"></div>
+  </nav>
+
+  <main>
+    <p id="relNote">Direkt aus den <a href="https://github.com/NuclearMeltdown/qBlank/releases">Releases auf GitHub</a>, deshalb auf Englisch.</p>
+    <div id="releases"></div>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>Lizenz GPLv3 · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Startseite</a> · <a href="manual.html">Handbuch</a> · <a href="install.html">Download</a> · <a href="faq.html">Fehlersuche</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> (englisch)</div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

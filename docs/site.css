@@ -237,6 +237,22 @@ footer .made{margin-top:18px}
 .toc a.on{color:var(--text);border-left-color:var(--accent)}
 .toc a.home{border-left-color:transparent;padding-left:0;margin-bottom:18px}
 .toc a.home:hover{color:var(--accent-soft)}
+/* The other pages stand plain, the sections of this one hang below its name. */
+.toc{max-height:calc(100vh - 48px);overflow-y:auto;scrollbar-width:thin}
+.toc a.pg{border-left-color:transparent;padding-left:0;margin-top:4px}
+.toc a.pg:hover{border-left-color:transparent;color:var(--accent-soft)}
+.toc a.pg.cur{color:var(--text);font-weight:600}
+.toc .secs{margin:4px 0 12px}
+.toc .secs a{font-size:.84rem}
+.doc .cta{justify-content:flex-start;margin-top:18px}
+#releases{margin-top:30px}
+.rel{margin-top:26px}
+.rel h3{margin-top:0}
+.rel h3 .when{color:var(--dim);font-weight:400;font-size:.85rem;margin-left:10px}
+.rel h4{font-size:.92rem;margin:16px 0 4px;color:var(--accent-soft)}
+.rel p{margin-top:10px}
+.rel table{display:block;overflow-x:auto}
+.kind{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin-right:7px}
 .doc section{padding:0 0 52px;scroll-margin-top:24px}
 .doc h2{font-size:clamp(1.4rem,3vw,1.75rem);margin-bottom:14px}
 .doc h3{font-size:1.02rem;font-weight:640;margin:26px 0 8px}
@@ -269,8 +285,14 @@ kbd{
     background:var(--bg);border-bottom:1px solid var(--line);
     box-shadow:104px -1px 0 var(--bg),104px 0 0 var(--line);
   }
+  .toc{max-height:none;overflow-y:hidden}
   .toc::-webkit-scrollbar{display:none}
   .toc b{display:none}
+  /* Only this page and its sections; the others are in the footer. */
+  .toc .pg:not(.cur){display:none}
+  .toc a.pg{margin:0;padding:8px 10px}
+  .toc .secs{display:contents}
+  .toc .secs a{font-size:inherit}
   .toc a,.toc a.home{flex:none;margin:0;padding:8px 10px;border-left:0;border-bottom:2px solid transparent}
   .toc a.on{border-bottom-color:var(--accent)}
   .doc section{scroll-margin-top:78px}
