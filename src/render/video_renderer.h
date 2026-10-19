@@ -199,62 +199,53 @@ class VideoRenderer {
   // sonst niemand alle drei beisammen hat.
   float scanlineRoom() const { return scanlineRoom_; }
 
-  // ---- readback for recording ----
+  // ---- readback for the recording and the virtual camera ----
   //
-  // Hands out the intermediate image -- cropped, deinterlaced, colour corrected,
-  // at source resolution, before any display scaling. That is exactly what the
-  // viewer shows and exactly what a recording should contain, and it does not
-  // depend on the window size.
+  // Hands out the delivered picture -- cropped, deinterlaced, colour corrected,
+  // square pixels, before any display scaling -- already in the YUV the encoder
+  // or the camera takes. That is exactly what the viewer shows and exactly what
+  // a recording should contain, and it does not depend on the window size.
   //
-  // The copy is queued on the GPU and read two frames later, so the display path
-  // never waits on it. The recording is therefore a frame or two behind the
-  // screen, which is the right trade: the screen is what you play on.
-  void SetReadbackEnabled(bool enabled);
-  bool readbackEnabled() const { return readbackEnabled_; }
+  // The conversion and the copy are queued on the GPU and read two frames
+  // later, so the display path never waits on them. The recording is therefore
+  // a frame or two behind the screen, which is the right trade: the screen is
+  // what you play on.
+  //
+  // Three streams with a ring each, because the recorder and the camera can
+  // want different pictures at the same moment.
+  enum class Yuv {
+    Record,  // NV12, BT.709: the recording
+    Camera,  // NV12, BT.601: what a consumer assumes of NV12 when not told
+    Wide,    // P010, BT.2020 PQ: the recording and the camera that keep the range
+  };
+  // Which of them this frame wants. One that is not wanted lets go of its ring.
+  // Wide is only drawn while the source is HDR; there is nothing to keep
+  // otherwise.
+  void SetReadbackWanted(bool record, bool camera, bool wide);
+  bool sourceHdr() const { return hdrTransfer_ != Transfer::Sdr; }
 
-  // Byte order the readback delivers, written the way ffmpeg names it. The
-  // bytes run R, G, B, A -- that is ffmpeg's "rgba", not "bgra". Whoever
-  // changes the target the backend copies from changes this line in the same
-  // edit. Getting it wrong is not a crash: red and blue simply trade places,
-  // and orange comes back blue.
-  static constexpr const char* kReadbackPixelFormat = "rgba";
-
-  // The same picture for a recording that keeps the range: ten bits per
-  // component, PQ encoded, BT.2020, packed with red in the low bits. That is
-  // what ffmpeg calls x2bgr10le -- the name looks wrong until you remember it
-  // describes the bytes, not the order they are written in.
-  static constexpr const char* kHdrReadbackPixelFormat = "x2bgr10le";
-
+  // The formats as ffmpeg names them. One plane each: the luma rows, then half
+  // as many rows of Cb and Cr in pairs.
+  static constexpr const char* kYuvPixelFormat = "nv12";
+  static constexpr const char* kWidePixelFormat = "p010le";
 
   struct ReadbackFrame {
-    const uint8_t* data = nullptr;  // kReadbackPixelFormat, valid until ReleaseReadback
+    const uint8_t* data = nullptr;  // valid until ReleaseReadback
     size_t size = 0;
-    int width = 0;
-    int height = 0;
+    int width = 0;   // even
+    int height = 0;  // even, the luma rows; the data holds half as many again
     int stride = 0;
     bool valid() const { return data != nullptr; }
   };
 
   // Returns true when a frame was mapped; call ReleaseReadback when done with it.
-  bool FetchReadback(ReadbackFrame* out);
-  void ReleaseReadback();
-  // Ask for the wide path. Two askers -- the recorder and the virtual camera --
-  // and one ring between them, because they want the same bytes. Ignored unless
-  // the source is actually HDR; there is nothing to keep otherwise.
-  void SetHdrWideWanted(bool recorder, bool camera) {
-    hdrRecordWanted_ = recorder;
-    hdrCameraWanted_ = camera;
-  }
-  bool hdrWideActive() const {
-    return (hdrRecordWanted_ || hdrCameraWanted_) && hdrTransfer_ != Transfer::Sdr;
-  }
-  bool FetchHdrReadback(ReadbackFrame* out);
+  bool FetchReadback(Yuv stream, ReadbackFrame* out);
+  void ReleaseReadback(Yuv stream);
 
   // The picture as linear light, four half floats per pixel, 1.0 being diffuse
   // white, for a screenshot that keeps the range. Queued, not waited for: see
   // still_copy.h. Must be called on the render thread.
   std::unique_ptr<StillCopy> CopyStillHalf();
-  void ReleaseHdrReadback();
 
   // ---- automatic level detection ----
   //
@@ -465,9 +456,8 @@ class VideoRenderer {
 
  private:
   void QueueReadback();
-  void QueueHdrReadback();
-  bool EnsureHdrRecord(int width, int height);
-  void ReleaseReadbackResources();
+  void QueueYuv(Yuv stream, PassImage from);
+  void ReleaseYuv(Yuv stream);
 
  public:
 
@@ -590,21 +580,19 @@ class VideoRenderer {
   double carrierSamples_ = 3.0449;  // PAL, the common case here
 
   static const int kReadbackSlots = RenderPasses::kReadbackSlots;
+  static const int kYuvStreams = RenderPasses::kYuvStreams;
 
-  // The recording path when the range is being kept. A ring of its own rather
-  // than a mode on the one above: the camera and the screenshots still want an
-  // ordinary eight bit picture at the same moment.
-  bool hdrRecordWanted_ = false;
-  bool hdrCameraWanted_ = false;
-  int hdrReadWrite_ = 0;
-  int hdrReadQueued_ = 0;
-  int hdrReadMapped_ = -1;
-  int readbackWidth_ = 0;
-  int readbackHeight_ = 0;
-  int readbackWrite_ = 0;
-  int readbackQueued_ = 0;
-  int readbackMapped_ = -1;  // slot currently mapped, -1 when none
-  bool readbackEnabled_ = false;
+  // One per Yuv stream.
+  struct YuvRing {
+    bool wanted = false;
+    bool failed = false;  // could not be made at this size; tried again at the next
+    int width = 0;
+    int height = 0;
+    int write = 0;
+    int queued = 0;
+    int mapped = -1;  // slot currently mapped, -1 when none
+  };
+  YuvRing yuv_[kYuvStreams];
 
   // Level detection state, reset whenever the source format changes.
   void AnalyzeLevels(const FrameView& frame);

@@ -2105,36 +2105,35 @@ R"HLSL(        // gradient. Vertical detail that is genuinely in the picture rai
 }
 )HLSL";
 
-// Pass four, and only when the swapchain is scRGB: the interface, brought into
-// linear light.
+// The picture as the encoder and the virtual camera take it: Y'CbCr 4:2:0 with
+// both planes in one image, the luma rows and then the chroma rows, Cb and Cr
+// side by side. That is NV12 byte for byte in eight bits, and P010 in sixteen
+// with the ten bits at the top. Limited range either way.
 //
-// ImGui writes ordinary sRGB bytes. Handing those to a linear target shows them
-// far too bright -- sRGB 0.5 is linear 0.21, and every grey in the interface
-// would be wrong by that much. So it draws into a buffer of its own and lands
-// here, where it is converted once and scaled to whatever diffuse white is.
+// Done here rather than by ffmpeg, so the arithmetic stays float to the last
+// rounding and the readback carries a byte and a half a pixel instead of four.
 //
-// What arrives is premultiplied: ImGui blends over a transparent buffer, which
-// leaves colour already multiplied by coverage. It has to be undone before the
-// curve and redone after, because a curve applied to a premultiplied colour is
-// not the same thing at all -- half covered black text would come out grey.
-// The picture as a file should keep it: PQ encoded, BT.2020, ten bits.
+// The chroma sits where MPEG puts it, "left": on the even luma column, halfway
+// between the two rows. So a pair is filtered 1 2 1 across and averaged down.
+// Averaging R'G'B' first is the same as averaging Cb and Cr, both being linear
+// in it.
 //
-// Everything else that leaves this program is eight bit and tone mapped, which
-// is right for a webcam and for a screenshot somebody will paste somewhere. A
-// recording is the one place where throwing the range away is a decision rather
-// than a convenience, so this path does not: it puts the linear light back on
-// the PQ curve and hands it over whole.
-//
-// BT.709 goes back to BT.2020 first. The pipeline works in BT.709 because that
-// is what a screen wants; a PQ file is expected to be BT.2020 and a player will
-// assume so whatever the file says.
-inline const char* kHdrRecordPS = R"HLSL(
+// With gPq the source is linear light and the file keeps it: back to BT.2020
+// and onto the PQ curve, pixel by pixel, before any of that. The pipeline
+// works in BT.709 because that is what a screen wants; a PQ file is expected
+// to be BT.2020, and a player will assume so whatever the file says.
+inline const char* kYuvPS = R"HLSL(
 Texture2D<float4> texSrc : register(t0);
-SamplerState sampPoint : register(s0);
 
-cbuffer RecordCB : register(b0) {
-  float gPaperWhite;
-  float3 gRecordPad;
+cbuffer YuvCB : register(b0) {
+  float gKr;
+  float gKb;
+  float gPaperWhite;  // the nits of 1.0, for gPq
+  uint gPq;
+  uint gTenBit;
+  int gWidth;         // of the luma, even
+  int gHeight;
+  uint gYuvPad;
 };
 
 struct VSOut {
@@ -2163,13 +2162,56 @@ float3 Bt709ToBt2020(float3 c) {
       dot(c, float3(0.016391, 0.088013, 0.895595)));
 }
 
-float4 main(VSOut i) : SV_Target {
-  float3 lin = texSrc.SampleLevel(sampPoint, i.uv, 0).rgb;
-  lin = Bt709ToBt2020(max(lin, 0.0)) * gPaperWhite;   // now in nits
-  return float4(NitsToPq(lin.r), NitsToPq(lin.g), NitsToPq(lin.b), 1.0);
+float3 Fetch(int x, int y) {
+  float3 c = texSrc.Load(int3(x, y, 0)).rgb;
+  if (gPq != 0) {
+    c = Bt709ToBt2020(max(c, 0.0)) * gPaperWhite;  // now in nits
+    c = float3(NitsToPq(c.r), NitsToPq(c.g), NitsToPq(c.b));
+  }
+  return saturate(c);
+}
+
+// 16 + 219 Y and 128 + 224 C in eight bits, four times that in ten.
+uint Code(float base, float span, float v) {
+  const float scale = gTenBit != 0 ? 4.0 : 1.0;
+  const uint code = (uint)(scale * (base + span * v) + 0.5);
+  return gTenBit != 0 ? code << 6 : code;
+}
+
+uint main(VSOut i) : SV_Target {
+  const int x = (int)i.pos.x;
+  const int y = (int)i.pos.y;
+  const float3 weights = float3(gKr, 1.0 - gKr - gKb, gKb);
+  if (y < gHeight) return Code(16.0, 219.0, dot(Fetch(x, y), weights));
+
+  const int cx = x & ~1;
+  const int left = max(cx - 1, 0);
+  const int right = min(cx + 1, gWidth - 1);
+  const int top = (y - gHeight) * 2;
+  float3 sum = 0.0;
+  [unroll] for (int r = 0; r < 2; ++r) {
+    sum += Fetch(left, top + r) + 2.0 * Fetch(cx, top + r) + Fetch(right, top + r);
+  }
+  const float3 c = sum * 0.125;
+  const float luma = dot(c, weights);
+  const float chroma = (x & 1) == 0 ? (c.b - luma) / (2.0 - 2.0 * gKb)
+                                    : (c.r - luma) / (2.0 - 2.0 * gKr);
+  return Code(128.0, 224.0, chroma);
 }
 )HLSL";
 
+// Pass four, and only when the swapchain is scRGB: the interface, brought into
+// linear light.
+//
+// ImGui writes ordinary sRGB bytes. Handing those to a linear target shows them
+// far too bright -- sRGB 0.5 is linear 0.21, and every grey in the interface
+// would be wrong by that much. So it draws into a buffer of its own and lands
+// here, where it is converted once and scaled to whatever diffuse white is.
+//
+// What arrives is premultiplied: ImGui blends over a transparent buffer, which
+// leaves colour already multiplied by coverage. It has to be undone before the
+// curve and redone after, because a curve applied to a premultiplied colour is
+// not the same thing at all -- half covered black text would come out grey.
 inline const char* kUiCompositePS = R"HLSL(
 Texture2D<float4> texUi : register(t0);
 SamplerState sampPoint : register(s0);

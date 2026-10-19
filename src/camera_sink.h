@@ -106,16 +106,11 @@ class CameraSink {
   // frames costs nothing, so callers need not check first.
   bool consumed() const;
 
-  // Hands over one displayed frame, RGBA8, top row first, at whatever size
-  // qBlank is showing. Returns immediately: the copy is cheap and anything
-  // further happens on a thread of its own.
-  void PushFrame(const uint8_t* rgba, int stride, int width, int height);
-
-  // The ten bit path. `packed` is one 32 bit word per pixel, ten bits red in
-  // the low bits, then green, then blue, two bits of alpha at the top --
-  // already PQ encoded and already BT.2020, because the shader that produced it
-  // for the recorder had to do that anyway.
-  void PushFrameWide(const uint8_t* packed, int stride, int width, int height);
+  // Hands over one displayed frame at whatever size qBlank is showing, already
+  // in what the camera publishes: NV12 in BT.601, or with `wide` P010 in
+  // BT.2020 PQ (VideoRenderer::Yuv). Returns immediately: the copy is cheap
+  // and anything further happens on a thread of its own.
+  void PushFrame(const uint8_t* yuv, int stride, int width, int height, bool wide);
 
   // Who is reading, and in what. Empty when nobody is.
   void consumers(std::vector<Consumer>* out) const;

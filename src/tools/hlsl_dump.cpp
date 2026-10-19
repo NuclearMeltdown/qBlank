@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
   ok = WriteShader(dir, "clean_ps", cap::kCleanPS) && ok;
   ok = WriteShader(dir, "convert_ps", cap::kConvertPS) && ok;
   ok = WriteShader(dir, "scale_ps", cap::kScalePS) && ok;
-  ok = WriteShader(dir, "hdr_record_ps", cap::kHdrRecordPS) && ok;
+  ok = WriteShader(dir, "yuv_ps", cap::kYuvPS) && ok;
   ok = WriteShader(dir, "ui_composite_ps", cap::kUiCompositePS) && ok;
   ok = WriteShader(dir, "rem_dec_ps", cap::kRemDecPS) && ok;
   ok = WriteShader(dir, "rem_res_ps", cap::kRemResPS) && ok;

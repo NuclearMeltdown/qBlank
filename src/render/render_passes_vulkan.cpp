@@ -22,8 +22,8 @@
 //     driver's compiler.
 //
 // Nothing here waits for the GPU on the way through a frame. The only waits
-// are the ones render_passes.h allows: the stills, the ten bit recording's map
-// and a second plane upload before anything was submitted.
+// are the ones render_passes.h allows: the stills and a second plane upload
+// before anything was submitted.
 
 #include "render/render_passes.h"
 
@@ -53,8 +53,7 @@ struct ScaleCB {
 };
 static_assert(sizeof(ScaleCB) % 16 == 0, "constant buffer must be 16 byte aligned");
 
-// The recording and interface shaders are told one value: the nits diffuse
-// white comes out at.
+// The interface shader is told one value: the nits diffuse white comes out at.
 struct NitsCB {
   float nits;
   float pad[3];
@@ -77,9 +76,11 @@ VkFormat PlaneVkFormat(PlaneFormat format) {
 int TexelBytes(VkFormat format) {
   switch (format) {
     case VK_FORMAT_R16G16B16A16_SFLOAT: return 8;
-    case VK_FORMAT_R8_UNORM: return 1;
+    case VK_FORMAT_R8_UNORM:
+    case VK_FORMAT_R8_UINT: return 1;
     case VK_FORMAT_R8G8_UNORM:
-    case VK_FORMAT_R16_UNORM: return 2;
+    case VK_FORMAT_R16_UNORM:
+    case VK_FORMAT_R16_UINT: return 2;
     default: return 4;
   }
 }
@@ -137,20 +138,12 @@ class VulkanPasses : public RenderPasses {
   bool BeginUiLayer(int width, int height) override;
   void CompositeUiLayer(float paperWhiteNits) override;
 
-  bool CreateReadbackSlots(int width, int height) override;
-  void ReleaseReadbackSlots() override;
-  void CopyToReadback(int slot, PassImage from) override;
-  bool MapReadback(int slot, MappedImage* mapped) override;
+  bool CreateYuvStream(int stream, int width, int height, bool tenBit) override;
+  void ReleaseYuvStream(int stream) override;
+  void ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) override;
+  bool MapYuv(int stream, int slot, MappedImage* mapped) override;
   // The buffers stay mapped for their life.
-  void UnmapReadback(int slot) override {}
-
-  bool hasHdrRecord() const override { return (bool)hdrRec_; }
-  int hdrRecordWidth() const override { return hdrRec_.width; }
-  int hdrRecordHeight() const override { return hdrRec_.height; }
-  bool CreateHdrRecord(int width, int height) override;
-  void RecordHdr(PassImage from, float paperWhiteNits, int slot) override;
-  bool MapHdrReadback(int slot, MappedImage* mapped) override;
-  void UnmapHdrReadback(int slot) override {}
+  void UnmapYuv(int stream, int slot) override {}
 
   std::unique_ptr<StillCopy> CopyStill(PassImage from, int width, int height) override {
     return vk_ ? vk_->CopyStill(Image(from), width, height) : nullptr;
@@ -195,6 +188,7 @@ class VulkanPasses : public RenderPasses {
     uint64_t serial = 0;
     int width = 0;
     int height = 0;
+    int texelBytes = 0;
   };
 
   // `words` is only room to unpack into, handed around so the six share it.
@@ -216,7 +210,7 @@ class VulkanPasses : public RenderPasses {
   // Zero, through a transfer. For the images that are never drawn into.
   void ClearImage(VkCommandBuffer cmd, VulkanImage* image);
   void CopyImage(VkCommandBuffer cmd, VulkanImage* from, VulkanImage* to);
-  bool CreateReadback(int width, int height, Readback* out);
+  bool CreateReadback(int width, int height, int texelBytes, Readback* out);
   // Copies as much of `from` as fits into `to` and makes it readable by the
   // CPU once this recording has finished.
   bool CopyOut(VkCommandBuffer cmd, VulkanImage* from, Readback* to);
@@ -230,11 +224,8 @@ class VulkanPasses : public RenderPasses {
       default: return &intermediate_;
     }
   }
-  // Only the two the passes ever read from, as in Direct3D 11: the eight bit
-  // delivery target is copied out rather than sampled.
-  VulkanImage* Sampled(PassImage image) {
-    return image == PassImage::Delivery ? nullptr : Image(image);
-  }
+  // All three, since the yuv pass reads the eight bit delivery target too.
+  VulkanImage* Sampled(PassImage image) { return Image(image); }
 
   bool EnsureDelivery(int width, int height, bool half);
   bool EnsureUiLayer(int width, int height);
@@ -243,7 +234,6 @@ class VulkanPasses : public RenderPasses {
   void ReleaseIntermediate();
   void ReleaseDelivery(bool half);
   void ReleaseUiLayer();
-  void ReleaseHdrRecord();
   // Drops every handle without destroying it, for when the device went first.
   void Forget();
 
@@ -256,7 +246,7 @@ class VulkanPasses : public RenderPasses {
   VkShaderModule fsClean_ = VK_NULL_HANDLE;
   VkShaderModule fsConvert_ = VK_NULL_HANDLE;
   VkShaderModule fsScale_ = VK_NULL_HANDLE;
-  VkShaderModule fsRecord_ = VK_NULL_HANDLE;
+  VkShaderModule fsYuv_ = VK_NULL_HANDLE;
   VkShaderModule fsUi_ = VK_NULL_HANDLE;
   VkSampler samplerPoint_ = VK_NULL_HANDLE;
   VkSampler samplerLinear_ = VK_NULL_HANDLE;
@@ -277,9 +267,12 @@ class VulkanPasses : public RenderPasses {
   VulkanImage deliveryHalf_;
   VulkanImage uiLayer_;
 
-  Readback readback_[kReadbackSlots];
-  VulkanImage hdrRec_;
-  Readback hdrReadback_[kReadbackSlots];
+  // The yuv pass, as in Direct3D 11: one picture per stream and its readbacks.
+  struct YuvStream {
+    VulkanImage image;
+    Readback readback[kReadbackSlots];
+  };
+  YuvStream yuv_[kYuvStreams];
 
   // The crawl remover, as in Direct3D 11. The ring of decoded
   // frames, the eight residual targets, and a ring of its pictures that stands
@@ -355,7 +348,7 @@ bool VulkanPasses::Initialize(Display* display, std::string* error) {
        "The conversion shader could not be created"},
       {kSpirvScale, &fsScale_, "Skalierungs-Shader konnte nicht erstellt werden",
        "The scaling shader could not be created"},
-      {kSpirvHdrRecord, &fsRecord_, "Aufnahme-Shader konnte nicht erstellt werden",
+      {kSpirvYuv, &fsYuv_, "Aufnahme-Shader konnte nicht erstellt werden",
        "The recording shader could not be created"},
       {kSpirvUiComposite, &fsUi_, "Oberflächen-Shader konnte nicht erstellt werden",
        "The interface shader could not be created"},
@@ -454,7 +447,8 @@ bool VulkanPasses::Initialize(Display* display, std::string* error) {
       {fsScale_, vk->uiFormat(), false},
       {fsScale_, VK_FORMAT_R16G16B16A16_SFLOAT, false},
       {fsScale_, VK_FORMAT_R8G8B8A8_UNORM, false},
-      {fsRecord_, VK_FORMAT_A2B10G10R10_UNORM_PACK32, false},
+      {fsYuv_, VK_FORMAT_R8_UINT, false},
+      {fsYuv_, VK_FORMAT_R16_UINT, false},
       {fsUi_, VK_FORMAT_R16G16B16A16_SFLOAT, true},
   };
   for (const Wanted& want : wanted) {
@@ -497,8 +491,7 @@ void VulkanPasses::Shutdown() {
     ReleaseDelivery(false);
     ReleaseDelivery(true);
     ReleaseUiLayer();
-    ReleaseReadbackSlots();
-    ReleaseHdrRecord();
+    for (int s = 0; s < kYuvStreams; ++s) ReleaseYuvStream(s);
     ReleaseRemover();
     for (VulkanImage& image : grid_) vk_->DestroyImage(&image);
     vk_->DestroyImage(&dummy_);
@@ -512,7 +505,7 @@ void VulkanPasses::Shutdown() {
     for (const Arena& arena : arenas_) {
       if (arena.pool) pools.push_back(arena.pool);
     }
-    const VkShaderModule modules[] = {vs_,       fsClean_,  fsConvert_, fsScale_,  fsRecord_,
+    const VkShaderModule modules[] = {vs_,       fsClean_,  fsConvert_, fsScale_,  fsYuv_,
                                       fsUi_,     fsRemDec_, fsRemRes_,  fsRemComb_, fsGrid_};
     std::vector<VkShaderModule> moduleList(std::begin(modules), std::end(modules));
     const VkPipelineLayout pipelineLayout = pipelineLayout_;
@@ -539,7 +532,7 @@ void VulkanPasses::Forget() {
   display_ = nullptr;
   vk_ = nullptr;
   device_ = VK_NULL_HANDLE;
-  vs_ = fsClean_ = fsConvert_ = fsScale_ = fsRecord_ = fsUi_ = VK_NULL_HANDLE;
+  vs_ = fsClean_ = fsConvert_ = fsScale_ = fsYuv_ = fsUi_ = VK_NULL_HANDLE;
   fsRemDec_ = fsRemRes_ = fsRemComb_ = fsGrid_ = VK_NULL_HANDLE;
   grid_[0] = grid_[1] = VulkanImage();
   gridOk_ = gridValid_ = false;
@@ -556,9 +549,7 @@ void VulkanPasses::Forget() {
   for (Plane& plane : planes_) plane = Plane();
   clean_ = cleanPrev_ = intermediate_ = VulkanImage();
   delivery_ = deliveryHalf_ = uiLayer_ = VulkanImage();
-  for (Readback& readback : readback_) readback = Readback();
-  hdrRec_ = VulkanImage();
-  for (Readback& readback : hdrReadback_) readback = Readback();
+  for (YuvStream& stream : yuv_) stream = YuvStream();
 }
 
 // ------------------------------------------------------------------ machinery
@@ -698,7 +689,8 @@ VulkanPasses::Arena* VulkanPasses::ArenaFor(VkDeviceSize need) {
     CAP_ERR("Vulkan: descriptor pool failed");
     return nullptr;
   }
-  const VkDeviceSize largest = std::max({sizeof(ConvertCB), sizeof(ScaleCB), sizeof(NitsCB)});
+  const VkDeviceSize largest =
+      std::max({sizeof(ConvertCB), sizeof(ScaleCB), sizeof(NitsCB), sizeof(YuvParams)});
   const VkDeviceSize size = std::max(need, AlignUp(largest, uniformAlign_)) * kSetsPerArena;
   if (!vk_->CreateBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VulkanMemory::Upload,
                          &arena.uniforms)) {
@@ -909,24 +901,25 @@ void VulkanPasses::CopyImage(VkCommandBuffer cmd, VulkanImage* from, VulkanImage
                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 }
 
-bool VulkanPasses::CreateReadback(int width, int height, Readback* out) {
+bool VulkanPasses::CreateReadback(int width, int height, int texelBytes, Readback* out) {
   width = std::max(1, width);
   height = std::max(1, height);
   *out = Readback();
-  if (!vk_->CreateBuffer((VkDeviceSize)width * (VkDeviceSize)height * 4,
+  if (!vk_->CreateBuffer((VkDeviceSize)width * (VkDeviceSize)height * (VkDeviceSize)texelBytes,
                          VK_BUFFER_USAGE_TRANSFER_DST_BIT, VulkanMemory::Readback,
                          &out->buffer)) {
     return false;
   }
   out->width = width;
   out->height = height;
+  out->texelBytes = texelBytes;
   return true;
 }
 
 bool VulkanPasses::CopyOut(VkCommandBuffer cmd, VulkanImage* from, Readback* to) {
   if (!cmd || !from || !*from || !to->buffer) return false;
-  // Four bytes a pixel, which is what the buffers hold.
-  if (TexelBytes(from->format) != 4) return false;
+  // As many bytes a pixel as the buffer was made for.
+  if (TexelBytes(from->format) != to->texelBytes) return false;
   vk_->Transition(cmd, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   VkBufferImageCopy region = {};
   region.bufferRowLength = (uint32_t)to->width;
@@ -1151,10 +1144,9 @@ bool VulkanPasses::EnsureDelivery(int width, int height, bool half) {
   if (image && image.width == width && image.height == height) return true;
 
   ReleaseDelivery(half);
-  // The half float one is read again, by the shader that lays the PQ curve
-  // over it. The eight bit one is only ever copied out.
-  VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-  if (half) usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+  // Both are read again afterwards, by the yuv pass.
+  const VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                  VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
   const VkFormat format = half ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
   if (!vk_->CreateImage(width, height, format, usage, &image)) {
     ReleaseDelivery(half);
@@ -1348,84 +1340,54 @@ void VulkanPasses::CompositeUiLayer(float paperWhiteNits) {
   Draw(fsUi_, target, 0, 0, target->width, target->height, source, 1, &cb, sizeof(cb), true);
 }
 
-// -------------------------------------------------------------------- readback
+// ------------------------------------------------------------------------- yuv
 
-bool VulkanPasses::CreateReadbackSlots(int width, int height) {
+void VulkanPasses::ReleaseYuvStream(int stream) {
+  YuvStream& s = yuv_[stream];
+  if (vk_) vk_->DestroyImage(&s.image);
+  for (Readback& readback : s.readback) ReleaseReadback(&readback);
+}
+
+bool VulkanPasses::CreateYuvStream(int stream, int width, int height, bool tenBit) {
   if (!vk_) return false;
-  ReleaseReadbackSlots();
-  for (Readback& readback : readback_) {
-    if (!CreateReadback(width, height, &readback)) {
-      ReleaseReadbackSlots();
+  ReleaseYuvStream(stream);
+  if (width < 2 || height < 2) return false;
+  YuvStream& s = yuv_[stream];
+  const int rows = height + height / 2;
+  const VkFormat format = tenBit ? VK_FORMAT_R16_UINT : VK_FORMAT_R8_UINT;
+  if (!vk_->CreateImage(width, rows, format,
+                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                        &s.image)) {
+    ReleaseYuvStream(stream);
+    return false;
+  }
+  for (Readback& readback : s.readback) {
+    if (!CreateReadback(width, rows, TexelBytes(format), &readback)) {
+      ReleaseYuvStream(stream);
       return false;
     }
   }
   return true;
 }
 
-void VulkanPasses::ReleaseReadbackSlots() {
-  for (Readback& readback : readback_) ReleaseReadback(&readback);
-}
-
-void VulkanPasses::CopyToReadback(int slot, PassImage from) {
+void VulkanPasses::ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) {
   if (!vk_ || slot < 0 || slot >= kReadbackSlots) return;
-  CopyOut(vk_->Commands(), Image(from), &readback_[slot]);
+  YuvStream& s = yuv_[stream];
+  if (!s.image) return;
+  VulkanImage* source[1] = {Sampled(from)};
+  Draw(fsYuv_, &s.image, 0, 0, s.image.width, s.image.height, source, 1, &params,
+       sizeof(params));
+  CopyOut(vk_->Commands(), &s.image, &s.readback[slot]);
 }
 
-bool VulkanPasses::MapReadback(int slot, MappedImage* mapped) {
+bool VulkanPasses::MapYuv(int stream, int slot, MappedImage* mapped) {
   if (!vk_ || slot < 0 || slot >= kReadbackSlots) return false;
-  Readback& readback = readback_[slot];
+  Readback& readback = yuv_[stream].readback[slot];
   // Never waits: the slot asked for was queued two frames ago.
   if (!readback.buffer || !vk_->Completed(readback.serial)) return false;
   vk_->Invalidate(readback.buffer);
   mapped->data = readback.buffer.mapped;
-  mapped->rowPitch = (size_t)readback.width * 4;
-  return true;
-}
-
-void VulkanPasses::ReleaseHdrRecord() {
-  if (vk_) vk_->DestroyImage(&hdrRec_);
-  for (Readback& readback : hdrReadback_) ReleaseReadback(&readback);
-}
-
-bool VulkanPasses::CreateHdrRecord(int width, int height) {
-  if (!vk_) return false;
-  width = std::max(1, width);
-  height = std::max(1, height);
-  ReleaseHdrRecord();
-
-  // Ten bits a channel and two of alpha, R in the lowest bits: the byte order
-  // of DXGI's R10G10B10A2_UNORM, which Vulkan spells from the other end.
-  if (!vk_->CreateImage(width, height, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                        &hdrRec_)) {
-    ReleaseHdrRecord();
-    return false;
-  }
-  for (Readback& readback : hdrReadback_) {
-    if (!CreateReadback(width, height, &readback)) {
-      ReleaseHdrRecord();
-      return false;
-    }
-  }
-  return true;
-}
-
-void VulkanPasses::RecordHdr(PassImage from, float paperWhiteNits, int slot) {
-  if (!vk_ || !hdrRec_ || slot < 0 || slot >= kReadbackSlots) return;
-  NitsCB cb = {};
-  cb.nits = paperWhiteNits;
-  VulkanImage* source[1] = {Sampled(from)};
-  Draw(fsRecord_, &hdrRec_, 0, 0, hdrRec_.width, hdrRec_.height, source, 1, &cb, sizeof(cb));
-  CopyOut(vk_->Commands(), &hdrRec_, &hdrReadback_[slot]);
-}
-
-bool VulkanPasses::MapHdrReadback(int slot, MappedImage* mapped) {
-  if (!vk_ || slot < 0 || slot >= kReadbackSlots) return false;
-  Readback& readback = hdrReadback_[slot];
-  if (!readback.buffer || !vk_->Completed(readback.serial)) return false;
-  vk_->Invalidate(readback.buffer);
-  mapped->data = readback.buffer.mapped;
-  mapped->rowPitch = (size_t)readback.width * 4;
+  mapped->rowPitch = (size_t)readback.width * (size_t)readback.texelBytes;
   return true;
 }
 

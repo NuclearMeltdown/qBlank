@@ -88,6 +88,7 @@ class Recorder {
     pixelFormat_ = ffmpegName;
     hdr_ = hdr;
   }
+  bool hdr() const { return hdr_; }
 
   // Which family an encoder belongs to. The settings are one set of names; what
   // each vendor actually calls them is another, and this is the seam.
@@ -174,7 +175,7 @@ class Recorder {
 
   // Overwritten by SetPixelFormat before every start; the literal is only what
   // an unconfigured recorder would fall back to.
-  std::string pixelFormat_ = "rgba";
+  std::string pixelFormat_ = "nv12";
   bool hdr_ = false;
   std::atomic<bool> running_{false};
   std::atomic<bool> failed_{false};

@@ -197,11 +197,9 @@ void RecordingControl::StartRecording() {
     return;
   }
 
-  // The tap has to exist before the recorder pulls from it, and the readback
-  // before the first frame is fetched.
+  // The tap has to exist before the recorder pulls from it.
   const bool wantAudio = audio_.running() && audio_.tapSampleRate() > 0;
   if (wantAudio) audio_.SetTapEnabled(true);
-  renderer_.SetReadbackEnabled(true);
 
   // The microphone decides its own rate, and ffmpeg has to be told it on the
   // command line. Opening one takes from a few milliseconds to, for a device
@@ -281,7 +279,6 @@ void RecordingControl::StartChecked(uint32_t serial, const std::string& askedFol
 
 void RecordingControl::CancelStart() {
   startPending_ = false;
-  renderer_.SetReadbackEnabled(false);
   audio_.SetTapEnabled(false);
 }
 
@@ -312,10 +309,9 @@ void RecordingControl::LaunchRecording() {
 
   // Which picture the writer will be fed, decided before it starts: the wide
   // path only exists while the source is HDR and the setting asks for it.
-  renderer_.SetHdrWideWanted(config_.app.recordHdr, virtualCamera_.wantsWide());
-  const bool wideRecording = config_.app.recordHdr && renderer_.hdrWideActive();
-  recorder_.SetPixelFormat(wideRecording ? VideoRenderer::kHdrReadbackPixelFormat
-                                         : VideoRenderer::kReadbackPixelFormat,
+  const bool wideRecording = config_.app.recordHdr && renderer_.sourceHdr();
+  recorder_.SetPixelFormat(wideRecording ? VideoRenderer::kWidePixelFormat
+                                         : VideoRenderer::kYuvPixelFormat,
                            wideRecording);
 
   // Mit welcher Bildrate aufgenommen wird -- und die gemeldete ist es nicht.
@@ -389,7 +385,6 @@ void RecordingControl::LaunchRecording() {
                                   &error);
 
   if (!ok) {
-    renderer_.SetReadbackEnabled(false);
     audio_.SetTapEnabled(false);
     host_.Toast(error);
     return;
@@ -406,7 +401,6 @@ void RecordingControl::StopRecording(bool announce) {
   if (!recorder_.recording()) return;
   if (announce) announceFile_ = recorder_.stats().file;
   recorder_.Stop();
-  renderer_.SetReadbackEnabled(false);
   audio_.SetTapEnabled(false);
 }
 
@@ -589,8 +583,13 @@ void RecordingControl::FeedRecorder() {
                                (liveHeight & ~1) != recorder_.frameHeight());
     const bool rateDiffers = recordSourceFps_ > 1.0 && liveFps > 1.0 &&
                              std::fabs(liveFps - recordSourceFps_) > recordSourceFps_ * 0.08;
+    // Ebenso, wenn die Quelle HDR wird oder es nicht mehr ist: das Pixelformat
+    // steht genauso in der ffmpeg-Zeile, und der breite Pfad liefert ohne HDR
+    // gar kein Bild.
+    const bool liveWide = config_.app.recordHdr && renderer_.sourceHdr();
+    const bool formatDiffers = liveWide != recorder_.hdr();
 
-    if (!shapeDiffers && !rateDiffers) {
+    if (!shapeDiffers && !rateDiffers && !formatDiffers) {
       pendingSince_ = -1.0;
     } else if (liveWidth != pendingWidth_ || liveHeight != pendingHeight_ ||
                std::fabs(liveFps - pendingFps_) > 0.5 || pendingSince_ < 0.0) {
@@ -603,9 +602,10 @@ void RecordingControl::FeedRecorder() {
       // Der Neustart braucht ein Bild, sonst bricht `StartRecording` ab und die
       // Aufnahme waere nach dem Stop zu Ende statt geteilt. Waehrend ein Graph
       // neu gebaut wird, gibt es keins -- dann wird eben weiter gewartet.
-      CAP_LOG("Recording: source now %dx%d @ %.2f fps instead of %dx%d @ %.2f, new file",
-              liveWidth, liveHeight, liveFps, recorder_.frameWidth(), recorder_.frameHeight(),
-              recordSourceFps_);
+      CAP_LOG("Recording: source now %dx%d @ %.2f fps%s instead of %dx%d @ %.2f%s, new file",
+              liveWidth, liveHeight, liveFps, liveWide ? " HDR" : "",
+              recorder_.frameWidth(), recorder_.frameHeight(), recordSourceFps_,
+              recorder_.hdr() ? " HDR" : "");
       StopRecording();
       StartRecording();
       return;

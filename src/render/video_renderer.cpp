@@ -54,8 +54,7 @@ bool VideoRenderer::Initialize(Display* display, std::string* error) {
 }
 
 void VideoRenderer::Shutdown() {
-  ReleaseReadbackResources();
-  ReleaseHdrReadback();
+  for (int s = 0; s < kYuvStreams; ++s) ReleaseYuv((Yuv)s);
   ReleaseSourceTextures();
   passes_->Shutdown();
   display_ = nullptr;
@@ -214,63 +213,6 @@ std::unique_ptr<StillCopy> VideoRenderer::CopyStillHalf() {
     fromH = deliveryHeight_;
   }
   return passes_->CopyStill(from, fromW, fromH);
-}
-
-bool VideoRenderer::EnsureHdrRecord(int width, int height) {
-  width = std::max(1, width);
-  height = std::max(1, height);
-  if (passes_->hasHdrRecord() && passes_->hdrRecordWidth() == width &&
-      passes_->hdrRecordHeight() == height) {
-    return true;
-  }
-
-  hdrReadWrite_ = 0;
-  hdrReadQueued_ = 0;
-  hdrReadMapped_ = -1;
-
-  return passes_->CreateHdrRecord(width, height);
-}
-
-void VideoRenderer::QueueHdrReadback() {
-  if (!hdrWideActive() || !passes_->hasIntermediate() || !display_) return;
-  if (!EnsureHdrRecord(deliveryWidth_, deliveryHeight_)) return;
-  if (hdrReadWrite_ == hdrReadMapped_) return;
-
-  // Resample first, in linear light, and only then lay on the PQ curve. The
-  // other way round would interpolate between PQ coded values, which are not
-  // proportional to anything, and every soft edge would end up at the wrong
-  // brightness.
-  PassImage wideSource = PassImage::Intermediate;
-  if (deliveryHalfNeeded()) {
-    if (!RenderDelivery(true)) return;
-    wideSource = PassImage::DeliveryHalf;
-  }
-
-  passes_->RecordHdr(wideSource, paperWhiteNits_, hdrReadWrite_);
-  hdrReadWrite_ = (hdrReadWrite_ + 1) % kReadbackSlots;
-  if (hdrReadQueued_ < kReadbackSlots) ++hdrReadQueued_;
-}
-
-bool VideoRenderer::FetchHdrReadback(ReadbackFrame* out) {
-  if (!hdrWideActive() || !display_ || hdrReadQueued_ < kReadbackSlots) return false;
-  if (hdrReadMapped_ >= 0) return false;
-
-  const int slot = hdrReadWrite_;  // oldest: two copies are queued behind it
-  MappedImage mapped;
-  if (!passes_->MapHdrReadback(slot, &mapped)) return false;
-  hdrReadMapped_ = slot;
-  out->data = mapped.data;
-  out->stride = (int)mapped.rowPitch;
-  out->width = passes_->hdrRecordWidth();
-  out->height = passes_->hdrRecordHeight();
-  out->size = mapped.rowPitch * (size_t)passes_->hdrRecordHeight();
-  return true;
-}
-
-void VideoRenderer::ReleaseHdrReadback() {
-  if (hdrReadMapped_ < 0 || !display_) return;
-  passes_->UnmapHdrReadback(hdrReadMapped_);
-  hdrReadMapped_ = -1;
 }
 
 // The picture on its way out of the window's world. Two jobs in one pass,
@@ -2660,81 +2602,127 @@ bool VideoRenderer::UploadRgb32(const FrameView& frame) {
 
 // ----------------------------------------------------------------- readback
 
-void VideoRenderer::SetReadbackEnabled(bool enabled) {
-  if (enabled == readbackEnabled_) return;
-  readbackEnabled_ = enabled;
-  if (!enabled) ReleaseReadbackResources();
+void VideoRenderer::SetReadbackWanted(bool record, bool camera, bool wide) {
+  const bool want[kYuvStreams] = {record, camera, wide};
+  for (int s = 0; s < kYuvStreams; ++s) {
+    if (yuv_[s].wanted == want[s]) continue;
+    yuv_[s].wanted = want[s];
+    if (!want[s]) ReleaseYuv((Yuv)s);
+  }
 }
 
-void VideoRenderer::ReleaseReadbackResources() {
-  if (readbackMapped_ >= 0 && display_) {
-    passes_->UnmapReadback(readbackMapped_);
-    readbackMapped_ = -1;
-  }
-  passes_->ReleaseReadbackSlots();
-  readbackWidth_ = readbackHeight_ = 0;
-  readbackWrite_ = 0;
-  readbackQueued_ = 0;
+void VideoRenderer::ReleaseYuv(Yuv stream) {
+  YuvRing& ring = yuv_[(int)stream];
+  if (ring.mapped >= 0 && display_) passes_->UnmapYuv((int)stream, ring.mapped);
+  passes_->ReleaseYuvStream((int)stream);
+  const bool wanted = ring.wanted;
+  ring = YuvRing();
+  ring.wanted = wanted;
 }
 
 void VideoRenderer::QueueReadback() {
-  if (!readbackEnabled_ || !passes_->hasIntermediate() || !display_) return;
+  if (!passes_->hasIntermediate() || !display_) return;
 
-  // Resolution changed (crop, or the card switched mode): start over.
-  if (readbackWidth_ != deliveryWidth_ || readbackHeight_ != deliveryHeight_) {
-    ReleaseReadbackResources();
-
-    if (!passes_->CreateReadbackSlots(deliveryWidth_, deliveryHeight_)) {
-      ReleaseReadbackResources();
-      readbackEnabled_ = false;
-      return;
+  // Straight off the intermediate whenever it already is what the streams
+  // want: same size, nothing to do. Otherwise through the delivery pass, which
+  // handles either reason or both at once, and only once for both eight bit
+  // streams.
+  if (yuv_[(int)Yuv::Record].wanted || yuv_[(int)Yuv::Camera].wanted) {
+    PassImage from = PassImage::Intermediate;
+    bool ok = true;
+    if (deliveryNeeded()) {
+      ok = RenderDelivery(false);
+      from = PassImage::Delivery;
     }
-    readbackWidth_ = deliveryWidth_;
-    readbackHeight_ = deliveryHeight_;
+    if (ok) {
+      QueueYuv(Yuv::Record, from);
+      QueueYuv(Yuv::Camera, from);
+    }
+  }
+
+  // Resample first, in linear light, and only then lay on the PQ curve. The
+  // other way round would interpolate between PQ coded values, which are not
+  // proportional to anything, and every soft edge would end up at the wrong
+  // brightness.
+  if (yuv_[(int)Yuv::Wide].wanted && sourceHdr()) {
+    PassImage from = PassImage::Intermediate;
+    bool ok = true;
+    if (deliveryHalfNeeded()) {
+      ok = RenderDelivery(true);
+      from = PassImage::DeliveryHalf;
+    }
+    if (ok) QueueYuv(Yuv::Wide, from);
+  }
+}
+
+void VideoRenderer::QueueYuv(Yuv stream, PassImage from) {
+  YuvRing& ring = yuv_[(int)stream];
+  if (!ring.wanted) return;
+
+  // Resolution changed (crop, or the card switched mode): start over. Both
+  // sizes even, which the chroma rows want.
+  const int width = deliveryWidth_ & ~1;
+  const int height = deliveryHeight_ & ~1;
+  if (ring.width != width || ring.height != height) {
+    ReleaseYuv(stream);
+    ring.width = width;
+    ring.height = height;
+    ring.failed = !passes_->CreateYuvStream((int)stream, width, height, stream == Yuv::Wide);
   }
 
   // The slot about to be written must not be the one the caller still holds.
-  if (readbackWrite_ == readbackMapped_) return;
+  if (ring.failed || ring.write == ring.mapped) return;
 
-  // Straight off the intermediate whenever it already is what the recorder
-  // wants: same size, eight bits, nothing to do. Otherwise through the delivery
-  // pass, which handles either reason or both at once.
-  PassImage from = PassImage::Intermediate;
-  if (deliveryNeeded()) {
-    if (!RenderDelivery(false)) return;
-    from = PassImage::Delivery;
+  YuvParams params = {};
+  switch (stream) {
+    case Yuv::Record:
+      params.kr = 0.2126f;
+      params.kb = 0.0722f;
+      break;
+    case Yuv::Camera:
+      params.kr = 0.299f;
+      params.kb = 0.114f;
+      break;
+    case Yuv::Wide:
+      params.kr = 0.2627f;
+      params.kb = 0.0593f;
+      params.paperWhite = paperWhiteNits_;
+      params.pq = 1;
+      params.tenBit = 1;
+      break;
   }
-  passes_->CopyToReadback(readbackWrite_, from);
-  QueueHdrReadback();
-  readbackWrite_ = (readbackWrite_ + 1) % kReadbackSlots;
-  if (readbackQueued_ < kReadbackSlots) ++readbackQueued_;
+  params.width = width;
+  params.height = height;
+  passes_->ConvertToYuv((int)stream, ring.write, from, params);
+  ring.write = (ring.write + 1) % kReadbackSlots;
+  if (ring.queued < kReadbackSlots) ++ring.queued;
 }
 
-bool VideoRenderer::FetchReadback(ReadbackFrame* out) {
-  if (!readbackEnabled_ || !display_ || readbackQueued_ < kReadbackSlots) return false;
-  if (readbackMapped_ >= 0) return false;  // previous frame not released yet
+bool VideoRenderer::FetchReadback(Yuv stream, ReadbackFrame* out) {
+  YuvRing& ring = yuv_[(int)stream];
+  if (!ring.wanted || ring.failed || !display_ || ring.queued < kReadbackSlots) return false;
+  if (ring.mapped >= 0) return false;  // previous frame not released yet
 
   // Oldest slot: two copies have been queued behind it, so the GPU is long done
   // and the map returns immediately instead of stalling the pipeline.
-  const int slot = readbackWrite_;
+  const int slot = ring.write;
   MappedImage mapped;
-  if (!passes_->MapReadback(slot, &mapped)) return false;
+  if (!passes_->MapYuv((int)stream, slot, &mapped)) return false;
 
-  readbackMapped_ = slot;
-  if (out) {
-    out->data = mapped.data;
-    out->stride = (int)mapped.rowPitch;
-    out->width = readbackWidth_;
-    out->height = readbackHeight_;
-    out->size = mapped.rowPitch * (size_t)readbackHeight_;
-  }
+  ring.mapped = slot;
+  out->data = mapped.data;
+  out->stride = (int)mapped.rowPitch;
+  out->width = ring.width;
+  out->height = ring.height;
+  out->size = mapped.rowPitch * (size_t)(ring.height + ring.height / 2);
   return true;
 }
 
-void VideoRenderer::ReleaseReadback() {
-  if (readbackMapped_ < 0 || !display_) return;
-  passes_->UnmapReadback(readbackMapped_);
-  readbackMapped_ = -1;
+void VideoRenderer::ReleaseReadback(Yuv stream) {
+  YuvRing& ring = yuv_[(int)stream];
+  if (ring.mapped < 0 || !display_) return;
+  passes_->UnmapYuv((int)stream, ring.mapped);
+  ring.mapped = -1;
 }
 
 std::unique_ptr<StillCopy> VideoRenderer::CopyStill() {

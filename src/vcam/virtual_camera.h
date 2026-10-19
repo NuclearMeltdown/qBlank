@@ -91,15 +91,12 @@ class VirtualCamera {
   // then pushing frames costs nothing, so callers need not check first.
   bool consumed() const { return consumed_.load(std::memory_order_relaxed); }
 
-  // Hands over one displayed frame, RGBA8, top row first, at whatever size
-  // qBlank is showing. Returns immediately: the copy is cheap and the
-  // conversion happens on a thread of its own.
-  void PushFrame(const uint8_t* rgba, int stride, int width, int height);
-
-  // The ten bit path. `packed` is one uint32 per pixel as DXGI writes
-  // R10G10B10A2 -- already PQ encoded and already BT.2020, because the shader
-  // that produced it for the recorder had to do that anyway.
-  void PushFrameWide(const uint8_t* packed, int stride, int width, int height);
+  // Hands over one displayed frame at whatever size qBlank is showing, already
+  // in what the camera publishes: NV12 in BT.601, or with `wide` P010 in
+  // BT.2020 PQ. One plane, the luma rows and then half as many chroma rows,
+  // both sizes even. Returns immediately: the copy is cheap and the rest
+  // happens on a thread of its own.
+  void PushFrame(const uint8_t* yuv, int stride, int width, int height, bool wide);
 
   // Who is reading, and in what. Empty when nobody is.
   void consumers(std::vector<Consumer>* out) const;

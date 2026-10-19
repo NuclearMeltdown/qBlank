@@ -193,92 +193,6 @@ bool RunRegsvr(bool remove, std::string* error) {
   return true;
 }
 
-// --------------------------------------------------------------------------
-// RGBA to NV12, at the size it arrives.
-//
-// Nothing is scaled and nothing is letterboxed here any more: that is the
-// filter's job now, once per consumer, in the consumer's own process. What
-// qBlank publishes is what qBlank is showing.
-//
-// BT.601 with limited range, which is what a consumer assumes of NV12 when it
-// is not told otherwise, and what the filter's media type declares.
-// --------------------------------------------------------------------------
-void RgbaToNv12(const uint8_t* rgba, int srcStride, int width, int height, uint8_t* dst,
-                int dstStride) {
-  uint8_t* luma = dst;
-  uint8_t* chroma = dst + (size_t)dstStride * height;
-
-  // Two rows at a time: the chroma plane is half height, so a pair of luma rows
-  // produces one row of it and the source is only walked once.
-  for (int y = 0; y < height; y += 2) {
-    const uint8_t* row0 = rgba + (size_t)y * srcStride;
-    const uint8_t* row1 = row0 + srcStride;
-    uint8_t* y0 = luma + (size_t)y * dstStride;
-    uint8_t* y1 = y0 + dstStride;
-    uint8_t* uv = chroma + (size_t)(y / 2) * dstStride;
-
-    for (int x = 0; x < width; x += 2) {
-      const uint8_t* px[4] = {row0 + (size_t)x * 4, row0 + (size_t)(x + 1) * 4,
-                              row1 + (size_t)x * 4, row1 + (size_t)(x + 1) * 4};
-      uint8_t* at[4] = {y0 + x, y0 + x + 1, y1 + x, y1 + x + 1};
-
-      int rSum = 0, gSum = 0, bSum = 0;
-      for (int i = 0; i < 4; ++i) {
-        const int r = px[i][0], g = px[i][1], b = px[i][2];
-        rSum += r;
-        gSum += g;
-        bSum += b;
-        *at[i] = (uint8_t)std::clamp((66 * r + 129 * g + 25 * b + 128) / 256 + 16, 16, 235);
-      }
-
-      // Chroma from the average of the four, which is what 4:2:0 means.
-      const int r = rSum / 4, g = gSum / 4, b = bSum / 4;
-      uv[x] = (uint8_t)std::clamp((-38 * r - 74 * g + 112 * b + 128) / 256 + 128, 16, 240);
-      uv[x + 1] = (uint8_t)std::clamp((112 * r - 94 * g - 18 * b + 128) / 256 + 128, 16, 240);
-    }
-  }
-}
-
-// The same into P010. What arrives is already on the PQ curve and already
-// BT.2020 -- the shader that feeds the recorder had to do both anyway -- so
-// nothing here touches a curve. It is a colour matrix and some packing.
-void PackedToP010(const uint8_t* packed, int srcStride, int width, int height, uint8_t* dst,
-                  int dstStride) {
-  uint8_t* luma = dst;
-  uint8_t* chroma = dst + (size_t)dstStride * height;
-
-  for (int y = 0; y < height; y += 2) {
-    // DXGI packs R10G10B10A2 with red in the low bits.
-    const uint32_t* row0 = (const uint32_t*)(packed + (size_t)y * srcStride);
-    const uint32_t* row1 = (const uint32_t*)(packed + (size_t)(y + 1) * srcStride);
-    uint16_t* y0 = (uint16_t*)(luma + (size_t)y * dstStride);
-    uint16_t* y1 = (uint16_t*)(luma + (size_t)(y + 1) * dstStride);
-    uint16_t* uv = (uint16_t*)(chroma + (size_t)(y / 2) * dstStride);
-
-    for (int x = 0; x < width; x += 2) {
-      const uint32_t src[4] = {row0[x], row0[x + 1], row1[x], row1[x + 1]};
-      uint16_t* at[4] = {y0 + x, y0 + x + 1, y1 + x, y1 + x + 1};
-
-      float mean[3] = {0.0f, 0.0f, 0.0f};
-      for (int i = 0; i < 4; ++i) {
-        const float rgb[3] = {(float)(src[i] & 0x3FFu) / 1023.0f,
-                              (float)((src[i] >> 10) & 0x3FFu) / 1023.0f,
-                              (float)((src[i] >> 20) & 0x3FFu) / 1023.0f};
-        for (int c = 0; c < 3; ++c) mean[c] += rgb[c] * 0.25f;
-        // BT.2020 non-constant luminance, limited range, ten bits.
-        const float v = 0.2627f * rgb[0] + 0.6780f * rgb[1] + 0.0593f * rgb[2];
-        *at[i] = (uint16_t)((uint32_t)std::clamp((int)(v * 876.0f + 64.5f), 64, 940) << 6);
-      }
-
-      const float v = 0.2627f * mean[0] + 0.6780f * mean[1] + 0.0593f * mean[2];
-      const int cb = (int)((mean[2] - v) / 1.8814f * 896.0f + 512.5f);
-      const int cr = (int)((mean[0] - v) / 1.4746f * 896.0f + 512.5f);
-      uv[x] = (uint16_t)((uint32_t)std::clamp(cb, 64, 960) << 6);
-      uv[x + 1] = (uint16_t)((uint32_t)std::clamp(cr, 64, 960) << 6);
-    }
-  }
-}
-
 // 100 ns since this process started, which is what the slot header carries.
 int64_t NowIn100ns() {
   static LARGE_INTEGER frequency = [] {
@@ -548,41 +462,25 @@ void VirtualCamera::DestroyControl() {
 
 // ------------------------------------------------------------- the handover
 
-void VirtualCamera::PushFrame(const uint8_t* rgba, int stride, int width, int height) {
-  if (!running() || !rgba || width <= 0 || height <= 0) return;
+void VirtualCamera::PushFrame(const uint8_t* yuv, int stride, int width, int height, bool wide) {
+  // Even edges, because 4:2:0 has no other kind; the renderer hands out no
+  // other.
+  if (!running() || !yuv || width < 2 || height < 2 || ((width | height) & 1)) return;
   // Nobody watching costs nothing. The flag is set by the worker from the
   // consumer table, so this is one relaxed load per displayed frame.
-  if (!consumed()) return;
+  if (!consumed() || (wide && !wantsWide())) return;
 
+  const size_t rowBytes = (size_t)width * (wide ? 2 : 1);
+  const int rows = height + height / 2;
   {
     std::lock_guard<std::mutex> lock(pendingMutex_);
-    pending_.resize((size_t)width * height * 4);
-    for (int row = 0; row < height; ++row) {
-      ::memcpy(pending_.data() + (size_t)row * width * 4, rgba + (size_t)row * stride,
-               (size_t)width * 4);
+    pending_.resize(rowBytes * rows);
+    for (int row = 0; row < rows; ++row) {
+      ::memcpy(pending_.data() + (size_t)row * rowBytes, yuv + (size_t)row * stride, rowBytes);
     }
     pendingWidth_ = width;
     pendingHeight_ = height;
-    pendingWide_ = false;
-    pendingFull_ = true;
-  }
-  if (wake_) ::SetEvent(wake_);
-}
-
-void VirtualCamera::PushFrameWide(const uint8_t* packed, int stride, int width, int height) {
-  if (!running() || !packed || width <= 0 || height <= 0) return;
-  if (!wantsWide() || !consumed()) return;
-
-  {
-    std::lock_guard<std::mutex> lock(pendingMutex_);
-    pending_.resize((size_t)width * height * 4);
-    for (int row = 0; row < height; ++row) {
-      ::memcpy(pending_.data() + (size_t)row * width * 4, packed + (size_t)row * stride,
-               (size_t)width * 4);
-    }
-    pendingWidth_ = width;
-    pendingHeight_ = height;
-    pendingWide_ = true;
+    pendingWide_ = wide;
     pendingFull_ = true;
   }
   if (wake_) ::SetEvent(wake_);
@@ -682,11 +580,8 @@ void VirtualCamera::Publish(const uint8_t* pixels, int stride, int width, int he
   auto* cb = static_cast<vcam::ControlBlock*>(controlView_);
   if (!cb) return;
 
-  // Even edges, because 4:2:0 has no other kind. A source with an odd dimension
-  // loses its last row or column rather than its chroma plane.
-  const uint32_t w = (uint32_t)(width & ~1);
-  const uint32_t h = (uint32_t)(height & ~1);
-  if (w < 2 || h < 2) return;
+  const uint32_t w = (uint32_t)width;
+  const uint32_t h = (uint32_t)height;
   if (!EnsureFrameSection(w, h, pixel)) return;
 
   auto* fs = static_cast<vcam::FrameSectionHeader*>(frameView_);
@@ -700,10 +595,16 @@ void VirtualCamera::Publish(const uint8_t* pixels, int stride, int width, int he
   head.sequence = head.sequence + 1;
   ::MemoryBarrier();
 
-  if (pixel == vcam::kPixelP010) {
-    PackedToP010(pixels, stride, (int)w, (int)h, dst, (int)fs->strideY);
+  // Converted on the GPU already; the planes follow each other here as they
+  // do in the frame, so this is a copy.
+  const size_t rowBytes = (size_t)w * vcam::BytesPerSample(pixel);
+  const uint32_t rows = h + h / 2;
+  if ((size_t)stride == fs->strideY) {
+    ::memcpy(dst, pixels, rowBytes * rows);
   } else {
-    RgbaToNv12(pixels, stride, (int)w, (int)h, dst, (int)fs->strideY);
+    for (uint32_t row = 0; row < rows; ++row) {
+      ::memcpy(dst + (size_t)row * fs->strideY, pixels + (size_t)row * stride, rowBytes);
+    }
   }
 
   head.width = w;
@@ -827,7 +728,7 @@ void VirtualCamera::WorkerLoop() {
     }
     if (width <= 0 || height <= 0) continue;
 
-    Publish(frame.data(), width * 4, width, height,
+    Publish(frame.data(), width * (wide ? 2 : 1), width, height,
             wide ? vcam::kPixelP010 : vcam::kPixelNv12);
 
     // Once a second, what both ends think is happening. All of this crosses a

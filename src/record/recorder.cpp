@@ -272,20 +272,19 @@ std::vector<std::string> Recorder::BuildArguments(const RecordSettings& settings
 
   pair("-c:v", encoder.ffmpegName);
   for (std::string& option : EncoderOptions(settings, encoder)) add(std::move(option));
-  // The matrix for RGB to Y'CbCr is named outright, and so is the colour
-  // description. Left to itself ffmpeg converted with BT.601 and wrote nothing,
-  // and players and editors read an untagged HD file as BT.709: red came out
-  // orange and green too dark. The description goes in twice: ffmpeg 9 hands
-  // the encoder what the frames carry, and without setparams they carry no
-  // primaries and no transfer, so not even an HDR file said PQ. Older builds go
-  // by the options, and by the matrix in the scale rather than by the tags.
+  // The frames arrive as Y'CbCr already, converted on the GPU with the matrix
+  // named here; ffmpeg only passes them on. The colour description goes in
+  // twice: ffmpeg 9 hands the encoder what the frames carry, and without
+  // setparams they carry no matrix, no primaries and no transfer, so not even
+  // an HDR file said PQ, and players read an untagged HD file as whatever they
+  // like. Older builds go by the options.
   if (hdr_) {
     // Ten bit 4:2:0 and the three pieces of colour description that make a file
     // playable as HDR rather than as a washed out mess. They are not optional:
     // nothing else in the file says the picture is on the PQ curve, and a player
     // that is not told will assume it is not.
-    pair("-vf", "scale=out_color_matrix=bt2020:out_range=tv,setparams=color_primaries=bt2020:"
-                "color_trc=smpte2084:colorspace=bt2020nc:range=tv");
+    pair("-vf", "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:"
+                "range=tv");
     pair("-pix_fmt", "p010le");
     pair("-color_primaries", "bt2020");
     pair("-color_trc", "smpte2084");
@@ -294,8 +293,7 @@ std::vector<std::string> Recorder::BuildArguments(const RecordSettings& settings
   } else {
     // 4:2:0 eight bit: the one format every hardware encoder and every player
     // agrees on. Anything wider would exclude the very cards this is meant for.
-    pair("-vf", "scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:"
-                "color_trc=bt709:colorspace=bt709:range=tv");
+    pair("-vf", "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv");
     pair("-pix_fmt", "nv12");
     pair("-color_primaries", "bt709");
     pair("-color_trc", "bt709");
@@ -386,7 +384,9 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   audioRate_ = main.active() ? main.sampleRate : 0;
   micRate_ = mic.active() ? mic.sampleRate : 0;
   micTrackMode_ = micTrackMode;
-  frameBytes_ = (size_t)width_ * (size_t)height_ * 4;
+  // 4:2:0 in one plane: the luma rows and half as many again of chroma, at two
+  // bytes a sample when the range is kept.
+  frameBytes_ = (size_t)width_ * (size_t)(height_ + height_ / 2) * (hdr_ ? 2 : 1);
   pullAudio_ = main.pull;
   pullMic_ = mic.pull;
 
@@ -548,9 +548,9 @@ void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int heigh
   // A frame of a different shape than ffmpeg was told about. This happens for
   // the fraction of a second between the source changing its video standard and
   // the app noticing and cutting the file. Dropping it is not a nicety: the
-  // copy below reads `height_` rows of `width_ * 4` bytes, and a source that
-  // just went from 576 to 480 lines reads a fifth of a frame past the end of
-  // the staging buffer.
+  // copy below reads the rows ffmpeg was told about, and a source that just
+  // went from 576 to 480 lines reads a fifth of a frame past the end of the
+  // staging buffer.
   //
   // Compared with the same rounding that Start applied, because an odd source
   // is a legitimate one -- a crop can leave 721 columns -- and the file is then
@@ -567,11 +567,12 @@ void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int heigh
 
   // Copy outside the lock: the chosen slot is neither the one waiting to be
   // written nor the one the writer holds, so nobody else touches it. The rows
-  // are repacked because a staging texture's pitch is rarely width * 4, and
-  // rawvideo has no concept of padding.
-  const size_t rowBytes = (size_t)width_ * 4;
+  // are repacked because a staging texture's pitch is rarely the row's width,
+  // and rawvideo has no concept of padding.
+  const size_t rowBytes = (size_t)width_ * (hdr_ ? 2 : 1);
+  const int rows = height_ + height_ / 2;
   uint8_t* dst = slots_[slot].data();
-  for (int y = 0; y < height_; ++y) {
+  for (int y = 0; y < rows; ++y) {
     memcpy(dst + (size_t)y * rowBytes, pixels + (size_t)y * (size_t)stride, rowBytes);
   }
 

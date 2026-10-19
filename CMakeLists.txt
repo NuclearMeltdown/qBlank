@@ -207,7 +207,7 @@ set(qblank_shaders
   clean_ps:ps_6_0:kCleanPS:kSpirvClean:ps_4_0
   convert_ps:ps_6_0:kConvertPS:kSpirvConvert:ps_4_0
   scale_ps:ps_6_0:kScalePS:kSpirvScale:ps_4_0
-  hdr_record_ps:ps_6_0:kHdrRecordPS:kSpirvHdrRecord:ps_4_0
+  yuv_ps:ps_6_0:kYuvPS:kSpirvYuv:ps_4_0
   ui_composite_ps:ps_6_0:kUiCompositePS:kSpirvUiComposite:ps_4_0
   rem_dec_ps:ps_6_0:kRemDecPS:kSpirvRemDec:ps_5_0
   rem_res_ps:ps_6_0:kRemResPS:kSpirvRemRes:ps_5_0

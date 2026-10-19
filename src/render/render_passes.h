@@ -13,8 +13,8 @@
 //               (filter, sharpen, scanlines, mask, tone mapping, picture controls)
 //   deliver     the intermediate -> square pixels for everything that is not the
 //               window: the recording, the screenshots, the virtual camera
-//   hdr-record  the same, PQ coded in ten bits, for a recording that keeps the
-//               range
+//   yuv         a delivered picture -> NV12 or P010 for the recording and the
+//               virtual camera, read back as one plane each
 //   ui-composite the interface's own layer back over the picture, in scRGB
 //
 // The shaders themselves are not part of this. They are one file of HLSL that a
@@ -200,6 +200,21 @@ struct ScaleParams {
   int32_t grid[4];
 };
 
+// The yuv pass, in the shader's order (kYuvPS). The picture comes out as one
+// image of width x height*3/2: the luma rows, then the chroma rows with Cb on
+// the even and Cr on the odd column, which is NV12's layout and P010's.
+struct YuvParams {
+  float kr;            // the matrix: BT.709, BT.601 or BT.2020
+  float kb;
+  float paperWhite;    // nits diffuse white comes out at, for pq
+  uint32_t pq;         // 1 = linear light in, BT.2020 PQ out
+  uint32_t tenBit;     // 1 = P010, the ten bits in the top of sixteen
+  int32_t width;       // even
+  int32_t height;      // even, the luma rows
+  uint32_t pad;
+};
+static_assert(sizeof(YuvParams) == 32, "YuvParams must match the shader's cbuffer");
+
 class RenderPasses {
  public:
   virtual ~RenderPasses() = default;
@@ -217,6 +232,8 @@ class RenderPasses {
   // Readback ring. Three targets: one being written, one in flight, one old
   // enough to map without stalling.
   static const int kReadbackSlots = 3;
+  // How many yuv pictures can be read back side by side: see VideoRenderer::Yuv.
+  static const int kYuvStreams = 3;
 
   // The display backend this one draws with.
   virtual GraphicsApi api() const = 0;
@@ -294,28 +311,18 @@ class RenderPasses {
   virtual bool BeginUiLayer(int width, int height) = 0;
   virtual void CompositeUiLayer(float paperWhiteNits) = 0;
 
-  // ---- readback ----
+  // ---- yuv ----
 
-  // The ring the recording reads from. Eight bit, the byte order named by
-  // VideoRenderer::kReadbackPixelFormat.
-  virtual bool CreateReadbackSlots(int width, int height) = 0;
-  virtual void ReleaseReadbackSlots() = 0;
-  virtual void CopyToReadback(int slot, PassImage from) = 0;
+  // One stream: the yuv picture at `width` x `height` (both even) and its ring
+  // of kReadbackSlots readbacks. Eight bits a sample, or sixteen for P010.
+  virtual bool CreateYuvStream(int stream, int width, int height, bool tenBit) = 0;
+  virtual void ReleaseYuvStream(int stream) = 0;
+  // Converts `from` and queues the copy into readback `slot`. `params` has the
+  // stream's size.
+  virtual void ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) = 0;
   // Does not wait for the GPU: false when the copy is still running.
-  virtual bool MapReadback(int slot, MappedImage* mapped) = 0;
-  virtual void UnmapReadback(int slot) = 0;
-
-  // hdr-record: the same picture PQ coded in ten bits, with its own ring,
-  // because the camera and the screenshots still want eight bits at the same
-  // moment. The byte order is VideoRenderer::kHdrReadbackPixelFormat.
-  virtual bool hasHdrRecord() const = 0;
-  virtual int hdrRecordWidth() const = 0;
-  virtual int hdrRecordHeight() const = 0;
-  virtual bool CreateHdrRecord(int width, int height) = 0;
-  virtual void RecordHdr(PassImage from, float paperWhiteNits, int slot) = 0;
-  // Does not wait for the GPU either.
-  virtual bool MapHdrReadback(int slot, MappedImage* mapped) = 0;
-  virtual void UnmapHdrReadback(int slot) = 0;
+  virtual bool MapYuv(int stream, int slot, MappedImage* mapped) = 0;
+  virtual void UnmapYuv(int stream, int slot) = 0;
 
   // ---- stills ----
 

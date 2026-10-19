@@ -444,38 +444,30 @@ void App::FeedFrameConsumers() {
   // Only while something is actually watching. An idle camera costs a flag.
   const bool wantCamera = virtualCamera_.running() && virtualCamera_.consumed();
 
-  renderer_.SetHdrWideWanted(wantRecorder && config_.app.recordHdr,
-                             wantCamera && virtualCamera_.wantsWide());
-  renderer_.SetReadbackEnabled(wantRecorder || wantCamera);
-  if (!wantRecorder && !wantCamera) return;
+  // The recorder keeps the format it was started with; a source that changes
+  // cuts the file (recording_control.cpp). The camera follows the source.
+  const bool recordWide = wantRecorder && recorder_.hdr();
+  const bool cameraWide = wantCamera && virtualCamera_.wantsWide() && renderer_.sourceHdr();
+  renderer_.SetReadbackWanted(wantRecorder && !recordWide, wantCamera && !cameraWide,
+                              recordWide || cameraWide);
 
-  // Either of the two can be on the wide path while the other is not, so both
-  // rings can be live at once. They are read in one place so a frame is never
-  // fetched twice and never half handed out.
-  const bool wide = renderer_.hdrWideActive();
-  const bool recordWide = wantRecorder && wide && config_.app.recordHdr;
-  const bool cameraWide = wantCamera && wide && virtualCamera_.wantsWide();
-
-  if (recordWide || cameraWide) {
-    VideoRenderer::ReadbackFrame w;
-    if (renderer_.FetchHdrReadback(&w)) {
-      if (recordWide) recorder_.PushVideo(w.data, w.stride, w.width, w.height);
-      if (cameraWide) virtualCamera_.PushFrameWide(w.data, w.stride, w.width, w.height);
-      renderer_.ReleaseHdrReadback();
-    }
-  }
-
-  if (!(wantCamera && !cameraWide) && !(wantRecorder && !recordWide)) return;
-
+  // The wide picture is the same bytes for both, so it is read once.
   VideoRenderer::ReadbackFrame frame;
-  if (!renderer_.FetchReadback(&frame)) return;
-  if (wantRecorder && !recordWide) {
+  if ((recordWide || cameraWide) && renderer_.FetchReadback(VideoRenderer::Yuv::Wide, &frame)) {
+    if (recordWide) recorder_.PushVideo(frame.data, frame.stride, frame.width, frame.height);
+    if (cameraWide) {
+      virtualCamera_.PushFrame(frame.data, frame.stride, frame.width, frame.height, true);
+    }
+    renderer_.ReleaseReadback(VideoRenderer::Yuv::Wide);
+  }
+  if (wantRecorder && !recordWide && renderer_.FetchReadback(VideoRenderer::Yuv::Record, &frame)) {
     recorder_.PushVideo(frame.data, frame.stride, frame.width, frame.height);
+    renderer_.ReleaseReadback(VideoRenderer::Yuv::Record);
   }
-  if (wantCamera && !cameraWide) {
-    virtualCamera_.PushFrame(frame.data, frame.stride, frame.width, frame.height);
+  if (wantCamera && !cameraWide && renderer_.FetchReadback(VideoRenderer::Yuv::Camera, &frame)) {
+    virtualCamera_.PushFrame(frame.data, frame.stride, frame.width, frame.height, false);
+    renderer_.ReleaseReadback(VideoRenderer::Yuv::Camera);
   }
-  renderer_.ReleaseReadback();
 }
 
 void App::UpdateVirtualCamera() {

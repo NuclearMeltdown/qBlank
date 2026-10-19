@@ -18,7 +18,7 @@ namespace cap {
 
 class Window;
 
-// Saves tightly packed pixels in VideoRenderer::kReadbackPixelFormat order.
+// Saves tightly packed RGBA pixels, R first, as the stills hand them over.
 // Returns false and fills `error` on failure.
 bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, int width, int height,
                     ScreenshotFormat format, int jpegQuality, std::string* error);

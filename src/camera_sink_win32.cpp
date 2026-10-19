@@ -105,12 +105,8 @@ bool CameraSink::takeError(std::string* out) { return impl_->camera.takeError(ou
 
 bool CameraSink::consumed() const { return impl_->camera.consumed(); }
 
-void CameraSink::PushFrame(const uint8_t* rgba, int stride, int width, int height) {
-  impl_->camera.PushFrame(rgba, stride, width, height);
-}
-
-void CameraSink::PushFrameWide(const uint8_t* packed, int stride, int width, int height) {
-  impl_->camera.PushFrameWide(packed, stride, width, height);
+void CameraSink::PushFrame(const uint8_t* yuv, int stride, int width, int height, bool wide) {
+  impl_->camera.PushFrame(yuv, stride, width, height, wide);
 }
 
 void CameraSink::consumers(std::vector<Consumer>* out) const {

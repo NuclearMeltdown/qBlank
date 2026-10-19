@@ -18,7 +18,7 @@
 #include "shaders_dxbc.h"
 #else
 namespace cap {
-extern const Packed kFullscreenVS, kCleanPS, kConvertPS, kScalePS, kHdrRecordPS, kUiCompositePS,
+extern const Packed kFullscreenVS, kCleanPS, kConvertPS, kScalePS, kYuvPS, kUiCompositePS,
     kRemDecPS, kRemResPS, kRemCombPS, kGridPS;
 }
 #endif
@@ -95,19 +95,11 @@ class D3D11Passes : public RenderPasses {
   bool BeginUiLayer(int width, int height) override;
   void CompositeUiLayer(float paperWhiteNits) override;
 
-  bool CreateReadbackSlots(int width, int height) override;
-  void ReleaseReadbackSlots() override;
-  void CopyToReadback(int slot, PassImage from) override;
-  bool MapReadback(int slot, MappedImage* mapped) override;
-  void UnmapReadback(int slot) override;
-
-  bool hasHdrRecord() const override { return hdrRecTex_.Get() != nullptr; }
-  int hdrRecordWidth() const override { return hdrRecWidth_; }
-  int hdrRecordHeight() const override { return hdrRecHeight_; }
-  bool CreateHdrRecord(int width, int height) override;
-  void RecordHdr(PassImage from, float paperWhiteNits, int slot) override;
-  bool MapHdrReadback(int slot, MappedImage* mapped) override;
-  void UnmapHdrReadback(int slot) override;
+  bool CreateYuvStream(int stream, int width, int height, bool tenBit) override;
+  void ReleaseYuvStream(int stream) override;
+  void ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) override;
+  bool MapYuv(int stream, int slot, MappedImage* mapped) override;
+  void UnmapYuv(int stream, int slot) override;
 
   std::unique_ptr<StillCopy> CopyStill(PassImage from, int width, int height) override {
     return QueueStillCopy(NativeContext(*display_), Texture(from), width, height);
@@ -124,7 +116,6 @@ class D3D11Passes : public RenderPasses {
   void ReleaseIntermediate();
   void ReleaseDelivery(bool half);
   void ReleaseUiLayer();
-  void ReleaseHdrRecord();
 
   ID3D11Device* dev() const { return NativeDevice(*display_); }
   ID3D11DeviceContext* dc() const { return NativeContext(*display_); }
@@ -137,12 +128,10 @@ class D3D11Passes : public RenderPasses {
       default: return intermediate_.Get();
     }
   }
-  // Only the two the passes ever read from; the eight bit delivery target is
-  // copied out rather than sampled.
   ID3D11ShaderResourceView* View(PassImage image) const {
     switch (image) {
       case PassImage::DeliveryHalf: return deliveryHalfSrv_.Get();
-      case PassImage::Delivery: return nullptr;
+      case PassImage::Delivery: return deliverySrv_.Get();
       case PassImage::Intermediate:
       default: return intermediateSrv_.Get();
     }
@@ -203,6 +192,7 @@ class D3D11Passes : public RenderPasses {
   // not.
   ComPtr<ID3D11Texture2D> delivery_;
   ComPtr<ID3D11RenderTargetView> deliveryRtv_;
+  ComPtr<ID3D11ShaderResourceView> deliverySrv_;
   int deliveryTexWidth_ = 0;
   int deliveryTexHeight_ = 0;
   // The same, still in linear light: a resample that must not be tone mapped
@@ -213,15 +203,18 @@ class D3D11Passes : public RenderPasses {
   int deliveryHalfTexWidth_ = 0;
   int deliveryHalfTexHeight_ = 0;
 
-  ComPtr<ID3D11Texture2D> readbackTex_[kReadbackSlots];
-
-  ComPtr<ID3D11PixelShader> psHdrRecord_;
-  ComPtr<ID3D11Buffer> cbRecord_;
-  ComPtr<ID3D11Texture2D> hdrRecTex_;
-  ComPtr<ID3D11RenderTargetView> hdrRecRtv_;
-  ComPtr<ID3D11Texture2D> hdrReadbackTex_[kReadbackSlots];
-  int hdrRecWidth_ = 0;
-  int hdrRecHeight_ = 0;
+  // The yuv pass: one picture per stream, one plane of luma rows and then
+  // chroma rows, and the readbacks it is copied into.
+  struct YuvStream {
+    ComPtr<ID3D11Texture2D> tex;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    ComPtr<ID3D11Texture2D> staging[kReadbackSlots];
+    int width = 0;
+    int height = 0;
+  };
+  ComPtr<ID3D11PixelShader> psYuv_;
+  ComPtr<ID3D11Buffer> cbYuv_;
+  YuvStream yuv_[kYuvStreams];
 
   // The crawl remover. A ring of decoded frames, the eight
   // residual targets the model fits write, and a ring of the pictures it hands
@@ -281,8 +274,7 @@ void D3D11Passes::Shutdown() {
   // All of it, not just what is expensive to keep: everything here was made on
   // the display's device, and any one piece still held keeps that device alive
   // past the display's own shutdown.
-  ReleaseReadbackSlots();
-  ReleaseHdrRecord();
+  for (int s = 0; s < kYuvStreams; ++s) ReleaseYuvStream(s);
   ReleaseUiLayer();
   ReleaseDelivery(true);
   ReleaseDelivery(false);
@@ -306,11 +298,11 @@ void D3D11Passes::Shutdown() {
   raster_.Reset();
   sampLinear_.Reset();
   sampPoint_.Reset();
-  cbRecord_.Reset();
+  cbYuv_.Reset();
   cbUi_.Reset();
   cbScale_.Reset();
   cbConvert_.Reset();
-  psHdrRecord_.Reset();
+  psYuv_.Reset();
   psUiComposite_.Reset();
   psScale_.Reset();
   psConvert_.Reset();
@@ -357,10 +349,10 @@ bool D3D11Passes::CreateShaders(std::string* error) {
     return false;
   }
 
-  const std::vector<uint8_t> recordCode = ShaderCode(kHdrRecordPS, "ps_4_0", error);
-  if (recordCode.empty()) return false;
-  if (FAILED(CAP_HR(dev->CreatePixelShader(recordCode.data(), recordCode.size(), nullptr,
-                                           &psHdrRecord_)))) {
+  const std::vector<uint8_t> yuvCode = ShaderCode(kYuvPS, "ps_4_0", error);
+  if (yuvCode.empty()) return false;
+  if (FAILED(CAP_HR(dev->CreatePixelShader(yuvCode.data(), yuvCode.size(), nullptr,
+                                           &psYuv_)))) {
     ReportError(error, CAP_SAID(T("Aufnahme-Shader konnte nicht erstellt werden",
                                      "The recording shader could not be created")));
     return false;
@@ -414,12 +406,13 @@ bool D3D11Passes::CreateShaders(std::string* error) {
                                      "The constant buffer could not be created")));
     return false;
   }
-  bd.ByteWidth = 16;  // one float plus padding
-  if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbRecord_)))) {
+  bd.ByteWidth = sizeof(YuvParams);
+  if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbYuv_)))) {
     ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
                                      "The constant buffer could not be created")));
     return false;
   }
+  bd.ByteWidth = 16;  // one float plus padding
   if (FAILED(CAP_HR(dev->CreateBuffer(&bd, nullptr, &cbUi_)))) {
     ReportError(error, CAP_SAID(T("Konstantenpuffer konnte nicht erstellt werden",
                                      "The constant buffer could not be created")));
@@ -600,6 +593,7 @@ void D3D11Passes::ReleaseDelivery(bool half) {
     deliveryHalfTexWidth_ = 0;
     deliveryHalfTexHeight_ = 0;
   } else {
+    deliverySrv_.Reset();
     deliveryRtv_.Reset();
     delivery_.Reset();
     deliveryTexWidth_ = 0;
@@ -758,16 +752,14 @@ bool D3D11Passes::EnsureDelivery(int width, int height, bool half) {
   td.Format = half ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
   td.SampleDesc.Count = 1;
   td.Usage = D3D11_USAGE_DEFAULT;
-  // The half float one is read again afterwards, by the shader that lays the PQ
-  // curve over it. The eight bit one is only ever copied out.
-  td.BindFlags = D3D11_BIND_RENDER_TARGET;
-  if (half) td.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
+  // Both are read again afterwards, by the yuv pass.
+  td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
   ID3D11Device* dev = NativeDevice(*display_);
   if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &tex))) ||
       FAILED(CAP_HR(dev->CreateRenderTargetView(tex.Get(), nullptr, &rtv))) ||
-      (half &&
-       FAILED(CAP_HR(dev->CreateShaderResourceView(tex.Get(), nullptr, &deliveryHalfSrv_))))) {
+      FAILED(CAP_HR(dev->CreateShaderResourceView(
+          tex.Get(), nullptr, half ? &deliveryHalfSrv_ : &deliverySrv_)))) {
     ReleaseDelivery(half);
     return false;
   }
@@ -1214,79 +1206,35 @@ void D3D11Passes::CompositeUiLayer(float paperWhiteNits) {
   dc->PSSetShaderResources(0, 1, none);
 }
 
-// -------------------------------------------------------------------- readback
+// ------------------------------------------------------------------------- yuv
 
-bool D3D11Passes::CreateReadbackSlots(int width, int height) {
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)width;
-  td.Height = (UINT)height;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_STAGING;
-  td.BindFlags = 0;
-  td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-  for (int i = 0; i < kReadbackSlots; ++i) {
-    if (FAILED(CAP_HR(NativeDevice(*display_)->CreateTexture2D(&td, nullptr, &readbackTex_[i])))) {
-      return false;
-    }
-  }
-  return true;
+void D3D11Passes::ReleaseYuvStream(int stream) {
+  YuvStream& s = yuv_[stream];
+  for (int i = 0; i < kReadbackSlots; ++i) s.staging[i].Reset();
+  s.rtv.Reset();
+  s.tex.Reset();
+  s.width = 0;
+  s.height = 0;
 }
 
-void D3D11Passes::ReleaseReadbackSlots() {
-  for (int i = 0; i < kReadbackSlots; ++i) readbackTex_[i].Reset();
-}
-
-void D3D11Passes::CopyToReadback(int slot, PassImage from) {
-  dc()->CopyResource(readbackTex_[slot].Get(), Texture(from));
-}
-
-bool D3D11Passes::MapReadback(int slot, MappedImage* mapped) {
-  D3D11_MAPPED_SUBRESOURCE sub = {};
-  HRESULT hr = dc()->Map(readbackTex_[slot].Get(), 0, D3D11_MAP_READ,
-                         D3D11_MAP_FLAG_DO_NOT_WAIT, &sub);
-  if (hr == DXGI_ERROR_WAS_STILL_DRAWING) return false;
-  if (FAILED(hr)) return false;
-  mapped->data = (const uint8_t*)sub.pData;
-  mapped->rowPitch = sub.RowPitch;
-  return true;
-}
-
-void D3D11Passes::UnmapReadback(int slot) {
-  dc()->Unmap(readbackTex_[slot].Get(), 0);
-}
-
-void D3D11Passes::ReleaseHdrRecord() {
-  hdrRecRtv_.Reset();
-  hdrRecTex_.Reset();
-  for (int i = 0; i < kReadbackSlots; ++i) hdrReadbackTex_[i].Reset();
-  hdrRecWidth_ = 0;
-  hdrRecHeight_ = 0;
-}
-
-bool D3D11Passes::CreateHdrRecord(int width, int height) {
-  width = std::max(1, width);
-  height = std::max(1, height);
-
-  ReleaseHdrRecord();
-
+bool D3D11Passes::CreateYuvStream(int stream, int width, int height, bool tenBit) {
+  ReleaseYuvStream(stream);
+  if (width < 2 || height < 2) return false;
+  YuvStream& s = yuv_[stream];
   ID3D11Device* dev = NativeDevice(*display_);
 
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = (UINT)width;
-  td.Height = (UINT)height;
+  td.Height = (UINT)(height + height / 2);
   td.MipLevels = 1;
   td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+  td.Format = tenBit ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R8_UINT;
   td.SampleDesc.Count = 1;
   td.Usage = D3D11_USAGE_DEFAULT;
   td.BindFlags = D3D11_BIND_RENDER_TARGET;
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &hdrRecTex_))) ||
-      FAILED(CAP_HR(dev->CreateRenderTargetView(hdrRecTex_.Get(), nullptr, &hdrRecRtv_)))) {
-    ReleaseHdrRecord();
+  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &s.tex))) ||
+      FAILED(CAP_HR(dev->CreateRenderTargetView(s.tex.Get(), nullptr, &s.rtv)))) {
+    ReleaseYuvStream(stream);
     return false;
   }
 
@@ -1294,45 +1242,42 @@ bool D3D11Passes::CreateHdrRecord(int width, int height) {
   td.BindFlags = 0;
   td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
   for (int i = 0; i < kReadbackSlots; ++i) {
-    if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &hdrReadbackTex_[i])))) {
-      ReleaseHdrRecord();
+    if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &s.staging[i])))) {
+      ReleaseYuvStream(stream);
       return false;
     }
   }
-
-  hdrRecWidth_ = width;
-  hdrRecHeight_ = height;
+  s.width = width;
+  s.height = height;
   return true;
 }
 
-void D3D11Passes::RecordHdr(PassImage from, float paperWhiteNits, int slot) {
+void D3D11Passes::ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) {
+  YuvStream& s = yuv_[stream];
   ID3D11DeviceContext* dc = NativeContext(*display_);
 
   D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (SUCCEEDED(dc->Map(cbRecord_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    const float value[4] = {paperWhiteNits, 0.0f, 0.0f, 0.0f};
-    memcpy(mapped.pData, value, sizeof(value));
-    dc->Unmap(cbRecord_.Get(), 0);
+  if (SUCCEEDED(dc->Map(cbYuv_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+    memcpy(mapped.pData, &params, sizeof(params));
+    dc->Unmap(cbYuv_.Get(), 0);
   }
 
-  ID3D11RenderTargetView* rtv[] = {hdrRecRtv_.Get()};
+  ID3D11RenderTargetView* rtv[] = {s.rtv.Get()};
   dc->OMSetRenderTargets(1, rtv, nullptr);
 
   D3D11_VIEWPORT vp = {};
-  vp.Width = (float)hdrRecWidth_;
-  vp.Height = (float)hdrRecHeight_;
+  vp.Width = (float)s.width;
+  vp.Height = (float)(s.height + s.height / 2);
   vp.MaxDepth = 1.0f;
   dc->RSSetViewports(1, &vp);
 
   dc->IASetInputLayout(nullptr);
   dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   dc->VSSetShader(vs_.Get(), nullptr, 0);
-  dc->PSSetShader(psHdrRecord_.Get(), nullptr, 0);
+  dc->PSSetShader(psYuv_.Get(), nullptr, 0);
   ID3D11ShaderResourceView* srv[] = {View(from)};
   dc->PSSetShaderResources(0, 1, srv);
-  ID3D11SamplerState* samp[] = {sampPoint_.Get()};
-  dc->PSSetSamplers(0, 1, samp);
-  ID3D11Buffer* cbs[] = {cbRecord_.Get()};
+  ID3D11Buffer* cbs[] = {cbYuv_.Get()};
   dc->PSSetConstantBuffers(0, 1, cbs);
   dc->RSSetState(raster_.Get());
   // The same as the delivery pass: opaque, whatever was bound before.
@@ -1343,12 +1288,12 @@ void D3D11Passes::RecordHdr(PassImage from, float paperWhiteNits, int slot) {
   ID3D11ShaderResourceView* none[] = {nullptr};
   dc->PSSetShaderResources(0, 1, none);
 
-  dc->CopyResource(hdrReadbackTex_[slot].Get(), hdrRecTex_.Get());
+  dc->CopyResource(s.staging[slot].Get(), s.tex.Get());
 }
 
-bool D3D11Passes::MapHdrReadback(int slot, MappedImage* mapped) {
+bool D3D11Passes::MapYuv(int stream, int slot, MappedImage* mapped) {
   D3D11_MAPPED_SUBRESOURCE sub = {};
-  if (FAILED(dc()->Map(hdrReadbackTex_[slot].Get(), 0, D3D11_MAP_READ,
+  if (FAILED(dc()->Map(yuv_[stream].staging[slot].Get(), 0, D3D11_MAP_READ,
                        D3D11_MAP_FLAG_DO_NOT_WAIT, &sub))) {
     return false;
   }
@@ -1357,8 +1302,8 @@ bool D3D11Passes::MapHdrReadback(int slot, MappedImage* mapped) {
   return true;
 }
 
-void D3D11Passes::UnmapHdrReadback(int slot) {
-  dc()->Unmap(hdrReadbackTex_[slot].Get(), 0);
+void D3D11Passes::UnmapYuv(int stream, int slot) {
+  dc()->Unmap(yuv_[stream].staging[slot].Get(), 0);
 }
 
 }  // namespace
