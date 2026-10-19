@@ -18,7 +18,7 @@ frame arriving to the present that hands it to the compositor.**
 Recording, screenshots, a microphone track and a virtual camera are included;
 scenes, overlays, compositing and streaming are not. For those, use OBS.
 
-> **The [manual](https://nuclearmeltdown.github.io/qBlank/manual.html) explains how
+> **The [manual](https://qblank.com/manual.html) explains how
 > to use it** (English and German). **The [wiki](../../wiki) is the documentation** —
 > one page per feature, what the code does and what was measured. This page is the list.
 

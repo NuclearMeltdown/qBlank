@@ -19,7 +19,7 @@ const ReleaseSource kSource = {
     "/repositories/1340564357/releases/latest",
     "/repos/NuclearMeltdown/qBlank/releases/latest",
     "https://github.com/NuclearMeltdown/qBlank/releases",
-    "https://nuclearmeltdown.github.io/qBlank/",
+    "https://qblank.com/",
 };
 
 // Named after the account rather than the program, because the account is the
