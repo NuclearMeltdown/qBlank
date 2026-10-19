@@ -162,13 +162,34 @@ bool VulkanDevice::instanceHas(const char* extension) const {
   return false;
 }
 
+bool VulkanDevice::deviceHas(const char* extension) const {
+  for (const std::string& name : deviceExtensions_) {
+    if (name == extension) return true;
+  }
+  return false;
+}
+
+uint64_t VulkanDevice::luid() const {
+  if (!physical_ || properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) return 0;
+  VkPhysicalDeviceIDProperties id = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+  VkPhysicalDeviceProperties2 props = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+  props.pNext = &id;
+  vkGetPhysicalDeviceProperties2(physical_, &props);
+  if (!id.deviceLUIDValid) return 0;
+  uint64_t luid = 0;
+  static_assert(sizeof(luid) == VK_LUID_SIZE, "a LUID is eight bytes");
+  memcpy(&luid, id.deviceLUID, sizeof(luid));
+  return luid;
+}
+
 VkResult VulkanDevice::WaitForPresent(VkSwapchainKHR swapchain, uint64_t presentId,
                                       uint64_t timeoutNs) {
   if (!waitForPresent_) return VK_ERROR_EXTENSION_NOT_PRESENT;
   return waitForPresent_(device_, swapchain, presentId, timeoutNs);
 }
 
-bool VulkanDevice::CreateDevice(VkSurfaceKHR surface, std::string* error) {
+bool VulkanDevice::CreateDevice(VkSurfaceKHR surface, const std::vector<const char*>& optional,
+                                std::string* error) {
   surface_ = surface;
   uint32_t count = 0;
   vkEnumeratePhysicalDevices(instance_, &count, nullptr);
@@ -256,6 +277,9 @@ bool VulkanDevice::CreateDevice(VkSurfaceKHR surface, std::string* error) {
   // exactly what Direct3D 11 answers and what the shaders were written for.
   const std::vector<VkExtensionProperties> available = DeviceExtensions(physical_);
   std::vector<const char*> enabled = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+  for (const char* name : optional) {
+    if (HasExtension(available, name)) enabled.push_back(name);
+  }
 
   VkPhysicalDevicePresentIdFeaturesKHR presentId = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
@@ -333,6 +357,7 @@ bool VulkanDevice::CreateDevice(VkSurfaceKHR surface, std::string* error) {
                                        VkResultName(result)));
   }
   vkGetDeviceQueue(device_, queueFamily_, 0, &queue_);
+  deviceExtensions_.assign(enabled.begin(), enabled.end());
   if (presentWait_) {
     // Not among what the loader exports, so asked of the device.
     waitForPresent_ =
@@ -384,9 +409,12 @@ void VulkanDevice::Destroy() {
   device_ = VK_NULL_HANDLE;
   queue_ = VK_NULL_HANDLE;
   physical_ = VK_NULL_HANDLE;
+  deviceExtensions_.clear();
   presentWait_ = false;
   waitForPresent_ = nullptr;
   acquireWait_ = VK_NULL_HANDLE;
+  submitNext_ = nullptr;
+  chainTaken_ = false;
   backBuffer_ = nullptr;
   uiTarget_ = nullptr;
   if (surface_ && instance_) vkDestroySurfaceKHR(instance_, surface_, nullptr);
@@ -447,8 +475,20 @@ bool VulkanDevice::Submit(VkSemaphore signal) {
   submit.pCommandBufferInfos = &commands;
   submit.signalSemaphoreInfoCount = signal ? 1u : 0u;
   submit.pSignalSemaphoreInfos = &done;
+  submit.pNext = submitNext_;
 
-  const VkResult result = vkQueueSubmit2(queue_, 1, &submit, fence_);
+  VkResult result = vkQueueSubmit2(queue_, 1, &submit, fence_);
+  if (submitNext_) {
+    // A refused submission changed nothing, so the same one goes again without
+    // what was hung on it: the frame matters more.
+    chainTaken_ = result == VK_SUCCESS;
+    if (!chainTaken_ && result != VK_ERROR_DEVICE_LOST) {
+      CAP_WARN("Vulkan submit refused its extension: %s", VkResultName(result));
+      submit.pNext = nullptr;
+      result = vkQueueSubmit2(queue_, 1, &submit, fence_);
+    }
+    submitNext_ = nullptr;
+  }
   acquireWait_ = VK_NULL_HANDLE;
   ++submittedSerial_;
   if (result != VK_SUCCESS) {

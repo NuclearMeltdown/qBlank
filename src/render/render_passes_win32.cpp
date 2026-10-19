@@ -1,6 +1,6 @@
 #include "render/render_passes.h"
 
-#include <d3d11.h>
+#include <d3d11_1.h>
 
 #include <algorithm>
 #include <cmath>
@@ -11,6 +11,7 @@
 #include "i18n.h"
 #include "inflate.h"
 #include "render/display_win32.h"
+#include "render/shared_frames.h"
 // The build compiles the shaders and packs the bytecode (CMakeLists.txt).
 // check.bat compiles this file on its own, with no build behind it, and only
 // needs to know that the bytecode is there.
@@ -100,6 +101,9 @@ class D3D11Passes : public RenderPasses {
   void ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) override;
   bool MapYuv(int stream, int slot, MappedImage* mapped) override;
   void UnmapYuv(int stream, int slot) override;
+  uint64_t AdapterId() const override;
+  bool AttachSharedYuv(int stream, std::shared_ptr<SharedFrames> frames) override;
+  bool ConvertToShared(int stream, int slot, PassImage from, const YuvParams& params) override;
 
   std::unique_ptr<StillCopy> CopyStill(PassImage from, int width, int height) override {
     return QueueStillCopy(NativeContext(*display_), Texture(from), width, height);
@@ -108,6 +112,8 @@ class D3D11Passes : public RenderPasses {
  private:
   bool CreateShaders(std::string* error);
   bool CreateStates(std::string* error);
+  void DrawYuv(ID3D11RenderTargetView* rtv, int width, int rows, PassImage from,
+               const YuvParams& params);
   bool EnsureDelivery(int width, int height, bool half);
   bool EnsureUiLayer(int width, int height);
 
@@ -211,6 +217,10 @@ class D3D11Passes : public RenderPasses {
     ComPtr<ID3D11Texture2D> staging[kReadbackSlots];
     int width = 0;
     int rows = 0;
+    // Or the recorder's textures, opened here, in place of all of that.
+    std::shared_ptr<SharedFrames> shared;
+    ComPtr<IDXGIKeyedMutex> sharedMutex[SharedFrames::kSlots];
+    ComPtr<ID3D11RenderTargetView> sharedRtv[SharedFrames::kSlots];
   };
   ComPtr<ID3D11PixelShader> psYuv_;
   ComPtr<ID3D11Buffer> cbYuv_;
@@ -1215,6 +1225,11 @@ void D3D11Passes::ReleaseYuvStream(int stream) {
   s.tex.Reset();
   s.width = 0;
   s.rows = 0;
+  for (int i = 0; i < SharedFrames::kSlots; ++i) {
+    s.sharedRtv[i].Reset();
+    s.sharedMutex[i].Reset();
+  }
+  s.shared.reset();
 }
 
 bool D3D11Passes::CreateYuvStream(int stream, int width, int rows, bool sixteenBit) {
@@ -1254,6 +1269,64 @@ bool D3D11Passes::CreateYuvStream(int stream, int width, int rows, bool sixteenB
 
 void D3D11Passes::ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) {
   YuvStream& s = yuv_[stream];
+  DrawYuv(s.rtv.Get(), s.width, s.rows, from, params);
+  dc()->CopyResource(s.staging[slot].Get(), s.tex.Get());
+}
+
+uint64_t D3D11Passes::AdapterId() const {
+  ComPtr<IDXGIDevice> device;
+  ComPtr<IDXGIAdapter> adapter;
+  ComPtr<IDXGIAdapter1> adapter1;
+  DXGI_ADAPTER_DESC1 desc = {};
+  if (!display_ || FAILED(dev()->QueryInterface(IID_PPV_ARGS(&device))) ||
+      FAILED(device->GetAdapter(&adapter)) || FAILED(adapter.As(&adapter1)) ||
+      FAILED(adapter1->GetDesc1(&desc)) || (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) {
+    return 0;
+  }
+  uint64_t luid = 0;
+  memcpy(&luid, &desc.AdapterLuid, sizeof(luid));
+  return luid;
+}
+
+bool D3D11Passes::AttachSharedYuv(int stream, std::shared_ptr<SharedFrames> frames) {
+  ReleaseYuvStream(stream);
+  if (!frames) return true;
+  YuvStream& s = yuv_[stream];
+  ComPtr<ID3D11Device1> dev1;
+  if (FAILED(CAP_HR(dev()->QueryInterface(IID_PPV_ARGS(&dev1))))) return false;
+  for (int i = 0; i < SharedFrames::kSlots; ++i) {
+    ComPtr<ID3D11Texture2D> tex;
+    if (FAILED(CAP_HR(dev1->OpenSharedResource1(frames->handle[i], IID_PPV_ARGS(&tex)))) ||
+        FAILED(CAP_HR(tex.As(&s.sharedMutex[i]))) ||
+        FAILED(CAP_HR(dev()->CreateRenderTargetView(tex.Get(), nullptr, &s.sharedRtv[i])))) {
+      ReleaseYuvStream(stream);
+      return false;
+    }
+  }
+  s.shared = std::move(frames);
+  return true;
+}
+
+bool D3D11Passes::ConvertToShared(int stream, int slot, PassImage from, const YuvParams& params) {
+  YuvStream& s = yuv_[stream];
+  if (!s.shared) return false;
+  // A free slot was released with its key, so this does not wait. The other
+  // key only after a hand-over that went wrong on the recorder's side.
+  IDXGIKeyedMutex* mutex = s.sharedMutex[slot].Get();
+  uint64_t key = s.shared->key[slot];
+  if (mutex->AcquireSync(key, 0) != S_OK) {
+    key = 1 - key;
+    if (mutex->AcquireSync(key, 0) != S_OK) return false;
+  }
+  DrawYuv(s.sharedRtv[slot].Get(), s.shared->width, s.shared->rows, from, params);
+  dc()->OMSetRenderTargets(0, nullptr, nullptr);
+  mutex->ReleaseSync(1);
+  s.shared->key[slot] = 1;
+  return true;
+}
+
+void D3D11Passes::DrawYuv(ID3D11RenderTargetView* target, int width, int rows, PassImage from,
+                          const YuvParams& params) {
   ID3D11DeviceContext* dc = NativeContext(*display_);
 
   D3D11_MAPPED_SUBRESOURCE mapped = {};
@@ -1262,12 +1335,12 @@ void D3D11Passes::ConvertToYuv(int stream, int slot, PassImage from, const YuvPa
     dc->Unmap(cbYuv_.Get(), 0);
   }
 
-  ID3D11RenderTargetView* rtv[] = {s.rtv.Get()};
+  ID3D11RenderTargetView* rtv[] = {target};
   dc->OMSetRenderTargets(1, rtv, nullptr);
 
   D3D11_VIEWPORT vp = {};
-  vp.Width = (float)s.width;
-  vp.Height = (float)s.rows;
+  vp.Width = (float)width;
+  vp.Height = (float)rows;
   vp.MaxDepth = 1.0f;
   dc->RSSetViewports(1, &vp);
 
@@ -1287,8 +1360,6 @@ void D3D11Passes::ConvertToYuv(int stream, int slot, PassImage from, const YuvPa
 
   ID3D11ShaderResourceView* none[] = {nullptr};
   dc->PSSetShaderResources(0, 1, none);
-
-  dc->CopyResource(s.staging[slot].Get(), s.tex.Get());
 }
 
 bool D3D11Passes::MapYuv(int stream, int slot, MappedImage* mapped) {

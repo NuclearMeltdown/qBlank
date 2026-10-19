@@ -2225,6 +2225,32 @@ uint main(VSOut i) : SV_Target {
 }
 )HLSL";
 
+// The recorder's half of handing the NV12 image over on the GPU (shared_frames.h):
+// kYuvPS's one image split into the two planes of the encoder's own NV12 or
+// P010 texture, one draw each. The codes are copied, not touched.
+inline const char* kYuvSplitPS = R"HLSL(
+Texture2D<uint> texSrc : register(t0);
+
+cbuffer SplitCB : register(b0) {
+  uint gChroma;  // 0 the luma plane, 1 the chroma plane
+  int gHeight;   // of the luma
+  int2 gPad;
+};
+
+struct VSOut {
+  float4 pos : SV_Position;
+  float2 uv  : TEXCOORD0;
+};
+
+uint4 main(VSOut i) : SV_Target {
+  const int x = (int)i.pos.x;
+  const int y = (int)i.pos.y;
+  if (gChroma == 0) return uint4(texSrc.Load(int3(x, y, 0)), 0, 0, 0);
+  const int row = gHeight + y;
+  return uint4(texSrc.Load(int3(2 * x, row, 0)), texSrc.Load(int3(2 * x + 1, row, 0)), 0, 0);
+}
+)HLSL";
+
 // Pass four, and only when the swapchain is scRGB: the interface, brought into
 // linear light.
 //

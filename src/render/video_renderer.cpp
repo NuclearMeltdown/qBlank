@@ -6,6 +6,7 @@
 
 #include "i18n.h"
 #include "render/display.h"
+#include "render/shared_frames.h"
 namespace cap {
 
 namespace {
@@ -2615,6 +2616,12 @@ void VideoRenderer::SetReadbackWanted(const YuvFormat* record, const YuvFormat* 
 void VideoRenderer::ReleaseYuv(Yuv stream) {
   YuvRing& ring = yuv_[(int)stream];
   if (ring.mapped >= 0 && display_) passes_->UnmapYuv((int)stream, ring.mapped);
+  // A slot drawn into and not handed on yet goes back. Asking first keeps its
+  // key right, should its submit have gone out.
+  if (ring.shared && ring.sharedPending >= 0) {
+    passes_->SharedSubmitted((int)stream);
+    ring.shared->state[ring.sharedPending].store(SharedFrames::Free, std::memory_order_release);
+  }
   passes_->ReleaseYuvStream((int)stream);
   const bool wanted = ring.wanted;
   const YuvFormat format = ring.format;
@@ -2654,12 +2661,41 @@ void VideoRenderer::QueueYuv(Yuv stream, PassImage from) {
   YuvRing& ring = yuv_[(int)stream];
   if (!ring.wanted) return;
 
-  // Resolution changed (crop, or the card switched mode): start over. Both
-  // sizes even, which the chroma rows want.
-  // The format changing does the same.
   const int width = deliveryWidth_ & ~1;
   const int height = deliveryHeight_ & ~1;
   const YuvFormat format = ring.format;
+
+  // Into a free shared slot. A picture of another size has no place there;
+  // the recorder was made for one.
+  if (ring.shared) {
+    SharedFrames& frames = *ring.shared;
+    if (ring.sharedBroken || ring.sharedPending >= 0 || frames.width != width ||
+        frames.height != height) {
+      return;
+    }
+    for (int slot = 0; slot < SharedFrames::kSlots; ++slot) {
+      uint8_t free = SharedFrames::Free;
+      if (!frames.state[slot].compare_exchange_strong(free, SharedFrames::Writing,
+                                                      std::memory_order_acquire)) {
+        continue;
+      }
+      if (passes_->ConvertToShared((int)stream, slot, from, YuvParamsFor(format, width, height))) {
+        ring.sharedPending = slot;
+      } else {
+        frames.state[slot].store(SharedFrames::Free, std::memory_order_release);
+        if (++ring.sharedFailures >= 3) {
+          ring.sharedBroken = true;
+          CAP_WARN("Shared recording frames could not be written; reading back instead");
+        }
+      }
+      return;
+    }
+    return;  // all three busy: the recorder is behind, and this frame is dropped
+  }
+
+  // Resolution changed (crop, or the card switched mode): start over. Both
+  // sizes even, which the chroma rows want.
+  // The format changing does the same.
   if (ring.width != width || ring.height != height || ring.made != format) {
     ReleaseYuv(stream);
     ring.width = width;
@@ -2672,6 +2708,12 @@ void VideoRenderer::QueueYuv(Yuv stream, PassImage from) {
   // The slot about to be written must not be the one the caller still holds.
   if (ring.failed || ring.write == ring.mapped) return;
 
+  passes_->ConvertToYuv((int)stream, ring.write, from, YuvParamsFor(format, width, height));
+  ring.write = (ring.write + 1) % kReadbackSlots;
+  if (ring.queued < kReadbackSlots) ++ring.queued;
+}
+
+YuvParams VideoRenderer::YuvParamsFor(const YuvFormat& format, int width, int height) const {
   YuvParams params = {};
   switch (format.matrix) {
     case YuvMatrix::Bt709:
@@ -2693,9 +2735,39 @@ void VideoRenderer::QueueYuv(Yuv stream, PassImage from) {
   params.layout = (uint32_t)format.layout;
   params.width = width;
   params.height = height;
-  passes_->ConvertToYuv((int)stream, ring.write, from, params);
-  ring.write = (ring.write + 1) % kReadbackSlots;
-  if (ring.queued < kReadbackSlots) ++ring.queued;
+  return params;
+}
+
+bool VideoRenderer::AttachShared(Yuv stream, const std::shared_ptr<SharedFrames>& frames) {
+  YuvRing& ring = yuv_[(int)stream];
+  if (ring.shared == frames) return !ring.sharedBroken;
+  ReleaseYuv(stream);
+  if (!frames) return true;
+  if (!passes_->AttachSharedYuv((int)stream, frames)) {
+    CAP_WARN("Shared recording frames cannot be used here; reading back instead");
+    return false;
+  }
+  ring.shared = frames;
+  return true;
+}
+
+int VideoRenderer::TakeSharedFrame(Yuv stream) {
+  YuvRing& ring = yuv_[(int)stream];
+  if (!ring.shared || ring.sharedPending < 0) return -1;
+  const int done = passes_->SharedSubmitted((int)stream);
+  if (done == 0) return -1;
+  const int slot = ring.sharedPending;
+  ring.sharedPending = -1;
+  if (done < 0) {
+    ring.shared->state[slot].store(SharedFrames::Free, std::memory_order_release);
+    if (++ring.sharedFailures >= 3 && !ring.sharedBroken) {
+      ring.sharedBroken = true;
+      CAP_WARN("Shared recording frames could not be handed over; reading back instead");
+    }
+    return -1;
+  }
+  ring.sharedFailures = 0;
+  return slot;
 }
 
 bool VideoRenderer::FetchReadback(Yuv stream, ReadbackFrame* out) {

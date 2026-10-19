@@ -366,6 +366,7 @@ void RecordingControl::LaunchRecording() {
   recordingFile_ = pendingFile_;
   recordingBytes_ = 0;
 
+  recorder_.SetGpuAdapter(renderer_.sharedAdapter());
   const bool ok = recorder_.Start(pendingSettings_, pendingFile_, ffmpeg_,
                                   renderer_.outputWidth(), renderer_.outputHeight(), recordFps,
                                   mainTrack, micTrack, config_.active().audio.micTrackMode,

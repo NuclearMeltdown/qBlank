@@ -70,8 +70,9 @@ foreach(entry IN LISTS files)
   string(REGEX REPLACE "(${line})" "\\1\n  " bytes "${bytes}")
   string(REGEX REPLACE "\n  $" "" bytes "${bytes}")
 
-  string(APPEND text "static const uint8_t ${name}Data[] = {\n  ${bytes}\n};\n")
-  string(APPEND text "static const Packed ${name} = {${name}Data, sizeof(${name}Data), ${size}};\n")
+  # Inline, not static: a header two files include still lands in the exe once.
+  string(APPEND text "inline const uint8_t ${name}Data[] = {\n  ${bytes}\n};\n")
+  string(APPEND text "inline const Packed ${name} = {${name}Data, sizeof(${name}Data), ${size}};\n")
 endforeach()
 
 string(APPEND text "}  // namespace cap\n")

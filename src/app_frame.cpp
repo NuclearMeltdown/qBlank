@@ -451,13 +451,27 @@ void App::FeedFrameConsumers() {
   cameraFormat.matrix = wantCamera && virtualCamera_.wantsWide() && renderer_.sourceHdr()
                             ? YuvMatrix::Bt2020Pq
                             : YuvMatrix::Bt601;
+  // A hardware encoder takes the picture on the GPU, and nothing is read back
+  // for it; the camera then reads its own.
+  static const std::shared_ptr<SharedFrames> none;
+  const std::shared_ptr<SharedFrames>& shared = wantRecorder ? recorder_.sharedFrames() : none;
   // When both want the same bytes, they are converted and read once.
-  const bool share = wantRecorder && wantCamera && recorder_.format() == cameraFormat;
+  const bool share =
+      wantRecorder && wantCamera && !shared && recorder_.format() == cameraFormat;
   renderer_.SetReadbackWanted(wantRecorder ? &recorder_.format() : nullptr,
                               wantCamera && !share ? &cameraFormat : nullptr);
 
+  bool attached = false;
+  if (wantRecorder) {
+    attached = renderer_.AttachShared(VideoRenderer::Yuv::Record, shared) && shared;
+    if (shared && !attached) recorder_.RefuseShared();
+  }
+
   VideoRenderer::ReadbackFrame frame;
-  if (wantRecorder && renderer_.FetchReadback(VideoRenderer::Yuv::Record, &frame)) {
+  if (attached) {
+    const int slot = renderer_.TakeSharedFrame(VideoRenderer::Yuv::Record);
+    if (slot >= 0) recorder_.PushGpuFrame(slot);
+  } else if (wantRecorder && renderer_.FetchReadback(VideoRenderer::Yuv::Record, &frame)) {
     recorder_.PushVideo(frame.data, frame.stride, frame.width, frame.height, frame.format);
     if (share) {
       virtualCamera_.PushFrame(frame.data, frame.stride, frame.width, frame.height,

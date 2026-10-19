@@ -37,6 +37,8 @@
 #include "inflate.h"
 #include "render/display.h"
 #include "render/display_vulkan.h"
+#include "render/shared_frames.h"
+#include "render/vulkan_shared.h"
 // Made and packed by the build from the HLSL in shaders.h (CMakeLists.txt).
 #include "shaders_spirv.h"
 
@@ -144,6 +146,11 @@ class VulkanPasses : public RenderPasses {
   bool MapYuv(int stream, int slot, MappedImage* mapped) override;
   // The buffers stay mapped for their life.
   void UnmapYuv(int stream, int slot) override {}
+
+  uint64_t AdapterId() const override { return vk_ && VulkanCanShare(*vk_) ? vk_->luid() : 0; }
+  bool AttachSharedYuv(int stream, std::shared_ptr<SharedFrames> frames) override;
+  bool ConvertToShared(int stream, int slot, PassImage from, const YuvParams& params) override;
+  int SharedSubmitted(int stream) override;
 
   std::unique_ptr<StillCopy> CopyStill(PassImage from, int width, int height) override {
     return vk_ ? vk_->CopyStill(Image(from), width, height) : nullptr;
@@ -271,6 +278,11 @@ class VulkanPasses : public RenderPasses {
   struct YuvStream {
     VulkanImage image;
     Readback readback[kReadbackSlots];
+    // Or the recorder's textures, each taken and given back by the submit
+    // that draws into it. `pending` is the slot whose submit is still to come.
+    std::shared_ptr<SharedFrames> shared;
+    std::unique_ptr<VulkanSharedImages> sharedImages;
+    int pending = -1;
   };
   YuvStream yuv_[kYuvStreams];
 
@@ -549,7 +561,10 @@ void VulkanPasses::Forget() {
   for (Plane& plane : planes_) plane = Plane();
   clean_ = cleanPrev_ = intermediate_ = VulkanImage();
   delivery_ = deliveryHalf_ = uiLayer_ = VulkanImage();
-  for (YuvStream& stream : yuv_) stream = YuvStream();
+  for (YuvStream& stream : yuv_) {
+    if (stream.sharedImages) stream.sharedImages->Forget();
+    stream = YuvStream();
+  }
 }
 
 // ------------------------------------------------------------------ machinery
@@ -1346,6 +1361,9 @@ void VulkanPasses::ReleaseYuvStream(int stream) {
   YuvStream& s = yuv_[stream];
   if (vk_) vk_->DestroyImage(&s.image);
   for (Readback& readback : s.readback) ReleaseReadback(&readback);
+  s.sharedImages.reset();
+  s.shared.reset();
+  s.pending = -1;
 }
 
 bool VulkanPasses::CreateYuvStream(int stream, int width, int rows, bool sixteenBit) {
@@ -1377,6 +1395,45 @@ void VulkanPasses::ConvertToYuv(int stream, int slot, PassImage from, const YuvP
   Draw(fsYuv_, &s.image, 0, 0, s.image.width, s.image.height, source, 1, &params,
        sizeof(params));
   CopyOut(vk_->Commands(), &s.image, &s.readback[slot]);
+}
+
+bool VulkanPasses::AttachSharedYuv(int stream, std::shared_ptr<SharedFrames> frames) {
+  ReleaseYuvStream(stream);
+  if (!frames) return true;
+  if (!vk_) return false;
+  YuvStream& s = yuv_[stream];
+  s.sharedImages = OpenVulkanShared(*vk_, *frames);
+  if (!s.sharedImages) return false;
+  s.shared = std::move(frames);
+  return true;
+}
+
+bool VulkanPasses::ConvertToShared(int stream, int slot, PassImage from, const YuvParams& params) {
+  YuvStream& s = yuv_[stream];
+  // One mutex per submit: a second picture waits for the next frame.
+  if (!vk_ || !s.sharedImages || s.pending >= 0 || vk_->chained()) return false;
+  VkCommandBuffer cmd = vk_->Commands();
+  if (!cmd) return false;
+  VulkanImage* target = s.sharedImages->Begin(cmd, slot);
+  VulkanImage* source[1] = {Sampled(from)};
+  Draw(fsYuv_, target, 0, 0, s.shared->width, s.shared->rows, source, 1, &params, sizeof(params));
+  s.sharedImages->End(cmd, slot);
+  // A free slot was given back with its key, so the wait is only there for a
+  // hand-over that went wrong; the frame would rather lose the picture.
+  vk_->ChainSubmit(s.sharedImages->SubmitChain(slot, s.shared->key[slot], 1, 4));
+  s.pending = slot;
+  return true;
+}
+
+int VulkanPasses::SharedSubmitted(int stream) {
+  YuvStream& s = yuv_[stream];
+  if (s.pending < 0 || !vk_) return -1;
+  if (vk_->chained()) return 0;
+  const int slot = s.pending;
+  s.pending = -1;
+  if (!vk_->chainTaken()) return -1;
+  s.shared->key[slot] = 1;
+  return 1;
 }
 
 bool VulkanPasses::MapYuv(int stream, int slot, MappedImage* mapped) {

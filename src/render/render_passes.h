@@ -40,6 +40,7 @@
 namespace cap {
 
 class Display;
+class SharedFrames;
 enum class GraphicsApi;
 
 // How one uploaded plane is read. Named by what a sample holds rather than by
@@ -323,6 +324,25 @@ class RenderPasses {
   // Does not wait for the GPU: false when the copy is still running.
   virtual bool MapYuv(int stream, int slot, MappedImage* mapped) = 0;
   virtual void UnmapYuv(int stream, int slot) = 0;
+
+  // The same picture handed over on the GPU instead (shared_frames.h). The
+  // adapter is its LUID, 0 when this one cannot share: a software device.
+  virtual uint64_t AdapterId() const { return 0; }
+  // Opens the textures of `frames` for `stream`, or closes them with null.
+  // ReleaseYuvStream closes them too.
+  virtual bool AttachSharedYuv(int stream, std::shared_ptr<SharedFrames> frames) {
+    return !frames;
+  }
+  // Converts `from` into the texture of `slot`, which the caller holds as
+  // Writing, and releases it with key 1 -- here, or with the frame's submit.
+  // False when its mutex could not be taken and nothing was drawn.
+  virtual bool ConvertToShared(int stream, int slot, PassImage from, const YuvParams& params) {
+    return false;
+  }
+  // After the frame's submit, for the last ConvertToShared: 1 when the slot
+  // went out with its mutex, 0 while it still waits for a submit, -1 when it
+  // did not and the slot is free to be written again.
+  virtual int SharedSubmitted(int stream) { return 1; }
 
   // ---- stills ----
 

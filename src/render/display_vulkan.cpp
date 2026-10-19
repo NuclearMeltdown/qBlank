@@ -2,6 +2,7 @@
 
 #include "render/display_backend.h"
 #include "render/display_vulkan_platform.h"
+#include "render/vulkan_shared.h"
 
 #include "backends/imgui_impl_vulkan.h"
 #include "common.h"
@@ -159,7 +160,7 @@ bool VulkanDisplay::Initialize(const Window& window, std::string* error) {
   }
   VkSurfaceKHR surface = VK_NULL_HANDLE;
   if (!CreateVulkanSurface(device_.instance(), window, &surface, error)) return false;
-  if (!device_.CreateDevice(surface, error)) return false;
+  if (!device_.CreateDevice(surface, VulkanSharedExtensions(), error)) return false;
 
   for (VkFormat want : kSdrFormats) {
     if (SurfaceHas(want, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)) {

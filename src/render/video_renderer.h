@@ -236,6 +236,17 @@ class VideoRenderer {
   bool FetchReadback(Yuv stream, ReadbackFrame* out);
   void ReleaseReadback(Yuv stream);
 
+  // For a hardware encoder the picture stays on the GPU instead
+  // (shared_frames.h). While `frames` are attached, the stream draws into them
+  // and reads nothing back; null detaches them. False when they cannot be used
+  // here, or stopped working; the caller then goes back to the readback.
+  bool AttachShared(Yuv stream, const std::shared_ptr<SharedFrames>& frames);
+  // After the frame's submit: the slot it drew into, Writing and the caller's
+  // to hand on, or -1 for none.
+  int TakeSharedFrame(Yuv stream);
+  // The adapter the passes draw on, 0 when they cannot share.
+  uint64_t sharedAdapter() const { return passes_ ? passes_->AdapterId() : 0; }
+
   // The picture as linear light, four half floats per pixel, 1.0 being diffuse
   // white, for a screenshot that keeps the range. Queued, not waited for: see
   // still_copy.h. Must be called on the render thread.
@@ -451,6 +462,7 @@ class VideoRenderer {
  private:
   void QueueReadback();
   void QueueYuv(Yuv stream, PassImage from);
+  YuvParams YuvParamsFor(const YuvFormat& format, int width, int height) const;
   void ReleaseYuv(Yuv stream);
 
  public:
@@ -587,6 +599,11 @@ class VideoRenderer {
     int write = 0;
     int queued = 0;
     int mapped = -1;  // slot currently mapped, -1 when none
+    // Drawing into shared frames instead, see AttachShared.
+    std::shared_ptr<SharedFrames> shared;
+    int sharedPending = -1;  // the slot drawn into this frame
+    int sharedFailures = 0;  // in a row
+    bool sharedBroken = false;
   };
   YuvRing yuv_[kYuvStreams];
 

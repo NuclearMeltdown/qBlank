@@ -7,7 +7,9 @@
 #include <deque>
 #include <system_error>
 
+#include "record/gpu_frames.h"
 #include "record/libav.h"
+#include "render/shared_frames.h"
 
 namespace cap {
 namespace {
@@ -74,6 +76,8 @@ struct Recorder::Session {
   // The frames PushVideo fills. A buffer comes back once nobody refers to it
   // any more, the encoder included, so none is ever written into while read.
   AVBufferPool* pool = nullptr;
+  // Where the encoder takes its frames on the GPU instead, when it does.
+  std::unique_ptr<GpuFrames> gpu;
 
   struct Track {
     AVCodecContext* codec = nullptr;
@@ -518,6 +522,7 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   failed_.store(false, std::memory_order_relaxed);
   encoderBehind_.store(false, std::memory_order_relaxed);
   ready_.store(false, std::memory_order_relaxed);
+  sharedRefused_.store(false, std::memory_order_relaxed);
   {
     std::lock_guard<std::mutex> lock(infoMutex_);
     file_ = PathToUtf8(outFile);
@@ -560,66 +565,103 @@ bool Recorder::Open(Session* s) {
 
   // ---- the picture ----
   const AVCodec* codec = av.avcodec_find_encoder_by_name(s->encoder.ffmpegName.c_str());
-  if (!codec || !(s->video = av.avcodec_alloc_context3(codec))) {
+  if (!codec) {
     Fail(CAP_SAID(Format(T("Encoder %s fehlt in diesem ffmpeg.", "This ffmpeg lacks encoder %s."),
                          s->encoder.ffmpegName.c_str())));
     return false;
   }
-  AVCodecContext* v = s->video;
-  v->width = width_;
-  v->height = height_;
-  v->pix_fmt = av.av_get_pix_fmt(FfmpegPixelFormat(format_));
-  v->time_base = AVRational{s->rate.den, s->rate.num};
-  v->framerate = s->rate;
-  // As many threads as it likes, which is what the command line did by
-  // default; the library's own default is one.
-  v->thread_count = 0;
-  // The frames arrive as Y'CbCr already, converted on the GPU with the matrix
-  // named here. Without these the file says nothing about its colours, and a
-  // player reads an untagged HD file as whatever it likes and an untagged PQ
-  // one as anything but HDR.
-  if (format_.pq()) {
-    v->color_primaries = AVCOL_PRI_BT2020;
-    v->color_trc = AVCOL_TRC_SMPTE2084;
-    v->colorspace = AVCOL_SPC_BT2020_NCL;
-  } else {
-    v->color_primaries = AVCOL_PRI_BT709;
-    v->color_trc = AVCOL_TRC_BT709;
-    v->colorspace = AVCOL_SPC_BT709;
-  }
-  v->color_range = AVCOL_RANGE_MPEG;
-  if (globalHeader) v->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-  if (s->settings.rateControl == RateControl::Quality) {
-    // A quality target and a bitrate are contradictory instructions, and the
-    // encoders resolve them by quietly ignoring one. Better to give only one.
-    v->bit_rate = 0;
-  } else {
-    // Constant means constant: the ceiling is the bitrate. Variable is allowed
-    // to peak at half again, which is what makes it worth choosing.
-    const int64_t kbps = s->settings.bitrateKbps;
-    const int64_t ceiling = s->settings.rateControl == RateControl::Cbr ? kbps : kbps * 3 / 2;
-    v->bit_rate = kbps * 1000;
-    v->rc_max_rate = ceiling * 1000;
-    v->rc_buffer_size = (int)std::min<int64_t>(ceiling * 2000, INT32_MAX);
+
+  // A hardware encoder takes the picture on the GPU, where the renderer draws
+  // it, when it takes D3D11 frames and the renderer can share them. 4:4:4 is
+  // read back: no encoder's frames on the GPU hold it.
+  if (gpuAdapter_ != 0 && format_.layout == YuvLayout::Nv12 &&
+      FamilyOf(s->encoder.ffmpegName) != Family::Software) {
+    bool takes = false;
+    for (int i = 0; const AVCodecHWConfig* c = av.avcodec_get_hw_config(codec, i); ++i) {
+      takes |= c->pix_fmt == AV_PIX_FMT_D3D11 &&
+               (c->methods & AV_CODEC_HW_CONFIG_METHOD_HW_FRAMES_CTX) != 0;
+    }
+    if (takes) {
+      s->gpu = CreateGpuFrames(av, gpuAdapter_, width_, height_, format_.sampleBytes() == 2);
+    }
   }
 
-  AVDictionary* options = nullptr;
+  // Everything the encoder is told, then opened. Once more when it did not
+  // take the frames on the GPU, for the ones read back.
   std::string told;
-  const std::vector<std::string> pairs = EncoderOptions(s->settings, s->encoder);
-  for (size_t i = 0; i + 1 < pairs.size(); i += 2) {
-    av.av_dict_set(&options, pairs[i].c_str(), pairs[i + 1].c_str(), 0);
-    told += Format(" %s=%s", pairs[i].c_str(), pairs[i + 1].c_str());
-  }
-  LibavClearError();
-  result = av.avcodec_open2(v, codec, &options);
-  // What is left is what the encoder did not know. Not a failure, but worth
-  // a line: it is a setting that did nothing.
   std::string unknown;
-  for (const AVDictionaryEntry* e = nullptr;
-       (e = av.av_dict_get(options, "", e, AV_DICT_IGNORE_SUFFIX)) != nullptr;) {
-    unknown += Format(" %s", e->key);
+  auto open = [&]() {
+    av.avcodec_free_context(&s->video);
+    AVCodecContext* v = s->video = av.avcodec_alloc_context3(codec);
+    if (!v) return AVERROR(ENOMEM);
+    v->width = width_;
+    v->height = height_;
+    if (s->gpu) {
+      v->pix_fmt = AV_PIX_FMT_D3D11;
+      if (!(v->hw_frames_ctx = av.av_buffer_ref(s->gpu->framesContext()))) return AVERROR(ENOMEM);
+    } else {
+      v->pix_fmt = av.av_get_pix_fmt(FfmpegPixelFormat(format_));
+    }
+    v->time_base = AVRational{s->rate.den, s->rate.num};
+    v->framerate = s->rate;
+    // As many threads as it likes, which is what the command line did by
+    // default; the library's own default is one.
+    v->thread_count = 0;
+    // The frames arrive as Y'CbCr already, converted on the GPU with the
+    // matrix named here. Without these the file says nothing about its
+    // colours, and a player reads an untagged HD file as whatever it likes and
+    // an untagged PQ one as anything but HDR.
+    if (format_.pq()) {
+      v->color_primaries = AVCOL_PRI_BT2020;
+      v->color_trc = AVCOL_TRC_SMPTE2084;
+      v->colorspace = AVCOL_SPC_BT2020_NCL;
+    } else {
+      v->color_primaries = AVCOL_PRI_BT709;
+      v->color_trc = AVCOL_TRC_BT709;
+      v->colorspace = AVCOL_SPC_BT709;
+    }
+    v->color_range = AVCOL_RANGE_MPEG;
+    if (globalHeader) v->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    if (s->settings.rateControl == RateControl::Quality) {
+      // A quality target and a bitrate are contradictory instructions, and the
+      // encoders resolve them by quietly ignoring one. Better to give only one.
+      v->bit_rate = 0;
+    } else {
+      // Constant means constant: the ceiling is the bitrate. Variable is
+      // allowed to peak at half again, which is what makes it worth choosing.
+      const int64_t kbps = s->settings.bitrateKbps;
+      const int64_t ceiling = s->settings.rateControl == RateControl::Cbr ? kbps : kbps * 3 / 2;
+      v->bit_rate = kbps * 1000;
+      v->rc_max_rate = ceiling * 1000;
+      v->rc_buffer_size = (int)std::min<int64_t>(ceiling * 2000, INT32_MAX);
+    }
+
+    AVDictionary* options = nullptr;
+    told.clear();
+    const std::vector<std::string> pairs = EncoderOptions(s->settings, s->encoder);
+    for (size_t i = 0; i + 1 < pairs.size(); i += 2) {
+      av.av_dict_set(&options, pairs[i].c_str(), pairs[i + 1].c_str(), 0);
+      told += Format(" %s=%s", pairs[i].c_str(), pairs[i + 1].c_str());
+    }
+    LibavClearError();
+    const int opened = av.avcodec_open2(v, codec, &options);
+    // What is left is what the encoder did not know. Not a failure, but worth
+    // a line: it is a setting that did nothing.
+    unknown.clear();
+    for (const AVDictionaryEntry* e = nullptr;
+         (e = av.av_dict_get(options, "", e, AV_DICT_IGNORE_SUFFIX)) != nullptr;) {
+      unknown += Format(" %s", e->key);
+    }
+    av.av_dict_free(&options);
+    return opened;
+  };
+  result = AVERROR(ENOSYS);
+  if (s->gpu && (result = open()) < 0) {
+    CAP_WARN("Recording: %s took no frames on the GPU (%s); reading them back",
+             s->encoder.ffmpegName.c_str(), LibavError(result).c_str());
+    s->gpu.reset();
   }
-  av.av_dict_free(&options);
+  if (!s->gpu) result = open();
   if (result < 0) {
     return failed("Der Encoder ließ sich nicht öffnen: %s", "Could not open the encoder: %s",
                   result);
@@ -627,6 +669,7 @@ bool Recorder::Open(Session* s) {
   if (!unknown.empty()) {
     CAP_WARN("Recording: %s ignored%s", s->encoder.ffmpegName.c_str(), unknown.c_str());
   }
+  const AVCodecContext* v = s->video;
 
   AVStream* stream = av.avformat_new_stream(s->output, nullptr);
   if (!stream) return failed("Die Datei konnte nicht angelegt werden: %s",
@@ -738,23 +781,28 @@ bool Recorder::Open(Session* s) {
 
   // Room for a frame, plus what SIMD may read past the end. A few are touched
   // now, so the first copies on the render thread do not fault their pages in.
+  // On the GPU they are only there for when the renderer cannot share after
+  // all, and stay untouched until then.
   const size_t bufferBytes = frameBytes_ + AV_INPUT_BUFFER_PADDING_SIZE;
   s->pool = av.av_buffer_pool_init(bufferBytes, nullptr);
   if (!s->pool) {
     Fail(CAP_SAID(T("Kein Speicher für die Aufnahme.", "Out of memory for the recording.")));
     return false;
   }
-  AVBufferRef* warm[4] = {};
-  for (AVBufferRef*& buffer : warm) {
-    buffer = av.av_buffer_pool_get(s->pool);
-    if (buffer) memset(buffer->data, 0, bufferBytes);
+  if (!s->gpu) {
+    AVBufferRef* warm[4] = {};
+    for (AVBufferRef*& buffer : warm) {
+      buffer = av.av_buffer_pool_get(s->pool);
+      if (buffer) memset(buffer->data, 0, bufferBytes);
+    }
+    for (AVBufferRef*& buffer : warm) av.av_buffer_unref(&buffer);
   }
-  for (AVBufferRef*& buffer : warm) av.av_buffer_unref(&buffer);
 
-  CAP_LOG("Recording: %s %dx%d %s at %d/%d fps,%s %d audio track%s at %d Hz",
-          s->encoder.ffmpegName.c_str(), width_, height_, FfmpegPixelFormat(format_), s->rate.num,
-          s->rate.den, told.empty() ? " defaults," : told.c_str(), trackCount,
-          trackCount == 1 ? "" : "s", trackCount > 0 ? trackRate : 0);
+  CAP_LOG("Recording: %s %dx%d %s%s at %d/%d fps,%s %d audio track%s at %d Hz",
+          s->encoder.ffmpegName.c_str(), width_, height_, FfmpegPixelFormat(format_),
+          s->gpu ? " on the GPU" : "", s->rate.num, s->rate.den,
+          told.empty() ? " defaults," : told.c_str(), trackCount, trackCount == 1 ? "" : "s",
+          trackCount > 0 ? trackRate : 0);
   return true;
 }
 
@@ -771,7 +819,12 @@ void Recorder::Stop() {
   {
     std::lock_guard<std::mutex> lock(frameMutex_);
     std::swap(stale, readyBuffer_);
+    if (readySlot_ >= 0) {
+      shared_->state[readySlot_].store(SharedFrames::Free, std::memory_order_release);
+      readySlot_ = -1;
+    }
   }
+  shared_.reset();
   const Libav* av = Av();
   if (stale && av) av->av_buffer_unref(&stale);
 
@@ -886,55 +939,125 @@ void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int heigh
   }
 }
 
+const std::shared_ptr<SharedFrames>& Recorder::sharedFrames() const {
+  static const std::shared_ptr<SharedFrames> none;
+  return ready_.load(std::memory_order_acquire) && !sharedRefused_.load(std::memory_order_relaxed)
+             ? shared_
+             : none;
+}
+
+void Recorder::PushGpuFrame(int slot) {
+  SharedFrames* frames = shared_.get();
+  if (!frames || slot < 0 || slot >= SharedFrames::kSlots) return;
+  int stale = -1;
+  {
+    std::lock_guard<std::mutex> lock(frameMutex_);
+    stale = readySlot_;
+    frames->state[slot].store(SharedFrames::Ready, std::memory_order_release);
+    readySlot_ = slot;
+  }
+  frameReady_.notify_one();
+  if (stale >= 0) {
+    // As in PushVideo: the timeline did not need it.
+    dropped_.fetch_add(1, std::memory_order_relaxed);
+    frames->state[stale].store(SharedFrames::Free, std::memory_order_release);
+  }
+}
+
 // ------------------------------------------------------------ writer threads
 
 void Recorder::VideoThread(Session* s) {
   if (!Open(s)) return;
   const Libav& av = *s->av;
   AVFrame* frame = av.av_frame_alloc();
-  if (!frame) {
+  // On the GPU: the pool's frame being filled, and a read back frame on its
+  // way up.
+  AVFrame* next = s->gpu ? av.av_frame_alloc() : nullptr;
+  AVFrame* soft = s->gpu ? av.av_frame_alloc() : nullptr;
+  if (!frame || (s->gpu && (!next || !soft))) {
     Fail(CAP_SAID(T("Kein Speicher für die Aufnahme.", "Out of memory for the recording.")));
+    av.av_frame_free(&frame);
+    av.av_frame_free(&next);
+    av.av_frame_free(&soft);
     return;
   }
 
-  // The frame points into the buffer it holds: the luma plane, then the chroma
-  // as YuvLayout lays it out, no padding anywhere. The encoder takes a
-  // reference, so the same frame goes out again with the next number when the
-  // timeline needs a repeat.
+  // A read back frame points into the buffer it holds: the luma plane, then
+  // the chroma as YuvLayout lays it out, no padding anywhere. The encoder takes
+  // a reference, so the same frame goes out again with the next number when
+  // the timeline needs a repeat.
   const AVCodecContext* v = s->video;
+  const AVPixelFormat softFormat = av.av_get_pix_fmt(FfmpegPixelFormat(format_));
   const int rowBytes = width_ * format_.sampleBytes();
-  auto hold = [&](AVBufferRef* buffer) {
-    av.av_frame_unref(frame);
-    frame->buf[0] = buffer;
-    frame->format = v->pix_fmt;
-    frame->width = width_;
-    frame->height = height_;
-    frame->color_primaries = v->color_primaries;
-    frame->color_trc = v->color_trc;
-    frame->colorspace = v->colorspace;
-    frame->color_range = v->color_range;
+  auto tag = [&](AVFrame* f) {
+    f->color_primaries = v->color_primaries;
+    f->color_trc = v->color_trc;
+    f->colorspace = v->colorspace;
+    f->color_range = v->color_range;
+  };
+  auto point = [&](AVFrame* f, AVBufferRef* buffer) {
+    av.av_frame_unref(f);
+    f->buf[0] = buffer;
+    f->format = softFormat;
+    f->width = width_;
+    f->height = height_;
+    tag(f);
     uint8_t* chroma = buffer->data + (size_t)rowBytes * (size_t)height_;
-    frame->data[0] = buffer->data;
-    frame->linesize[0] = rowBytes;
+    f->data[0] = buffer->data;
+    f->linesize[0] = rowBytes;
     switch (format_.layout) {
       case YuvLayout::Nv12:
-        frame->data[1] = chroma;
-        frame->linesize[1] = rowBytes;
+        f->data[1] = chroma;
+        f->linesize[1] = rowBytes;
         break;
       case YuvLayout::I420:
-        frame->data[1] = chroma;
-        frame->data[2] = chroma + (size_t)(rowBytes / 2) * (size_t)(height_ / 2);
-        frame->linesize[1] = frame->linesize[2] = rowBytes / 2;
+        f->data[1] = chroma;
+        f->data[2] = chroma + (size_t)(rowBytes / 2) * (size_t)(height_ / 2);
+        f->linesize[1] = f->linesize[2] = rowBytes / 2;
         break;
       case YuvLayout::I444:
-        frame->data[1] = chroma;
-        frame->data[2] = chroma + (size_t)rowBytes * (size_t)height_;
-        frame->linesize[1] = frame->linesize[2] = rowBytes;
+        f->data[1] = chroma;
+        f->data[2] = chroma + (size_t)rowBytes * (size_t)height_;
+        f->linesize[1] = f->linesize[2] = rowBytes;
         break;
     }
   };
+  // On the GPU the frame is one of the encoder's pool: the picture of a
+  // shared slot split into it, or a read back one uploaded. Slots that fail
+  // three times in a row send the renderer back to reading back.
+  int slotFailures = 0;
+  auto fill = [&](int slot, AVBufferRef* buffer) {
+    LibavClearError();
+    int result = av.av_hwframe_get_buffer(s->gpu->framesContext(), next, 0);
+    if (slot >= 0) {
+      const bool converted = result >= 0 && s->gpu->Convert(slot, next, running_);
+      shared_->state[slot].store(SharedFrames::Free, std::memory_order_release);
+      if (!converted) {
+        av.av_frame_unref(next);
+        if (++slotFailures == 3) {
+          CAP_WARN("Recording on the GPU: the frames do not come through; reading them back");
+          sharedRefused_.store(true, std::memory_order_relaxed);
+        }
+        return 0;
+      }
+      slotFailures = 0;
+    } else {
+      point(soft, buffer);
+      if (result >= 0) result = av.av_hwframe_transfer_data(next, soft, 0);
+      av.av_frame_unref(soft);
+      if (result < 0) {
+        av.av_frame_unref(next);
+        return result;
+      }
+    }
+    tag(next);
+    av.av_frame_unref(frame);
+    av.av_frame_move_ref(frame, next);
+    return 1;
+  };
   bool holding = false;
 
+  shared_ = s->gpu ? s->gpu->frames() : nullptr;
   originTicks_ = ClockTicks();
   ready_.store(true, std::memory_order_release);
 
@@ -965,19 +1088,36 @@ void Recorder::VideoThread(Session* s) {
     // Take the newest frame and keep holding it: when the timeline needs more
     // frames than actually arrived, this is what gets repeated.
     bool fresh = false;
+    int slot = -1;
+    AVBufferRef* buffer = nullptr;
     {
       std::unique_lock<std::mutex> lock(frameMutex_);
       // Nothing to repeat before the first frame.
       frameReady_.wait(lock, [&] {
-        return readyBuffer_ != nullptr || holding || !running_.load(std::memory_order_relaxed);
+        return readyBuffer_ != nullptr || readySlot_ >= 0 || holding ||
+               !running_.load(std::memory_order_relaxed);
       });
-      if (AVBufferRef* buffer = readyBuffer_) {
-        readyBuffer_ = nullptr;
-        lock.unlock();
-        hold(buffer);
-        holding = true;
-        fresh = true;
+      std::swap(slot, readySlot_);
+      std::swap(buffer, readyBuffer_);
+      if (slot >= 0) shared_->state[slot].store(SharedFrames::Converting, std::memory_order_relaxed);
+    }
+    if (slot >= 0 && buffer) {
+      // Both, for the frame the renderer went back to reading back: the slot
+      // is the older one only if it is still waiting, and either does.
+      dropped_.fetch_add(1, std::memory_order_relaxed);
+      av.av_buffer_unref(&buffer);
+    }
+    if (!s->gpu && buffer) {
+      point(frame, buffer);
+      holding = fresh = true;
+    } else if (slot >= 0 || buffer) {
+      const int filled = fill(slot, buffer);
+      if (filled < 0) {
+        Fail(CAP_SAID(Format(T("Encoder-Fehler: %s", "Encoder error: %s"),
+                             LibavError(filled).c_str())));
+        break;
       }
+      if (filled > 0) holding = fresh = true;
     }
     if (!holding) continue;
 
@@ -1025,7 +1165,7 @@ void Recorder::VideoThread(Session* s) {
         wait = std::clamp(wait, 0.001, 0.05);
       }
       std::unique_lock<std::mutex> lock(frameMutex_);
-      if (!readyBuffer_ && running_.load(std::memory_order_relaxed)) {
+      if (!readyBuffer_ && readySlot_ < 0 && running_.load(std::memory_order_relaxed)) {
         frameReady_.wait_for(lock, std::chrono::microseconds((int64_t)(wait * 1e6)));
       }
       continue;
@@ -1059,6 +1199,8 @@ void Recorder::VideoThread(Session* s) {
     }
   }
   av.av_frame_free(&frame);
+  av.av_frame_free(&next);
+  av.av_frame_free(&soft);
 }
 
 void Recorder::AudioThread(Session* s) {

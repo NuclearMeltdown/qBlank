@@ -25,6 +25,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/dict.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/mathematics.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
@@ -42,15 +43,18 @@ namespace cap {
   X(avutil_version) X(av_version_info) X(av_log_set_callback) X(av_log_format_line2)            \
   X(av_strerror) X(av_frame_alloc) X(av_frame_free) X(av_frame_ref) X(av_frame_unref)           \
   X(av_frame_get_buffer) X(av_frame_make_writable) X(av_buffer_pool_init) X(av_buffer_pool_get) \
-  X(av_buffer_pool_uninit) X(av_buffer_allocz) X(av_buffer_unref) X(av_get_pix_fmt) X(av_d2q)   \
-  X(av_rescale_q) X(av_dict_set) X(av_dict_get) X(av_dict_copy) X(av_dict_free)                 \
-  X(av_opt_set_int) X(av_channel_layout_default) X(av_channel_layout_uninit)
+  X(av_buffer_pool_uninit) X(av_buffer_allocz) X(av_buffer_ref) X(av_buffer_unref)              \
+  X(av_get_pix_fmt) X(av_d2q) X(av_rescale_q) X(av_dict_set) X(av_dict_get) X(av_dict_copy)     \
+  X(av_dict_free) X(av_opt_set_int) X(av_channel_layout_default) X(av_channel_layout_uninit)    \
+  X(av_frame_move_ref) X(av_hwdevice_ctx_alloc) X(av_hwdevice_ctx_init) X(av_hwframe_ctx_alloc) \
+  X(av_hwframe_ctx_init) X(av_hwframe_get_buffer) X(av_hwframe_transfer_data)
 #define QB_SWRESAMPLE_FUNCTIONS(X)                                                   \
   X(swresample_version) X(swr_alloc_set_opts2) X(swr_init) X(swr_convert)            \
   X(swr_set_compensation) X(swr_get_delay) X(swr_get_out_samples) X(swr_free)
 #define QB_AVCODEC_FUNCTIONS(X)                                                                  \
   X(avcodec_version) X(avcodec_find_encoder_by_name) X(avcodec_alloc_context3) X(avcodec_open2) \
-  X(avcodec_send_frame) X(avcodec_receive_packet) X(avcodec_free_context)                       \
+  X(avcodec_get_hw_config) X(avcodec_send_frame) X(avcodec_receive_packet)                      \
+  X(avcodec_free_context)                                                                       \
   X(avcodec_parameters_from_context) X(avcodec_parameters_copy) X(av_packet_alloc)              \
   X(av_packet_free) X(av_packet_unref) X(av_packet_rescale_ts)
 #define QB_AVFORMAT_FUNCTIONS(X)                                                                 \

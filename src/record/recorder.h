@@ -37,6 +37,8 @@ struct AVBufferRef;
 
 namespace cap {
 
+class SharedFrames;
+
 // Pulls up to `frames` interleaved stereo float frames; returns how many it
 // actually delivered. Called from the recorder's own thread.
 using AudioPullFn = std::function<size_t(float* out, size_t frames)>;
@@ -89,6 +91,10 @@ class Recorder {
   // Whether the picture keeps the full range on the PQ curve. Set before
   // Start, which works out the rest of the format from the encoder.
   void SetWide(bool wide) { wide_ = wide; }
+  // The renderer's adapter (VideoRenderer::sharedAdapter), 0 for none. A
+  // hardware encoder then takes the picture there, on the GPU, where it can.
+  // Set before Start.
+  void SetGpuAdapter(uint64_t adapter) { gpuAdapter_ = adapter; }
   // What the writer takes, from Start on: the renderer delivers exactly this.
   const YuvFormat& format() const { return format_; }
   bool hdr() const { return format_.pq(); }
@@ -141,6 +147,15 @@ class Recorder {
   void PushVideo(const uint8_t* pixels, int stride, int width, int height,
                  const YuvFormat& format);
 
+  // On the GPU instead (shared_frames.h): the frames to draw into while the
+  // encoder takes them there, null while it does not. PushVideo still works
+  // all along, for when the renderer cannot draw into them after all.
+  const std::shared_ptr<SharedFrames>& sharedFrames() const;
+  // The renderer could not use them; it reads back from now on.
+  void RefuseShared() { sharedRefused_.store(true, std::memory_order_relaxed); }
+  // A slot of sharedFrames() just drawn into, which the caller held as Writing.
+  void PushGpuFrame(int slot);
+
   // What the encoder was opened for. It takes no other size, so if the source
   // moves away from this, the file has to be cut.
   int frameWidth() const { return width_; }
@@ -171,7 +186,11 @@ class Recorder {
                                           const EncoderInfo& encoder) const;
 
   bool wide_ = false;
+  uint64_t gpuAdapter_ = 0;
   YuvFormat format_;
+  // The session's, set by the writer before ready_ and let go of in Stop.
+  std::shared_ptr<SharedFrames> shared_;
+  std::atomic<bool> sharedRefused_{false};
   std::atomic<bool> running_{false};
   // The encoder is open and takes frames; until then PushVideo drops them.
   std::atomic<bool> ready_{false};
@@ -210,6 +229,7 @@ class Recorder {
   // Stop.
   std::condition_variable frameReady_;
   AVBufferRef* readyBuffer_ = nullptr;
+  int readySlot_ = -1;  // the same on the GPU: a Ready slot of shared_
 
   std::atomic<uint64_t> audioFramesWritten_{0};
   std::atomic<uint64_t> videoFramesWritten_{0};

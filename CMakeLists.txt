@@ -109,6 +109,7 @@ add_executable(qBlank WIN32
   src/audio/pcm_win32.cpp
   src/record/ffmpeg_download.cpp
   src/record/ffmpeg_locator.cpp
+  src/record/gpu_frames_win32.cpp
   src/record/libav.cpp
   src/record/recorder.cpp
   src/record/remuxer.cpp
@@ -204,13 +205,14 @@ if(MSVC)
 endif()
 
 # file : dxc profile : its bytecode in shaders_dxbc.h : its SPIR-V in
-# shaders_spirv.h : fxc profile
+# shaders_spirv.h, or - for one only Direct3D 11 runs : fxc profile
 set(qblank_shaders
   fullscreen_vs:vs_6_0:kFullscreenVS:kSpirvFullscreenVS:vs_4_0
   clean_ps:ps_6_0:kCleanPS:kSpirvClean:ps_4_0
   convert_ps:ps_6_0:kConvertPS:kSpirvConvert:ps_4_0
   scale_ps:ps_6_0:kScalePS:kSpirvScale:ps_4_0
   yuv_ps:ps_6_0:kYuvPS:kSpirvYuv:ps_4_0
+  yuv_split_ps:ps_6_0:kYuvSplitPS:-:ps_4_0
   ui_composite_ps:ps_6_0:kUiCompositePS:kSpirvUiComposite:ps_4_0
   rem_dec_ps:ps_6_0:kRemDecPS:kSpirvRemDec:ps_5_0
   rem_res_ps:ps_6_0:kRemResPS:kSpirvRemRes:ps_5_0
@@ -338,6 +340,9 @@ if(qblank_vulkan_ready)
     list(GET parts 0 file)
     list(GET parts 1 profile)
     list(GET parts 3 name)
+    if(name STREQUAL "-")
+      continue()
+    endif()
     set(stage_flags)
     if(profile MATCHES "^vs_")
       set(stage_flags -fvk-invert-y)
@@ -369,6 +374,7 @@ if(qblank_vulkan_ready)
     src/render/display_vulkan_win32.cpp
     src/render/render_passes_vulkan.cpp
     src/render/vulkan_device.cpp
+    src/render/vulkan_shared_win32.cpp
     ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
     "${spirv_header}"
   )

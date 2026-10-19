@@ -72,8 +72,10 @@ class VulkanDevice {
   // Picks a device that can draw and present to `surface` and opens it with
   // dynamic rendering, synchronization2 and robust image access. Prefers a
   // discrete GPU. Takes the surface over, also when it fails: it has to go
-  // after the device and before the instance, which only this knows.
-  bool CreateDevice(VkSurfaceKHR surface, std::string* error);
+  // after the device and before the instance, which only this knows. The
+  // device extensions in `optional` are enabled where it has them.
+  bool CreateDevice(VkSurfaceKHR surface, const std::vector<const char*>& optional,
+                    std::string* error);
   // Waits for the GPU, runs what was deferred and destroys everything, the
   // surface included. What was made from the surface (the swapchain) is the
   // caller's and goes before this.
@@ -87,6 +89,10 @@ class VulkanDevice {
   uint32_t queueFamily() const { return queueFamily_; }
   const VkPhysicalDeviceProperties& properties() const { return properties_; }
   bool instanceHas(const char* extension) const;
+  bool deviceHas(const char* extension) const;
+  // The adapter's LUID, as DXGI names it; 0 when the driver gives none or the
+  // device is a CPU.
+  uint64_t luid() const;
   // VK_KHR_present_id and VK_KHR_present_wait, both enabled.
   bool presentWait() const { return presentWait_; }
   // vkWaitForPresentKHR, which the loader does not export.
@@ -103,6 +109,14 @@ class VulkanDevice {
   // SetAcquireWait and signalling `signal` if given. False when the queue
   // refused it; the device is then as good as lost.
   bool Submit(VkSemaphore signal = VK_NULL_HANDLE);
+  // Hangs `next` on the next submission's VkSubmitInfo2, once; it has to stay
+  // valid until then. One that the queue refuses goes again without it, so
+  // the frame is not lost to it, and chainTaken() then says false.
+  void ChainSubmit(const void* next) { submitNext_ = next; }
+  // What still waits for a submission, null once one took it.
+  const void* chained() const { return submitNext_; }
+  // Whether the last submission that carried one went out with it.
+  bool chainTaken() const { return chainTaken_; }
   // Submits and waits for the GPU.
   bool Flush();
   // A submission or a wait came back VK_ERROR_DEVICE_LOST.
@@ -168,8 +182,10 @@ class VulkanDevice {
   VkFormat uiFormat() const { return uiFormat_; }
   void SetUiFormat(VkFormat format) { uiFormat_ = format; }
 
- private:
+  // The first memory type among `bits` that has all of `want`.
   bool FindMemoryType(uint32_t bits, VkMemoryPropertyFlags want, uint32_t* index) const;
+
+ private:
   bool Allocate(const VkMemoryRequirements& req, VulkanMemory memory, VkDeviceMemory* out,
                 bool* coherent);
   void RunDeferred();
@@ -183,6 +199,7 @@ class VulkanDevice {
   VkDevice device_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;
   uint32_t queueFamily_ = 0;
+  std::vector<std::string> deviceExtensions_;
   bool presentWait_ = false;
   PFN_vkWaitForPresentKHR waitForPresent_ = nullptr;
 
@@ -191,6 +208,8 @@ class VulkanDevice {
   VkFence fence_ = VK_NULL_HANDLE;
   bool recording_ = false;
   VkSemaphore acquireWait_ = VK_NULL_HANDLE;
+  const void* submitNext_ = nullptr;
+  bool chainTaken_ = false;
   uint64_t submittedSerial_ = 0;
   uint64_t completedSerial_ = 0;
   bool lost_ = false;
