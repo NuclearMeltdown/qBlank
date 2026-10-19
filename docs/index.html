@@ -31,10 +31,24 @@
 </head>
 <body>
 
-<a class="lang" id="langSwitch" href="de/" hreflang="de" lang="de" title="Deutsch">DE</a>
-<button class="theme-toggle" id="themeToggle" type="button" hidden>
-  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
-</button>
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Manual</a>
+      <a href="faq.html">Troubleshooting</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="de/" hreflang="de" lang="de" title="Deutsch">DE</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
 
 <header>
   <div class="wrap">
@@ -57,7 +71,7 @@
   </div>
 </header>
 
-<section class="reveal">
+<section>
   <div class="wrap">
     <div class="metric">
       <div><b>~1 ms</b><span>through qBlank, arrival to present</span></div>

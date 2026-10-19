@@ -22,14 +22,27 @@
 </head>
 <body>
 
-<a class="lang" id="langSwitch" href="../changelog.html" hreflang="en" lang="en" title="English">EN</a>
-<button class="theme-toggle" id="themeToggle" type="button" hidden>
-  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
-</button>
+<nav class="topbar" aria-label="Seiten">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Handbuch</a>
+      <a href="faq.html">Fehlersuche</a>
+      <a href="changelog.html" aria-current="page">Änderungen</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="../changelog.html" hreflang="en" lang="en" title="English">EN</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
 
 <div class="page-head">
   <div class="wrap">
-    <a href="./"><img class="logo" src="../icon.png" alt="qBlank"></a>
     <h1>Änderungen</h1>
     <p class="tag">Jede Version, die neueste zuerst.</p>
   </div>
@@ -37,11 +50,6 @@
 
 <div class="wrap doc">
   <nav class="toc">
-    <a class="home" href="./">&larr; Startseite</a>
-    <a class="pg" href="manual.html">Handbuch</a>
-    <a class="pg" href="install.html">Download und Installation</a>
-    <a class="pg" href="faq.html">Fehlersuche</a>
-    <a class="pg cur" href="changelog.html" aria-current="page">Änderungen</a>
     <div class="secs"></div>
   </nav>
 

@@ -24,14 +24,27 @@
 </head>
 <body>
 
-<a class="lang" id="langSwitch" href="de/install.html" hreflang="de" lang="de" title="Deutsch">DE</a>
-<button class="theme-toggle" id="themeToggle" type="button" hidden>
-  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
-</button>
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html" aria-current="page">Download</a>
+      <a href="manual.html">Manual</a>
+      <a href="faq.html">Troubleshooting</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="de/install.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
 
 <div class="page-head">
   <div class="wrap">
-    <a href="./"><img class="logo" src="icon.png" alt="qBlank"></a>
     <h1>Download and install</h1>
     <p class="tag">One file, no installer. A minute from the download to the first picture.</p>
   </div>
@@ -39,9 +52,6 @@
 
 <div class="wrap doc">
   <nav class="toc">
-    <a class="home" href="./">&larr; Home</a>
-    <a class="pg" href="manual.html">Manual</a>
-    <a class="pg cur" href="install.html" aria-current="page">Download and install</a>
     <div class="secs">
       <a href="#download">Download</a>
       <a href="#needs">What you need</a>
@@ -52,8 +62,6 @@
       <a href="#capview">Coming from CapView</a>
       <a href="#remove">Removing it</a>
     </div>
-    <a class="pg" href="faq.html">Troubleshooting</a>
-    <a class="pg" href="changelog.html">Changelog</a>
   </nav>
 
   <main>

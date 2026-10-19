@@ -24,14 +24,27 @@
 </head>
 <body>
 
-<a class="lang" id="langSwitch" href="de/manual.html" hreflang="de" lang="de" title="Deutsch">DE</a>
-<button class="theme-toggle" id="themeToggle" type="button" hidden>
-  <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
-</button>
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html" aria-current="page">Manual</a>
+      <a href="faq.html">Troubleshooting</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="de/manual.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
 
 <div class="page-head">
   <div class="wrap">
-    <a href="./"><img class="logo" src="icon.png" alt="qBlank"></a>
     <h1>qBlank manual</h1>
     <p class="tag">Everything you need to get a picture, play on it, and record it. For how it works inside, see the <a href="https://github.com/NuclearMeltdown/qBlank/wiki">wiki</a>.</p>
   </div>
@@ -39,8 +52,6 @@
 
 <div class="wrap doc">
   <nav class="toc">
-    <a class="home" href="./">&larr; Home</a>
-    <a class="pg cur" href="manual.html" aria-current="page">Manual</a>
     <div class="secs">
       <a href="#install">Install</a>
       <a href="#first">First start</a>
@@ -53,9 +64,6 @@
       <a href="#updates">About and updates</a>
       <a href="#trouble">Troubleshooting</a>
     </div>
-    <a class="pg" href="install.html">Download and install</a>
-    <a class="pg" href="faq.html">Troubleshooting</a>
-    <a class="pg" href="changelog.html">Changelog</a>
   </nav>
 
   <main>
