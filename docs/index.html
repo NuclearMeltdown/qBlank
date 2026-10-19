@@ -71,7 +71,26 @@
   </div>
 </header>
 
-<section>
+<div class="wrap landing">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#glance">At a glance</a>
+      <a href="#latency">Latency</a>
+      <a href="#record">Recording</a>
+      <a href="#setup">Setup</a>
+      <b>Analogue consoles</b>
+      <a href="#composite">Composite</a>
+      <a href="#deinterlace">Deinterlacing</a>
+      <a href="#standard">Video standard</a>
+      <a href="#crt">CRT look</a>
+      <a href="#pixels">Pixel grid</a>
+      <a href="#not">What it is not</a>
+    </div>
+  </nav>
+
+  <main>
+
+<section id="glance">
   <div class="wrap">
     <div class="metric">
       <div><b>~1 ms</b><span>through qBlank, arrival to present</span></div>
@@ -85,7 +104,7 @@
   </div>
 </section>
 
-<section class="reveal">
+<section id="latency" class="reveal">
   <div class="wrap">
     <h2><span class="num">01</span>Nothing between the card and the screen</h2>
     <p class="lead">No queue, no clock, no wait for VSync. What qBlank adds on top of the card itself is about a millisecond, and the overlay shows it.</p>
@@ -100,7 +119,7 @@
   </div>
 </section>
 
-<section class="reveal">
+<section id="record" class="reveal">
   <div class="wrap">
     <h2><span class="num">02</span>Record, capture, pass it on</h2>
     <p class="lead">For any DirectShow device: HDMI and analogue cards, USB dongles, webcams.</p>
@@ -116,7 +135,7 @@
   </div>
 </section>
 
-<section class="reveal">
+<section id="setup" class="reveal">
   <div class="wrap">
     <h2><span class="num">03</span>Set up while you watch</h2>
     <p class="lead">Every setting takes effect on the next frame, so it is judged on the picture rather than from memory. Where a value is easier to see than to type, it is set on the picture itself.</p>
@@ -141,14 +160,14 @@
   </div>
 </section>
 
-<section class="reveal group">
+<section id="analogue" class="reveal group">
   <div class="wrap">
     <h2>And for analogue consoles</h2>
     <p class="lead">An analogue source needs more than a viewer usually offers. qBlank finds the video standard, deinterlaces, cleans up composite and can put the scanlines back &mdash; all in real time.</p>
   </div>
 </section>
 
-<section class="reveal">
+<section id="composite" class="reveal">
   <div class="wrap">
     <h2><span class="num">04</span>It cleans up composite</h2>
     <p class="lead">Composite carries colour and brightness on one wire and they leak into each other. Most viewers leave that alone. qBlank removes it in real time, and the numbers behind every setting were measured on real hardware rather than guessed.</p>
@@ -174,7 +193,7 @@
   </div>
 </section>
 
-<section class="reveal">
+<section id="deinterlace" class="reveal">
   <div class="wrap">
     <h2><span class="num">05</span>Five deinterlacers, and it measures which you need</h2>
     <p class="lead">Whether a source is interlaced is measured from the picture, not read from the media type — a media type is entitled to say so and frequently does not.</p>
@@ -189,7 +208,7 @@
   </div>
 </section>
 
-<section class="reveal">
+<section id="standard" class="reveal">
   <div class="wrap">
     <h2><span class="num">06</span>It works out the video standard on its own</h2>
     <p class="lead">An analogue decoder has to be told whether it is looking at PAL, NTSC or SECAM, and getting it wrong costs you either the picture or the colour. Leave it on automatic and qBlank finds it &mdash; and keeps finding it, so switching a console between 50 and 60&nbsp;Hz needs nothing from you.</p>
@@ -205,7 +224,7 @@
   </div>
 </section>
 
-<section class="reveal">
+<section id="crt" class="reveal">
   <div class="wrap">
     <h2><span class="num">07</span>And it can put the cathode ray tube back</h2>
     <p class="lead">240p artwork was drawn for a display that had gaps between its lines and a coloured mask over its phosphors. On a flat panel the absence of both is itself a distortion. Off by default, and display only &mdash; a recording takes the picture from upstream of this pass.</p>
@@ -228,7 +247,7 @@
   </div>
 </section>
 
-<section class="reveal">
+<section id="pixels" class="reveal">
   <div class="wrap">
     <h2><span class="num">08</span>It finds the console's pixels</h2>
     <p class="lead">A card samples a line 720 times; a SNES drew 256. Tell qBlank the <em>Source width</em>, and it measures where each console pixel lies in the picture and draws it as one block. On an analogue source it also rebuilds each pixel from the samples the card blurred across it, and if the width is not set, it notices pixel art and suggests the width.</p>
@@ -243,7 +262,7 @@
   </div>
 </section>
 
-<section class="reveal">
+<section id="not" class="reveal">
   <div class="wrap">
     <h2><span class="num">09</span>What it is not</h2>
     <p class="lead">Scenes, overlays, compositing and streaming are not here and are not planned. For those, use OBS — and note that a card grants its capture pin to one process at a time, so the two cannot hold the same card at once.</p>
@@ -255,6 +274,9 @@
     </table>
   </div>
 </section>
+
+  </main>
+</div>
 
 <footer>
   <div class="wrap row">

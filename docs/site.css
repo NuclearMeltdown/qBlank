@@ -261,6 +261,14 @@ footer .made{margin-top:18px}
 /* the section you are reading, marked by the script as you scroll */
 .toc a.on{color:var(--text);border-left-color:var(--accent)}
 .toc{max-height:calc(100vh - 108px);overflow-y:auto;scrollbar-width:thin}
+/* A heading among the links, for the part of the home page on analogue consoles. */
+.toc .secs b{margin:16px 0 6px}
+/* The home page has the same contents beside its sections. They keep their own
+   spacing, which already leaves room above each heading. */
+.landing{display:grid;gap:52px;grid-template-columns:180px minmax(0,1fr);align-items:start}
+.landing main .wrap{max-width:none;padding:0}
+.landing section{scroll-margin-top:24px}
+.landing .toc{margin-top:76px}
 .doc .cta{justify-content:flex-start;margin-top:18px}
 #releases{margin-top:30px}
 .rel{margin-top:26px}
@@ -308,6 +316,8 @@ kbd{
   .toc a{flex:none;margin:0;padding:8px 10px;border-left:0;border-bottom:2px solid transparent}
   .toc a.on{border-bottom-color:var(--accent)}
   .doc section{scroll-margin-top:70px}
+  .landing{grid-template-columns:minmax(0,1fr);gap:0}
+  .landing .toc{margin-top:0}
 }
 @media (max-width:520px){.doc td:first-child{white-space:normal}}
 @media (prefers-reduced-motion:reduce){.lang:hover{transform:none}}
