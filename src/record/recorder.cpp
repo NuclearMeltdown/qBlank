@@ -353,23 +353,27 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
   // The names differ per vendor and so does the way a quality target is asked
   // for. Quicksync has no rc at all: what it does follows from which of
   // bitrate or quality it is given.
+  //
+  // A fixed quantiser runs 0..255 for AV1 in hardware, against 0..63 for the
+  // software AV1 encoders' crf. Four steps of one are one of the other, so the
+  // level means the same whichever AV1 encoder it goes to.
+  const int qp = settings.qualityLevel *
+                 (encoder.ffmpegName.compare(0, 4, "av1_") == 0 ? 4 : 1);
   switch (family) {
     case Family::Nvenc:
       pair("rc", settings.rateControl == RateControl::Cbr   ? "cbr"
                  : settings.rateControl == RateControl::Vbr ? "vbr"
                                                            : "constqp");
-      if (settings.rateControl == RateControl::Quality) {
-        pair("cq", std::to_string(settings.qualityLevel));
-      }
+      // cq belongs to vbr; constqp only listens to qp.
+      if (settings.rateControl == RateControl::Quality) pair("qp", std::to_string(qp));
       break;
     case Family::Amf:
       pair("rc", settings.rateControl == RateControl::Cbr   ? "cbr"
                  : settings.rateControl == RateControl::Vbr ? "vbr_peak"
                                                            : "cqp");
       if (settings.rateControl == RateControl::Quality) {
-        const std::string qp = std::to_string(settings.qualityLevel);
-        pair("qp_i", qp);
-        pair("qp_p", qp);
+        pair("qp_i", std::to_string(qp));
+        pair("qp_p", std::to_string(qp));
       }
       break;
     case Family::Qsv:
