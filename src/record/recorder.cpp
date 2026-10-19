@@ -272,11 +272,20 @@ std::vector<std::string> Recorder::BuildArguments(const RecordSettings& settings
 
   pair("-c:v", encoder.ffmpegName);
   for (std::string& option : EncoderOptions(settings, encoder)) add(std::move(option));
+  // The matrix for RGB to Y'CbCr is named outright, and so is the colour
+  // description. Left to itself ffmpeg converted with BT.601 and wrote nothing,
+  // and players and editors read an untagged HD file as BT.709: red came out
+  // orange and green too dark. The description goes in twice: ffmpeg 9 hands
+  // the encoder what the frames carry, and without setparams they carry no
+  // primaries and no transfer, so not even an HDR file said PQ. Older builds go
+  // by the options, and by the matrix in the scale rather than by the tags.
   if (hdr_) {
     // Ten bit 4:2:0 and the three pieces of colour description that make a file
     // playable as HDR rather than as a washed out mess. They are not optional:
     // nothing else in the file says the picture is on the PQ curve, and a player
     // that is not told will assume it is not.
+    pair("-vf", "scale=out_color_matrix=bt2020:out_range=tv,setparams=color_primaries=bt2020:"
+                "color_trc=smpte2084:colorspace=bt2020nc:range=tv");
     pair("-pix_fmt", "p010le");
     pair("-color_primaries", "bt2020");
     pair("-color_trc", "smpte2084");
@@ -285,7 +294,13 @@ std::vector<std::string> Recorder::BuildArguments(const RecordSettings& settings
   } else {
     // 4:2:0 eight bit: the one format every hardware encoder and every player
     // agrees on. Anything wider would exclude the very cards this is meant for.
+    pair("-vf", "scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:"
+                "color_trc=bt709:colorspace=bt709:range=tv");
     pair("-pix_fmt", "nv12");
+    pair("-color_primaries", "bt709");
+    pair("-color_trc", "bt709");
+    pair("-colorspace", "bt709");
+    pair("-color_range", "tv");
   }
   if (settings.rateControl == RateControl::Quality) {
     // A quality target and a bitrate are contradictory instructions, and ffmpeg

@@ -113,6 +113,11 @@ bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem
   spec.Add("-c:v", "libaom-av1");
   spec.Add("-still-picture", "1");
   spec.Add("-crf", "18");
+  // Matrix and description in the filter as well, as in the recorder: an older
+  // ffmpeg would convert with BT.601, and ffmpeg 9 drops the primaries and the
+  // transfer below unless the frames carry them.
+  spec.Add("-vf", "scale=out_color_matrix=bt2020:out_range=tv,setparams=color_primaries=bt2020:"
+                  "color_trc=smpte2084:colorspace=bt2020nc:range=tv");
   spec.Add("-pix_fmt", "yuv420p10le");
   // Without these it is a dark picture rather than an HDR one; nothing else in
   // the file says the samples are on the PQ curve.
