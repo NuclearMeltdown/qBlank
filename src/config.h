@@ -130,11 +130,21 @@ enum class AudioSource { Embedded, Manual, None };
 
 enum class OsdCorner { TopLeft, TopRight, BottomLeft, BottomRight };
 
-// How the microphone ends up in the file. "Both" costs one more AAC track --
+// How a recording source ends up in the file. "Both" costs one more AAC track --
 // about a megabyte a minute against a recording of well over a hundred -- and
 // means the file plays correctly in anything while still being separable in an
 // editor.
-enum class MicTrackMode { Both, Mixed, Separate };
+enum class TrackMode { Both, Mixed, Separate };
+
+// Where a recording source takes its sound from.
+enum class SourceKind {
+  Input,   // a microphone, a line in: any recording device but a capture card's
+  Output,  // what one output device plays, taken off it again -- a headset with Discord on it
+  // What every output plays, minus qBlank's own sound: the game is in the file
+  // already, from the card, and would be in it twice.
+  System,
+};
+const int kSourceKindCount = 3;
 
 // How much of the statistics panel is shown. The full panel is a wall of text
 // to read while playing, so the useful numbers come first and the rest is opt in.
@@ -282,7 +292,7 @@ const char* ColorRangeName(int index);
 const char* ColorMatrixName(int index);
 const char* OsdCornerName(int index);
 const char* StatsDetailName(int index);
-const char* MicTrackModeName(int index);
+const char* TrackModeName(int index);
 const char* RecordContainerName(int index);
 const char* ScreenshotFormatName(int index);
 const char* RecordEncoderName(int index);
@@ -574,6 +584,15 @@ struct ImageSettings {
   std::vector<CropForFormat> cropVariants;
 };
 
+// One sound that goes into the recording and nowhere else.
+struct RecordSource {
+  SourceKind kind = SourceKind::Input;
+  bool enabled = false;
+  DeviceRef device;   // empty = the system default input or output; unused for System
+  float gain = 1.0f;  // linear, 0..4 (up to +12 dB), independent of Windows
+  TrackMode tracks = TrackMode::Both;
+};
+
 struct AudioSettings {
   DeviceRef output;        // empty = system default output
   int bufferMs = 30;       // target buffer between capture and playback
@@ -582,13 +601,13 @@ struct AudioSettings {
   float volume = 1.0f;     // 0..1 linear
   bool mute = false;
 
-  // A second input that only goes into the recording, as its own track. Never
+  // What goes into the recording besides the card's sound, in this order. Never
   // played back -- monitoring your own microphone through the same speakers the
-  // game comes out of is a feedback loop, not a feature.
-  bool micEnabled = false;
-  DeviceRef micDevice;   // empty = system default recording device
-  float micGain = 1.0f;  // linear, 0..4 (up to +12 dB), independent of Windows
-  MicTrackMode micTrackMode = MicTrackMode::Both;
+  // game comes out of is a feedback loop, not a feature. To begin with a
+  // microphone and the system sound, both off: a microphone opened unasked
+  // lights up the system's privacy indicator as soon as the settings open.
+  std::vector<RecordSource> sources{RecordSource{SourceKind::Input},
+                                    RecordSource{SourceKind::System}};
 };
 
 // Recording is deliberately thin: it writes what the viewer shows, at the

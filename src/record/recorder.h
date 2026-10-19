@@ -87,6 +87,12 @@ class Recorder {
     AudioPullFn pull;
     bool active() const { return sampleRate > 0 && pull != nullptr; }
   };
+  // A sound that goes only into the recording (RecordSource), under `title`.
+  struct ExtraAudio {
+    AudioSource source;
+    std::string title;
+    TrackMode tracks = TrackMode::Both;
+  };
 
   // Whether the picture keeps the full range on the PQ curve. Set before
   // Start, which works out the rest of the format from the encoder.
@@ -109,15 +115,14 @@ class Recorder {
   static YuvFormat FormatFor(const EncoderInfo& encoder, bool wide, bool fullChroma);
 
   // `main` is the sound you hear, and its sample count is the master clock; a
-  // rate of 0 there hands the clock to the wall instead. `mic` is optional;
-  // `micTrackMode` says whether it is mixed in, kept as its own track, or both.
+  // rate of 0 there hands the clock to the wall instead. `extras` are brought
+  // onto that clock and laid out by TrackPlan; the inactive ones are left out.
   // The encoder is opened by the writer thread: one that cannot open shows up
   // as failed() a moment later, not as false here. `outFile` is from
   // NextRecordingFile, in a folder that exists.
   bool Start(const RecordSettings& settings, const std::filesystem::path& outFile,
              const FfmpegInfo& ffmpeg, int width, int height, double sourceFps,
-             const AudioSource& main, const AudioSource& mic, MicTrackMode micTrackMode,
-             std::string* error);
+             const AudioSource& main, std::vector<ExtraAudio> extras, std::string* error);
   // Ends the recording and returns at once. The encoders still hold frames and
   // the container its index, which can take seconds with a slow preset, and
   // neither the picture nor the next file of a split waits for that: it
@@ -175,7 +180,7 @@ class Recorder {
 
   // Opens the encoders and the file, then encodes the frames.
   void VideoThread(Session* session);
-  // Both audio sources, every track.
+  // Every audio source, every track.
   void AudioThread(Session* session);
   bool Open(Session* session);
   void Fail(const Said& said);
@@ -209,10 +214,7 @@ class Recorder {
   std::thread videoThread_;
   std::thread audioThread_;
   AudioPullFn pullAudio_;
-  AudioPullFn pullMic_;
-  int micRate_ = 0;
-  // Which tracks end up in the file when both sources are in use.
-  MicTrackMode micTrackMode_ = MicTrackMode::Both;
+  std::vector<ExtraAudio> extras_;  // the active ones
 
   int width_ = 0;
   int height_ = 0;

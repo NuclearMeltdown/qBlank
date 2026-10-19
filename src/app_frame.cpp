@@ -382,7 +382,7 @@ void App::RenderFrame() {
   // the passes and is read a frame or two later anyway; what is handed on here
   // is an older one, and opening a microphone takes a few milliseconds the
   // screen should not wait for.
-  recording_.SyncMicrophone();
+  recording_.SyncSources();
   recording_.FeedRecorder();
   UpdateVirtualCamera();
   FeedFrameConsumers();

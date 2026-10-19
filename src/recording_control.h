@@ -2,13 +2,15 @@
 
 // Recording: ffmpeg and its encoder test, starting and stopping, cutting a new
 // file when the source changes shape or a size limit is reached, the free disk
-// space, and the microphone that goes with a recording.
+// space, and the sound sources that go with a recording.
 
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "config.h"
 #include "files.h"
@@ -19,9 +21,9 @@ namespace cap {
 
 class AudioEngine;
 class CameraSink;
-class MicCapture;
 class Recorder;
 class SettingsWindow;
+class SourceCapture;
 class VideoCapture;
 class VideoRenderer;
 
@@ -42,8 +44,9 @@ class RecordingControl {
   };
 
   RecordingControl(Config& config, Recorder& recorder, VideoRenderer& renderer,
-                   VideoCapture& capture, AudioEngine& audio, MicCapture& mic,
-                   SettingsWindow& settings, CameraSink& camera, Host& host);
+                   VideoCapture& capture, AudioEngine& audio, SettingsWindow& settings,
+                   CameraSink& camera, Host& host);
+  ~RecordingControl();
 
   // Stops a running recording and waits for an encoder test still under way.
   void Shutdown();
@@ -64,8 +67,8 @@ class RecordingControl {
 
   void ToggleRecording();
   // Checks what can be checked at once and then hands over to LaunchRecording,
-  // which waits for the things that take a moment -- the disk, a microphone
-  // being opened, ffmpeg being loaded -- without holding up a single
+  // which waits for the things that take a moment -- the disk, the sound
+  // sources being opened, ffmpeg being loaded -- without holding up a single
   // frame.
   void StartRecording();
   // A recording asked for and not running yet. Frames have to go on arriving
@@ -82,10 +85,11 @@ class RecordingControl {
   // wird. Die Einstellungen zeigen den Platz an, die laufende Aufnahme haengt
   // an beidem. Die Antwort kommt vom Platten-Worker, ein Bild spaeter.
   void UpdateDiskSpace();
-  // Starts or stops the microphone to match the settings and what is going on,
-  // a recording that is about to begin included: its sample rate has to be
-  // known before the recorder opens its tracks.
-  void SyncMicrophone();
+  // Starts or stops every recording source (AudioSettings::sources) to match
+  // the settings and what is going on, a recording that is about to begin
+  // included: their sample rates have to be known before the recorder opens
+  // its tracks. Hands their levels to the settings.
+  void SyncSources();
 
   // The ffmpeg in use. Loaded at startup, or once a download brought it.
   FfmpegInfo& ffmpeg() { return ffmpeg_; }
@@ -108,16 +112,16 @@ class RecordingControl {
   void StartChecked(uint32_t serial, const std::string& askedFolder, const StartCheck& check);
   // A start called off before it launched.
   void CancelStart();
-  // The second half of StartRecording, once the disk and the microphone have
+  // The second half of StartRecording, once the disk and the sources have
   // answered.
   void LaunchRecording();
+  bool SourcesOpening() const;
 
   Config& config_;
   Recorder& recorder_;
   VideoRenderer& renderer_;
   VideoCapture& capture_;
   AudioEngine& audio_;
-  MicCapture& mic_;
   SettingsWindow& settings_;
   CameraSink& virtualCamera_;
   Host& host_;
@@ -137,7 +141,7 @@ class RecordingControl {
   bool locating_ = false;
   // A recording that has passed the checks that need nothing but memory, with
   // the settings it passed them with, and waits for the disk and the
-  // microphone. The file is empty until the disk has answered. Counted, so an
+  // recording sources. The file is empty until the disk has answered. Counted, so an
   // answer meant for a start that was called off is not taken for the next.
   // UI thread only.
   bool startPending_ = false;
@@ -148,10 +152,17 @@ class RecordingControl {
   // F9 found no ffmpeg and loading it is still under way; it starts once that
   // came back with it.
   bool recordWhenLocated_ = false;
-  // What SyncMicrophone last acted on, so a failure is reported once instead of
-  // once per frame. Cleared when the settings change.
-  DeviceRef micApplied_;
-  bool micFailed_ = false;
+  // One capture per entry of AudioSettings::sources, by index, with what
+  // SyncSources last opened it for: a failure is reported once instead of once
+  // per frame, and cleared when the entry changes. Never shrinks -- letting a
+  // capture go waits for its thread, and the recorder may still read from it.
+  struct Source {
+    std::unique_ptr<SourceCapture> capture;
+    SourceKind kind = SourceKind::Input;
+    DeviceRef device;
+    bool failed = false;
+  };
+  std::vector<Source> sources_;
   // The file being written and how big it was when last looked at, for
   // splitting by size.
   std::filesystem::path recordingFile_;

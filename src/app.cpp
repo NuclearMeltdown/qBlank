@@ -217,7 +217,6 @@ void App::Shutdown() {
   standardSearch_.StopSignalWatch();
   settingsHost_.Destroy();
   StopCapture();
-  mic_.Stop();
   // While the window is still there: a copy to the clipboard belongs to it.
   DropStills();
   screenshotJobs_.Drain();

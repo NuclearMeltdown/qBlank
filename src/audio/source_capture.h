@@ -1,17 +1,17 @@
 #pragma once
 
-// A second capture device -- normally a microphone -- that goes into the
-// recording and nowhere else.
+// One sound that goes into the recording and nowhere else: a microphone, what
+// an output device plays, or everything but qBlank (RecordSource).
 //
 // Deliberately separate from AudioEngine, which exists to get the card's sound
-// to your speakers with as little delay as possible. A microphone has none of
-// those concerns: it is never played back (that would be an echo), it does not
-// take part in drift correction, and it lands in the file as its own track
-// rather than mixed in. Keeping the two apart means neither grows a flag for
-// the other's special case.
+// to your speakers with as little delay as possible. A recording source has
+// none of those concerns: it is never played back (a microphone would echo), it
+// does not take part in drift correction, and it lands in the file as its own
+// track or in the mix. Keeping the two apart means neither grows a flag for the
+// other's special case.
 //
 // The stream stays at the device's own sample rate. The recorder's resampler
-// brings it onto the capture's rate and clock, so there is none here to get
+// brings it onto the recording's rate and clock, so there is none here to get
 // wrong.
 
 #include <atomic>
@@ -31,20 +31,21 @@
 
 namespace cap {
 
-class MicCapture {
+class SourceCapture {
  public:
-  MicCapture() = default;
-  ~MicCapture();
+  SourceCapture() = default;
+  ~SourceCapture();
 
-  MicCapture(const MicCapture&) = delete;
-  MicCapture& operator=(const MicCapture&) = delete;
+  SourceCapture(const SourceCapture&) = delete;
+  SourceCapture& operator=(const SourceCapture&) = delete;
 
   // Both return at once. Finding the device, opening it and letting it go again
-  // happen on the microphone's own thread: the device list alone is a round
-  // of system calls, a DirectShow device builds a whole graph, and stopping
-  // waits for the capture thread. Until the device is open sampleRate() is 0,
-  // and one that cannot be found or opened is reported by Opened().
-  void Start(const DeviceRef& device);
+  // happen on the source's own thread: the device list alone is a round of
+  // system calls, a DirectShow device builds a whole graph, and stopping waits
+  // for the capture thread. Until the device is open sampleRate() is 0, and one
+  // that cannot be found or opened is reported by Opened(). `device` is
+  // ignored for SourceKind::System.
+  void Start(SourceKind kind, const DeviceRef& device);
   void Stop();
 
   // Whether what Start began is still undecided.
@@ -81,7 +82,7 @@ class MicCapture {
  private:
   // Runs on worker_. `generation` is the Start it belongs to; a Stop since then
   // makes it a no-op.
-  void OpenOnWorker(const DeviceRef& device, uint32_t generation);
+  void OpenOnWorker(SourceKind kind, const DeviceRef& device, uint32_t generation);
   void OnAudio(const float* interleaved, size_t frames);
   void Fail(const Said& said);
   // The device came up or gave up: either way Opened() may stop waiting.
@@ -93,8 +94,8 @@ class MicCapture {
   std::vector<float> scratch_;  // the input's thread only
 
   // A Start not yet followed by a Stop; the caller's thread only. The settings
-  // ask for a stop every frame the microphone is not wanted, and only the first
-  // has anything to hand to the worker.
+  // ask for a stop every frame the source is not wanted, and only the first has
+  // anything to hand to the worker.
   bool started_ = false;
   // Counted up by every Stop. A device being let go of on the worker can still
   // deliver for a moment, and none of it may reach the next session.

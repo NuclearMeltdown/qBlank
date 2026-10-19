@@ -19,7 +19,6 @@
 #include <vector>
 
 #include "audio/audio_engine.h"
-#include "audio/mic_capture.h"
 #include "capture/device_config.h"
 #include "capture/video_capture.h"
 #include "common.h"
@@ -314,7 +313,6 @@ class App {
   bool HaveLiveSignal() const;
   VideoCapture capture_;
   AudioEngine audio_;
-  MicCapture mic_;
   SettingsWindow settings_;
   FrameDelayLine delayLine_;
   Recorder recorder_;
@@ -472,8 +470,8 @@ class App {
     App& app_;
   };
   RecordingHost recordingHost_{*this};
-  RecordingControl recording_{config_, recorder_, renderer_, capture_, audio_,
-                              mic_, settings_, virtualCamera_, recordingHost_};
+  RecordingControl recording_{config_,   recorder_, renderer_,      capture_,
+                              audio_,    settings_, virtualCamera_, recordingHost_};
 
   // Cropping, and what it asks of the rest of the program.
   class CropHost final : public CropTool::Host {

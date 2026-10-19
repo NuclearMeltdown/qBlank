@@ -40,6 +40,12 @@ using AudioSinkFn = std::function<void(const float* interleaved, size_t frames)>
 enum class AudioRole {
   Passthrough,  // the card's sound on its way to the speakers: every millisecond counts
   Microphone,   // into the recording only, never played back
+  // What an output device plays, taken off it again: the device is an output.
+  // Into the recording only, like the microphone.
+  Loopback,
+  // What every output device plays, minus this program's own sound. The device
+  // is ignored. PipeWire would build it from one monitor per application.
+  AllButSelf,
 };
 
 struct AudioInputEvents {

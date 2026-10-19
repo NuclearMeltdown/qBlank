@@ -135,12 +135,15 @@ class SettingsWindow {
   // sagt der Regler fuer die Zeilenluecken selbst, dass nichts zu holen ist.
   void SetScanlineRoom(float rows) { scanlineRoom_ = rows; }
 
-  // Current input levels, 0..1, for the meters on the audio tab.
-  void SetLevels(float input, float mic, bool micRunning) {
-    inputPeak_ = input;
-    micPeak_ = mic;
-    micRunning_ = micRunning;
+  // Current levels, 0..1, for the meters on the audio tab: the card's, and one
+  // per recording source by its place in the list.
+  void SetInputLevel(float input) { inputPeak_ = input; }
+  void SetSourceLevel(size_t index, float peak, bool running, bool failed) {
+    if (index >= sourceLevels_.size()) sourceLevels_.resize(index + 1);
+    sourceLevels_[index] = SourceLevel{peak, running, failed};
   }
+  // While recording, the recorder has its tracks laid out already.
+  void SetSourcesLocked(bool on) { sourcesLocked_ = on; }
   // Vergleich und "alle Filter aus" gehoeren der App und nicht dem Profil, also
   // zeigt der Dialog sie nur und bittet ums Umschalten -- dann gelten auch
   // dieselben Sperren wie bei der Taste.
@@ -427,8 +430,13 @@ class SettingsWindow {
   bool sourceInterlaced_ = false;
   float scanlineRoom_ = 0.0f;
   float inputPeak_ = 0.0f;
-  float micPeak_ = 0.0f;
-  bool micRunning_ = false;
+  struct SourceLevel {
+    float peak = 0.0f;
+    bool running = false;
+    bool failed = false;
+  };
+  std::vector<SourceLevel> sourceLevels_;  // grows only, no allocation per frame
+  bool sourcesLocked_ = false;
 
   // Last, so they finish before anything their answers touch is gone. Two,
   // because neither has to wait for the other: the devices -- the lists, the

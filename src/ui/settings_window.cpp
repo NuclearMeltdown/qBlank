@@ -2909,67 +2909,146 @@ void SettingsWindow::DrawAudioTab() {
   HelpMarker(T("Vor Lautstärke und Stumm. Zeigt, was die Karte liefert.",
                "Before volume and mute. Shows what the card delivers."));
 
-  // ---- microphone ----
+  // ---- recording sources ----
   ImGui::Spacing();
-  ImGui::SeparatorText(T("Mikrofon", "Microphone"));
+  ImGui::SeparatorText(T("Tonquellen der Aufnahme", "Recording sources"));
+  Anchor("sources");
   ImGui::TextWrapped(
-      T("Kommt als eigene Spur in die Aufnahme und wird nicht mitgehört — sonst hättest du "
-        "dich selbst im Kopfhörer.",
-        "Recorded as its own track and never played back — otherwise you would hear yourself "
-        "in your headphones."));
+      T("Kommen zum Ton der Karte in die Aufnahme und werden nicht mitgehört — sonst hättest "
+        "du dich selbst im Kopfhörer.",
+        "Recorded along with the card's sound and never played back — otherwise you would "
+        "hear yourself in your headphones."));
+  if (sourcesLocked_) {
+    ImGui::TextDisabled(T("Während der Aufnahme bleibt die Liste, wie sie ist.",
+                          "The list stays as it is while recording."));
+  }
   ImGui::Spacing();
 
-  ImGui::Checkbox(T("Mikrofon aufnehmen", "Record a microphone"), &audio.micEnabled);
-  Anchor("mic");
-
-  ImGui::BeginDisabled(!audio.micEnabled);
-  const char* micPreview = audio.micDevice.name.empty()
-                               ? T("Systemstandard", "System default")
-                               : audio.micDevice.name.c_str();
-  ImGui::SetNextItemWidth(-1.0f);
-  if (ImGui::BeginCombo("##micdev", micPreview)) {
-    if (ImGui::Selectable(T("Systemstandard", "System default"), audio.micDevice.empty())) {
-      audio.micDevice = DeviceRef{};
+  const ImVec4 warn(0.95f, 0.72f, 0.35f, 1.0f);
+  // "System default" is a device too, and the one the card plays on unless
+  // something else is picked.
+  auto outputOf = [&](const DeviceRef& ref) -> const AudioDeviceInfo* {
+    for (const AudioDeviceInfo& d : audioOutputs_) {
+      if (ref.empty() ? d.isDefault : d.id == ref.id) return &d;
     }
-    for (const AudioDeviceInfo& d : audioInputs_) {
-      // Capture card audio is no microphone.
-      if (d.cardAudio) continue;
-      const bool selected = (d.id == audio.micDevice.id);
-      if (ImGui::Selectable(d.name.c_str(), selected)) audio.micDevice = d.ToRef();
-      if (selected) ImGui::SetItemDefaultFocus();
+    return nullptr;
+  };
+  const AudioDeviceInfo* playback = outputOf(audio.output);
+  int remove = -1;
+  bool haveSystem = false;
+  for (size_t i = 0; i < audio.sources.size(); ++i) {
+    RecordSource& source = audio.sources[i];
+    const SourceLevel level = i < sourceLevels_.size() ? sourceLevels_[i] : SourceLevel{};
+    const bool system = source.kind == SourceKind::System;
+    haveSystem |= system;
+    ImGui::PushID((int)i);
+
+    ImGui::BeginDisabled(sourcesLocked_);
+    ImGui::Checkbox(system                                ? T("Systemton", "System sound")
+                    : source.kind == SourceKind::Output ? T("Ausgabegerät", "Output device")
+                                                        : T("Eingang", "Input"),
+                    &source.enabled);
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                         std::max(0.0f, ImGui::GetContentRegionAvail().x -
+                                            ImGui::CalcTextSize(T("Entfernen", "Remove")).x -
+                                            ImGui::GetStyle().FramePadding.x * 2.0f));
+    if (ImGui::SmallButton(T("Entfernen", "Remove"))) remove = (int)i;
+    ImGui::EndDisabled();
+
+    ImGui::BeginDisabled(!source.enabled);
+    if (system) {
+      ImGui::TextDisabled(T("Alles, was Windows abspielt, außer qBlank selbst.",
+                            "Everything Windows plays, except qBlank itself."));
+    } else {
+      // Capture card audio is no microphone, and the outputs are what is
+      // played: the lists are the system's, either way.
+      const bool input = source.kind == SourceKind::Input;
+      const char* preview = source.device.name.empty() ? T("Systemstandard", "System default")
+                                                       : source.device.name.c_str();
+      ImGui::BeginDisabled(sourcesLocked_);
+      ImGui::SetNextItemWidth(-1.0f);
+      if (ImGui::BeginCombo("##device", preview)) {
+        if (ImGui::Selectable(T("Systemstandard", "System default"), source.device.empty())) {
+          source.device = DeviceRef{};
+        }
+        for (const AudioDeviceInfo& d : input ? audioInputs_ : audioOutputs_) {
+          if (input && d.cardAudio) continue;
+          const bool selected = (d.id == source.device.id);
+          if (ImGui::Selectable(d.name.c_str(), selected)) source.device = d.ToRef();
+          if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::EndDisabled();
+      // The game is in that file once already, through the card.
+      const AudioDeviceInfo* at = input ? nullptr : outputOf(source.device);
+      if (!input && (at ? at == playback : source.device == audio.output)) {
+        ImGui::TextColored(warn, "%s",
+                           T("Dort läuft auch der Ton der Karte: er wäre doppelt in der Aufnahme.",
+                             "The card's sound plays there too: it would be recorded twice."));
+      }
     }
-    ImGui::EndCombo();
-  }
-  Anchor("micdev");
 
-  ImGui::SetNextItemWidth(-260.0f);
-  float micDb = 20.0f * std::log10(std::max(audio.micGain, 0.01f));
-  if (ImGui::SliderFloat(T("Verstärkung", "Gain"), &micDb, -20.0f, 12.0f, "%+.1f dB")) {
-    audio.micGain = std::pow(10.0f, micDb / 20.0f);
-  }
-  Anchor("micgain");
-  ResetOnRightClick(audio.micGain, kAudio.micGain);
-  ImGui::SameLine();
-  HelpMarker(T("Zusätzlich zur Windows-Einstellung, wirkt nur auf die Aufnahme.",
-               "On top of the Windows setting, affects the recording only."));
+    ImGui::SetNextItemWidth(-260.0f);
+    float db = 20.0f * std::log10(std::max(source.gain, 0.01f));
+    if (ImGui::SliderFloat(T("Verstärkung", "Gain"), &db, -20.0f, 12.0f, "%+.1f dB")) {
+      source.gain = std::pow(10.0f, db / 20.0f);
+    }
+    Anchor("sourcegain");
+    ResetOnRightClick(source.gain, 1.0f);
+    ImGui::SameLine();
+    HelpMarker(T("Zusätzlich zur Windows-Einstellung, wirkt nur auf die Aufnahme.",
+                 "On top of the Windows setting, affects the recording only."));
 
-  int trackMode = (int)audio.micTrackMode;
-  ImGui::SetNextItemWidth(-260.0f);
-  if (ComboEnum(T("Spuren", "Tracks"), &trackMode, 3, MicTrackModeName)) {
-    audio.micTrackMode = (MicTrackMode)trackMode;
-  }
-  Anchor("mictracks");
-  ImGui::SameLine();
-  HelpMarker(T("Gemischt spielt überall ab. Getrennt lässt sich im Schnitt noch auseinander "
-               "nehmen.",
-               "Mixed plays anywhere. Separate can still be pulled apart in an editor."));
+    int trackMode = (int)source.tracks;
+    ImGui::BeginDisabled(sourcesLocked_);
+    ImGui::SetNextItemWidth(-260.0f);
+    if (ComboEnum(T("Spuren", "Tracks"), &trackMode, 3, TrackModeName)) {
+      source.tracks = (TrackMode)trackMode;
+    }
+    ImGui::EndDisabled();
+    Anchor("sourcetracks");
+    ImGui::SameLine();
+    HelpMarker(T("Gemischt spielt überall ab. Getrennt lässt sich im Schnitt noch auseinander "
+                 "nehmen.",
+                 "Mixed plays anywhere. Separate can still be pulled apart in an editor."));
 
-  ImGui::SetNextItemWidth(-260.0f);
-  LevelMeter(T("Mikrofonpegel", "Microphone level"), micPeak_, micRunning_);
-  if (audio.micEnabled && !micRunning_) {
-    ImGui::TextDisabled(T("Wird geöffnet ...", "Opening ..."));
+    ImGui::SetNextItemWidth(-260.0f);
+    LevelMeter(T("Pegel", "Level"), level.peak, level.running);
+    if (source.enabled && level.failed) {
+      ImGui::TextColored(warn, "%s", T("Nicht verfügbar.", "Not available."));
+    } else if (source.enabled && !level.running) {
+      ImGui::TextDisabled(T("Wird geöffnet ...", "Opening ..."));
+    }
+    ImGui::EndDisabled();
+    ImGui::PopID();
+    ImGui::Spacing();
   }
+  if (remove >= 0) audio.sources.erase(audio.sources.begin() + remove);
+
+  ImGui::BeginDisabled(sourcesLocked_);
+  if (ImGui::Button(T("Hinzufügen ...", "Add ..."))) ImGui::OpenPopup("addsource");
   ImGui::EndDisabled();
+  Anchor("sourceadd");
+  if (ImGui::BeginPopup("addsource")) {
+    auto add = [&](SourceKind kind) {
+      RecordSource source;
+      source.kind = kind;
+      source.enabled = true;
+      audio.sources.push_back(source);
+    };
+    if (ImGui::Selectable(T("Eingang (Mikrofon)", "Input (microphone)"))) add(SourceKind::Input);
+    if (ImGui::Selectable(T("Ausgabegerät (was dort läuft)", "Output device (what plays there)"))) {
+      add(SourceKind::Output);
+    }
+    // One is everything already.
+    if (ImGui::Selectable(T("Systemton ohne qBlank", "System sound without qBlank"), false,
+                          haveSystem ? ImGuiSelectableFlags_Disabled : 0)) {
+      add(SourceKind::System);
+    }
+    ImGui::EndPopup();
+  }
 }
 
 // --------------------------------------------------------------- display tab

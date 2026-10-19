@@ -104,7 +104,7 @@ add_executable(qBlank WIN32
   src/audio/audio_ring.cpp
   src/audio/audio_stream_win32.cpp
   src/audio/dshow_audio_capture.cpp
-  src/audio/mic_capture.cpp
+  src/audio/source_capture.cpp
   src/audio/pcm.cpp
   src/audio/pcm_win32.cpp
   src/record/ffmpeg_download.cpp
@@ -393,7 +393,7 @@ endif()
 target_link_libraries(qBlank PRIVATE
   d3d11 dxgi d3dcompiler dxguid
   strmiids ole32 oleaut32 uuid
-  winmm avrt dwmapi shlwapi shcore winhttp bcrypt windowscodecs
+  winmm avrt mmdevapi dwmapi shlwapi shcore winhttp bcrypt windowscodecs
   user32 gdi32 advapi32 comdlg32 propsys
 )
 # Only the interface's Direct3D 11 backend compiles shaders at runtime -- its

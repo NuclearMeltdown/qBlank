@@ -3,7 +3,7 @@
 #include <cmath>
 
 #include "audio/audio_engine.h"
-#include "audio/mic_capture.h"
+#include "audio/source_capture.h"
 #include "camera_sink.h"
 #include "capture/video_capture.h"
 #include "common.h"
@@ -11,6 +11,7 @@
 #include "i18n.h"
 #include "platform.h"
 #include "record/recorder.h"
+#include "record/track_plan.h"
 #include "render/display.h"
 #include "render/video_renderer.h"
 #include "ui/settings_window.h"
@@ -26,20 +27,22 @@ const uint64_t kDiskFloorBytes = 256ull * 1024 * 1024;
 }  // namespace
 
 RecordingControl::RecordingControl(Config& config, Recorder& recorder, VideoRenderer& renderer,
-                                   VideoCapture& capture, AudioEngine& audio, MicCapture& mic,
+                                   VideoCapture& capture, AudioEngine& audio,
                                    SettingsWindow& settings, CameraSink& camera, Host& host)
     : config_(config),
       recorder_(recorder),
       renderer_(renderer),
       capture_(capture),
       audio_(audio),
-      mic_(mic),
       settings_(settings),
       virtualCamera_(camera),
       host_(host) {}
 
+RecordingControl::~RecordingControl() = default;
+
 void RecordingControl::Shutdown() {
   StopRecording();
+  for (Source& source : sources_) source.capture->Stop();
   if (probeThread_.joinable()) probeThread_.join();
 }
 
@@ -211,16 +214,16 @@ void RecordingControl::StartRecording() {
   const bool wantAudio = audio_.running() && audio_.tapSampleRate() > 0;
   if (wantAudio) audio_.SetTapEnabled(true);
 
-  // The microphone decides its own rate, and the recorder opens its tracks and
-  // its resampler for it. Opening one takes from a few milliseconds to, for a device
-  // that does not answer, three seconds; the picture goes on meanwhile, and
-  // FeedRecorder launches once it and the disk have answered.
+  // Every source decides its own rate, and the recorder opens its tracks and
+  // resamplers for them. Opening one takes from a few milliseconds to, for a
+  // device that does not answer, three seconds; the picture goes on meanwhile,
+  // and FeedRecorder launches once they and the disk have answered.
   pendingSettings_ = config_.record;
   pendingAudio_ = wantAudio;
   pendingFile_.clear();
   startPending_ = true;
   const uint32_t serial = ++startSerial_;
-  SyncMicrophone();
+  SyncSources();
 
   // What the disk has to say, on its own thread: a drive that has gone to
   // sleep takes a second or more to answer.
@@ -281,8 +284,6 @@ void RecordingControl::LaunchRecording() {
   }
   startPending_ = false;
   const bool wantAudio = pendingAudio_;
-  const bool wantMic = mic_.running() && mic_.sampleRate() > 0;
-  if (wantMic) mic_.ResetBuffer();
 
   const VideoFormatInfo format = renderer_.sourceFormat();
   std::string error;
@@ -291,10 +292,23 @@ void RecordingControl::LaunchRecording() {
     mainTrack.sampleRate = audio_.tapSampleRate();
     mainTrack.pull = [this](float* out, size_t frames) { return audio_.ReadTap(out, frames); };
   }
-  Recorder::AudioSource micTrack;
-  if (wantMic) {
-    micTrack.sampleRate = mic_.sampleRate();
-    micTrack.pull = [this](float* out, size_t frames) { return mic_.Read(out, frames); };
+  // Named after the device, so an editor shows which is which; the default
+  // device after what it is.
+  std::vector<Recorder::ExtraAudio> extras;
+  const std::vector<RecordSource>& list = config_.active().audio.sources;
+  for (size_t i = 0; i < list.size() && i < sources_.size(); ++i) {
+    SourceCapture* source = sources_[i].capture.get();
+    if (!list[i].enabled || !source->running() || source->sampleRate() <= 0) continue;
+    source->ResetBuffer();
+    Recorder::ExtraAudio extra;
+    extra.source.sampleRate = source->sampleRate();
+    extra.source.pull = [source](float* out, size_t frames) { return source->Read(out, frames); };
+    extra.title = list[i].kind == SourceKind::System ? "System sound"
+                  : !list[i].device.name.empty()     ? list[i].device.name
+                  : list[i].kind == SourceKind::Input ? "Microphone"
+                                                      : "Output";
+    extra.tracks = list[i].tracks;
+    extras.push_back(std::move(extra));
   }
 
   // Which picture the writer will be fed, decided before it starts: the wide
@@ -369,8 +383,7 @@ void RecordingControl::LaunchRecording() {
   recorder_.SetGpuAdapter(renderer_.sharedAdapter());
   const bool ok = recorder_.Start(pendingSettings_, pendingFile_, ffmpeg_,
                                   renderer_.outputWidth(), renderer_.outputHeight(), recordFps,
-                                  mainTrack, micTrack, config_.active().audio.micTrackMode,
-                                  &error);
+                                  mainTrack, std::move(extras), &error);
 
   if (!ok) {
     audio_.SetTapEnabled(false);
@@ -427,17 +440,14 @@ void RecordingControl::UpdateDiskSpace() {
   if (!settings_.isOpen() && !recorder_.recording()) return;
 
   // Wie viele Tonspuren in der Datei landen wuerden -- jede kostet ihre
-  // 192 kbit/s. Dieselbe Rechnung wie im Recorder: die Mischung ist
-  // eine eigene Spur, und "beide" heisst Mischung *und* die zwei einzelnen.
-  const bool haveMain = audio_.running() && audio_.tapSampleRate() > 0;
-  const bool haveMic = mic_.running() && mic_.sampleRate() > 0;
-  int tracks = (haveMain ? 1 : 0) + (haveMic ? 1 : 0);
-  if (haveMain && haveMic) {
-    const MicTrackMode mode = config_.active().audio.micTrackMode;
-    if (mode == MicTrackMode::Mixed) tracks = 1;
-    if (mode == MicTrackMode::Both) tracks = 3;
+  // 192 kbit/s. Dieselbe Rechnung wie im Recorder (TrackPlan).
+  TrackPlan plan(audio_.running() && audio_.tapSampleRate() > 0);
+  const std::vector<RecordSource>& list = config_.active().audio.sources;
+  for (size_t i = 0; i < list.size() && i < sources_.size(); ++i) {
+    const SourceCapture& source = *sources_[i].capture;
+    if (list[i].enabled && source.running() && source.sampleRate() > 0) plan.Add(list[i].tracks);
   }
-  diskBytesPerSecond_ = EstimatedBytesPerSecond(config_.record, tracks);
+  diskBytesPerSecond_ = EstimatedBytesPerSecond(config_.record, plan.count());
 
   const double now = TicksToSeconds(ClockTicks());
   if (!diskAsked_ && now - lastDiskCheck_ > 1.0) {
@@ -473,45 +483,75 @@ void RecordingControl::UpdateDiskSpace() {
   settings_.SetDiskFree(diskFreeBytes_, diskFreeKnown_, diskBytesPerSecond_);
 }
 
-void RecordingControl::SyncMicrophone() {
-  const AudioSettings& a = config_.active().audio;
+void RecordingControl::SyncSources() {
+  const std::vector<RecordSource>& list = config_.active().audio.sources;
+  while (sources_.size() < list.size()) {
+    sources_.emplace_back();
+    sources_.back().capture = std::make_unique<SourceCapture>();
+  }
 
-  // Held open only while it is actually being used: during a recording, and
-  // while the settings are open so the level meter means something. Keeping a
+  // Held open only while actually used: during a recording, and while the
+  // settings are open so the level meter means something. Keeping a
   // microphone open the rest of the time would light up the Windows privacy
   // indicator for no reason and tell the user something untrue.
-  const bool wanted =
-      a.micEnabled && (startPending_ || recorder_.recording() || settings_.isOpen());
+  const bool recording = recorder_.recording();
+  const bool used = startPending_ || recording || settings_.isOpen();
+  settings_.SetSourcesLocked(recording);
 
-  // Changing the device is a fresh start, and clears a previous failure.
-  if (!(micApplied_ == a.micDevice)) {
-    micApplied_ = a.micDevice;
-    micFailed_ = false;
-    if (mic_.running() || mic_.opening()) mic_.Stop();
-  }
+  for (size_t i = 0; i < sources_.size(); ++i) {
+    Source& source = sources_[i];
+    SourceCapture& capture = *source.capture;
+    const RecordSource* entry = i < list.size() ? &list[i] : nullptr;
 
-  // Not fatal: the recording still happens, just without the second track.
-  // Latched, because retrying every frame would fill the log and the screen
-  // with the same message sixty times a second.
-  std::string error;
-  if (wanted && !mic_.running() && !mic_.opening() && !micFailed_) {
-    mic_.Start(a.micDevice);
-  } else if (!wanted && (mic_.running() || mic_.opening())) {
-    mic_.Stop();
+    // Another device is a fresh start, and clears a previous failure; so does
+    // switching the entry off and on again. Not while recording: the recorder
+    // has opened its resampler for the rate this one runs at. The settings
+    // keep the list as it is meanwhile; only another profile could change it.
+    if (entry && !recording) {
+      if (source.kind != entry->kind || !(source.device == entry->device)) {
+        source.kind = entry->kind;
+        source.device = entry->device;
+        source.failed = false;
+        if (capture.running() || capture.opening()) capture.Stop();
+      }
+      if (!entry->enabled) source.failed = false;
+    }
+
+    // Not fatal: the recording still happens, just without this source.
+    // Latched, because retrying every frame would fill the log and the screen
+    // with the same message sixty times a second.
+    const bool wanted = entry && entry->enabled && used;
+    if (wanted && !capture.running() && !capture.opening() && !source.failed) {
+      capture.Start(source.kind, source.device);
+    } else if (!wanted && (capture.running() || capture.opening())) {
+      capture.Stop();
+    }
+    // Opening happens on the source's thread; this only looks whether it is
+    // done, once a frame, and a recording waiting for it starts the frame
+    // after.
+    std::string error;
+    if (capture.opening() && capture.Opened(0, &error) == SourceCapture::Open::Failed) {
+      source.failed = true;
+      if (!error.empty()) host_.Toast(error);
+    }
+    if (entry) {
+      capture.SetGain(entry->gain);
+      settings_.SetSourceLevel(i, capture.peak(), capture.running(), source.failed);
+    }
   }
-  // Opening happens on the microphone's thread; this only looks whether it is
-  // done, once a frame, and a recording waiting for it starts the frame after.
-  if (mic_.opening() && mic_.Opened(0, &error) == MicCapture::Open::Failed) {
-    micFailed_ = true;
+}
+
+bool RecordingControl::SourcesOpening() const {
+  for (const Source& source : sources_) {
+    if (source.capture->opening()) return true;
   }
-  if (micFailed_ && !error.empty()) host_.Toast(error);
-  mic_.SetGain(a.micGain);
+  return false;
 }
 
 void RecordingControl::FeedRecorder() {
   CollectFinished();
   disk_.Collect();
-  if (startPending_ && !pendingFile_.empty() && !mic_.opening()) LaunchRecording();
+  if (startPending_ && !pendingFile_.empty() && !SourcesOpening()) LaunchRecording();
   if (!recorder_.recording()) return;
 
   // The encoder did not open, or encoding or writing failed: stop cleanly.

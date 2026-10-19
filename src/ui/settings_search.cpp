@@ -246,15 +246,17 @@ const Entry kEntries[] = {
      "laut|leise|Loud|Quiet|Pegel|Level"},
     {Kind::Control, kTabAudio, "mute", "Stumm", "Muted",
      "Mute|Ton aus|Stummschalten|Sound off"},
-    {Kind::Place, kTabAudio, nullptr, "Mikrofon", "Microphone", nullptr},
-    {Kind::Control, kTabAudio, "mic", "Mikrofon aufnehmen", "Record a microphone",
-     "Mic|Mikro|Micro|Kommentar|Commentary|Voice|Stimme|Headset|Facecam"},
-    {Kind::Control, kTabAudio, "micdev", "Mikrofon", "Microphone",
-     "Mic|Mikro|Headset|Eingabegerät|Input device"},
-    {Kind::Control, kTabAudio, "micgain", "Verstärkung", "Gain",
+    {Kind::Section, kTabAudio, "sources", "Tonquellen der Aufnahme", "Recording sources",
+     "Mic|Mikro|Mikrofon|Microphone|Kommentar|Commentary|Voice|Stimme|Headset|Facecam|"
+     "Eingabegerät|Input device|Systemton|System sound|Desktop-Ton|Desktop audio|Discord|"
+     "Loopback|Ausgabegerät|Output device|Tonquelle|Audio source"},
+    {Kind::Control, kTabAudio, "sourceadd", "Hinzufügen", "Add",
+     "Tonquelle hinzufügen|Add source|Mikrofon hinzufügen|Add microphone|Weiteres Gerät|"
+     "Another device|Zweites Mikrofon|Second microphone"},
+    {Kind::Control, kTabAudio, "sourcegain", "Verstärkung", "Gain",
      "Pegel|Level|Mikrofonlautstärke|Mic volume|Boost|dB|laut|leise"},
-    {Kind::Control, kTabAudio, "mictracks", "Spuren", "Tracks",
-     "Tonspur|Audiospur|Audio track|getrennte Spur|Separate track|Mehrspur|Multitrack"},
+    {Kind::Control, kTabAudio, "sourcetracks", "Spuren", "Tracks",
+     "Tonspur|Audiospur|Audio track|getrennte Spur|Separate track|Mehrspur|Multitrack|Mix"},
 
     // ---- display
     {Kind::Tab, kTabDisplay, nullptr, "Anzeige", "Display",

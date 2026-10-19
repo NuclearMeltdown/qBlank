@@ -9,6 +9,7 @@
 
 #include "record/gpu_frames.h"
 #include "record/libav.h"
+#include "record/track_plan.h"
 #include "render/shared_frames.h"
 
 namespace cap {
@@ -24,6 +25,9 @@ std::string TimestampedName(RecordContainer container) {
 constexpr int kAudioBitrate = 192000;
 // What the audio thread pulls at a time, in frames.
 constexpr size_t kAudioChunk = 4096;
+// The tracks' rate when there is no card sound to set it: the recording
+// sources are then brought onto the wall clock at this.
+constexpr int kClockRate = 48000;
 // Packets the disk has not taken yet. A stall of seconds fits in this many;
 // past it the disk is simply slower than the encoder, and waiting longer only
 // ends in running out of memory.
@@ -86,13 +90,27 @@ struct Recorder::Session {
     int fill = 0;
     int64_t samples = 0;
   };
-  Track tracks[3];
+  std::vector<Track> tracks;
   int mix = -1;      // indices into tracks
   int capture = -1;
-  int mic = -1;
   AVPacket* audioPacket = nullptr;
-  // The microphone onto the capture's rate and clock, when both are recorded.
-  SwrContext* micResampler = nullptr;
+
+  // One recording source on its way onto the master clock: resampled, then
+  // waiting in `fifo` (interleaved stereo, from `start` to `end`, in frames)
+  // to be taken in step with it. The audio thread only, past the resampler.
+  struct Feed {
+    SwrContext* resampler = nullptr;
+    int track = -1;  // its own, -1 for none
+    bool mixed = false;
+    std::vector<float> fifo;
+    size_t start = 0;
+    size_t end = 0;
+    size_t lowest = SIZE_MAX;
+    uint64_t measured = 0;
+    uint64_t underruns = 0;
+    uint64_t overflows = 0;
+  };
+  std::vector<Feed> feeds;  // in the order of Recorder::extras_
 
   // The muxer's own thread: the disk may pause, the encoders must not.
   std::mutex muxMutex;
@@ -127,7 +145,7 @@ Recorder::Session::~Session() {
     av->av_frame_free(&track.frame);
     av->avcodec_free_context(&track.codec);
   }
-  av->swr_free(&micResampler);
+  for (Feed& feed : feeds) av->swr_free(&feed.resampler);
   if (pool) av->av_buffer_pool_uninit(&pool);
   if (output) {
     if (fileOpen) av->avio_closep(&output->pb);
@@ -460,8 +478,7 @@ std::filesystem::path NextRecordingFile(const std::filesystem::path& folder,
 
 bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path& outFile,
                      const FfmpegInfo& ffmpeg, int width, int height, double sourceFps,
-                     const AudioSource& main, const AudioSource& mic, MicTrackMode micTrackMode,
-                     std::string* error) {
+                     const AudioSource& main, std::vector<ExtraAudio> extras, std::string* error) {
   Stop();
 
   auto fail = [&](const Said& said) {
@@ -494,13 +511,14 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
       RecordingRate(*av, settings.fps > 0.0 ? settings.fps : (sourceFps > 1.0 ? sourceFps : 60.0));
   fps_ = av_q2d(rate);
   audioRate_ = main.active() ? main.sampleRate : 0;
-  micRate_ = mic.active() ? mic.sampleRate : 0;
-  micTrackMode_ = micTrackMode;
   format_ = FormatFor(*encoder, wide_, settings.fullChroma);
   frameBytes_ = (size_t)width_ * (size_t)YuvRows(format_.layout, height_) *
                 (size_t)format_.sampleBytes();
   pullAudio_ = audioRate_ > 0 ? main.pull : nullptr;
-  pullMic_ = micRate_ > 0 ? mic.pull : nullptr;
+  extras.erase(std::remove_if(extras.begin(), extras.end(),
+                              [](const ExtraAudio& e) { return !e.source.active(); }),
+               extras.end());
+  extras_ = std::move(extras);
 
   auto session = std::make_unique<Session>();
   session->av = av;
@@ -532,7 +550,7 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
 
   session_ = std::move(session);
   running_.store(true, std::memory_order_relaxed);
-  if (audioRate_ > 0 || micRate_ > 0) {
+  if (audioRate_ > 0 || !extras_.empty()) {
     audioThread_ = std::thread(&Recorder::AudioThread, this, session_.get());
   }
   // The encoder opens there and not here: NVENC takes a tenth of a second and
@@ -682,19 +700,20 @@ bool Recorder::Open(Session* s) {
 
   // ---- the sound ----
   //
-  // With both sources there is a choice of what the file should contain. The
-  // separate tracks stay exactly what each device delivered; the mix is a
-  // plain sum, so the game is as loud in it as on its own track. The sum can
-  // clip if both are hot, which is what the level meters are for.
-  const bool both = audioRate_ > 0 && micRate_ > 0;
-  const bool wantMix = both && micTrackMode_ != MicTrackMode::Separate;
-  const bool wantSeparate = !both || micTrackMode_ != MicTrackMode::Mixed;
-  // Everything at the capture's rate when there is a capture: the microphone is
-  // brought onto it, which is what keeps it in step for an hour.
-  const int trackRate = audioRate_ > 0 ? audioRate_ : micRate_;
-  int trackCount = 0;
+  // With more than one sound there is a choice of what the file should
+  // contain (TrackPlan). The separate tracks stay what each device delivered;
+  // the mix is a plain sum, so the game is as loud in it as on its own track.
+  // The sum can clip if several are hot, which is what the level meters are
+  // for.
+  TrackPlan plan(audioRate_ > 0);
+  for (const ExtraAudio& extra : extras_) plan.Add(extra.tracks);
+  // Everything at the capture's rate when there is a capture: the sources are
+  // brought onto it, which is what keeps them in step for an hour.
+  const int trackRate = audioRate_ > 0 ? audioRate_ : kClockRate;
+  s->tracks.reserve((size_t)plan.count());
   auto addTrack = [&](const char* title) -> int {
-    Session::Track& track = s->tracks[trackCount];
+    const int trackCount = (int)s->tracks.size();
+    Session::Track& track = s->tracks.emplace_back();
     const AVCodec* aac = av.avcodec_find_encoder_by_name("aac");
     if (!aac || !(track.codec = av.avcodec_alloc_context3(aac))) {
       failed("Der Audio-Encoder ließ sich nicht öffnen: %s", "Could not open the audio encoder: %s",
@@ -740,28 +759,38 @@ bool Recorder::Open(Session* s) {
              r);
       return -1;
     }
-    return trackCount++;
+    return trackCount;
   };
-  if (wantMix && (s->mix = addTrack("Mix")) < 0) return false;
-  if (wantSeparate && audioRate_ > 0 && (s->capture = addTrack("Capture")) < 0) return false;
-  if (wantSeparate && micRate_ > 0 && (s->mic = addTrack("Microphone")) < 0) return false;
+  if (plan.mix() && (s->mix = addTrack("Mix")) < 0) return false;
+  if (plan.main() && (s->capture = addTrack("Capture")) < 0) return false;
 
-  if (both) {
-    AVChannelLayout stereo = {};
-    av.av_channel_layout_default(&stereo, 2);
+  s->feeds.resize(extras_.size());
+  AVChannelLayout stereo = {};
+  av.av_channel_layout_default(&stereo, 2);
+  for (size_t i = 0; i < extras_.size(); ++i) {
+    const ExtraAudio& extra = extras_[i];
+    Session::Feed& feed = s->feeds[i];
+    feed.mixed = plan.mixed(extra.tracks);
+    if (plan.own(extra.tracks) && (feed.track = addTrack(extra.title.c_str())) < 0) {
+      av.av_channel_layout_uninit(&stereo);
+      return false;
+    }
     LibavClearError();
-    result = av.swr_alloc_set_opts2(&s->micResampler, &stereo, AV_SAMPLE_FMT_FLT, audioRate_,
-                                    &stereo, AV_SAMPLE_FMT_FLT, micRate_, 0, nullptr);
-    av.av_channel_layout_uninit(&stereo);
+    result = av.swr_alloc_set_opts2(&feed.resampler, &stereo, AV_SAMPLE_FMT_FLT, trackRate,
+                                    &stereo, AV_SAMPLE_FMT_FLT, extra.source.sampleRate, 0,
+                                    nullptr);
     // Resampling even at the same rate: the two clocks are never quite the
     // same, and only a resampler can make up the difference smoothly.
-    if (result >= 0) result = av.av_opt_set_int(s->micResampler, "flags", SWR_FLAG_RESAMPLE, 0);
-    if (result >= 0) result = av.swr_init(s->micResampler);
+    if (result >= 0) result = av.av_opt_set_int(feed.resampler, "flags", SWR_FLAG_RESAMPLE, 0);
+    if (result >= 0) result = av.swr_init(feed.resampler);
     if (result < 0) {
-      return failed("Das Mikrofon ließ sich nicht umrechnen: %s",
-                    "Could not resample the microphone: %s", result);
+      av.av_channel_layout_uninit(&stereo);
+      return failed("Eine Tonquelle ließ sich nicht umrechnen: %s",
+                    "Could not resample a sound source: %s", result);
     }
   }
+  av.av_channel_layout_uninit(&stereo);
+  const int trackCount = (int)s->tracks.size();
 
   // ---- the file ----
   LibavClearError();
@@ -872,7 +901,7 @@ void Recorder::Stop() {
     });
   }
   pullAudio_ = nullptr;
-  pullMic_ = nullptr;
+  extras_.clear();
 }
 
 bool Recorder::TakeFinished(Finished* out) {
@@ -1215,42 +1244,91 @@ void Recorder::AudioThread(Session* s) {
   const Libav& av = *s->av;
 
   std::vector<float> capture(kAudioChunk * 2);
-  std::vector<float> micIn(kAudioChunk * 2);
+  std::vector<float> in(kAudioChunk * 2);
   std::vector<float> mixed(kAudioChunk * 2);
   // What came before the first frame belongs to no frame.
   if (pullAudio_) {
     while (pullAudio_(capture.data(), kAudioChunk) == kAudioChunk) {
     }
   }
-  if (pullMic_) {
-    while (pullMic_(micIn.data(), kAudioChunk) == kAudioChunk) {
+  for (const ExtraAudio& extra : extras_) {
+    while (extra.source.pull(in.data(), kAudioChunk) == kAudioChunk) {
     }
   }
 
-  // The microphone on the capture's clock, waiting to be taken in step with it,
-  // interleaved stereo from `fifoStart` to `fifoEnd`, in frames.
+  // Every source waits in its feed on the master clock: the capture's when
+  // there is a capture, the wall clock otherwise.
   //
-  // Both devices deliver in bursts of their own size, so the level swings by a
+  // The devices deliver in bursts of their own size, so the level swings by a
   // burst or two. Its lowest point over each second is held near `floor`, by
   // asking the resampler for a few samples more or fewer: deep enough that a
-  // late burst does not run it dry, shallow enough that the microphone stays
+  // late burst does not run it dry, shallow enough that the source stays
   // within a frame or two of the game.
-  const int outRate = audioRate_ > 0 ? audioRate_ : micRate_;
+  const int outRate = audioRate_ > 0 ? audioRate_ : kClockRate;
   const size_t floor = (size_t)outRate * 15 / 1000;
-  std::vector<float> fifo((size_t)outRate * 2, 0.0f);
-  size_t fifoStart = 0;
-  size_t fifoEnd = floor;  // starts with that much silence
-  size_t lowest = SIZE_MAX;
-  uint64_t measured = 0;
-  uint64_t underruns = 0;
-  uint64_t overflows = 0;
+  for (Session::Feed& feed : s->feeds) {
+    feed.fifo.assign((size_t)outRate * 2, 0.0f);
+    feed.end = floor;  // starts with that much silence
+  }
+  // Without a capture: when the clock started, and how much of it is written.
+  const int64_t clockOrigin = ClockTicks();
+  uint64_t clockFrames = 0;
 
-  auto fifoReserve = [&](size_t frames) {
-    if (fifoEnd + frames <= fifo.size() / 2) return;
-    std::memmove(fifo.data(), fifo.data() + fifoStart * 2, (fifoEnd - fifoStart) * 2 * sizeof(float));
-    fifoEnd -= fifoStart;
-    fifoStart = 0;
-    if (fifoEnd + frames > fifo.size() / 2) fifo.resize((fifoEnd + frames) * 2);
+  auto reserve = [](Session::Feed& feed, size_t frames) {
+    if (feed.end + frames <= feed.fifo.size() / 2) return;
+    std::memmove(feed.fifo.data(), feed.fifo.data() + feed.start * 2,
+                 (feed.end - feed.start) * 2 * sizeof(float));
+    feed.end -= feed.start;
+    feed.start = 0;
+    if (feed.end + frames > feed.fifo.size() / 2) feed.fifo.resize((feed.end + frames) * 2);
+  };
+
+  // `frames` of the master clock, `master` null on the wall clock: the
+  // capture's track, as much of every source, then the mix.
+  auto step = [&](const float* master, size_t frames) -> int {
+    int result = 0;
+    if (master && s->capture >= 0) result = s->Encode(s->tracks[s->capture], master, frames);
+    if (s->mix >= 0) {
+      if (master) {
+        std::memcpy(mixed.data(), master, frames * 2 * sizeof(float));
+      } else {
+        std::fill(mixed.begin(), mixed.begin() + (ptrdiff_t)(frames * 2), 0.0f);
+      }
+    }
+    for (Session::Feed& feed : s->feeds) {
+      if (result < 0) return result;
+      // As much as the clock moved, padded with silence when it has not
+      // arrived.
+      const size_t have = std::min(frames, feed.end - feed.start);
+      if (have < frames) {
+        reserve(feed, frames - have);
+        std::fill(feed.fifo.begin() + (ptrdiff_t)(feed.end * 2),
+                  feed.fifo.begin() + (ptrdiff_t)((feed.start + frames) * 2), 0.0f);
+        ++feed.underruns;
+      }
+      const float* data = feed.fifo.data() + feed.start * 2;
+      if (feed.mixed) {
+        for (size_t i = 0; i < frames * 2; ++i) mixed[i] += data[i];
+      }
+      if (feed.track >= 0) result = s->Encode(s->tracks[feed.track], data, frames);
+      feed.start += have;
+
+      feed.lowest = std::min(feed.lowest, feed.end - feed.start);
+      feed.measured += frames;
+      if (feed.measured >= (uint64_t)outRate) {
+        // A tenth of the distance per second, and never more than 0.2 %:
+        // devices drift by hundredths of that, so it settles within seconds
+        // and the change of pitch is far below hearing.
+        const int limit = outRate / 500;
+        const double off = (double)feed.lowest - (double)floor;
+        const int delta = std::clamp((int)std::lround(-off * 0.1), -limit, limit);
+        av.swr_set_compensation(feed.resampler, delta, outRate);
+        feed.lowest = SIZE_MAX;
+        feed.measured = 0;
+      }
+    }
+    if (result >= 0 && s->mix >= 0) result = s->Encode(s->tracks[s->mix], mixed.data(), frames);
+    return result;
   };
 
   auto failEncode = [&](int code) {
@@ -1260,98 +1338,77 @@ void Recorder::AudioThread(Session* s) {
   while (running_.load(std::memory_order_relaxed) && !failed_.load(std::memory_order_relaxed)) {
     bool any = false;
 
-    // The microphone first, so that what the capture is about to take is
-    // already there.
-    while (pullMic_) {
-      const size_t got = pullMic_(micIn.data(), kAudioChunk);
-      if (got == 0) break;
-      any = true;
-      LibavClearError();
-      if (s->micResampler) {
-        const int room = av.swr_get_out_samples(s->micResampler, (int)got);
-        fifoReserve((size_t)std::max(room, 0));
-        uint8_t* out[1] = {(uint8_t*)(fifo.data() + fifoEnd * 2)};
-        const uint8_t* in[1] = {(const uint8_t*)micIn.data()};
-        const int made = av.swr_convert(s->micResampler, out, room, in, (int)got);
+    // The sources first, so that what the clock is about to take is already
+    // there.
+    for (size_t i = 0; i < extras_.size(); ++i) {
+      Session::Feed& feed = s->feeds[i];
+      for (;;) {
+        const size_t got = extras_[i].source.pull(in.data(), kAudioChunk);
+        if (got == 0) break;
+        any = true;
+        LibavClearError();
+        const int room = av.swr_get_out_samples(feed.resampler, (int)got);
+        reserve(feed, (size_t)std::max(room, 0));
+        uint8_t* out[1] = {(uint8_t*)(feed.fifo.data() + feed.end * 2)};
+        const uint8_t* from[1] = {(const uint8_t*)in.data()};
+        const int made = av.swr_convert(feed.resampler, out, room, from, (int)got);
         if (made < 0) {
           failEncode(made);
           return;
         }
-        fifoEnd += (size_t)made;
-        // The capture has stopped taking: rather than grow without end, keep
-        // the newest.
-        if (fifoEnd - fifoStart > (size_t)outRate / 2) {
-          fifoStart = fifoEnd - floor;
-          ++overflows;
+        feed.end += (size_t)made;
+        // The clock has stopped taking: rather than grow without end, keep the
+        // newest.
+        if (feed.end - feed.start > (size_t)outRate / 2) {
+          feed.start = feed.end - floor;
+          ++feed.overflows;
         }
-      } else if (s->mic >= 0) {
-        const int result = s->Encode(s->tracks[s->mic], micIn.data(), got);
+        if (got < kAudioChunk) break;
+      }
+    }
+
+    if (pullAudio_) {
+      for (;;) {
+        const size_t got = pullAudio_(capture.data(), kAudioChunk);
+        if (got == 0) break;
+        any = true;
+        LibavClearError();
+        const int result = step(capture.data(), got);
         if (result < 0) {
           failEncode(result);
           return;
         }
+        audioFramesWritten_.fetch_add(got, std::memory_order_relaxed);
+        { std::lock_guard<std::mutex> lock(frameMutex_); }
+        frameReady_.notify_one();
+        if (got < kAudioChunk) break;
       }
-      if (got < kAudioChunk) break;
-    }
-
-    while (pullAudio_) {
-      const size_t got = pullAudio_(capture.data(), kAudioChunk);
-      if (got == 0) break;
-      any = true;
-      LibavClearError();
-      int result = 0;
-      if (s->capture >= 0) result = s->Encode(s->tracks[s->capture], capture.data(), got);
-
-      if (result >= 0 && s->micResampler) {
-        // As much microphone as there was capture, padded with silence when it
-        // has not arrived.
-        const size_t have = std::min(got, fifoEnd - fifoStart);
-        const float* mic = fifo.data() + fifoStart * 2;
-        if (have < got) {
-          fifoReserve(got - have);
-          mic = fifo.data() + fifoStart * 2;
-          std::fill(fifo.begin() + (ptrdiff_t)(fifoEnd * 2),
-                    fifo.begin() + (ptrdiff_t)((fifoStart + got) * 2), 0.0f);
-          ++underruns;
+    } else {
+      // The wall clock: as much silence as time has passed, for the sources
+      // to be laid onto.
+      const uint64_t due = (uint64_t)(TicksToSeconds(ClockTicks() - clockOrigin) * outRate);
+      while (clockFrames < due) {
+        const size_t frames = (size_t)std::min<uint64_t>(due - clockFrames, kAudioChunk);
+        LibavClearError();
+        const int result = step(nullptr, frames);
+        if (result < 0) {
+          failEncode(result);
+          return;
         }
-        if (s->mix >= 0) {
-          for (size_t i = 0; i < got * 2; ++i) mixed[i] = capture[i] + mic[i];
-          result = s->Encode(s->tracks[s->mix], mixed.data(), got);
-        }
-        if (result >= 0 && s->mic >= 0) result = s->Encode(s->tracks[s->mic], mic, got);
-        fifoStart += have;
-
-        lowest = std::min(lowest, fifoEnd - fifoStart);
-        measured += got;
-        if (measured >= (uint64_t)outRate) {
-          // A tenth of the distance per second, and never more than 0.2 %:
-          // devices drift by hundredths of that, so it settles within seconds
-          // and the change of pitch is far below hearing.
-          const int limit = outRate / 500;
-          const double off = (double)lowest - (double)floor;
-          const int delta = std::clamp((int)std::lround(-off * 0.1), -limit, limit);
-          av.swr_set_compensation(s->micResampler, delta, outRate);
-          lowest = SIZE_MAX;
-          measured = 0;
-        }
+        clockFrames += frames;
       }
-      if (result < 0) {
-        failEncode(result);
-        return;
-      }
-
-      audioFramesWritten_.fetch_add(got, std::memory_order_relaxed);
-      { std::lock_guard<std::mutex> lock(frameMutex_); }
-      frameReady_.notify_one();
-      if (got < kAudioChunk) break;
     }
 
     if (!any) SleepMilliseconds(2);
   }
 
-  if (underruns || overflows) {
-    CAP_LOG("Recording: microphone ran dry %llu times, overflowed %llu times",
-            (unsigned long long)underruns, (unsigned long long)overflows);
+  for (size_t i = 0; i < s->feeds.size(); ++i) {
+    const Session::Feed& feed = s->feeds[i];
+    if (feed.underruns || feed.overflows) {
+      CAP_LOG("Recording: '%s' ran dry %llu times, overflowed %llu times",
+              extras_[i].title.c_str(), (unsigned long long)feed.underruns,
+              (unsigned long long)feed.overflows);
+    }
   }
 }
 

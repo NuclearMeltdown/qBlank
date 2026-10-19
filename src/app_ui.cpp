@@ -950,7 +950,7 @@ void App::DrawUi() {
       renderer_.sourceFormat().interlaced ||
       renderer_.detectedInterlace() == VideoRenderer::InterlaceVerdict::Interlaced);
   settings_.SetScanlineRoom(renderer_.scanlineRoom());
-  settings_.SetLevels(audio_.inputPeak(), mic_.peak(), mic_.running());
+  settings_.SetInputLevel(audio_.inputPeak());
   settings_.SetViewAids(compare_, bypass_);
   if (settings_.takeCompareToggle()) ToggleCompare();
   if (settings_.takeBypassToggle()) ToggleBypass();

@@ -307,7 +307,7 @@ const char* StatsDetailName(int i) {
   return T(de[i], en[i]);
 }
 
-const char* MicTrackModeName(int i) {
+const char* TrackModeName(int i) {
   static const char* de[3] = {"Gemischt und getrennt", "Nur gemischt", "Nur getrennt"};
   static const char* en[3] = {"Mixed and separate", "Mixed only", "Separate only"};
   i = Pick(i, 3);
@@ -648,10 +648,27 @@ json::Value WriteProfile(const Profile& p) {
   aud["avOffsetMs"] = p.audio.avOffsetMs;
   aud["volume"] = p.audio.volume;
   aud["mute"] = p.audio.mute;
-  aud["micEnabled"] = p.audio.micEnabled;
-  aud["micDevice"] = WriteDevice(p.audio.micDevice);
-  aud["micGain"] = p.audio.micGain;
-  aud["micTrackMode"] = (int)p.audio.micTrackMode;
+  json::Value sources = json::Value::Array();
+  const RecordSource* firstInput = nullptr;
+  for (const RecordSource& s : p.audio.sources) {
+    json::Value e = json::Value::Object();
+    e["kind"] = (int)s.kind;
+    e["enabled"] = s.enabled;
+    if (s.kind != SourceKind::System) e["device"] = WriteDevice(s.device);
+    e["gain"] = s.gain;
+    e["tracks"] = (int)s.tracks;
+    sources.Push(std::move(e));
+    if (!firstInput && s.kind == SourceKind::Input) firstInput = &s;
+  }
+  aud["sources"] = std::move(sources);
+  // The one microphone the builds before the list knew, so that going back to
+  // one keeps it: the first input on the list.
+  if (firstInput) {
+    aud["micEnabled"] = firstInput->enabled;
+    aud["micDevice"] = WriteDevice(firstInput->device);
+    aud["micGain"] = firstInput->gain;
+    aud["micTrackMode"] = (int)firstInput->tracks;
+  }
   o["audio"] = std::move(aud);
 
   return o;
@@ -742,10 +759,37 @@ Profile ReadProfile(const json::Value& v) {
   p.audio.avOffsetMs = Clamp(a["avOffsetMs"].AsInt(0), -500, 500);
   p.audio.volume = (float)Clamp(a["volume"].AsNumber(1.0), 0.0, 1.0);
   p.audio.mute = a["mute"].AsBool(false);
-  p.audio.micEnabled = a["micEnabled"].AsBool(false);
-  p.audio.micDevice = ReadDevice(a["micDevice"]);
-  p.audio.micGain = (float)Clamp(a["micGain"].AsNumber(1.0), 0.0, 4.0);
-  p.audio.micTrackMode = ReadEnum<MicTrackMode>(a, "micTrackMode", 3, MicTrackMode::Both);
+  auto readSource = [](const json::Value& e, const char* enabled, const char* device,
+                       const char* gain, const char* tracks, SourceKind kind) {
+    RecordSource s;
+    s.kind = kind;
+    s.enabled = e[enabled].AsBool(false);
+    if (kind != SourceKind::System) s.device = ReadDevice(e[device]);
+    s.gain = (float)Clamp(e[gain].AsNumber(1.0), 0.0, 4.0);
+    s.tracks = ReadEnum<TrackMode>(e, tracks, 3, TrackMode::Both);
+    return s;
+  };
+  const json::Value& sources = a["sources"];
+  if (sources.IsArray()) {
+    p.audio.sources.clear();
+    bool system = false;
+    for (size_t n = 0; n < sources.Size(); ++n) {
+      const json::Value& e = sources.At(n);
+      const SourceKind kind = ReadEnum<SourceKind>(e, "kind", kSourceKindCount, SourceKind::Input);
+      // Everything but qBlank twice would be everything twice.
+      if (kind == SourceKind::System) {
+        if (system) continue;
+        system = true;
+      }
+      p.audio.sources.push_back(readSource(e, "enabled", "device", "gain", "tracks", kind));
+    }
+  } else {
+    // Written before the list: the one microphone there was, and the system
+    // sound, off as for anyone new.
+    p.audio.sources = {
+        readSource(a, "micEnabled", "micDevice", "micGain", "micTrackMode", SourceKind::Input),
+        RecordSource{SourceKind::System}};
+  }
 
   return p;
 }
