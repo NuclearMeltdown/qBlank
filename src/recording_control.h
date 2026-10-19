@@ -51,28 +51,27 @@ class RecordingControl {
   // Test encodes take seconds and must never run on the UI thread -- doing so
   // froze the window long enough to drop displayed frames.
   void StartEncoderProbe(bool full);
-  // Takes over what the worker thread finished. True when that was a search
-  // for ffmpeg rather than an encoder test.
+  // Takes over what the worker thread finished. True when that was loading
+  // ffmpeg rather than an encoder test.
   bool CollectEncoderProbe();
-  // Finds ffmpeg again -- at startup, after a download put a new one in place,
-  // after the path was changed -- so the version shown is the one on disk and
-  // the old build's encoder test no longer counts for it. On the worker
-  // thread: "ffmpeg -version" takes a moment, and on the UI thread that held
-  // up the picture. False while that has to wait -- an encoder test would
-  // bring the old one back when it lands, and a recording gets the machine to
-  // itself.
+  // Loads the ffmpeg libraries -- at startup, after a download put them in
+  // place -- so the version shown is the one in use and another build's encoder
+  // test no longer counts for it. On the worker thread: loading takes a moment,
+  // and the picture does not wait for it. False while that has to wait -- an
+  // encoder test would bring the old result back when it lands, and a
+  // recording gets the machine to itself.
   bool RelocateFfmpeg();
 
   void ToggleRecording();
   // Checks what can be checked at once and then hands over to LaunchRecording,
   // which waits for the things that take a moment -- the disk, a microphone
-  // being opened, ffmpeg being searched for -- without holding up a single
+  // being opened, ffmpeg being loaded -- without holding up a single
   // frame.
   void StartRecording();
   // A recording asked for and not running yet. Frames have to go on arriving
   // for it, minimised or not: it launches from FeedRecorder.
   bool starting() const { return startPending_; }
-  // Returns before ffmpeg has finished the file. `announce` toasts it as saved
+  // Returns before the file is finished. `announce` toasts it as saved
   // once that happened, see CollectFinished. A start still waiting is called
   // off.
   void StopRecording(bool announce = false);
@@ -85,18 +84,16 @@ class RecordingControl {
   void UpdateDiskSpace();
   // Starts or stops the microphone to match the settings and what is going on,
   // a recording that is about to begin included: its sample rate has to be
-  // known before ffmpeg is given its command line.
+  // known before the recorder opens its tracks.
   void SyncMicrophone();
 
-  // The ffmpeg in use. Located at startup, replaced when it has gone missing
-  // or a download brought a new one.
+  // The ffmpeg in use. Loaded at startup, or once a download brought it.
   FfmpegInfo& ffmpeg() { return ffmpeg_; }
   bool probing() const { return probing_.load(std::memory_order_relaxed); }
 
  private:
   // What the disk said about a start, on disk_.
   struct StartCheck {
-    bool ffmpegThere = false;
     FolderChoice folder;
     bool freeKnown = false;
     uint64_t freeBytes = 0;
@@ -148,8 +145,8 @@ class RecordingControl {
   bool pendingAudio_ = false;
   std::filesystem::path pendingFile_;
   uint32_t startSerial_ = 0;
-  // F9 found no ffmpeg and the search for it is still out; it starts once that
-  // came back with one.
+  // F9 found no ffmpeg and loading it is still under way; it starts once that
+  // came back with it.
   bool recordWhenLocated_ = false;
   // What SyncMicrophone last acted on, so a failure is reported once instead of
   // once per frame. Cleared when the settings change.

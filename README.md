@@ -120,7 +120,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Optional microphone on its own track, never played back.
 
 **Recording** · [wiki](../../wiki/Recording)
-- H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265, encoded by ffmpeg.
+- H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265, encoded inside qBlank by ffmpeg's libraries.
 - At source resolution: after crop and deinterlacing, before window scaling.
 - Capture audio is the master clock — constant frame rate, 1 ms drift over 15 seconds.
 - 60 to 50 Hz mid-recording **cuts the file and continues in a new one**.
@@ -188,10 +188,11 @@ Explorer. All except Esc, the profile digits and Alt+F4 are reassignable under
 
 ## ffmpeg
 
-- Needed for **recording** and **HDR screenshots in AVIF**, nothing else.
+- Needed for **recording**, **remuxing to MP4** and **HDR screenshots in AVIF**, nothing else.
 - Preview, filters, deinterlacing, virtual camera and SDR screenshots run without it.
-- Not bundled. *Settings → Encoder* downloads a static build and verifies its published SHA-256.
-- Encoders are found by test-encoding two frames, not by reading `ffmpeg -encoders`.
+- Not bundled. *Settings → Encoder* downloads the four libraries of a shared build (57 MB) and verifies its published SHA-256.
+- Loaded into qBlank itself: no second process, no pipe.
+- Encoders are found by test-encoding two frames, not by reading a list.
 
 [ffmpeg](../../wiki/ffmpeg)
 
@@ -242,7 +243,7 @@ in [LICENSE](LICENSE).
 
 Up to and including 3.7 the program was MIT, and copies taken while that applied
 keep MIT. Dear ImGui is MIT and stays MIT; see
-[THIRD-PARTY.md](THIRD-PARTY.md). ffmpeg is a separate program, downloaded from
-upstream and run as a child process, not linked in.
+[THIRD-PARTY.md](THIRD-PARTY.md). ffmpeg is not shipped: its libraries are
+downloaded from upstream and loaded at runtime, and that build is GPLv3 too.
 
 Written with the help of [Claude](https://claude.ai).

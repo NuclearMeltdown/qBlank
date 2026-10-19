@@ -23,9 +23,9 @@ CapView.json
 CapView.json.bak*
 CapView.log
 
-# ffmpeg is downloaded from upstream at runtime, never committed: it is ~100 MB
-# and the usual Windows builds are GPL.
-ffmpeg/
+# The ffmpeg libraries are downloaded from upstream at runtime, never committed:
+# they are ~120 MB. Only their headers are in third_party/ffmpeg.
+/ffmpeg/
 
 # Visual Studio / editors
 .vs/

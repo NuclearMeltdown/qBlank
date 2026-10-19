@@ -10,9 +10,9 @@
 // rather than mixed in. Keeping the two apart means neither grows a flag for
 // the other's special case.
 //
-// The stream stays at the device's own sample rate. ffmpeg is told what that
-// rate is and resamples on its way into AAC, so there is no resampler here to
-// get wrong.
+// The stream stays at the device's own sample rate. The recorder's resampler
+// brings it onto the capture's rate and clock, so there is none here to get
+// wrong.
 
 #include <atomic>
 #include <chrono>
@@ -102,7 +102,7 @@ class MicCapture {
 
   // Set once the device is open and the sample rate is published, or once it
   // has given up. Opened() waits for it, because a recording needs the rate
-  // before it can ask ffmpeg for a second input.
+  // before it can open a track for it.
   std::mutex readyMutex_;
   std::condition_variable readyChanged_;
   bool ready_ = false;

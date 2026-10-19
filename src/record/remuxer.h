@@ -40,13 +40,12 @@ class Remuxer {
   Remuxer& operator=(const Remuxer&) = delete;
 
   // Rewraps every file into `.mp4` beside itself. Returns false if one is
-  // already running or the list is empty. Existing files are never overwritten;
-  // a numbered suffix is used instead.
-  bool Start(const std::filesystem::path& ffmpegPath,
-             const std::vector<std::filesystem::path>& inputs);
+  // already running, the list is empty or ffmpeg is not loaded. Existing files
+  // are never overwritten; a numbered suffix is used instead.
+  bool Start(const std::vector<std::filesystem::path>& inputs);
 
-  // Kills the ffmpeg that is running and keeps nothing of its file. Returns at
-  // once; state() says when the thread is through.
+  // Stops the file being rewrapped and keeps nothing of it. Returns at once;
+  // state() says when the thread is through.
   void Cancel();
 
   State state() const { return state_.load(std::memory_order_relaxed); }
@@ -62,7 +61,7 @@ class Remuxer {
   int okCount() const { return ok_.load(std::memory_order_relaxed); }
 
  private:
-  void Run(std::filesystem::path ffmpegPath);
+  void Run();
   void SetMessage(const std::string& text);
 
   std::thread thread_;

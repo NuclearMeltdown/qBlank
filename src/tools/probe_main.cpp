@@ -667,15 +667,14 @@ void PrintEmbeddedMatches() {
 
 void PrintFfmpeg() {
   std::printf("================ ffmpeg ================\n");
-  FfmpegInfo info = LocateFfmpeg({});
+  FfmpegInfo info = LocateFfmpeg();
   if (!info.found) {
-    std::printf("  nicht gefunden.\n");
-    std::printf("  Gesucht wurde: <qBlank>\\ffmpeg\\bin, <qBlank>\\ffmpeg,\n");
-    std::printf("                 <qBlank>, dann PATH.\n");
+    std::printf("  nicht geladen. %s\n", info.error.c_str());
+    std::printf("  Gesucht wird in <Programmordner>\\ffmpeg.\n");
     std::printf("  Ohne ffmpeg ist die Aufnahme nicht verfügbar.\n\n");
     return;
   }
-  std::printf("  Pfad   : %s\n", info.path.c_str());
+  std::printf("  Ordner : %s\n", info.folder.c_str());
   std::printf("  Version: %s\n", info.version.c_str());
   std::printf("  Encoder werden getestet, das dauert einen Moment ...\n");
 

@@ -190,8 +190,9 @@ bool App::Initialize() {
   // is sorted out and the settings are read -- both of which would otherwise
   // work on the wrong file.
   CameraSink::CleanUpOldInstalls();
-  FfmpegDownloader::CleanUp(OwnFfmpegFolder());
-  // Found in the background, see Tick. No test on startup: which encoders work
+  // A download that waited for this start moves in before anything loads it.
+  FfmpegDownloader::InstallPending(OwnFfmpegFolder());
+  // Loaded in the background, see Tick. No test on startup: which encoders work
   // does not change from one run to the next, so the answer is loaded from the
   // config; testing is something the user asks for once, or when the machine
   // changed underneath it.
@@ -210,8 +211,8 @@ void App::Shutdown() {
   trayPopup_.Destroy();
   tray_.Hide();
   if (window_.created()) SaveWindowPlacement();
-  // Before anything else: closing the pipes is what makes ffmpeg finalise the
-  // container, and that has to happen while the app is still alive.
+  // Before anything else: stopping writes the end of the container, and that
+  // has to happen while the app is still alive.
   recording_.Shutdown();
   standardSearch_.StopSignalWatch();
   settingsHost_.Destroy();
@@ -1123,17 +1124,15 @@ void App::UpdateProfileForStandard() {
 void App::Tick() {
   UpdatePowerRequest();
   if (recording_.CollectEncoderProbe() && ffmpegVersionCheck_) {
-    // ffmpeg as well as qBlank, but only the one a download put there: that is
-    // the one an update can replace. A git build has no release number to
-    // compare with.
+    // ffmpeg as well as qBlank. A git build has no release number to compare
+    // with.
     ffmpegVersionCheck_ = false;
     const FfmpegInfo& ffmpeg = recording_.ffmpeg();
-    if (ffmpeg.found && !ffmpeg.number.empty() && IsOwnFfmpeg(ffmpeg.path)) {
+    if (ffmpeg.found && !ffmpeg.number.empty()) {
       ffmpegDownloader_.StartVersionCheck(ffmpeg.number, true);
     }
   }
   if (ffmpegDownloader_.TakeInstalled()) ffmpegRelocate_ = true;
-  if (settings_.takeFfmpegPathChanged()) ffmpegRelocate_ = true;
   CollectScreenshots();
   folderJobs_.Collect();
   configJobs_.Collect();

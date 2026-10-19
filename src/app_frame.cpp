@@ -629,9 +629,6 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
   job.format = rec.screenshotFormat;
   job.jpegQuality = rec.jpegQuality;
   job.hdrFormat = config_.app.hdrShotFormat;
-  if (wide && job.hdrFormat == HdrShotFormat::Avif) {
-    job.ffmpeg = Utf8ToPath(recording_.ffmpeg().path);
-  }
   job.paperWhiteNits = config_.app.paperWhiteNits;
   job.note = std::move(note);
   pendingShots_.push_back({std::move(copy), std::move(job)});

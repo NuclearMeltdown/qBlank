@@ -625,8 +625,6 @@ struct RecordSettings {
   // Off by default: only FAT32 needs it, NTFS does not.
   bool splitFiles = false;
   int splitSizeMb = 4000;
-  // Path to ffmpeg.exe. Empty means: look next to qBlank, then on PATH.
-  std::string ffmpegPath;
 
   // Result of the encoder test, kept so the list is filled on the next start
   // instead of making everyone test again. The signature is the graphics

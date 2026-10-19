@@ -43,8 +43,8 @@ ScreenshotResult SaveShot(const ScreenshotJob& job) {
     result.ok = SaveScreenshot(result.path, pixels.rgba().data(), pixels.width, pixels.height,
                                job.format, job.jpegQuality, &result.error);
   } else if (job.hdrFormat == HdrShotFormat::Avif) {
-    result.ok = SaveScreenshotAvif(result.path, job.ffmpeg, pixels.half().data(), pixels.width,
-                                   pixels.height, halfStride, job.paperWhiteNits, &result.error);
+    result.ok = SaveScreenshotAvif(result.path, pixels.half().data(), pixels.width, pixels.height,
+                                   halfStride, job.paperWhiteNits, &result.error);
   } else {
     result.ok = SaveScreenshotHdr(result.path, pixels.half().data(), pixels.width, pixels.height,
                                   halfStride, job.paperWhiteNits, &result.error);

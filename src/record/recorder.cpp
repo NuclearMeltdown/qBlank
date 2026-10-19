@@ -4,10 +4,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <system_error>
 
-#include "i18n.h"
-#include "render/video_renderer.h"  // for the readback pixel format
+#include "record/libav.h"
 
 namespace cap {
 namespace {
@@ -19,26 +19,251 @@ std::string TimestampedName(RecordContainer container) {
                 container == RecordContainer::Mp4 ? "mp4" : "mkv");
 }
 
-// The arguments as one line, for the log alone. What ffmpeg is handed is the
-// vector; this is only so a log reader can paste it into a shell and see for
-// themselves.
-std::string Joined(const std::vector<std::string>& args) {
-  std::string out;
-  for (const std::string& arg : args) {
-    if (!out.empty()) out += ' ';
-    out += arg;
+constexpr int kAudioBitrate = 192000;
+// What the audio thread pulls at a time, in frames.
+constexpr size_t kAudioChunk = 4096;
+// Packets the disk has not taken yet. A stall of seconds fits in this many;
+// past it the disk is simply slower than the encoder, and waiting longer only
+// ends in running out of memory.
+constexpr int64_t kMaxQueuedBytes = 512ll << 20;
+
+// The frame rate as a fraction, which is how the encoder and the container
+// want it. Measured rates jitter, so what is close to a whole number or to its
+// NTSC sibling becomes exactly that: 59.9401 is 60000/1001, not some fraction
+// that only happens to land near it.
+AVRational RecordingRate(const Libav& av, double fps) {
+  const double whole = std::round(fps);
+  if (whole >= 1.0 && std::fabs(fps - whole) <= fps * 0.0003) return AVRational{(int)whole, 1};
+  const double ntsc = std::round(fps * 1.001);
+  if (ntsc >= 1.0 && std::fabs(fps - ntsc / 1.001) <= fps * 0.0003) {
+    return AVRational{(int)ntsc * 1000, 1001};
   }
-  return out;
+  return av.av_d2q(fps, 1001000);
 }
 
 }  // namespace
 
 double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks) {
-  const double kbps = (double)settings.bitrateKbps + 192.0 * (double)std::max(audioTracks, 0);
+  const double kbps = (double)settings.bitrateKbps +
+                      (double)kAudioBitrate / 1000.0 * (double)std::max(audioTracks, 0);
   // Container overhead is left out: a few bytes of index per frame against
   // twenty megabit of picture is below the error of the bitrate itself.
   return kbps * 1000.0 / 8.0;
 }
+
+// ------------------------------------------------------------------ session
+
+struct Recorder::Session {
+  const Libav* av = nullptr;
+  RecordSettings settings;
+  EncoderInfo encoder;
+  std::filesystem::path file;
+  AVRational rate = {60, 1};
+  // The recorder's count of bytes written, while the recording runs. Cleared
+  // before closing, so what the encoders still let out then does not count
+  // towards the next file.
+  std::atomic<uint64_t>* counter = nullptr;
+
+  AVFormatContext* output = nullptr;
+  bool fileOpen = false;
+  bool headerWritten = false;
+
+  AVCodecContext* video = nullptr;
+  int videoStream = -1;
+  AVPacket* videoPacket = nullptr;  // the next one to receive into
+  // The frames PushVideo fills. A buffer comes back once nobody refers to it
+  // any more, the encoder included, so none is ever written into while read.
+  AVBufferPool* pool = nullptr;
+
+  struct Track {
+    AVCodecContext* codec = nullptr;
+    int stream = -1;
+    AVFrame* frame = nullptr;  // filled up to `fill`, sent when full
+    int fill = 0;
+    int64_t samples = 0;
+  };
+  Track tracks[3];
+  int mix = -1;      // indices into tracks
+  int capture = -1;
+  int mic = -1;
+  AVPacket* audioPacket = nullptr;
+  // The microphone onto the capture's rate and clock, when both are recorded.
+  SwrContext* micResampler = nullptr;
+
+  // The muxer's own thread: the disk may pause, the encoders must not.
+  std::mutex muxMutex;
+  std::condition_variable muxWake;
+  std::deque<AVPacket*> queue;
+  bool closing = false;
+  std::atomic<int64_t> queuedBytes{0};
+  std::atomic<bool> writeFailed{false};
+  std::string writeError;  // under muxMutex
+  std::thread muxer;
+
+  ~Session();
+  void MuxLoop();
+  void StopMuxer();
+  // Takes what `codec` has finished and queues it for the muxer.
+  int Drain(AVCodecContext* codec, int stream, AVPacket** spare);
+  // Appends interleaved stereo to a track, sending each frame as it fills.
+  int Encode(Track& track, const float* interleaved, size_t frames);
+  // Lets the encoders finish and writes the container's index. True when the
+  // whole file made it to the disk.
+  bool Close();
+};
+
+Recorder::Session::~Session() {
+  StopMuxer();
+  if (!av) return;
+  for (AVPacket* packet : queue) av->av_packet_free(&packet);
+  av->av_packet_free(&videoPacket);
+  av->av_packet_free(&audioPacket);
+  av->avcodec_free_context(&video);
+  for (Track& track : tracks) {
+    av->av_frame_free(&track.frame);
+    av->avcodec_free_context(&track.codec);
+  }
+  av->swr_free(&micResampler);
+  if (pool) av->av_buffer_pool_uninit(&pool);
+  if (output) {
+    if (fileOpen) av->avio_closep(&output->pb);
+    av->avformat_free_context(output);
+  }
+}
+
+void Recorder::Session::MuxLoop() {
+  std::deque<AVPacket*> batch;
+  for (;;) {
+    {
+      std::unique_lock<std::mutex> lock(muxMutex);
+      muxWake.wait(lock, [this] { return !queue.empty() || closing; });
+      if (queue.empty()) return;
+      batch.swap(queue);
+    }
+    for (AVPacket* packet : batch) {
+      const int size = packet->size;
+      if (!writeFailed.load(std::memory_order_relaxed)) {
+        LibavClearError();
+        const int result = av->av_interleaved_write_frame(output, packet);
+        if (result < 0) {
+          const std::string why = LibavError(result);
+          {
+            std::lock_guard<std::mutex> lock(muxMutex);
+            writeError = why;
+          }
+          writeFailed.store(true, std::memory_order_release);
+        }
+      }
+      av->av_packet_free(&packet);
+      queuedBytes.fetch_sub(size, std::memory_order_relaxed);
+    }
+    batch.clear();
+  }
+}
+
+void Recorder::Session::StopMuxer() {
+  if (!muxer.joinable()) return;
+  {
+    std::lock_guard<std::mutex> lock(muxMutex);
+    closing = true;
+  }
+  muxWake.notify_all();
+  muxer.join();
+}
+
+int Recorder::Session::Drain(AVCodecContext* codec, int stream, AVPacket** spare) {
+  for (;;) {
+    if (!*spare && !(*spare = av->av_packet_alloc())) return AVERROR(ENOMEM);
+    const int result = av->avcodec_receive_packet(codec, *spare);
+    if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) return 0;
+    if (result < 0) return result;
+    AVPacket* packet = *spare;
+    *spare = nullptr;
+    packet->stream_index = stream;
+    av->av_packet_rescale_ts(packet, codec->time_base, output->streams[stream]->time_base);
+    if (counter) counter->fetch_add((uint64_t)packet->size, std::memory_order_relaxed);
+    queuedBytes.fetch_add(packet->size, std::memory_order_relaxed);
+    {
+      std::lock_guard<std::mutex> lock(muxMutex);
+      queue.push_back(packet);
+    }
+    muxWake.notify_one();
+  }
+}
+
+int Recorder::Session::Encode(Track& track, const float* in, size_t frames) {
+  const int frameSize = track.frame->nb_samples;
+  while (frames > 0) {
+    if (track.fill == 0) {
+      // The encoder may still hold the last one.
+      const int result = av->av_frame_make_writable(track.frame);
+      if (result < 0) return result;
+    }
+    const int n = (int)std::min(frames, (size_t)(frameSize - track.fill));
+    float* left = (float*)track.frame->data[0] + track.fill;
+    float* right = (float*)track.frame->data[1] + track.fill;
+    for (int i = 0; i < n; ++i) {
+      left[i] = in[2 * i];
+      right[i] = in[2 * i + 1];
+    }
+    in += 2 * (size_t)n;
+    frames -= (size_t)n;
+    track.fill += n;
+    if (track.fill == frameSize) {
+      track.frame->pts = track.samples;
+      track.samples += frameSize;
+      track.fill = 0;
+      int result = av->avcodec_send_frame(track.codec, track.frame);
+      if (result >= 0) result = Drain(track.codec, track.stream, &audioPacket);
+      if (result < 0) return result;
+    }
+  }
+  return 0;
+}
+
+bool Recorder::Session::Close() {
+  if (!headerWritten) return false;
+  LibavClearError();
+  // What the encoders still hold: lookahead and B-frames for the picture, the
+  // last part frame for the sound.
+  if (video && av->avcodec_send_frame(video, nullptr) >= 0) {
+    Drain(video, videoStream, &videoPacket);
+  }
+  for (Track& track : tracks) {
+    if (!track.codec) continue;
+    if (track.fill > 0 && av->av_frame_make_writable(track.frame) >= 0) {
+      track.frame->nb_samples = track.fill;
+      track.frame->pts = track.samples;
+      track.samples += track.fill;
+      track.fill = 0;
+      if (av->avcodec_send_frame(track.codec, track.frame) >= 0) {
+        Drain(track.codec, track.stream, &audioPacket);
+      }
+    }
+    if (av->avcodec_send_frame(track.codec, nullptr) >= 0) {
+      Drain(track.codec, track.stream, &audioPacket);
+    }
+  }
+  StopMuxer();
+
+  bool complete = !writeFailed.load(std::memory_order_acquire);
+  if (!complete) CAP_ERR("Recording: writing failed: %s", writeError.c_str());
+  LibavClearError();
+  const int trailer = av->av_write_trailer(output);
+  if (trailer < 0) {
+    CAP_ERR("Recording: could not finish the file: %s", LibavError(trailer).c_str());
+    complete = false;
+  }
+  if (fileOpen) {
+    fileOpen = false;
+    if (av->avio_closep(&output->pb) < 0) complete = false;
+  }
+  return complete;
+}
+
+// -------------------------------------------------------------- the recorder
+
+Recorder::Recorder() = default;
 
 Recorder::~Recorder() {
   Stop();
@@ -53,8 +278,6 @@ void Recorder::Fail(const Said& said) {
   failed_.store(true, std::memory_order_relaxed);
   CAP_ERR("Recording: %s", said.logged.c_str());
 }
-
-// ------------------------------------------------------------- command line
 
 Recorder::Family Recorder::FamilyOf(const std::string& name) {
   if (name.find("_nvenc") != std::string::npos) return Family::Nvenc;
@@ -128,230 +351,88 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
   // ---- how the bitrate is spent ----
   //
   // The names differ per vendor and so does the way a quality target is asked
-  // for. Quicksync has no -rc at all: what it does follows from which of
+  // for. Quicksync has no rc at all: what it does follows from which of
   // bitrate or quality it is given.
   switch (family) {
     case Family::Nvenc:
-      pair("-rc", settings.rateControl == RateControl::Cbr   ? "cbr"
-                  : settings.rateControl == RateControl::Vbr ? "vbr"
-                                                            : "constqp");
+      pair("rc", settings.rateControl == RateControl::Cbr   ? "cbr"
+                 : settings.rateControl == RateControl::Vbr ? "vbr"
+                                                           : "constqp");
       if (settings.rateControl == RateControl::Quality) {
-        pair("-cq", std::to_string(settings.qualityLevel));
+        pair("cq", std::to_string(settings.qualityLevel));
       }
       break;
     case Family::Amf:
-      pair("-rc", settings.rateControl == RateControl::Cbr   ? "cbr"
-                  : settings.rateControl == RateControl::Vbr ? "vbr_peak"
-                                                            : "cqp");
+      pair("rc", settings.rateControl == RateControl::Cbr   ? "cbr"
+                 : settings.rateControl == RateControl::Vbr ? "vbr_peak"
+                                                           : "cqp");
       if (settings.rateControl == RateControl::Quality) {
         const std::string qp = std::to_string(settings.qualityLevel);
-        pair("-qp_i", qp);
-        pair("-qp_p", qp);
+        pair("qp_i", qp);
+        pair("qp_p", qp);
       }
       break;
     case Family::Qsv:
       if (settings.rateControl == RateControl::Quality) {
-        pair("-global_quality", std::to_string(settings.qualityLevel));
+        pair("global_quality", std::to_string(settings.qualityLevel));
       }
       break;
     default:
       if (settings.rateControl == RateControl::Quality) {
-        pair("-crf", std::to_string(settings.qualityLevel));
+        pair("crf", std::to_string(settings.qualityLevel));
       }
       break;
   }
 
   // ---- speed against quality ----
   if (const char* preset = PresetName(family, settings.preset)) {
-    pair(family == Family::Amf ? "-quality" : "-preset", preset);
+    pair(family == Family::Amf ? "quality" : "preset", preset);
+  } else if (family == Family::Software) {
+    // The old speed setting still applies when the new preset is left on
+    // automatic, so nobody's existing configuration changes meaning.
+    pair("preset", RecordSpeedName((int)settings.speed));
   }
 
   // ---- what to optimise for ----
   if (settings.tune != EncoderTune::Auto) {
     if (family == Family::Nvenc) {
-      pair("-tune", settings.tune == EncoderTune::Quality ? "hq" : "ll");
+      pair("tune", settings.tune == EncoderTune::Quality ? "hq" : "ll");
     } else if (family == Family::Amf) {
-      pair("-usage", settings.tune == EncoderTune::Quality ? "transcoding" : "lowlatency");
+      pair("usage", settings.tune == EncoderTune::Quality ? "transcoding" : "lowlatency");
     }
   }
 
   // ---- looking ahead ----
   if (settings.lookAhead) {
     if (family == Family::Nvenc) {
-      pair("-rc-lookahead", "32");
+      pair("rc-lookahead", "32");
     } else if (family == Family::Qsv) {
-      pair("-look_ahead", "1");
+      pair("look_ahead", "1");
     } else if (family == Family::Amf) {
-      pair("-preanalysis", "1");
+      pair("preanalysis", "1");
     }
   }
 
   // ---- spending bits where the eye looks ----
   if (settings.adaptiveQuant) {
     if (family == Family::Nvenc) {
-      pair("-spatial-aq", "1");
-      pair("-temporal-aq", "1");
+      pair("spatial-aq", "1");
+      pair("temporal-aq", "1");
     } else if (family == Family::Amf) {
-      pair("-vbaq", "1");
+      pair("vbaq", "1");
     } else if (family == Family::Qsv) {
-      pair("-mbbrc", "1");
+      pair("mbbrc", "1");
     }
   }
 
   // ---- two passes ----
   if (family == Family::Nvenc && settings.multipass != Multipass::Auto) {
-    pair("-multipass", settings.multipass == Multipass::Off       ? "disabled"
-                       : settings.multipass == Multipass::Quarter ? "qres"
-                                                                 : "fullres");
+    pair("multipass", settings.multipass == Multipass::Off       ? "disabled"
+                      : settings.multipass == Multipass::Quarter ? "qres"
+                                                                : "fullres");
   }
 
   return out;
-}
-
-std::vector<std::string> Recorder::BuildArguments(const RecordSettings& settings,
-                                                  const EncoderInfo& encoder,
-                                                  const std::string& audioPipe,
-                                                  const std::string& micPipe,
-                                                  const std::filesystem::path& outFile,
-                                                  int audioRate, int micRate) const {
-  std::vector<std::string> a;
-  auto add = [&a](std::string one) { a.push_back(std::move(one)); };
-  auto pair = [&a](std::string key, std::string value) {
-    a.push_back(std::move(key));
-    a.push_back(std::move(value));
-  };
-
-  add("-hide_banner");
-  pair("-loglevel", "error");
-  add("-y");
-
-  // Input 0: raw frames exactly as the readback hands them over. Declaring the
-  // rate here is what makes the output constant frame rate; the writer thread
-  // guarantees that many frames per second actually arrive.
-  // The pixel format is format_'s, which the renderer delivers, rather than
-  // being spelled out here: these two have to agree byte for byte, and a
-  // literal in this file is exactly how they came apart once already.
-  const char* pixelFormat = FfmpegPixelFormat(format_);
-  pair("-f", "rawvideo");
-  pair("-pix_fmt", pixelFormat);
-  pair("-s", std::to_string(width_) + "x" + std::to_string(height_));
-  pair("-r", Format("%.6f", fps_));
-  pair("-i", "pipe:0");
-
-  // Input 1: the untouched captured audio.
-  if (audioRate > 0) {
-    pair("-f", "f32le");
-    pair("-ar", std::to_string(audioRate));
-    pair("-ac", "2");
-    pair("-i", audioPipe);
-  }
-
-  // Input 2: the microphone, at whatever rate its device runs at. No resampling
-  // here -- ffmpeg is told the rate and does it on the way into AAC.
-  if (micRate > 0) {
-    pair("-f", "f32le");
-    pair("-ar", std::to_string(micRate));
-    pair("-ac", "2");
-    pair("-i", micPipe);
-  }
-
-  // With both sources there is a choice of what the file should contain. The
-  // mix is made by ffmpeg rather than here, so the separate tracks stay exactly
-  // what each device delivered.
-  //
-  // normalize=0 matters: amix otherwise divides every input by the number of
-  // inputs, which would make the game quieter in the mix than on its own track
-  // and leave people wondering what happened. The sum can clip if both are hot,
-  // which is what the level meters are for.
-  const bool bothSources = audioRate > 0 && micRate > 0;
-  const bool wantMix = bothSources && micTrackMode_ != MicTrackMode::Separate;
-  const bool wantSeparate = !bothSources || micTrackMode_ != MicTrackMode::Mixed;
-
-  if (wantMix) {
-    pair("-filter_complex", "[1:a][2:a]amix=inputs=2:duration=first:normalize=0[mix]");
-  }
-
-  pair("-map", "0:v");
-  int audioIndex = 0;
-  std::vector<std::string> titles;
-  if (wantMix) {
-    pair("-map", "[mix]");
-    titles.push_back("Mix");
-  }
-  if (wantSeparate) {
-    if (audioRate > 0) {
-      pair("-map", "1:a");
-      titles.push_back("Capture");
-    }
-    if (micRate > 0) {
-      pair("-map", std::to_string(audioRate > 0 ? 2 : 1) + ":a");
-      titles.push_back("Microphone");
-    }
-  }
-
-  pair("-c:v", encoder.ffmpegName);
-  for (std::string& option : EncoderOptions(settings, encoder)) add(std::move(option));
-  // The frames arrive as Y'CbCr already, converted on the GPU with the matrix
-  // named here; ffmpeg only passes them on. The colour description goes in
-  // twice: ffmpeg 9 hands the encoder what the frames carry, and without
-  // setparams they carry no matrix, no primaries and no transfer, so not even
-  // an HDR file said PQ, and players read an untagged HD file as whatever they
-  // like. Older builds go by the options.
-  //
-  // The same -pix_fmt out as in, so ffmpeg converts nothing. 4:2:0 unless
-  // 4:4:4 was asked for: the one format every encoder and every player agrees
-  // on.
-  pair("-pix_fmt", pixelFormat);
-  if (format_.pq()) {
-    // Ten bits and the three pieces of colour description that make a file
-    // playable as HDR rather than as a washed out mess. They are not optional:
-    // nothing else in the file says the picture is on the PQ curve, and a player
-    // that is not told will assume it is not.
-    pair("-vf", "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:"
-                "range=tv");
-    pair("-color_primaries", "bt2020");
-    pair("-color_trc", "smpte2084");
-    pair("-colorspace", "bt2020nc");
-    pair("-color_range", "tv");
-  } else {
-    pair("-vf", "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv");
-    pair("-color_primaries", "bt709");
-    pair("-color_trc", "bt709");
-    pair("-colorspace", "bt709");
-    pair("-color_range", "tv");
-  }
-  if (settings.rateControl == RateControl::Quality) {
-    // A quality target and a bitrate are contradictory instructions, and ffmpeg
-    // resolves them by quietly ignoring one. Better to send only one.
-    pair("-b:v", "0");
-  } else {
-    pair("-b:v", std::to_string(settings.bitrateKbps) + "k");
-    // Constant means constant: the ceiling is the bitrate. Variable is allowed
-    // to peak at half again, which is what makes it worth choosing.
-    const int ceiling = settings.rateControl == RateControl::Cbr ? settings.bitrateKbps
-                                                                : settings.bitrateKbps * 3 / 2;
-    pair("-maxrate", std::to_string(ceiling) + "k");
-    pair("-bufsize", std::to_string(ceiling * 2) + "k");
-  }
-
-  // The old speed setting still applies when the new preset is left on
-  // automatic, so nobody's existing configuration changes meaning.
-  if (!encoder.hardware && settings.preset == EncoderPreset::Auto) {
-    pair("-preset", RecordSpeedName((int)settings.speed));
-  }
-
-  if (!titles.empty()) {
-    pair("-c:a", "aac");
-    pair("-b:a", "192k");
-    // Named tracks, so a player and an editor both show which is which instead
-    // of "Audio 1" and "Audio 2".
-    for (const std::string& title : titles) {
-      pair("-metadata:s:a:" + std::to_string(audioIndex++), "title=" + title);
-    }
-  }
-
-  add(PathToUtf8(outFile));
-  return a;
 }
 
 // -------------------------------------------------------------------- start
@@ -382,7 +463,8 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
     return false;
   };
 
-  if (!ffmpeg.found) {
+  const Libav* av = Av();
+  if (!ffmpeg.found || !av) {
     return fail(CAP_SAID(T("ffmpeg wurde nicht gefunden.", "ffmpeg was not found.")));
   }
   if (width <= 0 || height <= 0) {
@@ -400,61 +482,26 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   // recorded, which helps nobody.
   width_ = width & ~1;
   height_ = height & ~1;
-  fps_ = settings.fps > 0.0 ? settings.fps : (sourceFps > 1.0 ? sourceFps : 60.0);
+  const AVRational rate =
+      RecordingRate(*av, settings.fps > 0.0 ? settings.fps : (sourceFps > 1.0 ? sourceFps : 60.0));
+  fps_ = av_q2d(rate);
   audioRate_ = main.active() ? main.sampleRate : 0;
   micRate_ = mic.active() ? mic.sampleRate : 0;
   micTrackMode_ = micTrackMode;
   format_ = FormatFor(*encoder, wide_, settings.fullChroma);
-  // All planes in one: the luma rows and the chroma rows after them, at two
-  // bytes a sample when the range is kept.
   frameBytes_ = (size_t)width_ * (size_t)YuvRows(format_.layout, height_) *
                 (size_t)format_.sampleBytes();
-  pullAudio_ = main.pull;
-  pullMic_ = mic.pull;
+  pullAudio_ = audioRate_ > 0 ? main.pull : nullptr;
+  pullMic_ = micRate_ > 0 ? mic.pull : nullptr;
 
-  // --- streams -----------------------------------------------------------
-  // A generous buffer keeps a brief encoder stall from reaching back to the
-  // writer thread.
-  videoStream_ = MakeInputStream(1 << 22);
-  if (!videoStream_) {
-    return fail(CAP_SAID(T("Videopipe konnte nicht erstellt werden.", "Could not create the video pipe.")));
-  }
+  auto session = std::make_unique<Session>();
+  session->av = av;
+  session->settings = settings;
+  session->encoder = *encoder;
+  session->file = outFile;
+  session->rate = rate;
+  session->counter = &bytesWritten_;
 
-  // Only one stream can arrive as ffmpeg's standard input, so every audio track
-  // goes through one it opens by name instead.
-  if (audioRate_ > 0) {
-    audioStream_ = MakeNamedStream("qblank_audio", 1 << 20);
-    if (!audioStream_) {
-      return fail(CAP_SAID(T("Audiopipe konnte nicht erstellt werden.", "Could not create the audio pipe.")));
-    }
-  }
-  if (micRate_ > 0) {
-    micStream_ = MakeNamedStream("qblank_mic", 1 << 20);
-    if (!micStream_) {
-      return fail(CAP_SAID(T("Mikrofonpipe konnte nicht erstellt werden.",
-                             "Could not create the microphone pipe.")));
-    }
-  }
-
-  // --- process -----------------------------------------------------------
-  ProcessSpec spec;
-  spec.program = ffmpeg.path;
-  spec.args = BuildArguments(settings, *encoder,
-                             audioStream_ ? audioStream_->name() : std::string(),
-                             micStream_ ? micStream_->name() : std::string(), outFile, audioRate_,
-                             micRate_);
-  CAP_LOG("ffmpeg %s", Joined(spec.args).c_str());
-
-  // Whatever ffmpeg says about the encode arrives through OnFfmpegSaid. It says
-  // it on its error stream, and a windowed program has nowhere for that to go --
-  // which is how the first version of this managed to say nothing at all about
-  // why it produced no file.
-  const uint32_t session = session_.fetch_add(1, std::memory_order_relaxed) + 1;
-  process_ = std::make_unique<ChildProcess>();
-
-  // --- state -------------------------------------------------------------
-  readyIdx_ = -1;
-  heldIdx_ = -1;
   audioFramesWritten_.store(0, std::memory_order_relaxed);
   videoFramesWritten_.store(0, std::memory_order_relaxed);
   duplicated_.store(0, std::memory_order_relaxed);
@@ -466,6 +513,7 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   audioStallLogged_ = false;
   failed_.store(false, std::memory_order_relaxed);
   encoderBehind_.store(false, std::memory_order_relaxed);
+  ready_.store(false, std::memory_order_relaxed);
   {
     std::lock_guard<std::mutex> lock(infoMutex_);
     file_ = PathToUtf8(outFile);
@@ -473,17 +521,236 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
     error_.clear();
   }
 
+  session_ = std::move(session);
   running_.store(true, std::memory_order_relaxed);
-  if (audioRate_ > 0) {
-    audioThread_ = std::thread(&Recorder::AudioThread, this, audioStream_.get(), pullAudio_, true);
+  if (audioRate_ > 0 || micRate_ > 0) {
+    audioThread_ = std::thread(&Recorder::AudioThread, this, session_.get());
   }
-  if (micRate_ > 0) {
-    micThread_ = std::thread(&Recorder::AudioThread, this, micStream_.get(), pullMic_, false);
-  }
-  videoThread_ = std::thread(&Recorder::VideoThread, this, std::move(spec), session);
+  // The encoder opens there and not here: NVENC takes a tenth of a second and
+  // more, and the picture would wait for it.
+  videoThread_ = std::thread(&Recorder::VideoThread, this, session_.get());
 
   CAP_LOG("Recording started: %s, %dx%d @ %.3f fps, %s", PathToUtf8(outFile).c_str(), width_,
           height_, fps_, encoder->label.c_str());
+  return true;
+}
+
+bool Recorder::Open(Session* s) {
+  const Libav& av = *s->av;
+  const std::string file = PathToUtf8(s->file);
+  auto failed = [&](const char* de, const char* en, int code) {
+    const std::string why = LibavError(code);
+    Fail(CAP_SAID(Format(T(de, en), why.c_str())));
+    return false;
+  };
+
+  LibavClearError();
+  int result = av.avformat_alloc_output_context2(
+      &s->output, nullptr, s->settings.container == RecordContainer::Mp4 ? "mp4" : "matroska",
+      file.c_str());
+  if (result < 0 || !s->output) {
+    return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
+                  result);
+  }
+  const bool globalHeader = (s->output->oformat->flags & AVFMT_GLOBALHEADER) != 0;
+
+  // ---- the picture ----
+  const AVCodec* codec = av.avcodec_find_encoder_by_name(s->encoder.ffmpegName.c_str());
+  if (!codec || !(s->video = av.avcodec_alloc_context3(codec))) {
+    Fail(CAP_SAID(Format(T("Encoder %s fehlt in diesem ffmpeg.", "This ffmpeg lacks encoder %s."),
+                         s->encoder.ffmpegName.c_str())));
+    return false;
+  }
+  AVCodecContext* v = s->video;
+  v->width = width_;
+  v->height = height_;
+  v->pix_fmt = av.av_get_pix_fmt(FfmpegPixelFormat(format_));
+  v->time_base = AVRational{s->rate.den, s->rate.num};
+  v->framerate = s->rate;
+  // As many threads as it likes, which is what the command line did by
+  // default; the library's own default is one.
+  v->thread_count = 0;
+  // The frames arrive as Y'CbCr already, converted on the GPU with the matrix
+  // named here. Without these the file says nothing about its colours, and a
+  // player reads an untagged HD file as whatever it likes and an untagged PQ
+  // one as anything but HDR.
+  if (format_.pq()) {
+    v->color_primaries = AVCOL_PRI_BT2020;
+    v->color_trc = AVCOL_TRC_SMPTE2084;
+    v->colorspace = AVCOL_SPC_BT2020_NCL;
+  } else {
+    v->color_primaries = AVCOL_PRI_BT709;
+    v->color_trc = AVCOL_TRC_BT709;
+    v->colorspace = AVCOL_SPC_BT709;
+  }
+  v->color_range = AVCOL_RANGE_MPEG;
+  if (globalHeader) v->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+  if (s->settings.rateControl == RateControl::Quality) {
+    // A quality target and a bitrate are contradictory instructions, and the
+    // encoders resolve them by quietly ignoring one. Better to give only one.
+    v->bit_rate = 0;
+  } else {
+    // Constant means constant: the ceiling is the bitrate. Variable is allowed
+    // to peak at half again, which is what makes it worth choosing.
+    const int64_t kbps = s->settings.bitrateKbps;
+    const int64_t ceiling = s->settings.rateControl == RateControl::Cbr ? kbps : kbps * 3 / 2;
+    v->bit_rate = kbps * 1000;
+    v->rc_max_rate = ceiling * 1000;
+    v->rc_buffer_size = (int)std::min<int64_t>(ceiling * 2000, INT32_MAX);
+  }
+
+  AVDictionary* options = nullptr;
+  std::string told;
+  const std::vector<std::string> pairs = EncoderOptions(s->settings, s->encoder);
+  for (size_t i = 0; i + 1 < pairs.size(); i += 2) {
+    av.av_dict_set(&options, pairs[i].c_str(), pairs[i + 1].c_str(), 0);
+    told += Format(" %s=%s", pairs[i].c_str(), pairs[i + 1].c_str());
+  }
+  LibavClearError();
+  result = av.avcodec_open2(v, codec, &options);
+  // What is left is what the encoder did not know. Not a failure, but worth
+  // a line: it is a setting that did nothing.
+  std::string unknown;
+  for (const AVDictionaryEntry* e = nullptr;
+       (e = av.av_dict_get(options, "", e, AV_DICT_IGNORE_SUFFIX)) != nullptr;) {
+    unknown += Format(" %s", e->key);
+  }
+  av.av_dict_free(&options);
+  if (result < 0) {
+    return failed("Der Encoder ließ sich nicht öffnen: %s", "Could not open the encoder: %s",
+                  result);
+  }
+  if (!unknown.empty()) {
+    CAP_WARN("Recording: %s ignored%s", s->encoder.ffmpegName.c_str(), unknown.c_str());
+  }
+
+  AVStream* stream = av.avformat_new_stream(s->output, nullptr);
+  if (!stream) return failed("Die Datei konnte nicht angelegt werden: %s",
+                             "Could not create the file: %s", AVERROR(ENOMEM));
+  stream->time_base = v->time_base;
+  stream->avg_frame_rate = s->rate;
+  stream->disposition = AV_DISPOSITION_DEFAULT;
+  av.avcodec_parameters_from_context(stream->codecpar, v);
+  s->videoStream = stream->index;
+
+  // ---- the sound ----
+  //
+  // With both sources there is a choice of what the file should contain. The
+  // separate tracks stay exactly what each device delivered; the mix is a
+  // plain sum, so the game is as loud in it as on its own track. The sum can
+  // clip if both are hot, which is what the level meters are for.
+  const bool both = audioRate_ > 0 && micRate_ > 0;
+  const bool wantMix = both && micTrackMode_ != MicTrackMode::Separate;
+  const bool wantSeparate = !both || micTrackMode_ != MicTrackMode::Mixed;
+  // Everything at the capture's rate when there is a capture: the microphone is
+  // brought onto it, which is what keeps it in step for an hour.
+  const int trackRate = audioRate_ > 0 ? audioRate_ : micRate_;
+  int trackCount = 0;
+  auto addTrack = [&](const char* title) -> int {
+    Session::Track& track = s->tracks[trackCount];
+    const AVCodec* aac = av.avcodec_find_encoder_by_name("aac");
+    if (!aac || !(track.codec = av.avcodec_alloc_context3(aac))) {
+      failed("Der Audio-Encoder ließ sich nicht öffnen: %s", "Could not open the audio encoder: %s",
+             AVERROR_ENCODER_NOT_FOUND);
+      return -1;
+    }
+    AVCodecContext* a = track.codec;
+    a->sample_fmt = AV_SAMPLE_FMT_FLTP;
+    a->sample_rate = trackRate;
+    av.av_channel_layout_default(&a->ch_layout, 2);
+    a->bit_rate = kAudioBitrate;
+    a->time_base = AVRational{1, trackRate};
+    if (globalHeader) a->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    LibavClearError();
+    int r = av.avcodec_open2(a, aac, nullptr);
+    if (r < 0) {
+      failed("Der Audio-Encoder ließ sich nicht öffnen: %s", "Could not open the audio encoder: %s",
+             r);
+      return -1;
+    }
+    AVStream* st = av.avformat_new_stream(s->output, nullptr);
+    track.frame = av.av_frame_alloc();
+    if (!st || !track.frame) {
+      failed("Der Audio-Encoder ließ sich nicht öffnen: %s", "Could not open the audio encoder: %s",
+             AVERROR(ENOMEM));
+      return -1;
+    }
+    st->time_base = a->time_base;
+    if (trackCount == 0) st->disposition = AV_DISPOSITION_DEFAULT;
+    // Named tracks, so a player and an editor both show which is which instead
+    // of "Audio 1" and "Audio 2".
+    av.av_dict_set(&st->metadata, "title", title, 0);
+    av.avcodec_parameters_from_context(st->codecpar, a);
+    track.stream = st->index;
+
+    track.frame->format = AV_SAMPLE_FMT_FLTP;
+    track.frame->sample_rate = trackRate;
+    track.frame->nb_samples = a->frame_size > 0 ? a->frame_size : 1024;
+    av.av_channel_layout_default(&track.frame->ch_layout, 2);
+    r = av.av_frame_get_buffer(track.frame, 0);
+    if (r < 0) {
+      failed("Der Audio-Encoder ließ sich nicht öffnen: %s", "Could not open the audio encoder: %s",
+             r);
+      return -1;
+    }
+    return trackCount++;
+  };
+  if (wantMix && (s->mix = addTrack("Mix")) < 0) return false;
+  if (wantSeparate && audioRate_ > 0 && (s->capture = addTrack("Capture")) < 0) return false;
+  if (wantSeparate && micRate_ > 0 && (s->mic = addTrack("Microphone")) < 0) return false;
+
+  if (both) {
+    AVChannelLayout stereo = {};
+    av.av_channel_layout_default(&stereo, 2);
+    LibavClearError();
+    result = av.swr_alloc_set_opts2(&s->micResampler, &stereo, AV_SAMPLE_FMT_FLT, audioRate_,
+                                    &stereo, AV_SAMPLE_FMT_FLT, micRate_, 0, nullptr);
+    av.av_channel_layout_uninit(&stereo);
+    // Resampling even at the same rate: the two clocks are never quite the
+    // same, and only a resampler can make up the difference smoothly.
+    if (result >= 0) result = av.av_opt_set_int(s->micResampler, "flags", SWR_FLAG_RESAMPLE, 0);
+    if (result >= 0) result = av.swr_init(s->micResampler);
+    if (result < 0) {
+      return failed("Das Mikrofon ließ sich nicht umrechnen: %s",
+                    "Could not resample the microphone: %s", result);
+    }
+  }
+
+  // ---- the file ----
+  LibavClearError();
+  result = av.avio_open(&s->output->pb, file.c_str(), AVIO_FLAG_WRITE);
+  if (result < 0) {
+    return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
+                  result);
+  }
+  s->fileOpen = true;
+  result = av.avformat_write_header(s->output, nullptr);
+  if (result < 0) {
+    return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
+                  result);
+  }
+  s->headerWritten = true;
+  s->muxer = std::thread(&Session::MuxLoop, s);
+
+  // Room for a frame, plus what SIMD may read past the end. A few are touched
+  // now, so the first copies on the render thread do not fault their pages in.
+  const size_t bufferBytes = frameBytes_ + AV_INPUT_BUFFER_PADDING_SIZE;
+  s->pool = av.av_buffer_pool_init(bufferBytes, nullptr);
+  if (!s->pool) {
+    Fail(CAP_SAID(T("Kein Speicher für die Aufnahme.", "Out of memory for the recording.")));
+    return false;
+  }
+  AVBufferRef* warm[4] = {};
+  for (AVBufferRef*& buffer : warm) {
+    buffer = av.av_buffer_pool_get(s->pool);
+    if (buffer) memset(buffer->data, 0, bufferBytes);
+  }
+  for (AVBufferRef*& buffer : warm) av.av_buffer_unref(&buffer);
+
+  CAP_LOG("Recording: %s %dx%d %s at %d/%d fps,%s %d audio track%s at %d Hz",
+          s->encoder.ffmpegName.c_str(), width_, height_, FfmpegPixelFormat(format_), s->rate.num,
+          s->rate.den, told.empty() ? " defaults," : told.c_str(), trackCount,
+          trackCount == 1 ? "" : "s", trackCount > 0 ? trackRate : 0);
   return true;
 }
 
@@ -494,9 +761,22 @@ void Recorder::Stop() {
   frameReady_.notify_all();
   if (videoThread_.joinable()) videoThread_.join();
   if (audioThread_.joinable()) audioThread_.join();
-  if (micThread_.joinable()) micThread_.join();
+  ready_.store(false, std::memory_order_relaxed);
 
-  if (process_ && process_->started()) {
+  AVBufferRef* stale = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(frameMutex_);
+    std::swap(stale, readyBuffer_);
+  }
+  const Libav* av = Av();
+  if (stale && av) av->av_buffer_unref(&stale);
+
+  if (session_) {
+    std::unique_ptr<Session> session = std::move(session_);
+    session->counter = nullptr;
+    // Freed once the encoder lets go of the last frame it holds.
+    if (session->pool) av->av_buffer_pool_uninit(&session->pool);
+
     Finished done;
     {
       std::lock_guard<std::mutex> lock(infoMutex_);
@@ -505,43 +785,37 @@ void Recorder::Stop() {
     done.seconds = seconds();
     const unsigned long long frames = videoFramesWritten_.load(std::memory_order_relaxed);
 
-    // Closing the streams is what tells ffmpeg they ended. It then writes the
-    // container index and exits -- an MP4 killed before that point has no moov
-    // atom and will not play at all.
+    // The encoders give up what they still hold and the container writes its
+    // index -- an MP4 that never gets that far has no moov atom and does not
+    // play at all.
     std::thread previous = std::move(closer_);
-    closer_ = std::thread([this, previous = std::move(previous), process = std::move(process_),
-                           video = std::move(videoStream_), audio = std::move(audioStream_),
-                           mic = std::move(micStream_), done = std::move(done), frames,
-                           wasRunning]() mutable {
+    closer_ = std::thread([this, previous = std::move(previous), session = std::move(session),
+                           done = std::move(done), frames, wasRunning]() mutable {
       if (previous.joinable()) previous.join();
-      video.reset();
-      audio.reset();
-      mic.reset();
-      const int code = process->WaitOrKill(15000);
-      if (code < 0) {
-        CAP_WARN("ffmpeg did not exit and was terminated - the file may be incomplete");
-        done.complete = false;
+      const bool written = session->headerWritten;
+      const bool created = session->fileOpen;
+      done.complete = session->Close();
+      const std::filesystem::path file = session->file;
+      session.reset();
+      if (!written) {
+        // Opened and never begun: nothing in it worth keeping.
+        if (created) {
+          std::error_code ignored;
+          std::filesystem::remove(file, ignored);
+        }
+        return;
       }
-      if (wasRunning) CAP_LOG("Recording stopped, ffmpeg exit code %d, %llu frames", code, frames);
-
+      if (wasRunning) {
+        CAP_LOG("Recording stopped, %llu frames%s", frames,
+                done.complete ? "" : ", the file was not finished cleanly");
+      }
       std::lock_guard<std::mutex> lock(finishedMutex_);
       finished_.push_back(std::move(done));
       anyFinished_.store(true, std::memory_order_release);
     });
   }
-  // A Start that failed before ffmpeg ran leaves streams and nothing to wait for.
-  process_.reset();
-  videoStream_.reset();
-  audioStream_.reset();
-  micStream_.reset();
-
-  {
-    std::lock_guard<std::mutex> lock(frameMutex_);
-    for (int i = 0; i < 3; ++i) slots_[i].clear();
-    readyIdx_ = -1;
-    heldIdx_ = -1;
-  }
   pullAudio_ = nullptr;
+  pullMic_ = nullptr;
 }
 
 bool Recorder::TakeFinished(Finished* out) {
@@ -557,23 +831,19 @@ bool Recorder::TakeFinished(Finished* out) {
 
 // --------------------------------------------------------------- frame feed
 
-int Recorder::PickWriteSlotLocked() const {
-  for (int i = 0; i < 3; ++i) {
-    if (i != readyIdx_ && i != heldIdx_) return i;
-  }
-  return 0;  // unreachable with three slots and two reserved indices
-}
-
 void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int height,
                          const YuvFormat& format) {
-  if (!running_.load(std::memory_order_relaxed) || !pixels || format != format_) return;
+  if (!running_.load(std::memory_order_relaxed) || !ready_.load(std::memory_order_acquire) ||
+      !pixels || format != format_) {
+    return;
+  }
 
-  // A frame of a different shape than ffmpeg was told about. This happens for
-  // the fraction of a second between the source changing its video standard and
-  // the app noticing and cutting the file. Dropping it is not a nicety: the
-  // copy below reads the rows ffmpeg was told about, and a source that just
-  // went from 576 to 480 lines reads a fifth of a frame past the end of the
-  // staging buffer.
+  // A frame of a different shape than the encoder was opened for. This happens
+  // for the fraction of a second between the source changing its video
+  // standard and the app noticing and cutting the file. Dropping it is not a
+  // nicety: the copy below reads the rows the encoder was opened for, and a
+  // source that just went from 576 to 480 lines reads a fifth of a frame past
+  // the end of the staging buffer.
   //
   // Compared with the same rounding that Start applied, because an odd source
   // is a legitimate one -- a crop can leave 721 columns -- and the file is then
@@ -581,98 +851,136 @@ void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int heigh
   // than the frame holds, so it stays safe.
   if ((width & ~1) != width_ || (height & ~1) != height_) return;
 
-  int slot;
-  {
-    std::lock_guard<std::mutex> lock(frameMutex_);
-    if (slots_[0].size() != frameBytes_) return;  // not started, or size changed
-    slot = PickWriteSlotLocked();
-  }
-
-  // Copy outside the lock: the chosen slot is neither the one waiting to be
-  // written nor the one the writer holds, so nobody else touches it. The rows
-  // are repacked because a staging texture's pitch is rarely the row's width,
-  // and rawvideo has no concept of padding.
+  // A buffer nobody else holds, so the copy needs no lock. The rows are
+  // repacked because a staging texture's pitch is rarely the row's width; the
+  // planes then lie one after another, as the video thread points into them.
+  AVBufferRef* buffer = Av()->av_buffer_pool_get(session_->pool);
+  if (!buffer) return;
   const size_t rowBytes = (size_t)width_ * (size_t)format_.sampleBytes();
   const int rows = YuvRows(format_.layout, height_);
-  uint8_t* dst = slots_[slot].data();
-  for (int y = 0; y < rows; ++y) {
-    memcpy(dst + (size_t)y * rowBytes, pixels + (size_t)y * (size_t)stride, rowBytes);
+  uint8_t* dst = buffer->data;
+  if ((size_t)stride == rowBytes) {
+    memcpy(dst, pixels, rowBytes * (size_t)rows);
+  } else {
+    for (int y = 0; y < rows; ++y) {
+      memcpy(dst + (size_t)y * rowBytes, pixels + (size_t)y * (size_t)stride, rowBytes);
+    }
   }
 
+  AVBufferRef* stale = nullptr;
   {
     std::lock_guard<std::mutex> lock(frameMutex_);
-    // A frame still waiting here never made it into the file: the timeline did
-    // not need it, because the source runs faster than the recording rate.
-    if (readyIdx_ >= 0) dropped_.fetch_add(1, std::memory_order_relaxed);
-    readyIdx_ = slot;
+    stale = readyBuffer_;
+    readyBuffer_ = buffer;
   }
   frameReady_.notify_one();
-}
-
-bool Recorder::WriteAll(ChildStream* stream, const uint8_t* data, size_t size) {
-  if (!stream || !stream->Write(data, size)) return false;
-  bytesWritten_.fetch_add(size, std::memory_order_relaxed);
-  return true;
+  if (stale) {
+    // A frame still waiting here never made it into the file: the timeline did
+    // not need it, because the source runs faster than the recording rate.
+    dropped_.fetch_add(1, std::memory_order_relaxed);
+    Av()->av_buffer_unref(&stale);
+  }
 }
 
 // ------------------------------------------------------------ writer threads
 
-void Recorder::VideoThread(ProcessSpec spec, uint32_t session) {
-  // Here and not in Start: creating the process took six milliseconds and the
-  // three frame buffers a few more, and the picture waited for both.
-  if (!process_->Start(spec, videoStream_.get(),
-                       [this, session](const std::string& line) { OnFfmpegSaid(line, session); },
-                       nullptr)) {
-    Fail(CAP_SAID(T("ffmpeg konnte nicht gestartet werden.", "Could not start ffmpeg.")));
+void Recorder::VideoThread(Session* s) {
+  if (!Open(s)) return;
+  const Libav& av = *s->av;
+  AVFrame* frame = av.av_frame_alloc();
+  if (!frame) {
+    Fail(CAP_SAID(T("Kein Speicher für die Aufnahme.", "Out of memory for the recording.")));
     return;
   }
-  // Filled with zeros on purpose: that touches every page now, and not on the
-  // render thread in the first copy that lands in them. PushVideo leaves the
-  // slots alone until they have the size of a frame.
-  {
-    std::vector<uint8_t> fresh[3];
-    for (std::vector<uint8_t>& slot : fresh) slot.assign(frameBytes_, 0);
-    std::lock_guard<std::mutex> lock(frameMutex_);
-    for (int i = 0; i < 3; ++i) slots_[i].swap(fresh[i]);
-  }
+
+  // The frame points into the buffer it holds: the luma plane, then the chroma
+  // as YuvLayout lays it out, no padding anywhere. The encoder takes a
+  // reference, so the same frame goes out again with the next number when the
+  // timeline needs a repeat.
+  const AVCodecContext* v = s->video;
+  const int rowBytes = width_ * format_.sampleBytes();
+  auto hold = [&](AVBufferRef* buffer) {
+    av.av_frame_unref(frame);
+    frame->buf[0] = buffer;
+    frame->format = v->pix_fmt;
+    frame->width = width_;
+    frame->height = height_;
+    frame->color_primaries = v->color_primaries;
+    frame->color_trc = v->color_trc;
+    frame->colorspace = v->colorspace;
+    frame->color_range = v->color_range;
+    uint8_t* chroma = buffer->data + (size_t)rowBytes * (size_t)height_;
+    frame->data[0] = buffer->data;
+    frame->linesize[0] = rowBytes;
+    switch (format_.layout) {
+      case YuvLayout::Nv12:
+        frame->data[1] = chroma;
+        frame->linesize[1] = rowBytes;
+        break;
+      case YuvLayout::I420:
+        frame->data[1] = chroma;
+        frame->data[2] = chroma + (size_t)(rowBytes / 2) * (size_t)(height_ / 2);
+        frame->linesize[1] = frame->linesize[2] = rowBytes / 2;
+        break;
+      case YuvLayout::I444:
+        frame->data[1] = chroma;
+        frame->data[2] = chroma + (size_t)rowBytes * (size_t)height_;
+        frame->linesize[1] = frame->linesize[2] = rowBytes;
+        break;
+    }
+  };
+  bool holding = false;
+
+  originTicks_ = ClockTicks();
+  ready_.store(true, std::memory_order_release);
 
   // When the writer last had nothing left to write. An encoder that keeps up
   // gets there after every frame; one that does not never gets there again,
-  // because the pipe blocks for longer than a frame lasts. A slow source looks
+  // because it takes longer per frame than a frame lasts. A slow source looks
   // nothing like that: the held frame goes out again at once. The start gets
-  // longer, for ffmpeg opening its encoder while the first frames pile up.
-  int64_t caughtUpTicks = ClockTicks();
+  // longer, for the encoder settling in while the first frames pile up.
+  int64_t caughtUpTicks = originTicks_;
   bool everCaughtUp = false;
 
   while (running_.load(std::memory_order_relaxed)) {
+    if (s->writeFailed.load(std::memory_order_acquire)) {
+      std::string why;
+      {
+        std::lock_guard<std::mutex> lock(s->muxMutex);
+        why = s->writeError;
+      }
+      Fail(CAP_SAID(Format(T("Schreiben fehlgeschlagen: %s", "Writing failed: %s"), why.c_str())));
+      break;
+    }
+    if (s->queuedBytes.load(std::memory_order_relaxed) > kMaxQueuedBytes) {
+      Fail(CAP_SAID(T("Die Platte kommt mit dem Schreiben nicht hinterher.",
+                      "The disk cannot keep up with the writing.")));
+      break;
+    }
+
     // Take the newest frame and keep holding it: when the timeline needs more
     // frames than actually arrived, this is what gets repeated.
-    const uint8_t* held = nullptr;
     bool fresh = false;
     {
       std::unique_lock<std::mutex> lock(frameMutex_);
       // Nothing to repeat before the first frame.
-      frameReady_.wait(lock, [this] {
-        return readyIdx_ >= 0 || heldIdx_ >= 0 || !running_.load(std::memory_order_relaxed);
+      frameReady_.wait(lock, [&] {
+        return readyBuffer_ != nullptr || holding || !running_.load(std::memory_order_relaxed);
       });
-      if (readyIdx_ >= 0) {
-        heldIdx_ = readyIdx_;
-        readyIdx_ = -1;
+      if (AVBufferRef* buffer = readyBuffer_) {
+        readyBuffer_ = nullptr;
+        lock.unlock();
+        hold(buffer);
+        holding = true;
         fresh = true;
       }
-      if (heldIdx_ >= 0 && slots_[heldIdx_].size() == frameBytes_) {
-        held = slots_[heldIdx_].data();
-      }
     }
-    if (!held) continue;
+    if (!holding) continue;
 
     // How many frames the timeline should contain by now.
     //
     // The audio is the better master once it flows, because the card's sample
-    // clock is steadier than the PC's. But it cannot be the master from the
-    // start: ffmpeg opens its inputs in order and blocks reading video before it
-    // ever opens the audio pipe, so waiting for audio samples before writing the
-    // first frame deadlocks both sides. Until audio appears -- and again if it
+    // clock is steadier than the PC's. Until audio appears -- and again if it
     // stops appearing -- the wall clock stands in.
     const uint64_t audioFrames = audioFramesWritten_.load(std::memory_order_relaxed);
     const int64_t now = ClockTicks();
@@ -693,10 +1001,10 @@ void Recorder::VideoThread(ProcessSpec spec, uint32_t session) {
     if (audioIsMaster) {
       target = (uint64_t)((double)audioFrames / (double)audioRate_ * fps_);
     } else {
-      target = (uint64_t)(TicksToSeconds(now - startTicks_) * fps_);
+      target = (uint64_t)(TicksToSeconds(now - originTicks_) * fps_);
     }
 
-    uint64_t written = videoFramesWritten_.load(std::memory_order_relaxed);
+    const uint64_t written = videoFramesWritten_.load(std::memory_order_relaxed);
     if (written >= target) {
       caughtUpTicks = now;
       everCaughtUp = true;
@@ -709,11 +1017,11 @@ void Recorder::VideoThread(ProcessSpec spec, uint32_t session) {
       // only there to notice the audio stopping.
       double wait = 0.05;
       if (!audioIsMaster) {
-        wait = (double)(written + 1) / fps_ - TicksToSeconds(now - startTicks_);
+        wait = (double)(written + 1) / fps_ - TicksToSeconds(now - originTicks_);
         wait = std::clamp(wait, 0.001, 0.05);
       }
       std::unique_lock<std::mutex> lock(frameMutex_);
-      if (readyIdx_ < 0 && running_.load(std::memory_order_relaxed)) {
+      if (!readyBuffer_ && running_.load(std::memory_order_relaxed)) {
         frameReady_.wait_for(lock, std::chrono::microseconds((int64_t)(wait * 1e6)));
       }
       continue;
@@ -728,55 +1036,177 @@ void Recorder::VideoThread(ProcessSpec spec, uint32_t session) {
 
     // Every frame in the timeline has to be written -- skipping one would make
     // the video shorter than the audio and desync the file for good. If the
-    // encoder stalls, the pipe blocks here, which is exactly where the waiting
+    // encoder stalls, it stalls here, which is exactly where the waiting
     // belongs.
+    int result = 0;
     for (uint64_t i = written; i < target && running_.load(std::memory_order_relaxed); ++i) {
-      if (!WriteAll(videoStream_.get(), held, frameBytes_)) {
-        Fail(CAP_SAID(T("Verbindung zu ffmpeg abgebrochen.", "Lost the connection to ffmpeg.")));
-        return;
-      }
+      frame->pts = (int64_t)i;
+      frame->duration = 1;
+      LibavClearError();
+      result = av.avcodec_send_frame(s->video, frame);
+      if (result >= 0) result = s->Drain(s->video, s->videoStream, &s->videoPacket);
+      if (result < 0) break;
       videoFramesWritten_.fetch_add(1, std::memory_order_relaxed);
       if (!fresh || i > written) duplicated_.fetch_add(1, std::memory_order_relaxed);
     }
-  }
-}
-
-void Recorder::AudioThread(ChildStream* stream, AudioPullFn pull, bool countsAsClock) {
-  // Wait for ffmpeg to open its end, in short steps rather than one long one: an
-  // ffmpeg that never starts must not be able to leave this thread stuck and
-  // hang the whole shutdown.
-  ChildStream::Connect state = ChildStream::Connect::Waiting;
-  while (state == ChildStream::Connect::Waiting && running_.load(std::memory_order_relaxed)) {
-    state = stream->WaitForChild(100);
-  }
-  if (state != ChildStream::Connect::Connected) return;
-
-  std::vector<float> buffer(4096 * 2);
-  while (running_.load(std::memory_order_relaxed)) {
-    const size_t got = pull ? pull(buffer.data(), 4096) : 0;
-    if (got == 0) {
-      SleepMilliseconds(2);
-      continue;
-    }
-
-    const size_t bytes = got * 2 * sizeof(float);
-    if (!WriteAll(stream, (const uint8_t*)buffer.data(), bytes)) {
-      Fail(CAP_SAID(T("Audiopipe abgebrochen.", "The audio pipe broke.")));
+    if (result < 0) {
+      Fail(CAP_SAID(Format(T("Encoder-Fehler: %s", "Encoder error: %s"), LibavError(result).c_str())));
       break;
     }
-    if (countsAsClock) {
+  }
+  av.av_frame_free(&frame);
+}
+
+void Recorder::AudioThread(Session* s) {
+  // Nothing to write into before the encoders are open. In short steps: one
+  // that never opens must not leave this thread stuck and hang the shutdown.
+  while (!ready_.load(std::memory_order_acquire)) {
+    if (!running_.load(std::memory_order_relaxed) || failed_.load(std::memory_order_relaxed)) {
+      return;
+    }
+    SleepMilliseconds(2);
+  }
+  const Libav& av = *s->av;
+
+  std::vector<float> capture(kAudioChunk * 2);
+  std::vector<float> micIn(kAudioChunk * 2);
+  std::vector<float> mixed(kAudioChunk * 2);
+  // What came before the first frame belongs to no frame.
+  if (pullAudio_) {
+    while (pullAudio_(capture.data(), kAudioChunk) == kAudioChunk) {
+    }
+  }
+  if (pullMic_) {
+    while (pullMic_(micIn.data(), kAudioChunk) == kAudioChunk) {
+    }
+  }
+
+  // The microphone on the capture's clock, waiting to be taken in step with it,
+  // interleaved stereo from `fifoStart` to `fifoEnd`, in frames.
+  //
+  // Both devices deliver in bursts of their own size, so the level swings by a
+  // burst or two. Its lowest point over each second is held near `floor`, by
+  // asking the resampler for a few samples more or fewer: deep enough that a
+  // late burst does not run it dry, shallow enough that the microphone stays
+  // within a frame or two of the game.
+  const int outRate = audioRate_ > 0 ? audioRate_ : micRate_;
+  const size_t floor = (size_t)outRate * 15 / 1000;
+  std::vector<float> fifo((size_t)outRate * 2, 0.0f);
+  size_t fifoStart = 0;
+  size_t fifoEnd = floor;  // starts with that much silence
+  size_t lowest = SIZE_MAX;
+  uint64_t measured = 0;
+  uint64_t underruns = 0;
+  uint64_t overflows = 0;
+
+  auto fifoReserve = [&](size_t frames) {
+    if (fifoEnd + frames <= fifo.size() / 2) return;
+    std::memmove(fifo.data(), fifo.data() + fifoStart * 2, (fifoEnd - fifoStart) * 2 * sizeof(float));
+    fifoEnd -= fifoStart;
+    fifoStart = 0;
+    if (fifoEnd + frames > fifo.size() / 2) fifo.resize((fifoEnd + frames) * 2);
+  };
+
+  auto failEncode = [&](int code) {
+    Fail(CAP_SAID(Format(T("Audio-Fehler: %s", "Audio error: %s"), LibavError(code).c_str())));
+  };
+
+  while (running_.load(std::memory_order_relaxed) && !failed_.load(std::memory_order_relaxed)) {
+    bool any = false;
+
+    // The microphone first, so that what the capture is about to take is
+    // already there.
+    while (pullMic_) {
+      const size_t got = pullMic_(micIn.data(), kAudioChunk);
+      if (got == 0) break;
+      any = true;
+      LibavClearError();
+      if (s->micResampler) {
+        const int room = av.swr_get_out_samples(s->micResampler, (int)got);
+        fifoReserve((size_t)std::max(room, 0));
+        uint8_t* out[1] = {(uint8_t*)(fifo.data() + fifoEnd * 2)};
+        const uint8_t* in[1] = {(const uint8_t*)micIn.data()};
+        const int made = av.swr_convert(s->micResampler, out, room, in, (int)got);
+        if (made < 0) {
+          failEncode(made);
+          return;
+        }
+        fifoEnd += (size_t)made;
+        // The capture has stopped taking: rather than grow without end, keep
+        // the newest.
+        if (fifoEnd - fifoStart > (size_t)outRate / 2) {
+          fifoStart = fifoEnd - floor;
+          ++overflows;
+        }
+      } else if (s->mic >= 0) {
+        const int result = s->Encode(s->tracks[s->mic], micIn.data(), got);
+        if (result < 0) {
+          failEncode(result);
+          return;
+        }
+      }
+      if (got < kAudioChunk) break;
+    }
+
+    while (pullAudio_) {
+      const size_t got = pullAudio_(capture.data(), kAudioChunk);
+      if (got == 0) break;
+      any = true;
+      LibavClearError();
+      int result = 0;
+      if (s->capture >= 0) result = s->Encode(s->tracks[s->capture], capture.data(), got);
+
+      if (result >= 0 && s->micResampler) {
+        // As much microphone as there was capture, padded with silence when it
+        // has not arrived.
+        const size_t have = std::min(got, fifoEnd - fifoStart);
+        const float* mic = fifo.data() + fifoStart * 2;
+        if (have < got) {
+          fifoReserve(got - have);
+          mic = fifo.data() + fifoStart * 2;
+          std::fill(fifo.begin() + (ptrdiff_t)(fifoEnd * 2),
+                    fifo.begin() + (ptrdiff_t)((fifoStart + got) * 2), 0.0f);
+          ++underruns;
+        }
+        if (s->mix >= 0) {
+          for (size_t i = 0; i < got * 2; ++i) mixed[i] = capture[i] + mic[i];
+          result = s->Encode(s->tracks[s->mix], mixed.data(), got);
+        }
+        if (result >= 0 && s->mic >= 0) result = s->Encode(s->tracks[s->mic], mic, got);
+        fifoStart += have;
+
+        lowest = std::min(lowest, fifoEnd - fifoStart);
+        measured += got;
+        if (measured >= (uint64_t)outRate) {
+          // A tenth of the distance per second, and never more than 0.2 %:
+          // devices drift by hundredths of that, so it settles within seconds
+          // and the change of pitch is far below hearing.
+          const int limit = outRate / 500;
+          const double off = (double)lowest - (double)floor;
+          const int delta = std::clamp((int)std::lround(-off * 0.1), -limit, limit);
+          av.swr_set_compensation(s->micResampler, delta, outRate);
+          lowest = SIZE_MAX;
+          measured = 0;
+        }
+      }
+      if (result < 0) {
+        failEncode(result);
+        return;
+      }
+
       audioFramesWritten_.fetch_add(got, std::memory_order_relaxed);
       { std::lock_guard<std::mutex> lock(frameMutex_); }
       frameReady_.notify_one();
+      if (got < kAudioChunk) break;
     }
-  }
-}
 
-void Recorder::OnFfmpegSaid(const std::string& line, uint32_t session) {
-  CAP_WARN("ffmpeg: %s", line.c_str());
-  if (session != session_.load(std::memory_order_relaxed)) return;
-  std::lock_guard<std::mutex> lock(infoMutex_);
-  if (error_.empty()) error_ = line;
+    if (!any) SleepMilliseconds(2);
+  }
+
+  if (underruns || overflows) {
+    CAP_LOG("Recording: microphone ran dry %llu times, overflowed %llu times",
+            (unsigned long long)underruns, (unsigned long long)overflows);
+  }
 }
 
 double Recorder::seconds() const {

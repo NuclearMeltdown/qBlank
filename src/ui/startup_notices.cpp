@@ -142,15 +142,6 @@ void StartupNotices::DrawFfmpegPrompt() {
     const std::string current = ffmpeg_.installedVersion();
     ImGui::Text(T("ffmpeg %s ist verfügbar.", "ffmpeg %s is available."), remote.c_str());
     ImGui::TextDisabled(T("Installiert ist %s.", "%s is installed."), current.c_str());
-    if (IsMajorFfmpegStep(remote, current)) {
-      ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
-      ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.35f, 1.0f), "%s",
-                         T("Neue Hauptversion: Dort fallen manchmal Optionen weg. Danach "
-                           "einmal kurz zur Probe aufnehmen.",
-                           "A new major version: options sometimes go away there. Make a "
-                           "short test recording afterwards."));
-      ImGui::PopTextWrapPos();
-    }
   }
   ImGui::Spacing();
 

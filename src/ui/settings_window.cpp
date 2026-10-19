@@ -218,12 +218,6 @@ bool SettingsWindow::takeProbeRequest() {
   return requested;
 }
 
-bool SettingsWindow::takeFfmpegPathChanged() {
-  const bool changed = ffmpegPathChanged_;
-  ffmpegPathChanged_ = false;
-  return changed;
-}
-
 bool SettingsWindow::takeCropPickRequest() {
   const bool requested = cropPickRequested_;
   cropPickRequested_ = false;
@@ -414,13 +408,8 @@ void SettingsWindow::PollFileDialog(FfmpegInfo* ffmpeg) {
       std::snprintf(shotFolderBuffer_, sizeof(shotFolderBuffer_), "%s",
                     rec.screenshotFolder.c_str());
       break;
-    case kPickFfmpeg:
-      rec.ffmpegPath = PathToUtf8(picked.front());
-      std::snprintf(ffmpegPathBuffer_, sizeof(ffmpegPathBuffer_), "%s", rec.ffmpegPath.c_str());
-      ffmpegPathChanged_ = true;
-      break;
     case kPickRemux:
-      if (ffmpeg && ffmpeg->found) remuxer_.Start(Utf8ToPath(ffmpeg->path), picked);
+      if (ffmpeg && ffmpeg->found) remuxer_.Start(picked);
       break;
     default:
       break;
@@ -3564,38 +3553,41 @@ void SettingsWindow::FolderRow(const char* id, int pickTag, char* buffer, size_t
 }
 
 void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
-  RecordSettings& rec = cfg().record;
   const bool found = ffmpeg && ffmpeg->found;
 
   ImGui::SeparatorText("ffmpeg");
   Anchor("ffmpeg");
   if (found) {
     ImGui::TextWrapped("%s", ffmpeg->version.c_str());
-    ImGui::TextDisabled("%s", ffmpeg->path.c_str());
+    ImGui::TextDisabled("%s", ffmpeg->folder.c_str());
   } else {
     ImGui::TextWrapped(
-        T("Ohne ffmpeg keine Aufnahme. Screenshots funktionieren trotzdem.",
-          "No recording without ffmpeg. Screenshots work regardless."));
+        T("Ohne ffmpeg keine Aufnahme und kein AVIF. PNG-Screenshots funktionieren trotzdem.",
+          "No recording and no AVIF without ffmpeg. PNG screenshots work regardless."));
+    if (ffmpeg && !ffmpeg->error.empty()) {
+      ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.35f, 1.0f), "%s", ffmpeg->error.c_str());
+    }
   }
 
   if (downloader_) {
     FfmpegDownloader& dl = *downloader_;
     const bool busy = dl.busy();
     const FfmpegDownloader::State state = dl.state();
-    // Only what the check said about the ffmpeg shown above: after a new path
-    // or a download the comparison is with something that is no longer there.
+    // Only what the check said about the ffmpeg shown above: after a download
+    // the comparison is with something that is no longer there.
     const bool update = dl.updateAvailable() && found &&
                         dl.installedVersion() == ffmpeg->number;
-    const bool own = found && IsOwnFfmpeg(ffmpeg->path);
     const std::string remote = dl.remoteVersion();
 
     ImGui::BeginDisabled(busy);
     std::string label = found ? T("Neu herunterladen", "Download again")
                               : T("ffmpeg herunterladen", "Download ffmpeg");
-    if (update && own) label = Format(T("Aktualisieren auf %s", "Update to %s"), remote.c_str());
+    if (update) label = Format(T("Aktualisieren auf %s", "Update to %s"), remote.c_str());
     if (ImGui::Button((label + "##ffmpegget").c_str())) dl.Start(OwnFfmpegFolder());
-    ImGui::SetItemTooltip(T("Statisches Build von gyan.dev, rund 106 MB, SHA-256 wird geprüft.",
-                            "Static build from gyan.dev, about 106 MB, SHA-256 is verified."));
+    ImGui::SetItemTooltip(T("Shared-Build von gyan.dev, rund 60 MB (7z) oder 100 MB (zip), "
+                            "SHA-256 wird geprüft.",
+                            "Shared build from gyan.dev, about 60 MB (7z) or 100 MB (zip), "
+                            "SHA-256 is verified."));
     ImGui::SameLine();
     if (ImGui::Button(T("Auf Updates prüfen", "Check for updates"))) {
       dl.StartVersionCheck(found ? ffmpeg->number : std::string());
@@ -3614,21 +3606,6 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
       ImGui::TextColored(amber, T("ffmpeg %s ist verfügbar, installiert ist %s.",
                                   "ffmpeg %s is available, %s is installed."),
                          remote.c_str(), ffmpeg->number.c_str());
-      ImGui::PushStyleColor(ImGuiCol_Text, amber);
-      if (IsMajorFfmpegStep(remote, ffmpeg->number)) {
-        ImGui::TextWrapped("%s",
-                           T("Neue Hauptversion: Dort fallen manchmal Optionen weg. Danach "
-                             "einmal kurz zur Probe aufnehmen.",
-                             "A new major version: options sometimes go away there. Make a "
-                             "short test recording afterwards."));
-      }
-      if (!own) {
-        ImGui::TextWrapped("%s", T("Dieses ffmpeg hat qBlank nicht selbst geladen. "
-                                   "Aktualisiert wird es dort, wo es herkommt.",
-                                   "qBlank did not download this ffmpeg. It is updated "
-                                   "wherever it came from."));
-      }
-      ImGui::PopStyleColor();
       if (state == FfmpegDownloader::State::Failed) {
         ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.35f, 1.0f), "%s", dl.message().c_str());
       }
@@ -3640,37 +3617,11 @@ void SettingsWindow::DrawFfmpegBlock(FfmpegInfo* ffmpeg) {
                          "%s", dl.message().c_str());
     }
   }
-
-  const ImGuiStyle& style = ImGui::GetStyle();
-  const float browse = ImGui::CalcTextSize(T("Durchsuchen", "Browse")).x + style.FramePadding.x * 2;
-  ImGui::SetNextItemWidth(-(browse + style.ItemSpacing.x));
-  if (ImGui::InputTextWithHint("##ffmpegpath",
-                               T("Eigener Pfad zu ffmpeg.exe (optional)",
-                                 "Custom path to ffmpeg.exe (optional)"),
-                               ffmpegPathBuffer_, sizeof(ffmpegPathBuffer_))) {
-    rec.ffmpegPath = ffmpegPathBuffer_;
-  }
-  // Looked for once the path is finished, with Enter or by leaving the field.
-  // On every keystroke that ran "ffmpeg -version" for each half-typed path.
-  if (ImGui::IsItemDeactivatedAfterEdit()) ffmpegPathChanged_ = true;
-  Anchor("ffmpegpath");
-  ImGui::SameLine();
-  ImGui::BeginDisabled(picker_.busy());
-  if (ImGui::Button(T("Durchsuchen##ffmpeg", "Browse##ffmpeg"))) {
-    FileDialogRequest request;
-    request.mode = FileDialogRequest::Mode::OpenFile;
-    request.title = T("ffmpeg.exe auswählen", "Select ffmpeg.exe");
-    request.startPath = rec.ffmpegPath.empty() ? ExeFolder() : Utf8ToPath(rec.ffmpegPath);
-    request.filters = {{"ffmpeg.exe", "ffmpeg.exe"}, {T("Programme", "Programs"), "*.exe"}};
-    picker_.Start(request, UiWindow(), kPickFfmpeg);
-  }
-  ImGui::EndDisabled();
 }
 
 void SettingsWindow::LoadRecordBuffers() {
   if (recordBuffersLoaded_) return;
   const RecordSettings& rec = cfg().record;
-  std::snprintf(ffmpegPathBuffer_, sizeof(ffmpegPathBuffer_), "%s", rec.ffmpegPath.c_str());
   std::snprintf(folderBuffer_, sizeof(folderBuffer_), "%s", rec.outputFolder.c_str());
   std::snprintf(shotFolderBuffer_, sizeof(shotFolderBuffer_), "%s", rec.screenshotFolder.c_str());
   recordFolderDefault_ = DefaultRecordFolder();

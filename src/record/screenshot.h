@@ -31,12 +31,11 @@ bool SaveScreenshot(const std::filesystem::path& path, const uint8_t* pixels, in
 bool SaveScreenshotHdr(const std::filesystem::path& path, const uint16_t* halfRgba, int width,
                        int height, int stride, float paperWhiteNits, std::string* error);
 
-// The same picture as AVIF, by way of ffmpeg. Ten bit PQ in BT.2020, with the
-// colour description that makes it an HDR image rather than a dark one. Needs
-// ffmpeg present -- unlike everything else about screenshots.
-bool SaveScreenshotAvif(const std::filesystem::path& path, const std::filesystem::path& ffmpegPath,
-                        const uint16_t* halfRgba, int width, int height, int stride,
-                        float paperWhiteNits, std::string* error);
+// The same picture as AVIF, by way of ffmpeg's libaom. Ten bit PQ in BT.2020,
+// with the colour description that makes it an HDR image rather than a dark
+// one. Needs ffmpeg loaded -- unlike everything else about screenshots.
+bool SaveScreenshotAvif(const std::filesystem::path& path, const uint16_t* halfRgba, int width,
+                        int height, int stride, float paperWhiteNits, std::string* error);
 
 // The same picture, but onto the clipboard instead of into a file: paste it
 // into a chat, a forum post or an image editor without a detour over disk.

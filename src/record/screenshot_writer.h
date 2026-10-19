@@ -4,7 +4,7 @@
 //
 // The picture is copied out where it is drawn, that has to be; the rest does
 // not. A PNG of a large picture takes longer to encode than a frame lasts, AVIF
-// goes through a whole ffmpeg run, the clipboard can be busy, and even finding
+// takes libaom a moment, the clipboard can be busy, and even finding
 // the folder can wait for a drive to spin up. SaveShot does all of that, on the
 // thread the app keeps for screenshots alone: one after the other, which is
 // also what keeps two in the same second from picking the same name.
@@ -31,7 +31,6 @@ struct ScreenshotJob {
   ScreenshotFormat format = ScreenshotFormat::Png;
   int jpegQuality = 92;
   HdrShotFormat hdrFormat = HdrShotFormat::Jxr;
-  std::filesystem::path ffmpeg;
   float paperWhiteNits = 0.0f;
   // Passed through to the result, for the message.
   std::string note;

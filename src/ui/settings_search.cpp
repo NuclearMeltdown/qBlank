@@ -334,9 +334,7 @@ const Entry kEntries[] = {
     {Kind::Tab, kTabEncoder, nullptr, "Encoder", "Encoder",
      "Codec|Kodierung|Encoding|Kompression|Compression|Hardware|GPU"},
     {Kind::Section, kTabEncoder, "ffmpeg", "ffmpeg", "ffmpeg",
-     "FFmpeg|Download|Herunterladen|Encoder fehlt|Missing"},
-    {Kind::Control, kTabEncoder, "ffmpegpath", "Eigener Pfad zu ffmpeg.exe",
-     "Custom path to ffmpeg.exe", "Pfad|Path|Eigene ffmpeg|Custom ffmpeg"},
+     "FFmpeg|Download|Herunterladen|Update|Aktualisieren|Encoder fehlt|Missing|libav"},
     {Kind::Place, kTabEncoder, nullptr, "Encoder", "Encoder", nullptr},
     {Kind::Control, kTabEncoder, "encoder", "Encoder", "Encoder",
      "Codec|H.264|H264|AVC|H.265|H265|HEVC|AV1|NVENC|NVIDIA|QuickSync|QSV|Intel|AMF|AMD|"

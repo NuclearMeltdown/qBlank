@@ -1,18 +1,21 @@
 #pragma once
 
-// Fetches a static ffmpeg build on request and puts ffmpeg.exe next to qBlank.
+// Fetches the ffmpeg libraries on request and puts them next to qBlank.
 //
-// Downloaded from the upstream, never shipped alongside us -- and the licence is
-// not why. Whether a second executable lands on the machine is the user's
-// decision; without it qBlank is a single file of about 2 MB; and what is
-// fetched here is whatever the current release build is, where a copy in the
-// repository would sit at the version somebody last committed. Those reasons
-// hold regardless of what either program is licensed under.
+// Downloaded from upstream, never shipped alongside us. Whether a hundred
+// megabytes of codecs land on the machine is the user's decision; without them
+// qBlank is a single file of about 2 MB; and what is fetched is the newest
+// release of the major the program was built against, where a copy in the
+// repository would sit at whatever somebody last committed.
 //
-// The licence only agrees. The usual Windows builds carry x264 and x265 and are
-// therefore GPL, and whoever hands them on owes the source with them; fetching
-// from gyan.dev on a button press is not distribution, and calling ffmpeg as a
-// child process is not linking, so the two stay separate programs.
+// The source is Gyan's shared build, from GyanD/codexffmpeg on GitHub: the
+// same builds gyan.dev links, as releases with a SHA-256 per file. Of the
+// archive only the four libraries qBlank opens are kept (libav.h). The build
+// carries x264 and x265 and is GPL, and qBlank is GPL too, so loading it into
+// the process is fine.
+//
+// An update never writes over libraries in use. It is unpacked next to them and
+// moved in at the next start, or at once when nothing has loaded them yet.
 
 #include <atomic>
 #include <filesystem>
@@ -21,15 +24,9 @@
 #include <thread>
 
 #include "common.h"
+#include "record/ffmpeg_locator.h"
 
 namespace cap {
-
-// Where a download puts ffmpeg.exe: an "ffmpeg" folder next to qBlank.
-std::filesystem::path OwnFfmpegFolder();
-// The ffmpeg at `path` is the one a download put there, and so the one an
-// update replaces. Anything else -- PATH, a path of its own -- is updated
-// wherever it came from.
-bool IsOwnFfmpeg(const std::string& path);
 
 class FfmpegDownloader {
  public:
@@ -41,22 +38,22 @@ class FfmpegDownloader {
   FfmpegDownloader(const FfmpegDownloader&) = delete;
   FfmpegDownloader& operator=(const FfmpegDownloader&) = delete;
 
-  // Downloads, verifies, extracts, cleans up. Returns false when one is already
-  // running. `targetFolder` receives ffmpeg.exe directly, replacing one that is
-  // there even while it runs.
+  // Downloads, verifies, unpacks. Returns false when one is already running.
   bool Start(const std::filesystem::path& targetFolder);
 
-  // Asks the server which version it would deliver, without downloading. Runs on
+  // Asks which version a download would deliver, without downloading. Runs on
   // the same worker, so it is also asynchronous. `installed` is the release
-  // number of the ffmpeg in use, when there is one to compare with; `announce`
-  // marks the answer as worth a popup, which is what the check at startup wants.
+  // number of the libraries in use, when there are any to compare with;
+  // `announce` marks the answer as worth a popup, which is what the check at
+  // startup wants.
   bool StartVersionCheck(const std::string& installed = {}, bool announce = false);
 
   void Cancel();
 
-  // What an update left behind: the replaced ffmpeg.exe, when it was still
-  // running at the time, and an unpacked copy that never got moved in.
-  static void CleanUp(const std::filesystem::path& targetFolder);
+  // Moves a finished download into place and clears what is left over: the
+  // ffmpeg.exe earlier versions ran, the libraries an update replaced, a
+  // download that never finished. At startup, before anything loads them.
+  static void InstallPending(const std::filesystem::path& targetFolder);
 
   State state() const { return state_.load(std::memory_order_relaxed); }
   bool busy() const { return state() == State::Running; }
@@ -68,7 +65,6 @@ class FfmpegDownloader {
   std::string message() const;
   // Filled in after a successful download or version check.
   std::string remoteVersion() const;
-  std::string resultPath() const;
   // The installed number the last version check compared against.
   std::string installedVersion() const;
 
@@ -77,9 +73,12 @@ class FfmpegDownloader {
   bool updateAvailable() const { return updateAvailable_.load(std::memory_order_relaxed); }
   // The last version check was the one made at startup.
   bool announced() const { return announce_.load(std::memory_order_relaxed); }
+  // A download is waiting for the next start, because the libraries it
+  // replaces are in use.
+  bool pendingRestart() const { return pending_.load(std::memory_order_relaxed); }
 
-  // True once after a download has put a new ffmpeg.exe in place, for whoever
-  // holds the located one to look again.
+  // True once after a download has put the libraries in place, for whoever
+  // loads them to try again.
   bool TakeInstalled() { return installed_.exchange(false, std::memory_order_relaxed); }
 
  private:
@@ -93,12 +92,12 @@ class FfmpegDownloader {
   std::atomic<bool> updateAvailable_{false};
   std::atomic<bool> announce_{false};
   std::atomic<bool> installed_{false};
+  std::atomic<bool> pending_{false};
 
   mutable std::mutex mutex_;
   std::string message_;
   std::string remoteVersion_;
   std::string installedVersion_;
-  std::string resultPath_;
 };
 
 }  // namespace cap

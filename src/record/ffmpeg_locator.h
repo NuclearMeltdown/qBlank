@@ -1,11 +1,12 @@
 #pragma once
 
-// Finds ffmpeg.exe and works out which encoders actually work on this machine.
+// Loads the ffmpeg libraries and works out which encoders actually work on this
+// machine.
 //
-// Parsing "ffmpeg -encoders" is not enough: it lists what the build was
+// That a build has an encoder is not enough: it says what the build was
 // compiled with, not what the hardware can do. A build with h264_nvenc on a
-// machine with an AMD card lists it and then fails at record time. So each
-// candidate gets a one frame test encode to /dev/null, which takes a moment and
+// machine with an AMD card has it and then fails at record time. So each
+// candidate gets a two frame test encode into nothing, which takes a moment and
 // tells the truth.
 
 #include <filesystem>
@@ -37,13 +38,16 @@ struct EncoderInfo {
 bool FullChromaCandidate(const std::string& ffmpegName);
 
 struct FfmpegInfo {
-  bool found = false;
-  std::string path;     // full path to ffmpeg.exe
-  std::string version;  // first line of "ffmpeg -version"
-  // The release number out of that line, "9.0.1". Empty for a git build, whose
-  // line carries a date or a commit count instead and so has nothing a release
+  bool found = false;   // the libraries are loaded
+  std::string folder;   // where from
+  std::string version;  // what the build calls itself, "9.0.2-full_build-www.gyan.dev"
+  // The release number out of that, "9.0.2". Empty for a git build, which
+  // carries a date or a commit count instead and so has nothing a release
   // could be compared against.
   std::string number;
+  // Why the libraries in the folder did not load: a file missing, or a major
+  // the program was not built for. Empty when there are none to load.
+  std::string error;
   bool tested = false;  // encoder probe has run
   std::vector<EncoderInfo> encoders;
 
@@ -64,23 +68,24 @@ struct FfmpegInfo {
   bool AnyAvailable() const;
 };
 
-// Looks in this order: the configured path, an "ffmpeg" folder next to
-// qBlank.exe, next to qBlank.exe itself, then PATH. Only fills in path and
-// version -- the encoder probe is separate because it takes seconds.
-FfmpegInfo LocateFfmpeg(const std::string& configuredPath);
+// Where the libraries are loaded from and a download puts them: an "ffmpeg"
+// folder next to qBlank.
+std::filesystem::path OwnFfmpegFolder();
 
-// "ffmpeg version 9.0.1-essentials_build-..." -> "9.0.1". Also takes the
-// "n7.1.1" some builds write. Empty unless it is a release number.
-std::string FfmpegReleaseNumber(const std::string& versionLine);
+// Loads the libraries in OwnFfmpegFolder, or reports the ones already loaded.
+// Only fills in where and which version -- the encoder probe is separate
+// because it takes seconds.
+FfmpegInfo LocateFfmpeg();
+
+// "9.0.1-full_build-www.gyan.dev" -> "9.0.1". Also takes "ffmpeg version 9.0.1"
+// and the "n7.1.1" some builds write. Empty unless it is a release number.
+std::string FfmpegReleaseNumber(const std::string& version);
 
 // Numerically, part by part: "9.0.10" is newer than "9.0.9", "7.1" equals
 // "7.1.0". False when either side is empty.
 bool IsNewerFfmpeg(const std::string& remote, const std::string& installed);
-// The first number differs. That is where options get removed or renamed, so
-// the recording's command line is worth one test afterwards.
-bool IsMajorFfmpegStep(const std::string& remote, const std::string& installed);
 
-// Runs a one frame encode per candidate and marks what worked. Slow (several
+// Runs a two frame encode per candidate and marks what worked. Slow (several
 // seconds for the whole list), so this is called on demand, not at startup.
 void ProbeEncoders(FfmpegInfo* info);
 

@@ -57,34 +57,59 @@ std::string Sha256HexOfFile(const std::filesystem::path& path) {
   return result;
 }
 
-// Windows 10 1803 and later ship bsdtar as tar.exe, and it reads ZIP. That saves
-// carrying a zip library for one button. Taken from the system folder by its full
-// path rather than from the search path: a tar.exe that happens to be on the path
-// is somebody else's.
-bool ExtractFromZip(const std::filesystem::path& archive, const std::string& member,
-                    int foldersToDrop, const std::filesystem::path& intoFolder,
-                    std::string* error) {
+// Windows 10 1803 and later ship bsdtar as tar.exe, and it reads ZIP; newer ones
+// 7z as well. That saves carrying an archive library for one button. Taken from
+// the system folder by its full path rather than from the search path: a tar.exe
+// that happens to be on the path is somebody else's.
+namespace {
+
+std::filesystem::path SystemTar() {
   wchar_t system32[MAX_PATH] = {};
-  if (::GetSystemDirectoryW(system32, MAX_PATH) == 0) return false;
+  if (::GetSystemDirectoryW(system32, MAX_PATH) == 0) return {};
   const std::filesystem::path tar = std::filesystem::path(system32) / L"tar.exe";
-  if (!IsFile(tar)) {
+  return IsFile(tar) ? tar : std::filesystem::path();
+}
+
+}  // namespace
+
+bool ArchiveReads7z() {
+  // 7z is LZMA inside, and libarchive reads it only when built with liblzma,
+  // which the version line lists. The tar of 1803 was not.
+  const std::filesystem::path tar = SystemTar();
+  if (tar.empty()) return false;
+  ProcessSpec spec;
+  spec.program = PathToUtf8(tar);
+  spec.Add("--version");
+  std::string output;
+  int code = 1;
+  return RunAndCollect(spec, &output, &code, 10000) && code == 0 &&
+         output.find("liblzma") != std::string::npos;
+}
+
+bool ExtractFromArchive(const std::filesystem::path& archive,
+                        const std::vector<std::string>& members, int foldersToDrop,
+                        const std::filesystem::path& intoFolder, std::string* error) {
+  const std::filesystem::path tar = SystemTar();
+  if (tar.empty()) {
     ReportError(error, CAP_SAID(T("tar.exe fehlt (Windows 10 1803 oder neuer nötig).",
                                   "tar.exe is missing (needs Windows 10 1803 or newer).")));
     return false;
   }
 
-  // Pull out only the one member, dropping its folders. The pattern is quoted in
-  // a shell to keep the shell from expanding it; as one argument among others it
+  // Pull out only the members, dropping their folders. A pattern is quoted in a
+  // shell to keep the shell from expanding it; as one argument among others it
   // reaches tar unchanged either way.
   ProcessSpec spec;
   spec.program = PathToUtf8(tar);
   spec.Add("-xf", PathToUtf8(archive));
   spec.Add("-C", PathToUtf8(intoFolder));
   spec.Add("--strip-components=" + std::to_string(foldersToDrop));
-  spec.Add(member);
+  for (const std::string& member : members) spec.Add(member);
 
+  // A 7z is one solid stream: reaching the last member means unpacking all
+  // that comes before it.
   int code = 1;
-  if (!RunAndWait(spec, &code, 120000)) {
+  if (!RunAndWait(spec, &code, 300000)) {
     ReportError(error, CAP_SAID(T("tar.exe ließ sich nicht starten.", "Could not start tar.exe.")));
     return false;
   }

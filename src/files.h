@@ -12,8 +12,7 @@
 // everywhere, and needs no second version. files_win32.cpp holds the rest: the
 // places where the promise is the point -- a settings file is either the old one
 // or the new one and never half of either -- and the questions the standard has
-// no answer for: where the user's Videos folder is, and what is on the search
-// path.
+// no answer for: where the user's Videos folder is.
 
 #include <cstddef>
 #include <cstdint>
@@ -113,15 +112,5 @@ std::filesystem::path UserPicturesFolder();
 
 // The folder for files that get thrown away again.
 std::filesystem::path TempFolder();
-
-// An empty file in the temp folder that nothing else is using, the first few
-// characters of `prefix` in its name. Empty when none could be made. It exists
-// when this returns, and whoever asked for it removes it again.
-std::filesystem::path MakeTempFile(const std::string& prefix);
-
-// The full path of a program on the system's search path -- "ffmpeg" gives
-// "C:\tools\ffmpeg.exe". Empty when it is not on the path. The name comes
-// without the platform's extension for a program; that is the backend's to add.
-std::filesystem::path ProgramOnPath(const std::string& name);
 
 }  // namespace cap

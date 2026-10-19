@@ -1,11 +1,12 @@
 #include "record/remuxer.h"
 
 #include <algorithm>
+#include <cerrno>
+#include <functional>
 
-#include "child_process.h"
 #include "files.h"
 #include "i18n.h"
-#include "record/ffmpeg_locator.h"
+#include "record/libav.h"
 
 namespace cap {
 namespace {
@@ -24,39 +25,110 @@ std::filesystem::path MakeOutputName(const std::filesystem::path& input) {
   return candidate;
 }
 
-// Digs the useful line out of ffmpeg's stderr. The interesting failure is a
-// codec MP4 cannot carry, and ffmpeg says so in a sentence worth passing on
-// rather than burying under an exit code.
-std::string ExplainFailure(const std::string& stderrText, int exitCode) {
-  if (stderrText.find("Could not find tag for codec") != std::string::npos ||
-      stderrText.find("codec not currently supported in container") != std::string::npos) {
-    return T("Dieses Format passt nicht in eine MP4. Nur Umpacken geht hier nicht, das müsste "
-             "neu kodiert werden.",
-             "This format does not fit in an MP4. Rewrapping cannot help; it would have to be "
-             "re-encoded.");
+// Checked by ffmpeg while it reads and writes, so a cancel does not have to sit
+// out the rest of a long file.
+int Interrupted(void* cancel) {
+  return ((std::atomic<bool>*)cancel)->load(std::memory_order_relaxed) ? 1 : 0;
+}
+
+// One file, input to output. Empty when it worked; otherwise why not.
+// `fraction` follows the read position through the input.
+Said RemuxOne(const Libav& av, const std::filesystem::path& input,
+              const std::filesystem::path& output, std::atomic<bool>& cancel,
+              const std::function<void(float)>& fraction) {
+  LibavClearError();
+  LibavQuiet quiet;
+  AVFormatContext* in = av.avformat_alloc_context();
+  AVFormatContext* out = nullptr;
+  AVPacket* packet = av.av_packet_alloc();
+  bool outOpen = false;
+  auto finish = [&](Said said) {
+    av.av_packet_free(&packet);
+    if (out) {
+      if (outOpen) av.avio_closep(&out->pb);
+      av.avformat_free_context(out);
+    }
+    av.avformat_close_input(&in);
+    return said;
+  };
+  auto failed = [&](int code) { return finish(CAP_SAID(LibavError(code))); };
+  if (!in || !packet) return finish(CAP_SAID(T("Kein Speicher.", "Out of memory.")));
+  in->interrupt_callback.callback = &Interrupted;
+  in->interrupt_callback.opaque = &cancel;
+
+  const std::string inputName = PathToUtf8(input);
+  int result = av.avformat_open_input(&in, inputName.c_str(), nullptr, nullptr);
+  if (result < 0) {
+    in = nullptr;  // freed by the failed open
+    if (result == AVERROR(ENOENT)) {
+      return finish(CAP_SAID(T("Datei nicht gefunden.", "File not found.")));
+    }
+    if (result == AVERROR_INVALIDDATA) {
+      return finish(CAP_SAID(T("Die Datei ist beschädigt oder keine Videodatei.",
+                               "The file is damaged or not a video file.")));
+    }
+    return failed(result);
   }
-  if (stderrText.find("Invalid data found") != std::string::npos) {
-    return T("Die Datei ist beschädigt oder keine Videodatei.",
-             "The file is damaged or not a video file.");
+  if ((result = av.avformat_find_stream_info(in, nullptr)) < 0) return failed(result);
+
+  const std::string outputName = PathToUtf8(output);
+  if ((result = av.avformat_alloc_output_context2(&out, nullptr, "mp4", outputName.c_str())) < 0) {
+    return failed(result);
   }
-  if (stderrText.find("No such file") != std::string::npos) {
-    return T("Datei nicht gefunden.", "File not found.");
+  out->interrupt_callback = in->interrupt_callback;
+  av.av_dict_copy(&out->metadata, in->metadata, 0);
+
+  // Every stream, copied as it is. A codec MP4 has no tag for is said up front
+  // in a sentence of our own: ffmpeg's would only name the codec.
+  for (unsigned i = 0; i < in->nb_streams; ++i) {
+    const AVStream* source = in->streams[i];
+    if (av.avformat_query_codec(out->oformat, source->codecpar->codec_id,
+                                FF_COMPLIANCE_NORMAL) != 1) {
+      return finish(CAP_SAID(T("Dieses Format passt nicht in eine MP4. Nur Umpacken geht hier "
+                               "nicht, das müsste neu kodiert werden.",
+                               "This format does not fit in an MP4. Rewrapping cannot help; it "
+                               "would have to be re-encoded.")));
+    }
+    AVStream* target = av.avformat_new_stream(out, nullptr);
+    if (!target) return finish(CAP_SAID(T("Kein Speicher.", "Out of memory.")));
+    if ((result = av.avcodec_parameters_copy(target->codecpar, source->codecpar)) < 0) {
+      return failed(result);
+    }
+    // The tag is the input container's; MP4 picks its own.
+    target->codecpar->codec_tag = 0;
+    target->time_base = source->time_base;
+    target->avg_frame_rate = source->avg_frame_rate;
+    target->disposition = source->disposition;
+    av.av_dict_copy(&target->metadata, source->metadata, 0);
   }
 
-  // Otherwise hand back ffmpeg's last line, which is usually the actual reason.
-  std::string last;
-  size_t pos = 0;
-  while (pos < stderrText.size()) {
-    const size_t end = stderrText.find_first_of("\r\n", pos);
-    const std::string line =
-        stderrText.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
-    if (!line.empty()) last = line;
-    if (end == std::string::npos) break;
-    pos = end + 1;
+  if ((result = av.avio_open2(&out->pb, outputName.c_str(), AVIO_FLAG_WRITE,
+                              &out->interrupt_callback, nullptr)) < 0) {
+    return failed(result);
   }
-  if (!last.empty()) return last;
-  return Format(T("ffmpeg brach ab (Code %lu).", "ffmpeg failed (code %lu)."),
-                (unsigned long)exitCode);
+  outOpen = true;
+  // faststart pulls the index to the front of the file once it is written,
+  // which is what a player needs to start before the whole file has arrived.
+  AVDictionary* options = nullptr;
+  av.av_dict_set(&options, "movflags", "+faststart", 0);
+  result = av.avformat_write_header(out, &options);
+  av.av_dict_free(&options);
+  if (result < 0) return failed(result);
+
+  const int64_t size = av.avio_size(in->pb);
+  while ((result = av.av_read_frame(in, packet)) >= 0) {
+    const AVStream* source = in->streams[packet->stream_index];
+    const AVStream* target = out->streams[packet->stream_index];
+    if (size > 0 && packet->pos > 0) fraction((float)((double)packet->pos / (double)size));
+    av.av_packet_rescale_ts(packet, source->time_base, target->time_base);
+    packet->pos = -1;
+    // Takes the packet over, ours or not.
+    result = av.av_interleaved_write_frame(out, packet);
+    if (result < 0) return failed(result);
+  }
+  if (result != AVERROR_EOF) return failed(result);
+  if ((result = av.av_write_trailer(out)) < 0) return failed(result);
+  return finish(Said());
 }
 
 }  // namespace
@@ -66,9 +138,8 @@ Remuxer::~Remuxer() {
   if (thread_.joinable()) thread_.join();
 }
 
-bool Remuxer::Start(const std::filesystem::path& ffmpegPath,
-                    const std::vector<std::filesystem::path>& inputs) {
-  if (busy() || inputs.empty() || ffmpegPath.empty()) return false;
+bool Remuxer::Start(const std::vector<std::filesystem::path>& inputs) {
+  if (busy() || inputs.empty() || !Av()) return false;
   if (thread_.joinable()) thread_.join();
 
   {
@@ -87,7 +158,7 @@ bool Remuxer::Start(const std::filesystem::path& ffmpegPath,
   ok_.store(0, std::memory_order_relaxed);
   state_.store(State::Running, std::memory_order_relaxed);
 
-  thread_ = std::thread(&Remuxer::Run, this, ffmpegPath);
+  thread_ = std::thread(&Remuxer::Run, this);
   return true;
 }
 
@@ -108,7 +179,8 @@ void Remuxer::SetMessage(const std::string& text) {
   message_ = text;
 }
 
-void Remuxer::Run(std::filesystem::path ffmpegPath) {
+void Remuxer::Run() {
+  const Libav& av = *Av();
   size_t count = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -132,51 +204,21 @@ void Remuxer::Run(std::filesystem::path ffmpegPath) {
     SetMessage(Format(T("%zu von %zu: %s", "%zu of %zu: %s"), i + 1, count,
                       PathToUtf8(input.filename()).c_str()));
 
-    // -c copy is the whole point: the streams are moved, not re read. faststart
-    // then pulls the index to the front of the file, which is what a player
-    // needs to seek before the download finished.
-    ProcessSpec spec;
-    spec.program = PathToUtf8(ffmpegPath);
-    spec.Add("-hide_banner");
-    spec.Add("-loglevel", "error");
-    spec.Add("-y");
-    spec.Add("-i", PathToUtf8(input));
-    spec.Add("-map", "0");
-    spec.Add("-c", "copy");
-    spec.Add("-movflags", "+faststart");
-    spec.Add(PathToUtf8(output));
-
-    // Started and waited for here rather than run to the end, so that Cancel --
-    // and closing the program, which cancels -- does not have to sit out a
-    // remux of a long recording.
-    std::string captured;
-    ChildProcess process;
-    const bool started = process.Start(
-        spec, nullptr,
-        [&captured](const std::string& line) {
-          if (captured.size() > 1 << 16) return;  // a child that never stops talking
-          captured += line;
-          captured += '\n';
-        },
-        nullptr);
-    while (started && !process.Exited(100) && !cancel_.load(std::memory_order_relaxed)) {
-    }
-    const int exitCode = process.WaitOrKill(0);
+    // Nothing is decoded: the packets are moved across as they are.
+    const Said failure =
+        RemuxOne(av, input, output, cancel_, [this, i, count](float fraction) {
+          progress_.store(((float)i + std::min(fraction, 1.0f)) / (float)count,
+                          std::memory_order_relaxed);
+        });
+    const bool good = failure.shown.empty();
     // A file that was done before the cancel came is kept.
-    if (cancel_.load(std::memory_order_relaxed) && exitCode < 0) {
+    if (!good && cancel_.load(std::memory_order_relaxed)) {
       RemoveFile(output);
       SetMessage(T("Abgebrochen.", "Cancelled."));
       state_.store(State::Failed, std::memory_order_relaxed);
       return;
     }
 
-    const bool good = started && exitCode == 0 && IsFile(output);
-    Said failure;
-    if (!good) {
-      failure = started ? CAP_SAID(ExplainFailure(captured, exitCode))
-                        : CAP_SAID(T("ffmpeg konnte nicht gestartet werden.",
-                                     "ffmpeg could not be started."));
-    }
     {
       std::lock_guard<std::mutex> lock(mutex_);
       items_[i].output = output;

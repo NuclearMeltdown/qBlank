@@ -64,6 +64,7 @@ add_executable(qBlank WIN32
   src/desktop_win32.cpp
   src/tray_win32.cpp
   src/child_process_win32.cpp
+  src/shared_library_win32.cpp
   src/http_win32.cpp
   src/files.cpp
   src/files_win32.cpp
@@ -108,6 +109,7 @@ add_executable(qBlank WIN32
   src/audio/pcm_win32.cpp
   src/record/ffmpeg_download.cpp
   src/record/ffmpeg_locator.cpp
+  src/record/libav.cpp
   src/record/recorder.cpp
   src/record/remuxer.cpp
   src/record/screenshot.cpp
@@ -151,6 +153,7 @@ target_include_directories(qBlank PRIVATE
   "${IMGUI_DIR}"
   "${IMGUI_DIR}/backends"
   "${CMAKE_CURRENT_SOURCE_DIR}/res"
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/include"
 )
 
 target_compile_definitions(qBlank PRIVATE
@@ -480,6 +483,8 @@ add_executable(qblank_probe EXCLUDE_FROM_ALL
   src/tools/probe_main.cpp
   src/tools/mf_probe.cpp
   src/record/ffmpeg_locator.cpp
+  src/record/libav.cpp
+  src/shared_library_win32.cpp
   src/app_files.cpp
   src/app_files_win32.cpp
   src/app_identity_win32.cpp
@@ -509,7 +514,8 @@ add_executable(qblank_probe EXCLUDE_FROM_ALL
   src/audio/audio_devices_win32.cpp
 )
 target_include_directories(qblank_probe PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/res")
+  "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/res"
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/include")
 target_compile_definitions(qblank_probe PRIVATE
   UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(qblank_probe PRIVATE

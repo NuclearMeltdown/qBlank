@@ -176,30 +176,4 @@ std::filesystem::path UserVideosFolder() { return KnownFolder(FOLDERID_Videos); 
 
 std::filesystem::path UserPicturesFolder() { return KnownFolder(FOLDERID_Pictures); }
 
-std::filesystem::path MakeTempFile(const std::string& prefix) {
-  const std::filesystem::path folder = TempFolder();
-  if (folder.empty()) return {};
-
-  wchar_t name[MAX_PATH] = {};
-  // Takes the first three characters of the prefix and makes the rest unique;
-  // the file exists when this returns, which is what keeps two of these apart.
-  if (!::GetTempFileNameW(folder.c_str(), Utf8ToPath(prefix).c_str(), 0, name)) return {};
-
-  // Says out loud what the file is for: the cache may then spare itself the
-  // trouble of ever writing it to the disk.
-  ::SetFileAttributesW(name, FILE_ATTRIBUTE_TEMPORARY);
-  return std::filesystem::path(name);
-}
-
-std::filesystem::path ProgramOnPath(const std::string& name) {
-  if (name.empty()) return {};
-  const std::wstring wanted = Utf8ToPath(name).native();
-  const DWORD kRoom = MAX_PATH * 4;
-  wchar_t found[kRoom] = {};
-  wchar_t* filePart = nullptr;
-  const DWORD n = ::SearchPathW(nullptr, wanted.c_str(), L".exe", kRoom, found, &filePart);
-  if (n == 0 || n >= kRoom) return {};
-  return std::filesystem::path(found);
-}
-
 }  // namespace cap

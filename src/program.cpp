@@ -107,7 +107,7 @@ int FetchFfmpeg() {
   std::printf("\nqBlank: fetching ffmpeg ...\n");
 
   cap::FfmpegDownloader downloader;
-  if (!downloader.Start(cap::ExeFolder() / "ffmpeg")) {
+  if (!downloader.Start(cap::OwnFfmpegFolder())) {
     std::printf("Could not start the download.\n");
     return 1;
   }
@@ -124,11 +124,10 @@ int FetchFfmpeg() {
   std::printf("  %s\n", downloader.message().c_str());
 
   const bool ok = downloader.state() == cap::FfmpegDownloader::State::Done;
-  if (ok && !downloader.resultPath().empty()) {
-    std::printf("  %s\n", downloader.resultPath().c_str());
-  }
+  const std::string folder = cap::PathToUtf8(cap::OwnFfmpegFolder());
+  if (ok) std::printf("  %s\n", folder.c_str());
   // A failure has been logged where it happened.
-  if (ok) cap::LogWrite("INFO", "--fetch-ffmpeg: %s", downloader.resultPath().c_str());
+  if (ok) cap::LogWrite("INFO", "--fetch-ffmpeg: %s", folder.c_str());
   cap::LogEnd();
   return ok ? 0 : 1;
 }
@@ -137,12 +136,13 @@ int FetchFfmpeg() {
 // without opening the settings.
 int ListEncoders() {
   cap::UseParentConsole();
-  cap::FfmpegInfo info = cap::LocateFfmpeg({});
+  cap::FfmpegDownloader::InstallPending(cap::OwnFfmpegFolder());
+  cap::FfmpegInfo info = cap::LocateFfmpeg();
   if (!info.found) {
-    std::printf("\nffmpeg not found.\n");
+    std::printf("\nffmpeg not loaded. %s\n", info.error.c_str());
     return 1;
   }
-  std::printf("\n%s\n%s\n\n", info.path.c_str(), info.version.c_str());
+  std::printf("\n%s\n%s\n\n", info.folder.c_str(), info.version.c_str());
   cap::ProbeEncoders(&info);
   for (const cap::EncoderInfo& e : info.encoders) {
     std::printf("  %-30s %-9s %s\n", e.label.c_str(), e.hardware ? "Hardware" : "CPU",

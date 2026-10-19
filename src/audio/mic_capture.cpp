@@ -115,7 +115,7 @@ void MicCapture::OpenOnWorker(const DeviceRef& device, uint32_t generation) {
   }
 
   // Four seconds. The recorder drains this continuously; the headroom is for
-  // the moment ffmpeg takes to open its end of the pipe.
+  // the moment the encoders take to open.
   ring_.Reset(4 * 48000);
 
   // Each of these first asks whether its session is still the current one.
