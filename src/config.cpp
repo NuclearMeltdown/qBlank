@@ -1019,15 +1019,22 @@ bool Config::Load(std::string* error) {
   record.splitFiles = r["splitFiles"].AsBool(false);
   record.splitSizeMb = Clamp(r["splitSizeMb"].AsInt(4000), 100, 100000);
   record.ffmpegPath = r["ffmpegPath"].AsString();
+  record.fullChroma = r["fullChroma"].AsBool(false);
   record.encoderProbeSignature = r["encoderProbeSignature"].AsString();
-  record.encodersAvailable.clear();
-  const json::Value& enc = r["encodersAvailable"];
-  for (size_t i = 0; i < enc.Size(); ++i) {
-    const int id = enc.At(i).AsInt(-1);
-    if (id >= 0 && id < kRecordEncoderCount && !IsAutoEncoder((RecordEncoder)id)) {
-      record.encodersAvailable.push_back(id);
+  auto readEncoders = [&r](const char* key, std::vector<int>* out) {
+    out->clear();
+    const json::Value& enc = r[key];
+    for (size_t i = 0; i < enc.Size(); ++i) {
+      const int id = enc.At(i).AsInt(-1);
+      if (id >= 0 && id < kRecordEncoderCount && !IsAutoEncoder((RecordEncoder)id)) {
+        out->push_back(id);
+      }
     }
-  }
+  };
+  readEncoders("encodersAvailable", &record.encodersAvailable);
+  record.fullChromaProbed = r.Has("encodersFullChroma");
+  readEncoders("encodersFullChroma", &record.encodersFullChroma);
+  readEncoders("encodersFullChroma10", &record.encodersFullChroma10);
   record.screenshotFolder = r["screenshotFolder"].AsString();
   record.screenshotFormat = ReadEnum<ScreenshotFormat>(r, "screenshotFormat", 2,
                                                        ScreenshotFormat::Png);
@@ -1171,10 +1178,18 @@ std::string Config::Serialize() const {
   r["splitFiles"] = record.splitFiles;
   r["splitSizeMb"] = record.splitSizeMb;
   r["ffmpegPath"] = record.ffmpegPath;
+  r["fullChroma"] = record.fullChroma;
   r["encoderProbeSignature"] = record.encoderProbeSignature;
-  json::Value enc = json::Value::Array();
-  for (int id : record.encodersAvailable) enc.Push(json::Value(id));
-  r["encodersAvailable"] = std::move(enc);
+  auto writeEncoders = [&r](const char* key, const std::vector<int>& ids) {
+    json::Value enc = json::Value::Array();
+    for (int id : ids) enc.Push(json::Value(id));
+    r[key] = std::move(enc);
+  };
+  writeEncoders("encodersAvailable", record.encodersAvailable);
+  if (record.fullChromaProbed) {
+    writeEncoders("encodersFullChroma", record.encodersFullChroma);
+    writeEncoders("encodersFullChroma10", record.encodersFullChroma10);
+  }
   r["screenshotFolder"] = record.screenshotFolder;
   r["screenshotFormat"] = (int)record.screenshotFormat;
   r["jpegQuality"] = record.jpegQuality;

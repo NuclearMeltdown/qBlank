@@ -2105,18 +2105,21 @@ R"HLSL(        // gradient. Vertical detail that is genuinely in the picture rai
 }
 )HLSL";
 
-// The picture as the encoder and the virtual camera take it: Y'CbCr 4:2:0 with
-// both planes in one image, the luma rows and then the chroma rows, Cb and Cr
-// side by side. That is NV12 byte for byte in eight bits, and P010 in sixteen
-// with the ten bits at the top. Limited range either way.
+// The picture as the encoder and the virtual camera take it: Y'CbCr with all
+// planes in one image, the luma rows and then the chroma rows (YuvLayout):
+//   NV12  4:2:0, Cb and Cr side by side in half the rows again
+//   I420  4:2:0, the Cb plane and then the Cr plane, each packed tight
+//   I444  4:4:4, the Cb plane and then the Cr plane, H rows each
+// Eight bits, or ten in sixteen with gShift putting them at the top (P010)
+// or leaving them at the bottom. Limited range throughout.
 //
 // Done here rather than by ffmpeg, so the arithmetic stays float to the last
-// rounding and the readback carries a byte and a half a pixel instead of four.
+// rounding and the readback carries what the file keeps and no more.
 //
-// The chroma sits where MPEG puts it, "left": on the even luma column, halfway
-// between the two rows. So a pair is filtered 1 2 1 across and averaged down.
-// Averaging R'G'B' first is the same as averaging Cb and Cr, both being linear
-// in it.
+// For 4:2:0 the chroma sits where MPEG puts it, "left": on the even luma
+// column, halfway between the two rows. So a pair is filtered 1 2 1 across
+// and averaged down. Averaging R'G'B' first is the same as averaging Cb and
+// Cr, both being linear in it. 4:4:4 takes every pixel as it is.
 //
 // With gPq the source is linear light and the file keeps it: back to BT.2020
 // and onto the PQ curve, pixel by pixel, before any of that. The pipeline
@@ -2129,11 +2132,11 @@ cbuffer YuvCB : register(b0) {
   float gKr;
   float gKb;
   float gPaperWhite;  // the nits of 1.0, for gPq
-  uint gPq;
-  uint gTenBit;
+  uint gPq;           // and with it ten bits rather than eight
+  uint gShift;        // 6 for the ten bits at the top of sixteen
+  uint gLayout;       // 0 NV12, 1 I420, 2 I444
   int gWidth;         // of the luma, even
-  int gHeight;
-  uint gYuvPad;
+  int gHeight;        // even
 };
 
 struct VSOut {
@@ -2173,9 +2176,26 @@ float3 Fetch(int x, int y) {
 
 // 16 + 219 Y and 128 + 224 C in eight bits, four times that in ten.
 uint Code(float base, float span, float v) {
-  const float scale = gTenBit != 0 ? 4.0 : 1.0;
-  const uint code = (uint)(scale * (base + span * v) + 0.5);
-  return gTenBit != 0 ? code << 6 : code;
+  const float scale = gPq != 0 ? 4.0 : 1.0;
+  return (uint)(scale * (base + span * v) + 0.5) << gShift;
+}
+
+uint ChromaCode(float3 c, float3 weights, bool red) {
+  const float luma = dot(c, weights);
+  const float chroma = red ? (c.r - luma) / (2.0 - 2.0 * gKr)
+                           : (c.b - luma) / (2.0 - 2.0 * gKb);
+  return Code(128.0, 224.0, chroma);
+}
+
+// The 4:2:0 sample for luma column cx (even) and the rows top and top + 1.
+float3 Sited(int cx, int top) {
+  const int left = max(cx - 1, 0);
+  const int right = min(cx + 1, gWidth - 1);
+  float3 sum = 0.0;
+  [unroll] for (int r = 0; r < 2; ++r) {
+    sum += Fetch(left, top + r) + 2.0 * Fetch(cx, top + r) + Fetch(right, top + r);
+  }
+  return sum * 0.125;
 }
 
 uint main(VSOut i) : SV_Target {
@@ -2183,20 +2203,25 @@ uint main(VSOut i) : SV_Target {
   const int y = (int)i.pos.y;
   const float3 weights = float3(gKr, 1.0 - gKr - gKb, gKb);
   if (y < gHeight) return Code(16.0, 219.0, dot(Fetch(x, y), weights));
+  const int row = y - gHeight;
 
-  const int cx = x & ~1;
-  const int left = max(cx - 1, 0);
-  const int right = min(cx + 1, gWidth - 1);
-  const int top = (y - gHeight) * 2;
-  float3 sum = 0.0;
-  [unroll] for (int r = 0; r < 2; ++r) {
-    sum += Fetch(left, top + r) + 2.0 * Fetch(cx, top + r) + Fetch(right, top + r);
+  if (gLayout == 2) {
+    const bool red = row >= gHeight;
+    return ChromaCode(Fetch(x, red ? row - gHeight : row), weights, red);
   }
-  const float3 c = sum * 0.125;
-  const float luma = dot(c, weights);
-  const float chroma = (x & 1) == 0 ? (c.b - luma) / (2.0 - 2.0 * gKb)
-                                    : (c.r - luma) / (2.0 - 2.0 * gKr);
-  return Code(128.0, 224.0, chroma);
+  if (gLayout == 1) {
+    // The planes are W/2 wide but the image is W: count the samples and see
+    // where this one falls.
+    const int halfWidth = gWidth / 2;
+    const int plane = halfWidth * (gHeight / 2);
+    int index = row * gWidth + x;
+    const bool red = index >= plane;
+    if (red) index -= plane;
+    const int cy = index / halfWidth;
+    const int cx = (index - cy * halfWidth) * 2;
+    return ChromaCode(Sited(cx, cy * 2), weights, red);
+  }
+  return ChromaCode(Sited(x & ~1, row * 2), weights, (x & 1) != 0);
 }
 )HLSL";
 

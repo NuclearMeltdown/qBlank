@@ -63,6 +63,24 @@ Recorder::Family Recorder::FamilyOf(const std::string& name) {
   return Family::Software;
 }
 
+YuvFormat Recorder::FormatFor(const EncoderInfo& encoder, bool wide, bool fullChroma) {
+  YuvFormat f;
+  f.matrix = wide ? YuvMatrix::Bt2020Pq : YuvMatrix::Bt709;
+  // Ten bits at the top of sixteen for the hardware, as P010 has them; x264
+  // and x265 count from the bottom.
+  const bool software = FamilyOf(encoder.ffmpegName) == Family::Software;
+  f.msb = !software;
+  if (fullChroma && (wide ? encoder.full10 : encoder.full8)) {
+    f.layout = YuvLayout::I444;
+  } else if (software && (wide || encoder.ffmpegName == "libx265")) {
+    // x265 takes no NV12 at all, x264 none in ten bits: planar.
+    f.layout = YuvLayout::I420;
+  } else {
+    f.layout = YuvLayout::Nv12;
+  }
+  return f;
+}
+
 namespace {
 
 // The seven speed steps, in each vendor's own words. Empty means "this one has
@@ -210,11 +228,12 @@ std::vector<std::string> Recorder::BuildArguments(const RecordSettings& settings
   // Input 0: raw frames exactly as the readback hands them over. Declaring the
   // rate here is what makes the output constant frame rate; the writer thread
   // guarantees that many frames per second actually arrive.
-  // The pixel format comes from the renderer rather than being spelled out
-  // here: these two have to agree byte for byte, and a literal in this file is
-  // exactly how they came apart once already.
+  // The pixel format is format_'s, which the renderer delivers, rather than
+  // being spelled out here: these two have to agree byte for byte, and a
+  // literal in this file is exactly how they came apart once already.
+  const char* pixelFormat = FfmpegPixelFormat(format_);
   pair("-f", "rawvideo");
-  pair("-pix_fmt", pixelFormat_);
+  pair("-pix_fmt", pixelFormat);
   pair("-s", std::to_string(width_) + "x" + std::to_string(height_));
   pair("-r", Format("%.6f", fps_));
   pair("-i", "pipe:0");
@@ -278,23 +297,24 @@ std::vector<std::string> Recorder::BuildArguments(const RecordSettings& settings
   // setparams they carry no matrix, no primaries and no transfer, so not even
   // an HDR file said PQ, and players read an untagged HD file as whatever they
   // like. Older builds go by the options.
-  if (hdr_) {
-    // Ten bit 4:2:0 and the three pieces of colour description that make a file
+  //
+  // The same -pix_fmt out as in, so ffmpeg converts nothing. 4:2:0 unless
+  // 4:4:4 was asked for: the one format every encoder and every player agrees
+  // on.
+  pair("-pix_fmt", pixelFormat);
+  if (format_.pq()) {
+    // Ten bits and the three pieces of colour description that make a file
     // playable as HDR rather than as a washed out mess. They are not optional:
     // nothing else in the file says the picture is on the PQ curve, and a player
     // that is not told will assume it is not.
     pair("-vf", "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:"
                 "range=tv");
-    pair("-pix_fmt", "p010le");
     pair("-color_primaries", "bt2020");
     pair("-color_trc", "smpte2084");
     pair("-colorspace", "bt2020nc");
     pair("-color_range", "tv");
   } else {
-    // 4:2:0 eight bit: the one format every hardware encoder and every player
-    // agrees on. Anything wider would exclude the very cards this is meant for.
     pair("-vf", "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv");
-    pair("-pix_fmt", "nv12");
     pair("-color_primaries", "bt709");
     pair("-color_trc", "bt709");
     pair("-colorspace", "bt709");
@@ -384,9 +404,11 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   audioRate_ = main.active() ? main.sampleRate : 0;
   micRate_ = mic.active() ? mic.sampleRate : 0;
   micTrackMode_ = micTrackMode;
-  // 4:2:0 in one plane: the luma rows and half as many again of chroma, at two
+  format_ = FormatFor(*encoder, wide_, settings.fullChroma);
+  // All planes in one: the luma rows and the chroma rows after them, at two
   // bytes a sample when the range is kept.
-  frameBytes_ = (size_t)width_ * (size_t)(height_ + height_ / 2) * (hdr_ ? 2 : 1);
+  frameBytes_ = (size_t)width_ * (size_t)YuvRows(format_.layout, height_) *
+                (size_t)format_.sampleBytes();
   pullAudio_ = main.pull;
   pullMic_ = mic.pull;
 
@@ -542,8 +564,9 @@ int Recorder::PickWriteSlotLocked() const {
   return 0;  // unreachable with three slots and two reserved indices
 }
 
-void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int height) {
-  if (!running_.load(std::memory_order_relaxed) || !pixels) return;
+void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int height,
+                         const YuvFormat& format) {
+  if (!running_.load(std::memory_order_relaxed) || !pixels || format != format_) return;
 
   // A frame of a different shape than ffmpeg was told about. This happens for
   // the fraction of a second between the source changing its video standard and
@@ -569,8 +592,8 @@ void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int heigh
   // written nor the one the writer holds, so nobody else touches it. The rows
   // are repacked because a staging texture's pitch is rarely the row's width,
   // and rawvideo has no concept of padding.
-  const size_t rowBytes = (size_t)width_ * (hdr_ ? 2 : 1);
-  const int rows = height_ + height_ / 2;
+  const size_t rowBytes = (size_t)width_ * (size_t)format_.sampleBytes();
+  const int rows = YuvRows(format_.layout, height_);
   uint8_t* dst = slots_[slot].data();
   for (int y = 0; y < rows; ++y) {
     memcpy(dst + (size_t)y * rowBytes, pixels + (size_t)y * (size_t)stride, rowBytes);

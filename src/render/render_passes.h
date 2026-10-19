@@ -201,17 +201,17 @@ struct ScaleParams {
 };
 
 // The yuv pass, in the shader's order (kYuvPS). The picture comes out as one
-// image of width x height*3/2: the luma rows, then the chroma rows with Cb on
-// the even and Cr on the odd column, which is NV12's layout and P010's.
+// image of width x YuvRows(layout, height): the luma rows, then the chroma
+// rows in the layout's order (yuv_format.h).
 struct YuvParams {
   float kr;            // the matrix: BT.709, BT.601 or BT.2020
   float kb;
   float paperWhite;    // nits diffuse white comes out at, for pq
-  uint32_t pq;         // 1 = linear light in, BT.2020 PQ out
-  uint32_t tenBit;     // 1 = P010, the ten bits in the top of sixteen
+  uint32_t pq;         // 1 = linear light in, BT.2020 PQ out, ten bits
+  uint32_t shift;      // 6 = the ten bits in the top of sixteen
+  uint32_t layout;     // YuvLayout
   int32_t width;       // even
   int32_t height;      // even, the luma rows
-  uint32_t pad;
 };
 static_assert(sizeof(YuvParams) == 32, "YuvParams must match the shader's cbuffer");
 
@@ -233,7 +233,7 @@ class RenderPasses {
   // enough to map without stalling.
   static const int kReadbackSlots = 3;
   // How many yuv pictures can be read back side by side: see VideoRenderer::Yuv.
-  static const int kYuvStreams = 3;
+  static const int kYuvStreams = 2;
 
   // The display backend this one draws with.
   virtual GraphicsApi api() const = 0;
@@ -313,9 +313,9 @@ class RenderPasses {
 
   // ---- yuv ----
 
-  // One stream: the yuv picture at `width` x `height` (both even) and its ring
-  // of kReadbackSlots readbacks. Eight bits a sample, or sixteen for P010.
-  virtual bool CreateYuvStream(int stream, int width, int height, bool tenBit) = 0;
+  // One stream: the yuv picture, `width` samples by `rows` (YuvRows), and its
+  // ring of kReadbackSlots readbacks. Eight bits a sample, or sixteen.
+  virtual bool CreateYuvStream(int stream, int width, int rows, bool sixteenBit) = 0;
   virtual void ReleaseYuvStream(int stream) = 0;
   // Converts `from` and queues the copy into readback `slot`. `params` has the
   // stream's size.

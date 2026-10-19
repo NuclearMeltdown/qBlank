@@ -25,7 +25,16 @@ struct EncoderInfo {
   bool tested = false;     // the test encode has been run for this entry
   bool available = false;  // survived the test encode
   std::string error;       // why not, when it did not
+  // 4:4:4, tried after 4:2:0 passed and only where it can work at all
+  // (FullChromaCandidate): in eight bits, and in ten for HDR.
+  bool fullTested = false;
+  bool full8 = false;
+  bool full10 = false;
 };
+
+// H.264 and H.265 on NVENC and the CPU. AV1, AMF and QuickSync take 4:2:0
+// only, so they are not even asked.
+bool FullChromaCandidate(const std::string& ffmpegName);
 
 struct FfmpegInfo {
   bool found = false;
@@ -87,8 +96,11 @@ std::vector<EncoderInfo> KnownEncoders();
 // Fills in the results of an earlier test instead of running one. `available`
 // holds RecordEncoder values. Everything not in it counts as tested and
 // unavailable, which is the point: the list then shows what this machine can
-// actually do.
-void ApplyCachedProbe(FfmpegInfo* info, const std::vector<int>& available);
+// actually do. The same for 4:4:4 in `full8` and `full10`, unless
+// `fullProbed` is false: a test from before 4:4:4 existed, which leaves it
+// untested.
+void ApplyCachedProbe(FfmpegInfo* info, const std::vector<int>& available, bool fullProbed,
+                      const std::vector<int>& full8, const std::vector<int>& full10);
 
 // Default recording folder: Videos\<program name>. The name can be given, which
 // is what a build does after taking over the settings of an earlier name: the

@@ -138,7 +138,7 @@ class VulkanPasses : public RenderPasses {
   bool BeginUiLayer(int width, int height) override;
   void CompositeUiLayer(float paperWhiteNits) override;
 
-  bool CreateYuvStream(int stream, int width, int height, bool tenBit) override;
+  bool CreateYuvStream(int stream, int width, int rows, bool sixteenBit) override;
   void ReleaseYuvStream(int stream) override;
   void ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) override;
   bool MapYuv(int stream, int slot, MappedImage* mapped) override;
@@ -1348,13 +1348,12 @@ void VulkanPasses::ReleaseYuvStream(int stream) {
   for (Readback& readback : s.readback) ReleaseReadback(&readback);
 }
 
-bool VulkanPasses::CreateYuvStream(int stream, int width, int height, bool tenBit) {
+bool VulkanPasses::CreateYuvStream(int stream, int width, int rows, bool sixteenBit) {
   if (!vk_) return false;
   ReleaseYuvStream(stream);
-  if (width < 2 || height < 2) return false;
+  if (width < 2 || rows < 3) return false;
   YuvStream& s = yuv_[stream];
-  const int rows = height + height / 2;
-  const VkFormat format = tenBit ? VK_FORMAT_R16_UINT : VK_FORMAT_R8_UINT;
+  const VkFormat format = sixteenBit ? VK_FORMAT_R16_UINT : VK_FORMAT_R8_UINT;
   if (!vk_->CreateImage(width, rows, format,
                         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                         &s.image)) {

@@ -445,27 +445,29 @@ void App::FeedFrameConsumers() {
   const bool wantCamera = virtualCamera_.running() && virtualCamera_.consumed();
 
   // The recorder keeps the format it was started with; a source that changes
-  // cuts the file (recording_control.cpp). The camera follows the source.
-  const bool recordWide = wantRecorder && recorder_.hdr();
-  const bool cameraWide = wantCamera && virtualCamera_.wantsWide() && renderer_.sourceHdr();
-  renderer_.SetReadbackWanted(wantRecorder && !recordWide, wantCamera && !cameraWide,
-                              recordWide || cameraWide);
+  // cuts the file (recording_control.cpp). The camera follows the source and
+  // takes NV12 always: BT.601 as webcams send it, or the wide range on PQ.
+  YuvFormat cameraFormat;
+  cameraFormat.matrix = wantCamera && virtualCamera_.wantsWide() && renderer_.sourceHdr()
+                            ? YuvMatrix::Bt2020Pq
+                            : YuvMatrix::Bt601;
+  // When both want the same bytes, they are converted and read once.
+  const bool share = wantRecorder && wantCamera && recorder_.format() == cameraFormat;
+  renderer_.SetReadbackWanted(wantRecorder ? &recorder_.format() : nullptr,
+                              wantCamera && !share ? &cameraFormat : nullptr);
 
-  // The wide picture is the same bytes for both, so it is read once.
   VideoRenderer::ReadbackFrame frame;
-  if ((recordWide || cameraWide) && renderer_.FetchReadback(VideoRenderer::Yuv::Wide, &frame)) {
-    if (recordWide) recorder_.PushVideo(frame.data, frame.stride, frame.width, frame.height);
-    if (cameraWide) {
-      virtualCamera_.PushFrame(frame.data, frame.stride, frame.width, frame.height, true);
+  if (wantRecorder && renderer_.FetchReadback(VideoRenderer::Yuv::Record, &frame)) {
+    recorder_.PushVideo(frame.data, frame.stride, frame.width, frame.height, frame.format);
+    if (share) {
+      virtualCamera_.PushFrame(frame.data, frame.stride, frame.width, frame.height,
+                               frame.format.pq());
     }
-    renderer_.ReleaseReadback(VideoRenderer::Yuv::Wide);
-  }
-  if (wantRecorder && !recordWide && renderer_.FetchReadback(VideoRenderer::Yuv::Record, &frame)) {
-    recorder_.PushVideo(frame.data, frame.stride, frame.width, frame.height);
     renderer_.ReleaseReadback(VideoRenderer::Yuv::Record);
   }
-  if (wantCamera && !cameraWide && renderer_.FetchReadback(VideoRenderer::Yuv::Camera, &frame)) {
-    virtualCamera_.PushFrame(frame.data, frame.stride, frame.width, frame.height, false);
+  if (wantCamera && !share && renderer_.FetchReadback(VideoRenderer::Yuv::Camera, &frame)) {
+    virtualCamera_.PushFrame(frame.data, frame.stride, frame.width, frame.height,
+                             frame.format.pq());
     renderer_.ReleaseReadback(VideoRenderer::Yuv::Camera);
   }
 }

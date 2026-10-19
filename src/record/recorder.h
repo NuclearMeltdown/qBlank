@@ -29,6 +29,7 @@
 #include "child_process.h"
 #include "config.h"
 #include "record/ffmpeg_locator.h"
+#include "render/yuv_format.h"
 
 namespace cap {
 
@@ -82,18 +83,21 @@ class Recorder {
     bool active() const { return sampleRate > 0 && pull != nullptr; }
   };
 
-  // The picture the writer will be handed: which ffmpeg pixel format it is in,
-  // and whether it carries the full range on the PQ curve. Set before Start.
-  void SetPixelFormat(const char* ffmpegName, bool hdr) {
-    pixelFormat_ = ffmpegName;
-    hdr_ = hdr;
-  }
-  bool hdr() const { return hdr_; }
+  // Whether the picture keeps the full range on the PQ curve. Set before
+  // Start, which works out the rest of the format from the encoder.
+  void SetWide(bool wide) { wide_ = wide; }
+  // What the writer takes, from Start on: the renderer delivers exactly this.
+  const YuvFormat& format() const { return format_; }
+  bool hdr() const { return format_.pq(); }
 
   // Which family an encoder belongs to. The settings are one set of names; what
   // each vendor actually calls them is another, and this is the seam.
   enum class Family { Software, Nvenc, Amf, Qsv };
   static Family FamilyOf(const std::string& ffmpegName);
+
+  // The bytes `encoder` takes without ffmpeg converting them: 4:4:4 when asked
+  // for and the encoder passed it at that depth, 4:2:0 otherwise.
+  static YuvFormat FormatFor(const EncoderInfo& encoder, bool wide, bool fullChroma);
 
   // `main` is the sound you hear, and its sample count is the master clock; a
   // rate of 0 there hands the clock to the wall instead. `mic` is optional;
@@ -128,10 +132,11 @@ class Recorder {
   // to stay in step with the sound. Clears once it catches up again.
   bool encoderBehind() const { return encoderBehind_.load(std::memory_order_relaxed); }
 
-  // Called from the render thread with a freshly read back frame. Its size is
-  // passed along and checked: a frame of a different shape than the one the
-  // running ffmpeg was told about is dropped rather than written.
-  void PushVideo(const uint8_t* pixels, int stride, int width, int height);
+  // Called from the render thread with a freshly read back frame. Its size and
+  // format are passed along and checked: a frame of a different shape than the
+  // one the running ffmpeg was told about is dropped rather than written.
+  void PushVideo(const uint8_t* pixels, int stride, int width, int height,
+                 const YuvFormat& format);
 
   // What was handed to ffmpeg at the start. `-s` and `-r` stand fixed in its
   // command line -- rawvideo carries no header that could say anything else --
@@ -173,10 +178,8 @@ class Recorder {
                                           const std::filesystem::path& outFile, int audioRate,
                                           int micRate) const;
 
-  // Overwritten by SetPixelFormat before every start; the literal is only what
-  // an unconfigured recorder would fall back to.
-  std::string pixelFormat_ = "nv12";
-  bool hdr_ = false;
+  bool wide_ = false;
+  YuvFormat format_;
   std::atomic<bool> running_{false};
   std::atomic<bool> failed_{false};
   std::atomic<bool> encoderBehind_{false};

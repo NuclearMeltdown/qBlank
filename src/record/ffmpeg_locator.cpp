@@ -152,13 +152,25 @@ FfmpegInfo LocateFfmpeg(const std::string& configuredPath) {
   return info;
 }
 
-void ApplyCachedProbe(FfmpegInfo* info, const std::vector<int>& available) {
+bool FullChromaCandidate(const std::string& ffmpegName) {
+  return ffmpegName == "h264_nvenc" || ffmpegName == "hevc_nvenc" || ffmpegName == "libx264" ||
+         ffmpegName == "libx265";
+}
+
+void ApplyCachedProbe(FfmpegInfo* info, const std::vector<int>& available, bool fullProbed,
+                      const std::vector<int>& full8, const std::vector<int>& full10) {
   if (!info) return;
   if (info->encoders.empty()) info->encoders = KnownEncoders();
+  auto has = [](const std::vector<int>& list, RecordEncoder id) {
+    return std::find(list.begin(), list.end(), (int)id) != list.end();
+  };
   for (EncoderInfo& e : info->encoders) {
     e.tested = true;
-    e.available = std::find(available.begin(), available.end(), (int)e.id) != available.end();
+    e.available = has(available, e.id);
     e.error.clear();
+    e.fullTested = fullProbed;
+    e.full8 = fullProbed && e.available && has(full8, e.id);
+    e.full10 = e.full8 && has(full10, e.id);
   }
   info->tested = true;
 }
@@ -178,9 +190,10 @@ std::vector<EncoderInfo> KnownEncoders() {
 
 namespace {
 
-// One test encode, result cached on the entry.
-bool TestOne(const std::string& exe, EncoderInfo* e) {
-  if (e->tested) return e->available;
+// A two frame encode in `pixelFormat`. True when ffmpeg ran and exited
+// cleanly; `error` gets why not.
+bool TestEncode(const std::string& exe, const std::string& encoder, const char* pixelFormat,
+                std::string* error, std::string* logged) {
   ProcessSpec spec;
   spec.program = exe;
   spec.Add("-hide_banner");
@@ -188,27 +201,49 @@ bool TestOne(const std::string& exe, EncoderInfo* e) {
   spec.Add("-f", "lavfi");
   spec.Add("-i", "testsrc=size=320x240:rate=30");
   spec.Add("-frames:v", "2");
-  spec.Add("-pix_fmt", "nv12");
-  spec.Add("-c:v", e->ffmpegName);
+  spec.Add("-pix_fmt", pixelFormat);
+  spec.Add("-c:v", encoder);
   spec.Add("-f", "null");
   spec.Add("-");
 
   std::string output;
   int exitCode = 0;
-  std::string logged;
   if (!RunAndCollect(spec, &output, &exitCode, 20000)) {
     const Said said = CAP_SAID(T("ffmpeg konnte nicht gestartet werden", "ffmpeg could not be started"));
-    e->available = false;
-    e->error = said.shown;
-    logged = said.logged;
-  } else {
-    e->available = (exitCode == 0);
-    e->error = e->available ? std::string() : FirstLine(Trim(output));
-    logged = e->error;
+    *error = said.shown;
+    *logged = said.logged;
+    return false;
   }
+  *error = exitCode == 0 ? std::string() : FirstLine(Trim(output));
+  *logged = *error;
+  return exitCode == 0;
+}
+
+// One test encode, result cached on the entry. Then 4:4:4 where it can work:
+// once more in eight bits, and in ten if that passed, the ten bits in the
+// format the recorder hands that encoder (Recorder::FormatFor).
+bool TestOne(const std::string& exe, EncoderInfo* e) {
+  if (e->tested) return e->available;
+  std::string logged;
+  e->available = TestEncode(exe, e->ffmpegName, "nv12", &e->error, &logged);
   e->tested = true;
   CAP_LOG("Encoder %s: %s%s%s", e->ffmpegName.c_str(), e->available ? "ok" : "not available",
           logged.empty() ? "" : " - ", logged.c_str());
+
+  e->fullTested = true;
+  e->full8 = e->full10 = false;
+  if (e->available && FullChromaCandidate(e->ffmpegName)) {
+    std::string error;
+    e->full8 = TestEncode(exe, e->ffmpegName, "yuv444p", &error, &logged);
+    if (e->full8) {
+      const bool nvenc = e->ffmpegName.find("_nvenc") != std::string::npos;
+      e->full10 = TestEncode(exe, e->ffmpegName, nvenc ? "yuv444p16le" : "yuv444p10le", &error,
+                             &logged);
+    }
+    CAP_LOG("Encoder %s 4:4:4: 8 bit %s, 10 bit %s%s%s", e->ffmpegName.c_str(),
+            e->full8 ? "ok" : "no", e->full10 ? "ok" : "no", logged.empty() ? "" : " - ",
+            logged.c_str());
+  }
   return e->available;
 }
 
@@ -254,6 +289,10 @@ void ProbeEncoders(FfmpegInfo* info) {
   // list. AV1 NVENC on Ada cannot do 4:4:4 (that arrived with Blackwell), so the
   // test failed with "No capable devices found" on hardware that encodes AV1
   // perfectly well. It was measuring 4:4:4 support, not usability.
+  //
+  // Everything from scratch, results from the configuration included: this is
+  // what "Test again" runs, and it must test again.
+  info->encoders = KnownEncoders();
   for (EncoderInfo& e : info->encoders) TestOne(info->path, &e);
   info->tested = true;
 }

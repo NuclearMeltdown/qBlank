@@ -20,6 +20,7 @@
 #include "common.h"
 #include "config.h"
 #include "render/render_passes.h"
+#include "render/yuv_format.h"
 #include "window.h"
 
 namespace cap {
@@ -211,30 +212,23 @@ class VideoRenderer {
   // a frame or two behind the screen, which is the right trade: the screen is
   // what you play on.
   //
-  // Three streams with a ring each, because the recorder and the camera can
-  // want different pictures at the same moment.
-  enum class Yuv {
-    Record,  // NV12, BT.709: the recording
-    Camera,  // NV12, BT.601: what a consumer assumes of NV12 when not told
-    Wide,    // P010, BT.2020 PQ: the recording and the camera that keep the range
-  };
-  // Which of them this frame wants. One that is not wanted lets go of its ring.
-  // Wide is only drawn while the source is HDR; there is nothing to keep
-  // otherwise.
-  void SetReadbackWanted(bool record, bool camera, bool wide);
+  // Two streams with a ring each, because the recorder and the camera can want
+  // different pictures at the same moment. When they want the same one, the
+  // camera takes the recording's.
+  enum class Yuv { Record, Camera };
+  // What each wants this frame, nullptr for nothing. One that is not wanted
+  // lets go of its ring. A PQ format is only drawn while the source is HDR;
+  // there is nothing to keep otherwise.
+  void SetReadbackWanted(const YuvFormat* record, const YuvFormat* camera);
   bool sourceHdr() const { return hdrTransfer_ != Transfer::Sdr; }
-
-  // The formats as ffmpeg names them. One plane each: the luma rows, then half
-  // as many rows of Cb and Cr in pairs.
-  static constexpr const char* kYuvPixelFormat = "nv12";
-  static constexpr const char* kWidePixelFormat = "p010le";
 
   struct ReadbackFrame {
     const uint8_t* data = nullptr;  // valid until ReleaseReadback
     size_t size = 0;
     int width = 0;   // even
-    int height = 0;  // even, the luma rows; the data holds half as many again
+    int height = 0;  // even, the luma rows; the data holds YuvRows of them
     int stride = 0;
+    YuvFormat format;
     bool valid() const { return data != nullptr; }
   };
 
@@ -586,6 +580,8 @@ class VideoRenderer {
   struct YuvRing {
     bool wanted = false;
     bool failed = false;  // could not be made at this size; tried again at the next
+    YuvFormat format;     // what is wanted; the ring is remade when it changes
+    YuvFormat made;       // what the ring holds
     int width = 0;
     int height = 0;
     int write = 0;

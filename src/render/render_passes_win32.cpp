@@ -95,7 +95,7 @@ class D3D11Passes : public RenderPasses {
   bool BeginUiLayer(int width, int height) override;
   void CompositeUiLayer(float paperWhiteNits) override;
 
-  bool CreateYuvStream(int stream, int width, int height, bool tenBit) override;
+  bool CreateYuvStream(int stream, int width, int rows, bool sixteenBit) override;
   void ReleaseYuvStream(int stream) override;
   void ConvertToYuv(int stream, int slot, PassImage from, const YuvParams& params) override;
   bool MapYuv(int stream, int slot, MappedImage* mapped) override;
@@ -210,7 +210,7 @@ class D3D11Passes : public RenderPasses {
     ComPtr<ID3D11RenderTargetView> rtv;
     ComPtr<ID3D11Texture2D> staging[kReadbackSlots];
     int width = 0;
-    int height = 0;
+    int rows = 0;
   };
   ComPtr<ID3D11PixelShader> psYuv_;
   ComPtr<ID3D11Buffer> cbYuv_;
@@ -1214,21 +1214,21 @@ void D3D11Passes::ReleaseYuvStream(int stream) {
   s.rtv.Reset();
   s.tex.Reset();
   s.width = 0;
-  s.height = 0;
+  s.rows = 0;
 }
 
-bool D3D11Passes::CreateYuvStream(int stream, int width, int height, bool tenBit) {
+bool D3D11Passes::CreateYuvStream(int stream, int width, int rows, bool sixteenBit) {
   ReleaseYuvStream(stream);
-  if (width < 2 || height < 2) return false;
+  if (width < 2 || rows < 3) return false;
   YuvStream& s = yuv_[stream];
   ID3D11Device* dev = NativeDevice(*display_);
 
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = (UINT)width;
-  td.Height = (UINT)(height + height / 2);
+  td.Height = (UINT)rows;
   td.MipLevels = 1;
   td.ArraySize = 1;
-  td.Format = tenBit ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R8_UINT;
+  td.Format = sixteenBit ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R8_UINT;
   td.SampleDesc.Count = 1;
   td.Usage = D3D11_USAGE_DEFAULT;
   td.BindFlags = D3D11_BIND_RENDER_TARGET;
@@ -1248,7 +1248,7 @@ bool D3D11Passes::CreateYuvStream(int stream, int width, int height, bool tenBit
     }
   }
   s.width = width;
-  s.height = height;
+  s.rows = rows;
   return true;
 }
 
@@ -1267,7 +1267,7 @@ void D3D11Passes::ConvertToYuv(int stream, int slot, PassImage from, const YuvPa
 
   D3D11_VIEWPORT vp = {};
   vp.Width = (float)s.width;
-  vp.Height = (float)(s.height + s.height / 2);
+  vp.Height = (float)s.rows;
   vp.MaxDepth = 1.0f;
   dc->RSSetViewports(1, &vp);
 

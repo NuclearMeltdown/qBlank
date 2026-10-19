@@ -120,10 +120,14 @@ void RecordingControl::LoadCachedEncoders() {
     CAP_LOG("Encoder probe discarded: hardware or ffmpeg has changed");
     rec.encoderProbeSignature.clear();
     rec.encodersAvailable.clear();
+    rec.fullChromaProbed = false;
+    rec.encodersFullChroma.clear();
+    rec.encodersFullChroma10.clear();
     return;
   }
 
-  ApplyCachedProbe(&ffmpeg_, rec.encodersAvailable);
+  ApplyCachedProbe(&ffmpeg_, rec.encodersAvailable, rec.fullChromaProbed,
+                   rec.encodersFullChroma, rec.encodersFullChroma10);
   CAP_LOG("Encoders taken from the configuration: %zu usable",
           rec.encodersAvailable.size());
 }
@@ -132,8 +136,15 @@ void RecordingControl::SaveCachedEncoders() {
   if (!ffmpeg_.found || !ffmpeg_.tested) return;
   RecordSettings& rec = config_.record;
   rec.encodersAvailable.clear();
+  rec.encodersFullChroma.clear();
+  rec.encodersFullChroma10.clear();
+  rec.fullChromaProbed = true;
   for (const EncoderInfo& e : ffmpeg_.encoders) {
-    if (e.tested && e.available) rec.encodersAvailable.push_back((int)e.id);
+    if (!e.tested || !e.available) continue;
+    rec.encodersAvailable.push_back((int)e.id);
+    if (!e.fullTested) rec.fullChromaProbed = false;
+    if (e.full8) rec.encodersFullChroma.push_back((int)e.id);
+    if (e.full10) rec.encodersFullChroma10.push_back((int)e.id);
   }
   rec.encoderProbeSignature = probeSignature_;
 
@@ -309,10 +320,7 @@ void RecordingControl::LaunchRecording() {
 
   // Which picture the writer will be fed, decided before it starts: the wide
   // path only exists while the source is HDR and the setting asks for it.
-  const bool wideRecording = config_.app.recordHdr && renderer_.sourceHdr();
-  recorder_.SetPixelFormat(wideRecording ? VideoRenderer::kWidePixelFormat
-                                         : VideoRenderer::kYuvPixelFormat,
-                           wideRecording);
+  recorder_.SetWide(config_.app.recordHdr && renderer_.sourceHdr());
 
   // Mit welcher Bildrate aufgenommen wird -- und die gemeldete ist es nicht.
   //
@@ -387,6 +395,13 @@ void RecordingControl::LaunchRecording() {
   if (!ok) {
     audio_.SetTapEnabled(false);
     host_.Toast(error);
+    return;
+  }
+  // 4:4:4 asked for and not given: the encoder did not pass it at this depth,
+  // or was never tested for it. Recording anyway, but not silently.
+  if (pendingSettings_.fullChroma && recorder_.format().layout != YuvLayout::I444) {
+    host_.Toast(T("Aufnahme läuft, in 4:2:0: der Encoder kann hier kein 4:4:4.",
+                  "Recording, in 4:2:0: the encoder cannot do 4:4:4 here."));
     return;
   }
   host_.Toast(T("Aufnahme läuft", "Recording"));

@@ -617,6 +617,9 @@ struct RecordSettings {
   // quantisation spends bits where the eye looks. Both cost a little speed.
   bool lookAhead = false;
   bool adaptiveQuant = false;
+  // 4:4:4 instead of 4:2:0, where the encoder can. Off by default: few players
+  // and editors open such a file.
+  bool fullChroma = false;
   // 0 = whatever the source delivers. Otherwise frames are dropped to hit this.
   double fps = 0.0;
   // Off by default: only FAT32 needs it, NTFS does not.
@@ -631,6 +634,11 @@ struct RecordSettings {
   // the result is thrown away, because it is no longer about this machine.
   std::string encoderProbeSignature;
   std::vector<int> encodersAvailable;  // RecordEncoder values that worked
+  // And of those, which did 4:4:4 in eight and in ten bits. Not probed means a
+  // test from before 4:4:4 was asked for.
+  bool fullChromaProbed = false;
+  std::vector<int> encodersFullChroma;
+  std::vector<int> encodersFullChroma10;
 
   // Stills. Empty folder = Pictures\qBlank. Screenshots go somewhere separate
   // from the recordings on purpose: a folder holding both a handful of videos

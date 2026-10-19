@@ -4017,7 +4017,37 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                "automatisch steht.",
                "Software encoders only, and only while the preset below is on automatic."));
 
-  DrawEncoderBlock(selected ? selected : (ffmpeg ? ffmpeg->Resolve(rec.encoder) : nullptr));
+  // Greyed out where the encoder that would run cannot take it, like the
+  // encoder settings below; the line under it says why.
+  const EncoderInfo* active =
+      selected ? selected : (ffmpeg ? ffmpeg->Resolve(rec.encoder) : nullptr);
+  ImGui::BeginDisabled(!active || !active->full8);
+  ImGui::Checkbox(T("Volle Farbauflösung (4:4:4)", "Full colour resolution (4:4:4)"),
+                  &rec.fullChroma);
+  Anchor("fullchroma");
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  HelpMarker(T("Behält die Farbe jedes Bildpunkts, statt sie über vier zu mitteln. Lohnt "
+               "sich bei HDMI- und RGB-Quellen. Größere Dateien; Browser, Handys und viele "
+               "Schnittprogramme spielen das nicht ab, VLC und mpv schon.",
+               "Keeps the colour of every pixel instead of averaging it over four. Worth it "
+               "for HDMI and RGB sources. Larger files; browsers, phones and many editors "
+               "cannot play it, VLC and mpv can."));
+  if (active && rec.fullChroma) {
+    const char* why = nullptr;
+    if (!active->fullTested) {
+      why = T("Noch nicht auf 4:4:4 geprüft: Encoder erneut testen.",
+              "Not tested for 4:4:4 yet: test the encoders again.");
+    } else if (!active->full8) {
+      why = T("Dieser Encoder kann kein 4:4:4, aufgenommen wird 4:2:0.",
+              "This encoder cannot do 4:4:4, it records 4:2:0.");
+    } else if (!active->full10 && cfg().app.recordHdr && hdrSourceTransfer_ != 0) {
+      why = T("HDR bleibt bei diesem Encoder 4:2:0.", "HDR stays 4:2:0 with this encoder.");
+    }
+    if (why) TextDisabledWrapped(why);
+  }
+
+  DrawEncoderBlock(active);
 
   ImGui::EndDisabled();
 

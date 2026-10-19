@@ -2602,11 +2602,12 @@ bool VideoRenderer::UploadRgb32(const FrameView& frame) {
 
 // ----------------------------------------------------------------- readback
 
-void VideoRenderer::SetReadbackWanted(bool record, bool camera, bool wide) {
-  const bool want[kYuvStreams] = {record, camera, wide};
+void VideoRenderer::SetReadbackWanted(const YuvFormat* record, const YuvFormat* camera) {
+  const YuvFormat* want[kYuvStreams] = {record, camera};
   for (int s = 0; s < kYuvStreams; ++s) {
-    if (yuv_[s].wanted == want[s]) continue;
-    yuv_[s].wanted = want[s];
+    if (want[s]) yuv_[s].format = *want[s];
+    if (yuv_[s].wanted == (want[s] != nullptr)) continue;
+    yuv_[s].wanted = want[s] != nullptr;
     if (!want[s]) ReleaseYuv((Yuv)s);
   }
 }
@@ -2616,42 +2617,36 @@ void VideoRenderer::ReleaseYuv(Yuv stream) {
   if (ring.mapped >= 0 && display_) passes_->UnmapYuv((int)stream, ring.mapped);
   passes_->ReleaseYuvStream((int)stream);
   const bool wanted = ring.wanted;
+  const YuvFormat format = ring.format;
   ring = YuvRing();
   ring.wanted = wanted;
+  ring.format = format;
 }
 
 void VideoRenderer::QueueReadback() {
   if (!passes_->hasIntermediate() || !display_) return;
 
-  // Straight off the intermediate whenever it already is what the streams
-  // want: same size, nothing to do. Otherwise through the delivery pass, which
-  // handles either reason or both at once, and only once for both eight bit
-  // streams.
-  if (yuv_[(int)Yuv::Record].wanted || yuv_[(int)Yuv::Camera].wanted) {
-    PassImage from = PassImage::Intermediate;
-    bool ok = true;
-    if (deliveryNeeded()) {
-      ok = RenderDelivery(false);
-      from = PassImage::Delivery;
+  // Straight off the intermediate whenever it already is what a stream wants:
+  // same size, nothing to do. Otherwise through the delivery pass, which
+  // handles either reason or both at once, and only once for both streams.
+  //
+  // For PQ the linear light delivery: resample first, and only then lay on
+  // the curve. The other way round would interpolate between PQ coded values,
+  // which are not proportional to anything, and every soft edge would end up
+  // at the wrong brightness.
+  int delivered[2] = {0, 0};  // per half: 0 not yet, 1 done, -1 failed
+  for (int s = 0; s < kYuvStreams; ++s) {
+    const YuvRing& ring = yuv_[s];
+    if (!ring.wanted) continue;
+    const bool half = ring.format.pq();
+    if (half && !sourceHdr()) continue;
+    if (!(half ? deliveryHalfNeeded() : deliveryNeeded())) {
+      QueueYuv((Yuv)s, PassImage::Intermediate);
+      continue;
     }
-    if (ok) {
-      QueueYuv(Yuv::Record, from);
-      QueueYuv(Yuv::Camera, from);
-    }
-  }
-
-  // Resample first, in linear light, and only then lay on the PQ curve. The
-  // other way round would interpolate between PQ coded values, which are not
-  // proportional to anything, and every soft edge would end up at the wrong
-  // brightness.
-  if (yuv_[(int)Yuv::Wide].wanted && sourceHdr()) {
-    PassImage from = PassImage::Intermediate;
-    bool ok = true;
-    if (deliveryHalfNeeded()) {
-      ok = RenderDelivery(true);
-      from = PassImage::DeliveryHalf;
-    }
-    if (ok) QueueYuv(Yuv::Wide, from);
+    int& done = delivered[half ? 1 : 0];
+    if (done == 0) done = RenderDelivery(half) ? 1 : -1;
+    if (done > 0) QueueYuv((Yuv)s, half ? PassImage::DeliveryHalf : PassImage::Delivery);
   }
 }
 
@@ -2661,36 +2656,41 @@ void VideoRenderer::QueueYuv(Yuv stream, PassImage from) {
 
   // Resolution changed (crop, or the card switched mode): start over. Both
   // sizes even, which the chroma rows want.
+  // The format changing does the same.
   const int width = deliveryWidth_ & ~1;
   const int height = deliveryHeight_ & ~1;
-  if (ring.width != width || ring.height != height) {
+  const YuvFormat format = ring.format;
+  if (ring.width != width || ring.height != height || ring.made != format) {
     ReleaseYuv(stream);
     ring.width = width;
     ring.height = height;
-    ring.failed = !passes_->CreateYuvStream((int)stream, width, height, stream == Yuv::Wide);
+    ring.made = format;
+    ring.failed = !passes_->CreateYuvStream((int)stream, width, YuvRows(format.layout, height),
+                                            format.sampleBytes() == 2);
   }
 
   // The slot about to be written must not be the one the caller still holds.
   if (ring.failed || ring.write == ring.mapped) return;
 
   YuvParams params = {};
-  switch (stream) {
-    case Yuv::Record:
+  switch (format.matrix) {
+    case YuvMatrix::Bt709:
       params.kr = 0.2126f;
       params.kb = 0.0722f;
       break;
-    case Yuv::Camera:
+    case YuvMatrix::Bt601:
       params.kr = 0.299f;
       params.kb = 0.114f;
       break;
-    case Yuv::Wide:
+    case YuvMatrix::Bt2020Pq:
       params.kr = 0.2627f;
       params.kb = 0.0593f;
       params.paperWhite = paperWhiteNits_;
       params.pq = 1;
-      params.tenBit = 1;
+      params.shift = format.msb ? 6 : 0;
       break;
   }
+  params.layout = (uint32_t)format.layout;
   params.width = width;
   params.height = height;
   passes_->ConvertToYuv((int)stream, ring.write, from, params);
@@ -2714,7 +2714,8 @@ bool VideoRenderer::FetchReadback(Yuv stream, ReadbackFrame* out) {
   out->stride = (int)mapped.rowPitch;
   out->width = ring.width;
   out->height = ring.height;
-  out->size = mapped.rowPitch * (size_t)(ring.height + ring.height / 2);
+  out->format = ring.made;
+  out->size = mapped.rowPitch * (size_t)YuvRows(ring.made.layout, ring.height);
   return true;
 }
 
