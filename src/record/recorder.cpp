@@ -34,6 +34,17 @@ constexpr int kClockRate = 48000;
 // memory.
 constexpr int64_t kSmallQueueBytes = 512ll << 20;
 
+// What the queue may grow to while `queued` waits in it and `freeBytes` of
+// memory are free besides: the size set, but never into the reserve left to
+// everything else, and never below the small buffer.
+int64_t QueueLimit(const RecordSettings& settings, int64_t queued, uint64_t totalBytes,
+                   uint64_t freeBytes) {
+  if (!settings.largeBuffer) return kSmallQueueBytes;
+  const int64_t set = (int64_t)settings.bufferGb << 30;
+  const int64_t room = queued + (int64_t)freeBytes - (int64_t)RecordBufferReserve(totalBytes);
+  return std::max(kSmallQueueBytes, std::min(set, room));
+}
+
 // The frame rate as a fraction, which is how the encoder and the container
 // want it. Measured rates jitter, so what is close to a whole number or to its
 // NTSC sibling becomes exactly that: 59.9401 is 60000/1001, not some fraction
@@ -119,7 +130,7 @@ struct Recorder::Session {
   std::deque<AVPacket*> queue;
   bool closing = false;
   std::atomic<int64_t> queuedBytes{0};
-  int64_t queueLimit = kSmallQueueBytes;
+  std::atomic<int64_t> queueLimit{kSmallQueueBytes};
   std::atomic<bool> writeFailed{false};
   std::string writeError;  // under muxMutex
   std::thread muxer;
@@ -530,7 +541,15 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   session->rate = rate;
   session->counter = &bytesWritten_;
   // Nothing is reserved: the queue only grows while the disk is behind.
-  if (settings.largeBuffer) session->queueLimit = (int64_t)settings.bufferGb << 30;
+  if (settings.largeBuffer) {
+    uint64_t total = 0, freeBytes = 0;
+    const int64_t limit = MemoryBytes(&total, &freeBytes)
+                              ? QueueLimit(settings, 0, total, freeBytes)
+                              : (int64_t)settings.bufferGb << 30;
+    session->queueLimit.store(limit, std::memory_order_relaxed);
+    CAP_LOG("Recording: buffer up to %s of %d GB set, %s of memory free",
+            FormatBytes((uint64_t)limit).c_str(), settings.bufferGb, FormatBytes(freeBytes).c_str());
+  }
 
   audioFramesWritten_.store(0, std::memory_order_relaxed);
   videoFramesWritten_.store(0, std::memory_order_relaxed);
@@ -1115,7 +1134,8 @@ void Recorder::VideoThread(Session* s) {
       Fail(CAP_SAID(Format(T("Schreiben fehlgeschlagen: %s", "Writing failed: %s"), why.c_str())));
       break;
     }
-    if (s->queuedBytes.load(std::memory_order_relaxed) > s->queueLimit) {
+    if (s->queuedBytes.load(std::memory_order_relaxed) >
+        s->queueLimit.load(std::memory_order_relaxed)) {
       // What is in it still goes to the disk, as the file closes.
       Fail(s->settings.largeBuffer
                ? CAP_SAID(T("Puffer voll: die Platte kommt mit dem Schreiben nicht hinterher.",
@@ -1435,7 +1455,16 @@ uint64_t Recorder::queuedBytes() const {
 }
 
 double Recorder::bufferFill() const {
-  return session_ ? (double)queuedBytes() / (double)session_->queueLimit : 0.0;
+  return session_ ? (double)queuedBytes() /
+                        (double)session_->queueLimit.load(std::memory_order_relaxed)
+                  : 0.0;
+}
+
+void Recorder::LimitBuffer(uint64_t totalBytes, uint64_t freeBytes) {
+  if (!session_ || !session_->settings.largeBuffer) return;
+  session_->queueLimit.store(
+      QueueLimit(session_->settings, (int64_t)queuedBytes(), totalBytes, freeBytes),
+      std::memory_order_relaxed);
 }
 
 RecordStats Recorder::stats() const {

@@ -610,6 +610,9 @@ struct AudioSettings {
 
 // The most RecordSettings::bufferGb may hold.
 const int kMaxRecordBufferGb = 256;
+// What the buffer leaves to everything else, of all the memory there is: it
+// takes at most what is free beyond this, however much is set.
+inline uint64_t RecordBufferReserve(uint64_t totalMemory) { return totalMemory / 10; }
 
 // Recording is deliberately thin: it writes what the viewer shows, at the
 // source resolution, and the only knobs are the ones that change the result in

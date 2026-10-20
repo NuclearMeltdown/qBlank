@@ -483,6 +483,14 @@ bool DiskFreeBytes(const std::filesystem::path& path, uint64_t* freeBytes) {
   return false;
 }
 
+bool MemoryBytes(uint64_t* totalBytes, uint64_t* freeBytes) {
+  MEMORYSTATUSEX status = {sizeof(status)};
+  if (!::GlobalMemoryStatusEx(&status)) return false;
+  if (totalBytes) *totalBytes = status.ullTotalPhys;
+  if (freeBytes) *freeBytes = status.ullAvailPhys;
+  return true;
+}
+
 ComScope::ComScope(DWORD model) {
   HRESULT hr = ::CoInitializeEx(nullptr, model);
   // RPC_E_CHANGED_MODE means the thread is already initialised in a different

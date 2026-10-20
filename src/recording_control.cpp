@@ -451,6 +451,17 @@ void RecordingControl::UpdateDiskSpace() {
   diskBytesPerSecond_ = EstimatedBytesPerSecond(config_.record, plan.count());
 
   const double now = TicksToSeconds(ClockTicks());
+  // Der Arbeitsspeicher im selben Takt, aber ohne den Umweg ueber den Job: die
+  // Abfrage kostet Mikrosekunden und wartet auf keine Platte. Was der Puffer
+  // selbst haelt, zaehlt fuer die Einstellungen als frei -- er gibt es ja her.
+  if (now - lastMemoryCheck_ > 1.0) {
+    lastMemoryCheck_ = now;
+    uint64_t total = 0, freeBytes = 0;
+    if (MemoryBytes(&total, &freeBytes)) {
+      recorder_.LimitBuffer(total, freeBytes);
+      settings_.SetMemory(total, freeBytes + recorder_.queuedBytes());
+    }
+  }
   if (!diskAsked_ && now - lastDiskCheck_ > 1.0) {
     lastDiskCheck_ = now;
     diskAsked_ = true;

@@ -159,6 +159,31 @@ void LevelMeter(const char* id, float peak, bool active) {
   ImGui::TextUnformatted(id);
 }
 
+// Over the buffer slider just drawn, which runs over all of the memory: from
+// its right end what other programs hold, and left of that the reserve kept
+// for them. Where the two begin is where the grab stops. In gigabytes, placed
+// with the same arithmetic ImGui uses for an integer slider's grab.
+void MemoryOverlay(int maxGb, double roomGb, double reserveGb, ImVec4 usedColor,
+                   ImVec4 reserveColor) {
+  const ImVec2 min = ImGui::GetItemRectMin();
+  const ImVec2 max = ImGui::GetItemRectMax();
+  const float pad = 2.0f;
+  const float size = max.x - min.x - 2.0f * pad;
+  const float grab = std::min(std::max(size / (float)maxGb, ImGui::GetStyle().GrabMinSize), size);
+  // The right edge of the grab at `gb`.
+  auto x = [&](double gb) {
+    const double t = maxGb > 1 ? (gb - 1.0) / (double)(maxGb - 1) : 1.0;
+    return Clamp(min.x + pad + grab + (float)t * (size - grab), min.x, max.x);
+  };
+  const float reserveX = x(roomGb);
+  const float usedX = x(roomGb + reserveGb);
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilled(ImVec2(reserveX, min.y), ImVec2(usedX, max.y),
+                    ImGui::GetColorU32(reserveColor));
+  dl->AddRectFilled(ImVec2(usedX, min.y), max, ImGui::GetColorU32(usedColor),
+                    ImGui::GetStyle().FrameRounding, ImDrawFlags_RoundCornersRight);
+}
+
 std::string FpsLabel(double fps) {
   // Zero is the stored form of "highest available" and -1 of "the signal's
   // own" -- modes, not rates.
@@ -3821,29 +3846,65 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ResetOnRightClick(rec.splitSizeMb, kRecord.splitSizeMb);
   ImGui::EndDisabled();
 
-  // Wie viel, sagt der Nutzer selbst: wer 64 GB hat, will vielleicht mehr davon
-  // hergeben, und was gerade frei ist, weiss er besser als eine Schaetzung.
+  // Wie viel, sagt der Nutzer selbst -- wer 64 GB hat, will vielleicht mehr
+  // davon hergeben --, aber nur aus dem, was gerade frei ist. Der Regler zeigt
+  // den ganzen Speicher, und was andere Programme halten, samt einer Reserve
+  // fuer sie, schiebt sich von rechts hinein; dorthin laesst er sich nicht
+  // ziehen. Der Recorder prueft dasselbe beim Start und waehrend der Aufnahme.
   ImGui::Checkbox(T("Größerer Puffer im Arbeitsspeicher", "Larger buffer in memory"),
                   &rec.largeBuffer);
   Anchor("buffer");
   ImGui::SameLine();
   HelpMarker(T("Was die Platte noch nicht geschrieben hat, wartet im Arbeitsspeicher, sonst bis "
-               "512 MB. Belegt wird er nur, solange die Platte hinterherhängt. Ist er voll, endet "
-               "die Aufnahme, und was drin ist, wird noch geschrieben.",
+               "512 MB. Belegt wird er nur, solange die Platte hinterherhängt, und nie mehr, als "
+               "gerade frei ist, abzüglich 10 % Reserve. Ist er voll, endet die Aufnahme, und was "
+               "drin ist, wird noch geschrieben.",
                "What the disk has not written yet waits in memory, otherwise up to 512 MB. It is "
-               "only used while the disk lags behind. When it is full the recording stops, and "
-               "what is in it is still written."));
+               "only used while the disk lags behind, and never more than is free right now, "
+               "less a 10 % reserve. When it is full the recording stops, and what is in it is "
+               "still written."));
   ImGui::BeginDisabled(!rec.largeBuffer);
-  ImGui::SetNextItemWidth(-360.0f);
-  ImGui::SliderInt("##buffergb", &rec.bufferGb, 1, kMaxRecordBufferGb, "%d GB",
-                   ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-  Anchor("buffersize");
-  ResetOnRightClick(rec.bufferGb, kRecord.bufferGb);
-  ImGui::SameLine();
-  ImGui::SetNextItemWidth(Px(96.0f));
-  if (ImGui::InputInt(T("Puffergröße (GB)", "Buffer size (GB)"), &rec.bufferGb, 0, 0,
-                      ImGuiInputTextFlags_CharsDecimal)) {
-    rec.bufferGb = Clamp(rec.bufferGb, 1, kMaxRecordBufferGb);
+  {
+    constexpr double kGb = 1024.0 * 1024.0 * 1024.0;
+    const bool known = memTotal_ > 0;
+    const uint64_t reserve = RecordBufferReserve(memTotal_);
+    const uint64_t room = memFree_ > reserve ? memFree_ - reserve : 0;
+    const uint64_t used = memTotal_ > memFree_ ? memTotal_ - memFree_ : 0;
+    const int maxGb = known ? std::max(2, (int)std::lround((double)memTotal_ / kGb))
+                            : kMaxRecordBufferGb;
+    const int roomGb = known ? Clamp((int)((double)room / kGb), 1, maxGb) : kMaxRecordBufferGb;
+    const ImVec4 usedColor(0.95f, 0.42f, 0.36f, 1.0f);
+    const ImVec4 reserveColor(1.0f, 0.72f, 0.25f, 1.0f);
+
+    ImGui::SetNextItemWidth(-360.0f);
+    if (ImGui::SliderInt("##buffergb", &rec.bufferGb, 1, maxGb, "%d GB",
+                         ImGuiSliderFlags_AlwaysClamp)) {
+      rec.bufferGb = std::min(rec.bufferGb, roomGb);
+    }
+    if (known) {
+      MemoryOverlay(maxGb, (double)room / kGb, (double)reserve / kGb,
+                    ImVec4(usedColor.x, usedColor.y, usedColor.z, 0.40f),
+                    ImVec4(reserveColor.x, reserveColor.y, reserveColor.z, 0.28f));
+    }
+    Anchor("buffersize");
+    ResetOnRightClick(rec.bufferGb, kRecord.bufferGb);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(Px(96.0f));
+    if (ImGui::InputInt(T("Puffergröße (GB)", "Buffer size (GB)"), &rec.bufferGb, 0, 0,
+                        ImGuiInputTextFlags_CharsDecimal)) {
+      rec.bufferGb = Clamp(rec.bufferGb, 1, roomGb);
+    }
+
+    // Die Legende zum Balken, in seinen Farben.
+    if (known) {
+      ImGui::TextDisabled(T("%s frei für den Puffer,", "%s free for the buffer,"),
+                          FormatBytes(room).c_str());
+      ImGui::SameLine();
+      ImGui::TextColored(usedColor, T("%s belegt,", "%s in use,"), FormatBytes(used).c_str());
+      ImGui::SameLine();
+      ImGui::TextColored(reserveColor, T("%s Reserve", "%s reserve"),
+                         FormatBytes(reserve).c_str());
+    }
   }
   ImGui::EndDisabled();
 

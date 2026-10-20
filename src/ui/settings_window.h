@@ -209,6 +209,13 @@ class SettingsWindow {
     diskBytesPerSecond_ = bytesPerSecond;
   }
 
+  // Arbeitsspeicher, aus demselben Grund von der App: alles, und was davon fuer
+  // den Aufnahmepuffer frei ist.
+  void SetMemory(uint64_t total, uint64_t available) {
+    memTotal_ = total;
+    memFree_ = available;
+  }
+
   // Whether the build has Vulkan, and whether the window is on it right now.
   // The checkbox only matters at the next start, so the one running is shown
   // next to it when the two differ.
@@ -391,6 +398,9 @@ class SettingsWindow {
   uint64_t diskFree_ = 0;
   bool diskKnown_ = false;
   double diskBytesPerSecond_ = 0.0;
+  // Siehe SetMemory. 0 solange unbekannt.
+  uint64_t memTotal_ = 0;
+  uint64_t memFree_ = 0;
   // Which tab is open. Kept here, not in an ImGui tab bar, which keeps it per
   // context -- and the dialog changes context when it moves between the picture
   // and a window of its own.

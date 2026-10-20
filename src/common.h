@@ -137,6 +137,11 @@ bool EnsureFolder(const std::filesystem::path& path);
 // the nearest existing parent answers for it.
 bool DiskFreeBytes(const std::filesystem::path& path, uint64_t* freeBytes);
 
+// Physical memory: all of it, and what is free for another allocation without
+// pushing something else out to the page file. False when the system does not
+// say.
+bool MemoryBytes(uint64_t* totalBytes, uint64_t* freeBytes);
+
 // "412 GB", "3,7 TB". Binary prefixes, because that is what Explorer shows and
 // two different numbers for the same disk is worse than either convention.
 std::string FormatBytes(uint64_t bytes);

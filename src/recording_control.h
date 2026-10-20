@@ -189,6 +189,7 @@ class RecordingControl {
   // auf einmal: eine Platte, die erst anlaufen muss, soll keine Schlange
   // bekommen.
   double lastDiskCheck_ = -1000.0;
+  double lastMemoryCheck_ = -1000.0;
   bool diskAsked_ = false;
   uint64_t diskFreeBytes_ = 0;
   bool diskFreeKnown_ = false;
