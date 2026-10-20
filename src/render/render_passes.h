@@ -263,6 +263,15 @@ class RenderPasses {
   // overwritten.
   virtual void PushHistory(int slot, int planeCount) = 0;
 
+  // A source whose pictures are already on the GPU: the screen capture's
+  // textures (shared_frames.h, bgra), opened here, or closed with null. While
+  // they are open, CreatePlane makes plane 0 one the GPU writes instead of the
+  // CPU, so call it before the planes are made.
+  virtual bool AttachSourceFrames(std::shared_ptr<SharedFrames> frames) { return !frames; }
+  // Copies the texture of `slot` into plane 0 and gives it back with key 0.
+  // False when its mutex could not be taken and the plane kept what it had.
+  virtual bool CopySourceFrame(int slot) { return false; }
+
   // ---- the pictures between the passes ----
 
   // The picture as the card sent it with the composite artefacts taken out, and

@@ -57,8 +57,20 @@ bool VideoRenderer::Initialize(Display* display, std::string* error) {
 void VideoRenderer::Shutdown() {
   for (int s = 0; s < kYuvStreams; ++s) ReleaseYuv((Yuv)s);
   ReleaseSourceTextures();
+  // The passes close their side in Shutdown.
+  sourceFrames_.reset();
   passes_->Shutdown();
   display_ = nullptr;
+}
+
+bool VideoRenderer::AttachSourceFrames(const std::shared_ptr<SharedFrames>& frames) {
+  if (frames == sourceFrames_) return true;
+  ReleaseSourceTextures();
+  sourceFrames_.reset();
+  const bool ok = passes_->AttachSourceFrames(frames);
+  if (ok) sourceFrames_ = frames;
+  if (source_.valid()) CreateSourceTextures(nullptr);
+  return ok;
 }
 
 // ------------------------------------------------------------- source format
@@ -2406,11 +2418,15 @@ void VideoRenderer::JudgeCrawl() {
 
 bool VideoRenderer::UploadFrame(const FrameView& frame) {
   if (!frame.valid() || planeCount_ == 0) return false;
+  // On the GPU already: nothing to measure on the CPU, which is no loss, since
+  // a desktop has no levels, fields or crawl to find.
+  const bool onGpu = frame.slot >= 0;
+  if (onGpu && !sourceFrames_) return false;
 
   // Measured after Present (AnalyzeAfterPresent): none of them has to be done
   // for this picture, and a verdict a frame later changes nothing.
   analysisFrame_ = frame;
-  analysisPending_ = true;
+  analysisPending_ = !onGpu;
 
   // Before anything is written over: the frame currently in the planes moves
   // into the ring. One copy, whatever the depth. Skipped entirely unless
@@ -2426,6 +2442,11 @@ bool VideoRenderer::UploadFrame(const FrameView& frame) {
   }
 
   bool ok = false;
+  if (onGpu) {
+    ok = passes_->CopySourceFrame(frame.slot);
+    if (ok) hasFrame_ = remNewFrame_ = true;
+    return ok;
+  }
   switch (kind_) {
     case FormatKind::Yuy2:
     case FormatKind::Uyvy:

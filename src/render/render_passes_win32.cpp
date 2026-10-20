@@ -77,6 +77,8 @@ class D3D11Passes : public RenderPasses {
   bool MapPlane(int index, MappedPlane* mapped) override;
   void UnmapPlane(int index) override;
   void PushHistory(int slot, int planeCount) override;
+  bool AttachSourceFrames(std::shared_ptr<SharedFrames> frames) override;
+  bool CopySourceFrame(int slot) override;
 
   bool EnsureClean(int width, int height) override;
   bool EnsureIntermediate(int width, int height, bool wide) override;
@@ -169,6 +171,10 @@ class D3D11Passes : public RenderPasses {
   ComPtr<ID3D11ShaderResourceView> planeSrv_[3];
   ComPtr<ID3D11Texture2D> planeHist_[kHistoryDepth][3];
   ComPtr<ID3D11ShaderResourceView> planeHistSrv_[kHistoryDepth][3];
+  // The screen capture's textures, copied into plane 0 (AttachSourceFrames).
+  std::shared_ptr<SharedFrames> source_;
+  ComPtr<ID3D11Texture2D> sourceTex_[SharedFrames::kSlots];
+  ComPtr<IDXGIKeyedMutex> sourceMutex_[SharedFrames::kSlots];
 
   // Between the capture planes and the deinterlacer: the picture as the card
   // sent it, in its own geometry, with the composite artefacts already taken
@@ -291,6 +297,7 @@ void D3D11Passes::Shutdown() {
   ReleaseIntermediate();
   ReleaseClean();
   ReleasePlanes();
+  AttachSourceFrames(nullptr);
   ReleaseRemover();
   psRemComb_.Reset();
   psRemRes_.Reset();
@@ -508,9 +515,11 @@ bool D3D11Passes::CreatePlane(int index, int width, int height, PlaneFormat form
   td.ArraySize = 1;
   td.Format = PlaneDxgiFormat(format);
   td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_DYNAMIC;
+  // Copied into on the GPU for a source that is there already.
+  const bool gpuFed = index == 0 && source_;
+  td.Usage = gpuFed ? D3D11_USAGE_DEFAULT : D3D11_USAGE_DYNAMIC;
   td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-  td.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+  td.CPUAccessFlags = gpuFed ? 0 : D3D11_CPU_ACCESS_WRITE;
   if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &plane_[index])))) return false;
   if (FAILED(CAP_HR(dev->CreateShaderResourceView(plane_[index].Get(), nullptr,
                                                   &planeSrv_[index])))) {
@@ -571,6 +580,38 @@ void D3D11Passes::PushHistory(int slot, int planeCount) {
       c->CopyResource(planeHist_[slot][i].Get(), plane_[i].Get());
     }
   }
+}
+
+bool D3D11Passes::AttachSourceFrames(std::shared_ptr<SharedFrames> frames) {
+  for (int i = 0; i < SharedFrames::kSlots; ++i) {
+    sourceMutex_[i].Reset();
+    sourceTex_[i].Reset();
+  }
+  source_.reset();
+  if (!frames) return true;
+  ComPtr<ID3D11Device1> dev1;
+  if (FAILED(CAP_HR(dev()->QueryInterface(IID_PPV_ARGS(&dev1))))) return false;
+  for (int i = 0; i < SharedFrames::kSlots; ++i) {
+    if (FAILED(CAP_HR(dev1->OpenSharedResource1(frames->handle[i], IID_PPV_ARGS(&sourceTex_[i])))) ||
+        FAILED(CAP_HR(sourceTex_[i].As(&sourceMutex_[i])))) {
+      AttachSourceFrames(nullptr);
+      return false;
+    }
+  }
+  source_ = std::move(frames);
+  return true;
+}
+
+bool D3D11Passes::CopySourceFrame(int slot) {
+  if (!source_ || !plane_[0] || slot < 0 || slot >= SharedFrames::kSlots) return false;
+  // Key 1 for a new picture; 0 when this one was copied already and comes again.
+  IDXGIKeyedMutex* mutex = sourceMutex_[slot].Get();
+  if (mutex->AcquireSync(source_->key[slot], 0) != S_OK) return false;
+  InvalidateClean();
+  dc()->CopyResource(plane_[0].Get(), sourceTex_[slot].Get());
+  mutex->ReleaseSync(0);
+  source_->key[slot] = 0;
+  return true;
 }
 
 // ------------------------------------------------- the pictures between passes

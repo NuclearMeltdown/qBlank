@@ -121,6 +121,8 @@ class VulkanPasses : public RenderPasses {
   bool MapPlane(int index, MappedPlane* mapped) override;
   void UnmapPlane(int index) override;
   void PushHistory(int slot, int planeCount) override;
+  bool AttachSourceFrames(std::shared_ptr<SharedFrames> frames) override;
+  bool CopySourceFrame(int slot) override;
 
   bool EnsureClean(int width, int height) override;
   bool EnsureIntermediate(int width, int height, bool wide) override;
@@ -285,6 +287,10 @@ class VulkanPasses : public RenderPasses {
     int pending = -1;
   };
   YuvStream yuv_[kYuvStreams];
+
+  // The screen capture's textures, copied into plane 0 (AttachSourceFrames).
+  std::shared_ptr<SharedFrames> source_;
+  std::unique_ptr<VulkanSharedImages> sourceImages_;
 
   // The crawl remover, as in Direct3D 11. The ring of decoded
   // frames, the eight residual targets, and a ring of its pictures that stands
@@ -498,6 +504,7 @@ void VulkanPasses::Shutdown() {
   const bool live = display_ && NativeVulkan(*display_) == vk_ && vk_->device() == device_;
   if (live) {
     ReleasePlanes();
+    AttachSourceFrames(nullptr);
     ReleaseClean();
     ReleaseIntermediate();
     ReleaseDelivery(false);
@@ -565,6 +572,9 @@ void VulkanPasses::Forget() {
     if (stream.sharedImages) stream.sharedImages->Forget();
     stream = YuvStream();
   }
+  if (sourceImages_) sourceImages_->Forget();
+  sourceImages_.reset();
+  source_.reset();
 }
 
 // ------------------------------------------------------------------ machinery
@@ -1072,6 +1082,39 @@ void VulkanPasses::PushHistory(int slot, int planeCount) {
   for (int i = 0; i < std::min(planeCount, 3); ++i) {
     CopyImage(cmd, &planes_[i].image, &planes_[i].history[slot]);
   }
+}
+
+bool VulkanPasses::AttachSourceFrames(std::shared_ptr<SharedFrames> frames) {
+  sourceImages_.reset();
+  source_.reset();
+  if (!frames) return true;
+  if (!vk_) return false;
+  sourceImages_ = OpenVulkanShared(*vk_, *frames);
+  if (!sourceImages_) return false;
+  source_ = std::move(frames);
+  return true;
+}
+
+bool VulkanPasses::CopySourceFrame(int slot) {
+  if (!vk_ || !sourceImages_ || !planes_[0].image || slot < 0 || slot >= SharedFrames::kSlots) {
+    return false;
+  }
+  // A submission of its own, sent before the frame takes its swapchain image:
+  // the mutex is the frame's only other chain, the recorder's, and the copy is
+  // what everything after it reads anyway.
+  if (vk_->chained() && !vk_->Submit()) return false;
+  VkCommandBuffer cmd = vk_->Commands();
+  if (!cmd) return false;
+  InvalidateClean();
+  VulkanImage* from = sourceImages_->Begin(cmd, slot);
+  CopyImage(cmd, from, &planes_[0].image);
+  sourceImages_->End(cmd, slot);
+  vk_->Transition(cmd, &planes_[0].image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  // Key 1 for a new picture; 0 when this one was copied already and comes again.
+  vk_->ChainSubmit(sourceImages_->SubmitChain(slot, source_->key[slot], 0, 100));
+  if (!vk_->Submit() || !vk_->chainTaken()) return false;
+  source_->key[slot] = 0;
+  return true;
 }
 
 // ------------------------------------------------- the pictures between passes

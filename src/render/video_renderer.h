@@ -253,6 +253,12 @@ class VideoRenderer {
   int TakeSharedFrame(Yuv stream);
   // The adapter the passes draw on, 0 when they cannot share.
   uint64_t sharedAdapter() const { return passes_ ? passes_->AdapterId() : 0; }
+  // A source that keeps its pictures on the GPU (the screen capture): its
+  // frames carry a slot of these instead of bytes, and the upload is a copy on
+  // the GPU. Null detaches them. Remakes the planes either way, since plane 0
+  // is a different kind of texture for each. False when the passes cannot open
+  // them; the source then has to hand over bytes.
+  bool AttachSourceFrames(const std::shared_ptr<SharedFrames>& frames);
 
   // The picture as linear light, four half floats per pixel, 1.0 being diffuse
   // white, for a screenshot that keeps the range. Queued, not waited for: see
@@ -615,6 +621,8 @@ class VideoRenderer {
     bool sharedBroken = false;
   };
   YuvRing yuv_[kYuvStreams];
+  // See AttachSourceFrames.
+  std::shared_ptr<SharedFrames> sourceFrames_;
 
   // Level detection state, reset whenever the source format changes.
   void AnalyzeLevels(const FrameView& frame);
