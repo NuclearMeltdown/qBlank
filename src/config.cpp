@@ -784,9 +784,12 @@ Profile ReadProfile(const json::Value& v) {
       p.audio.sources.push_back(readSource(e, "enabled", "device", "gain", "tracks", kind));
     }
   } else {
-    // Written before the list: the one microphone there was.
-    p.audio.sources = {
-        readSource(a, "micEnabled", "micDevice", "micGain", "micTrackMode", SourceKind::Input)};
+    // Written before the list: the one microphone there was, if it was used.
+    // Every one of those files has the keys, so a microphone never turned on
+    // stays out like on a fresh start.
+    RecordSource mic =
+        readSource(a, "micEnabled", "micDevice", "micGain", "micTrackMode", SourceKind::Input);
+    if (mic.enabled || !mic.device.empty()) p.audio.sources.push_back(std::move(mic));
   }
 
   return p;
