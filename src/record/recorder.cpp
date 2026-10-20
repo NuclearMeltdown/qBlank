@@ -1264,11 +1264,13 @@ void Recorder::VideoThread(Session* s) {
   ready_.store(true, std::memory_order_release);
 
   // When the writer last had nothing left to write. An encoder that keeps up
-  // gets there after every frame; one that does not never gets there again,
-  // because it takes longer per frame than a frame lasts. A slow source looks
-  // nothing like that: the held frame goes out again at once. The start gets
-  // longer, for the encoder settling in while the first frames pile up.
+  // gets there after every frame; one that does not gets there only between
+  // the slots it leaves out (below), so a gap within the last half second
+  // still counts as behind. A slow source looks nothing like that: the held
+  // frame goes out again at once. The start gets longer, for the encoder
+  // settling in while the first frames pile up.
   int64_t caughtUpTicks = originTicks_;
+  int64_t gapTicks = 0;
   bool everCaughtUp = false;
 
   while (running_.load(std::memory_order_relaxed)) {
@@ -1365,9 +1367,11 @@ void Recorder::VideoThread(Session* s) {
 
     const uint64_t written = videoFramesWritten_.load(std::memory_order_relaxed);
     if (written >= target) {
-      caughtUpTicks = now;
-      everCaughtUp = true;
-      if (encoderBehind_.load(std::memory_order_relaxed)) {
+      if (TicksToSeconds(now - gapTicks) > 0.5) {
+        caughtUpTicks = now;
+        everCaughtUp = true;
+      }
+      if (encoderBehind_.load(std::memory_order_relaxed) && caughtUpTicks == now) {
         encoderBehind_.store(false, std::memory_order_relaxed);
         CAP_LOG("Recording: the encoder caught up again");
       }
@@ -1389,19 +1393,33 @@ void Recorder::VideoThread(Session* s) {
     if (!encoderBehind_.load(std::memory_order_relaxed) &&
         TicksToSeconds(now - caughtUpTicks) > (everCaughtUp ? 3.0 : 8.0)) {
       encoderBehind_.store(true, std::memory_order_relaxed);
-      CAP_WARN("Recording: the encoder is not keeping up, %.1f s behind",
-               (double)(target - written) / fps_);
+      CAP_WARN("Recording: the encoder is not keeping up, frames are left out");
     }
 
-    // Every frame in the timeline has to be written -- skipping one would make
-    // the video shorter than the audio and desync the file for good. If the
-    // encoder stalls, it stalls here, which is exactly where the waiting
+    // Every frame goes out at its slot's time -- one placed a slot early would
+    // make the video shorter than the audio and desync the file for good. If
+    // the encoder stalls, it stalls here, which is exactly where the waiting
     // belongs.
     //
+    // Slots it fell behind on are not encoded one by one, though. The held
+    // frame repeated into each would cost a whole frame apiece and keep an
+    // encoder near its limit behind for good, with the one picture over and
+    // over in the file. It goes out once, at the newest slot due; the slots
+    // before it are a gap the previous frame stands through, which plays the
+    // same as a repeat, and the encoder's time goes to the next fresh frame.
+    //
     // Uncompressed goes past the encoder, which would only copy it: the frame's
-    // buffer is the packet, and a repeat one more reference to it.
+    // buffer is the packet, and a repeat one more reference to it, so it keeps
+    // every slot.
+    uint64_t first = written;
+    if (!raw && target - written > 1) {
+      first = target - 1;
+      gapTicks = now;
+      videoFramesWritten_.fetch_add(first - written, std::memory_order_relaxed);
+      duplicated_.fetch_add(first - written, std::memory_order_relaxed);
+    }
     int result = 0;
-    for (uint64_t i = written; i < target && running_.load(std::memory_order_relaxed); ++i) {
+    for (uint64_t i = first; i < target && running_.load(std::memory_order_relaxed); ++i) {
       if (raw) {
         AVPacket* packet = av.av_packet_alloc();
         if (!packet || !(packet->buf = av.av_buffer_ref(frame->buf[0]))) {
@@ -1424,7 +1442,7 @@ void Recorder::VideoThread(Session* s) {
         if (result < 0) break;
       }
       videoFramesWritten_.fetch_add(1, std::memory_order_relaxed);
-      if (!fresh || i > written) duplicated_.fetch_add(1, std::memory_order_relaxed);
+      if (!fresh || i > first) duplicated_.fetch_add(1, std::memory_order_relaxed);
     }
     if (result < 0) {
       Fail(CAP_SAID(Format(T("Encoder-Fehler: %s", "Encoder error: %s"), LibavError(result).c_str())));

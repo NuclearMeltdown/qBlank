@@ -49,7 +49,7 @@ struct RecordStats {
   bool running = false;
   double seconds = 0.0;
   uint64_t videoFrames = 0;
-  uint64_t duplicated = 0;  // written twice to hold the audio timeline
+  uint64_t duplicated = 0;  // repeated or left out to hold the audio timeline
   uint64_t dropped = 0;     // arrived faster than the timeline needed
   uint64_t bytesWritten = 0;
   std::string file;
