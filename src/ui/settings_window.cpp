@@ -2913,11 +2913,6 @@ void SettingsWindow::DrawAudioTab() {
   ImGui::Spacing();
   ImGui::SeparatorText(T("Tonquellen der Aufnahme", "Recording sources"));
   Anchor("sources");
-  ImGui::TextWrapped(
-      T("Kommen zum Ton der Karte in die Aufnahme und werden nicht mitgehört — sonst hättest "
-        "du dich selbst im Kopfhörer.",
-        "Recorded along with the card's sound and never played back — otherwise you would "
-        "hear yourself in your headphones."));
   if (sourcesLocked_) {
     ImGui::TextDisabled(T("Während der Aufnahme bleibt die Liste, wie sie ist.",
                           "The list stays as it is while recording."));

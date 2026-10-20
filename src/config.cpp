@@ -784,11 +784,9 @@ Profile ReadProfile(const json::Value& v) {
       p.audio.sources.push_back(readSource(e, "enabled", "device", "gain", "tracks", kind));
     }
   } else {
-    // Written before the list: the one microphone there was, and the system
-    // sound, off as for anyone new.
+    // Written before the list: the one microphone there was.
     p.audio.sources = {
-        readSource(a, "micEnabled", "micDevice", "micGain", "micTrackMode", SourceKind::Input),
-        RecordSource{SourceKind::System}};
+        readSource(a, "micEnabled", "micDevice", "micGain", "micTrackMode", SourceKind::Input)};
   }
 
   return p;

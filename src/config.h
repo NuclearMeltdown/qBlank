@@ -604,10 +604,9 @@ struct AudioSettings {
   // What goes into the recording besides the card's sound, in this order. Never
   // played back -- monitoring your own microphone through the same speakers the
   // game comes out of is a feedback loop, not a feature. To begin with a
-  // microphone and the system sound, both off: a microphone opened unasked
-  // lights up the system's privacy indicator as soon as the settings open.
-  std::vector<RecordSource> sources{RecordSource{SourceKind::Input},
-                                    RecordSource{SourceKind::System}};
+  // microphone, off: one opened unasked lights up the system's privacy
+  // indicator as soon as the settings open. Anything else is added by hand.
+  std::vector<RecordSource> sources{RecordSource{SourceKind::Input}};
 };
 
 // Recording is deliberately thin: it writes what the viewer shows, at the
