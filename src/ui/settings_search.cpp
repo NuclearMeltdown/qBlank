@@ -250,6 +250,8 @@ const Entry kEntries[] = {
      "Mic|Mikro|Mikrofon|Microphone|Kommentar|Commentary|Voice|Stimme|Headset|Facecam|"
      "Eingabegerät|Input device|Systemton|System sound|Desktop-Ton|Desktop audio|Discord|"
      "Loopback|Ausgabegerät|Output device|Tonquelle|Audio source"},
+    {Kind::Control, kTabAudio, "cardaudio", "Ton der Karte", "Card audio",
+     "Kartenaudio|Spielton|Game audio|Eingangspegel|Input level|Pegel|Level"},
     {Kind::Control, kTabAudio, "sourceadd", "Hinzufügen", "Add",
      "Tonquelle hinzufügen|Add source|Mikrofon hinzufügen|Add microphone|Weiteres Gerät|"
      "Another device|Zweites Mikrofon|Second microphone"},

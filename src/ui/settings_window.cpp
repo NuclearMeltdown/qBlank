@@ -2902,13 +2902,6 @@ void SettingsWindow::DrawAudioTab() {
   ImGui::Checkbox(T("Stumm", "Muted"), &audio.mute);
   Anchor("mute");
 
-  ImGui::Spacing();
-  ImGui::SetNextItemWidth(-260.0f);
-  LevelMeter(T("Eingangspegel", "Input level"), inputPeak_, true);
-  ImGui::SameLine();
-  HelpMarker(T("Vor Lautstärke und Stumm. Zeigt, was die Karte liefert.",
-               "Before volume and mute. Shows what the card delivers."));
-
   // ---- recording sources ----
   ImGui::Spacing();
   ImGui::SeparatorText(T("Tonquellen der Aufnahme", "Recording sources"));
@@ -2916,6 +2909,28 @@ void SettingsWindow::DrawAudioTab() {
   if (sourcesLocked_) {
     ImGui::TextDisabled(T("Während der Aufnahme bleibt die Liste, wie sie ist.",
                           "The list stays as it is while recording."));
+  }
+  ImGui::Spacing();
+
+  // The card's sound is always the first one; the list adds to it. Which device
+  // that is gets picked under Source.
+  const CaptureSettings& capture = cfg().active().capture;
+  ImGui::TextUnformatted(T("Ton der Karte", "Card audio"));
+  Anchor("cardaudio");
+  if (capture.audioSource == AudioSource::None) {
+    ImGui::TextDisabled(T("Keiner, im Reiter Quelle wählbar.", "None, chosen under Source."));
+  } else {
+    const bool found = capture.audioSource == AudioSource::Manual ||
+                       (embeddedAudioForDevice_ == capture.video.id && !embeddedAudioName_.empty());
+    ImGui::TextDisabled("%s", !found ? T("Eingebettetes Audio", "Embedded audio")
+                              : capture.audioSource == AudioSource::Manual
+                                  ? capture.audio.name.c_str()
+                                  : embeddedAudioName_.c_str());
+    ImGui::SetNextItemWidth(-260.0f);
+    LevelMeter(T("Pegel", "Level"), inputPeak_, true);
+    ImGui::SameLine();
+    HelpMarker(T("Vor Lautstärke und Stumm, so wie er aufgenommen wird.",
+                 "Before volume and mute, as it is recorded."));
   }
   ImGui::Spacing();
 
