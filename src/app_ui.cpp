@@ -273,6 +273,35 @@ void App::DrawToolbarStrip() {
   }
 }
 
+void App::DrawScreenStatus(const FrameBuffer* sink) {
+  ScreenPanelState state;
+  state.source = screenLabel_;
+  const VideoFormatInfo& format = renderer_.sourceFormat();
+  state.width = format.width;
+  state.height = format.height;
+  state.refreshHz = format.fps;
+  if (sink) {
+    const SinkStats stats = sink->stats();
+    state.fps = stats.sourceFps;
+    state.still = stats.lastArrivalAgeMs >= 1000.0;
+  }
+  state.canRecord = renderer_.hasFrame();
+  state.recording = recorder_.recording();
+  if (state.recording) {
+    state.recordSeconds = recorder_.seconds();
+    state.encoderBehind = recorder_.encoderBehind();
+    state.bufferFill = recorder_.bufferFill();
+    state.buffered = recorder_.queuedBytes();
+  }
+
+  switch (DrawScreenPanel(state)) {
+    case ScreenPanelAction::ToggleRecording: recording_.ToggleRecording(); break;
+    case ScreenPanelAction::Screenshot: RequestScreenshot(); break;
+    case ScreenPanelAction::ShowPreview: config_.active().capture.screenPreview = true; break;
+    default: break;
+  }
+}
+
 // The program's own icon, as a texture for the empty state.
 void App::LoadIdleIcon() {
   if (idleIcon_ || !display_.initialized()) return;
@@ -583,7 +612,11 @@ void App::DrawUi() {
   }
 
   // ---- status card, or the empty state ----
-  if (!HaveLiveSignal()) {
+  const bool screenPanel = screenActive_ && captureState_ == CaptureState::Running &&
+                           !profile.capture.screenPreview;
+  if (screenPanel) {
+    DrawScreenStatus(sink);
+  } else if (!HaveLiveSignal()) {
     if (captureState_ == CaptureState::Reconnecting) {
       // This one keeps the card: it interrupts a picture that was there a moment
       // ago and is expected back, and the spinner says so.
@@ -593,7 +626,9 @@ void App::DrawUi() {
       const VideoRenderer::SignalVerdict verdict = renderer_.detectedSignal();
       DrawIdleScreen(
           idleIcon_.id(), idleIconSize_,
-          verdict == VideoRenderer::SignalVerdict::Snow
+          screenActive_ ? T("Warte auf das erste Bild vom Bildschirm.",
+                            "Waiting for the screen's first picture.")
+          : verdict == VideoRenderer::SignalVerdict::Snow
               ? T("Kein Signal — die Karte empfängt nur Rauschen. Kabel und Eingang prüfen.",
                   "No signal — the card is receiving noise only. Check the cable and input.")
               : T("Kein Signal. Quelle eingeschaltet? Richtiger Eingang gewählt?",
@@ -733,7 +768,7 @@ void App::DrawUi() {
   }
 
   // ---- recording indicator ----
-  if (recorder_.recording()) {
+  if (recorder_.recording() && !screenPanel) {
     DrawRecordIndicator(recorder_.seconds(), config_.app.osdCorner, recorder_.encoderBehind(),
                         recorder_.bufferFill(), recorder_.queuedBytes());
   }
@@ -1001,6 +1036,10 @@ void App::DrawContextMenu() {
     return text[i].empty() ? nullptr : text[i].c_str();
   };
 
+  // What only means something for the card -- its colours, its standard, its
+  // filters -- stays out of the menu while the profile takes the screen.
+  const bool card = !OnScreen();
+
   if (ImGui::MenuItem(T("Einstellungen...", "Settings..."), sc(HotkeyAction::Settings))) OpenSettings({});
   ImGui::Separator();
 
@@ -1055,6 +1094,15 @@ void App::DrawContextMenu() {
   bool toolbar = config_.app.showToolbar;
   if (ImGui::MenuItem(T("Werkzeugleiste", "Toolbar"), sc(HotkeyAction::Toolbar), &toolbar)) {
     config_.app.showToolbar = toolbar;
+  }
+
+  // The way back from the panel is on it; this is the way there, and back
+  // again without opening the settings.
+  if (!card) {
+    bool preview = config_.active().capture.screenPreview;
+    if (ImGui::MenuItem(T("Vorschau", "Preview"), nullptr, &preview)) {
+      config_.active().capture.screenPreview = preview;
+    }
   }
 
   // Same reasoning as the colour menu below, only more so: whether the standard
@@ -1113,7 +1161,7 @@ void App::DrawContextMenu() {
   // are things you spot by looking at the picture, and both take effect on the
   // very next frame, so switching them while watching is the fastest way to
   // land on the right one.
-  if (ImGui::BeginMenu(T("Farbe", "Colour"))) {
+  if (card && ImGui::BeginMenu(T("Farbe", "Colour"))) {
     ImageSettings& img = config_.active().image;
 
     ImGui::SeparatorText(T("Wertebereich", "Range"));
@@ -1182,92 +1230,94 @@ void App::DrawContextMenu() {
     RequestScreenshot(true);
   }
 
-  // Beides hilft beim Einstellen und aendert nur die Anzeige, deshalb stehen
-  // sie hier und nicht in den Einstellungen: man greift danach, waehrend man
-  // auf das Bild sieht.
-  if (ImGui::MenuItem(T("Standbild", "Freeze"), sc(HotkeyAction::Freeze), frozen_)) {
-    ToggleFreeze();
-  }
-  WrappedTooltip(T("Hält das Bild an, damit man Filter in Ruhe einstellen kann. Die Filter "
-                   "laufen weiter, nur die Quelle steht.",
-                   "Holds the picture so filters can be set in peace. The filters keep "
-                   "running; only the source stands still."));
-  // Die Richtung gleich mit, statt sie im Einstellungsfenster zu suchen. Die
-  // Taste schaltet den Vergleich in der zuletzt gewaehlten Richtung, deshalb
-  // steht sie am Menue und nicht an einer der beiden.
-  if (BeginMenuWithShortcut(T("Filter vergleichen", "Compare filters"),
-                            sc(HotkeyAction::Compare))) {
-    const bool across = config_.active().image.compareHorizontal;
-    const char* hint = T("Teilt das Bild: auf einer Seite alle Filter aus, auf der anderen an. "
-                         "Das Deinterlacing läuft auf beiden Seiten, die Trennlinie lässt sich "
-                         "im Bild ziehen. Noch einmal wählen schaltet den Vergleich aus.",
-                         "Splits the picture: every filter off on one side, on on the other. "
-                         "Deinterlacing runs on both sides, and the divider can be dragged in "
-                         "the picture. Choose it again to switch off.");
-    if (ImGui::MenuItem(T("Senkrecht – links ungefiltert", "Vertical – unfiltered on the left"),
-                        nullptr, compare_ && !across)) {
-      ChooseCompare(false);
+  if (card) {
+    // Beides hilft beim Einstellen und aendert nur die Anzeige, deshalb stehen
+    // sie hier und nicht in den Einstellungen: man greift danach, waehrend man
+    // auf das Bild sieht.
+    if (ImGui::MenuItem(T("Standbild", "Freeze"), sc(HotkeyAction::Freeze), frozen_)) {
+      ToggleFreeze();
     }
-    WrappedTooltip(hint);
-    if (ImGui::MenuItem(T("Waagerecht – oben ungefiltert", "Horizontal – unfiltered on top"),
-                        nullptr, compare_ && across)) {
-      ChooseCompare(true);
+    WrappedTooltip(T("Hält das Bild an, damit man Filter in Ruhe einstellen kann. Die Filter "
+                     "laufen weiter, nur die Quelle steht.",
+                     "Holds the picture so filters can be set in peace. The filters keep "
+                     "running; only the source stands still."));
+    // Die Richtung gleich mit, statt sie im Einstellungsfenster zu suchen. Die
+    // Taste schaltet den Vergleich in der zuletzt gewaehlten Richtung, deshalb
+    // steht sie am Menue und nicht an einer der beiden.
+    if (BeginMenuWithShortcut(T("Filter vergleichen", "Compare filters"),
+                              sc(HotkeyAction::Compare))) {
+      const bool across = config_.active().image.compareHorizontal;
+      const char* hint = T("Teilt das Bild: auf einer Seite alle Filter aus, auf der anderen an. "
+                           "Das Deinterlacing läuft auf beiden Seiten, die Trennlinie lässt sich "
+                           "im Bild ziehen. Noch einmal wählen schaltet den Vergleich aus.",
+                           "Splits the picture: every filter off on one side, on on the other. "
+                           "Deinterlacing runs on both sides, and the divider can be dragged in "
+                           "the picture. Choose it again to switch off.");
+      if (ImGui::MenuItem(T("Senkrecht – links ungefiltert", "Vertical – unfiltered on the left"),
+                          nullptr, compare_ && !across)) {
+        ChooseCompare(false);
+      }
+      WrappedTooltip(hint);
+      if (ImGui::MenuItem(T("Waagerecht – oben ungefiltert", "Horizontal – unfiltered on top"),
+                          nullptr, compare_ && across)) {
+        ChooseCompare(true);
+      }
+      WrappedTooltip(hint);
+      ImGui::EndMenu();
     }
-    WrappedTooltip(hint);
-    ImGui::EndMenu();
-  }
-  if (ImGui::MenuItem(T("Alle Filter aus", "All filters off"), sc(HotkeyAction::BypassFilters),
-                      bypass_)) {
-    ToggleBypass();
-  }
-  WrappedTooltip(T("Zeigt das Bild ohne Composite-Filter, Schärfen, Bildregler, natives Raster "
-                   "und Bildröhre. Deinterlacing, Zuschnitt, Seitenverhältnis und Skalierung "
-                   "bleiben. Wird nicht gespeichert.",
-                   "Shows the picture without composite filters, sharpening, picture controls, "
-                   "native pixel grid and CRT effects. Deinterlacing, crop, aspect and scaling "
-                   "stay. Not saved."));
+    if (ImGui::MenuItem(T("Alle Filter aus", "All filters off"), sc(HotkeyAction::BypassFilters),
+                        bypass_)) {
+      ToggleBypass();
+    }
+    WrappedTooltip(T("Zeigt das Bild ohne Composite-Filter, Schärfen, Bildregler, natives Raster "
+                     "und Bildröhre. Deinterlacing, Zuschnitt, Seitenverhältnis und Skalierung "
+                     "bleiben. Wird nicht gespeichert.",
+                     "Shows the picture without composite filters, sharpening, picture controls, "
+                     "native pixel grid and CRT effects. Deinterlacing, crop, aspect and scaling "
+                     "stay. Not saved."));
 
-  // Der schwarze Rand ist etwas, das man sieht, und das Suchen danach gehoert
-  // deshalb dorthin, wo man hinsieht, statt in einen Reiter des
-  // Einstellungsfensters. Zumal die Messung nur so gut ist wie das Bild, das
-  // gerade anliegt: sie sucht die Grenzen dessen, was nicht schwarz ist, und
-  // auf einem Ladebildschirm sind das die Grenzen des Ladebildschirms. Wer den
-  // Knopf im Vorbeigehen erreicht, drueckt ihn im richtigen Moment noch einmal.
-  if (ImGui::MenuItem(T("Rand suchen", "Detect border"), sc(HotkeyAction::DetectCrop))) {
-    cropTool_.DetectCrop();
-  }
-  WrappedTooltip(T("Schneidet den schwarzen Rand weg, den die Karte mitliefert. Braucht ein "
-                   "richtiges Bild — auf Schwarz gemessen kommt Unsinn heraus.",
-                   "Crops the black border the card delivers. Needs a real picture — measured "
-                   "on black it produces nonsense."));
+    // Der schwarze Rand ist etwas, das man sieht, und das Suchen danach gehoert
+    // deshalb dorthin, wo man hinsieht, statt in einen Reiter des
+    // Einstellungsfensters. Zumal die Messung nur so gut ist wie das Bild, das
+    // gerade anliegt: sie sucht die Grenzen dessen, was nicht schwarz ist, und
+    // auf einem Ladebildschirm sind das die Grenzen des Ladebildschirms. Wer den
+    // Knopf im Vorbeigehen erreicht, drueckt ihn im richtigen Moment noch einmal.
+    if (ImGui::MenuItem(T("Rand suchen", "Detect border"), sc(HotkeyAction::DetectCrop))) {
+      cropTool_.DetectCrop();
+    }
+    WrappedTooltip(T("Schneidet den schwarzen Rand weg, den die Karte mitliefert. Braucht ein "
+                     "richtiges Bild — auf Schwarz gemessen kommt Unsinn heraus.",
+                     "Crops the black border the card delivers. Needs a real picture — measured "
+                     "on black it produces nonsense."));
 
-  // Und daneben dasselbe fuer die Norm. Der Grund, es hier anzubieten, ist
-  // derselbe wie beim Rand: ausgeloest wird es, weil man etwas *sieht* -- ein
-  // Bild, dessen Farben nicht stimmen --, und was man sieht, sieht man nicht im
-  // Einstellungsfenster.
-  if (ImGui::MenuItem(T("Videonorm suchen", "Detect video standard"),
-                      sc(HotkeyAction::DetectStandard))) {
-    standardSearch_.RescanVideoStandard();
-  }
-  WrappedTooltip(T("Sucht die Videonorm neu, auch wenn die eingestellte hält. Für den Fall, "
-                   "dass die Farben falsch sind, ohne dass es sich messen ließe.",
-                   "Searches for the video standard again, even when the current one holds. "
-                   "For colours that are wrong in a way no measurement catches."));
+    // Und daneben dasselbe fuer die Norm. Der Grund, es hier anzubieten, ist
+    // derselbe wie beim Rand: ausgeloest wird es, weil man etwas *sieht* -- ein
+    // Bild, dessen Farben nicht stimmen --, und was man sieht, sieht man nicht im
+    // Einstellungsfenster.
+    if (ImGui::MenuItem(T("Videonorm suchen", "Detect video standard"),
+                        sc(HotkeyAction::DetectStandard))) {
+      standardSearch_.RescanVideoStandard();
+    }
+    WrappedTooltip(T("Sucht die Videonorm neu, auch wenn die eingestellte hält. Für den Fall, "
+                     "dass die Farben falsch sind, ohne dass es sich messen ließe.",
+                     "Searches for the video standard again, even when the current one holds. "
+                     "For colours that are wrong in a way no measurement catches."));
 
-  // Und die dritte Messung derselben Art. Sie steht hier vor allem deshalb,
-  // weil sie sonst nur im Einstellungsfenster zu erreichen waere -- und wer im
-  // Treiber der Karte etwas umstellt, hat qBlank im Ruecken, nicht offen.
-  if (ImGui::MenuItem(T("Wertebereich neu messen", "Measure range again"),
-                      sc(HotkeyAction::RemeasureRange))) {
-    RemeasureRange();
+    // Und die dritte Messung derselben Art. Sie steht hier vor allem deshalb,
+    // weil sie sonst nur im Einstellungsfenster zu erreichen waere -- und wer im
+    // Treiber der Karte etwas umstellt, hat qBlank im Ruecken, nicht offen.
+    if (ImGui::MenuItem(T("Wertebereich neu messen", "Measure range again"),
+                        sc(HotkeyAction::RemeasureRange))) {
+      RemeasureRange();
+    }
+    WrappedTooltip(T("Das Urteil über voll oder begrenzt steht, bis sich das Bildformat ändert. "
+                     "Nach einer Umstellung im Treiber der Karte hiermit neu messen.",
+                     "The verdict on full or limited holds until the picture format changes. "
+                     "After changing something in the card's driver, measure again here."));
   }
-  WrappedTooltip(T("Das Urteil über voll oder begrenzt steht, bis sich das Bildformat ändert. "
-                   "Nach einer Umstellung im Treiber der Karte hiermit neu messen.",
-                   "The verdict on full or limited holds until the picture format changes. "
-                   "After changing something in the card's driver, measure again here."));
 
   if (ImGui::MenuItem(T("Aufnahme neu starten", "Restart capture"), sc(HotkeyAction::RestartCapture))) RestartAll(true);
-  if (ImGui::MenuItem(T("Karte neu einlesen", "Reinitialise card"), sc(HotkeyAction::ReinitCard))) ReinitialiseCard();
+  if (card && ImGui::MenuItem(T("Karte neu einlesen", "Reinitialise card"), sc(HotkeyAction::ReinitCard))) ReinitialiseCard();
   if (ImGui::MenuItem(T("Beenden", "Quit"), "Alt+F4")) window_.RequestClose();
 
   ImGui::EndPopup();

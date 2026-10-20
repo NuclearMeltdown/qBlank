@@ -70,6 +70,38 @@ void PositionInCorner(OsdCorner corner, float inset) {
   ImGui::SetNextWindowPos(pos, ImGuiCond_Always, ImVec2(right ? 1.0f : 0.0f, bottom ? 1.0f : 0.0f));
 }
 
+// The running recording: a pulsing dot and the time, and below it whatever is
+// falling behind. In the corner indicator and in the screen's panel.
+void RecordLines(double seconds, bool encoderBehind, double bufferFill, uint64_t buffered) {
+  // One slow pulse per second, so it reads as "running" without flickering.
+  const float pulse = 0.55f + 0.45f * (float)std::abs(std::sin(ImGui::GetTime() * 3.14159));
+  const float radius = ImGui::GetFontSize() * 0.32f;
+  const ImVec2 centre = ImGui::GetCursorScreenPos();
+  ImGui::GetWindowDrawList()->AddCircleFilled(
+      ImVec2(centre.x + radius, centre.y + ImGui::GetFontSize() * 0.5f), radius,
+      ImGui::GetColorU32(ImVec4(0.95f, 0.25f, 0.25f, pulse)));
+  ImGui::Dummy(ImVec2(radius * 2.0f + 6.0f, ImGui::GetFontSize()));
+  ImGui::SameLine();
+
+  const int total = (int)seconds;
+  ImGui::Text("%s  %02d:%02d:%02d", T("Aufnahme", "REC"), total / 3600, (total / 60) % 60,
+              total % 60);
+  if (encoderBehind) {
+    ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s",
+                       T("Encoder überlastet", "Encoder overloaded"));
+  }
+  // Only once the disk is behind: a few frames on their way are always there.
+  if (bufferFill >= 0.1) {
+    const std::string line = Format(T("Puffer %.0f %% (%s)", "Buffer %.0f %% (%s)"),
+                                    bufferFill * 100.0, FormatBytes(buffered).c_str());
+    if (bufferFill >= 0.75) {
+      ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s", line.c_str());
+    } else {
+      ImGui::TextUnformatted(line.c_str());
+    }
+  }
+}
+
 }  // namespace
 
 void StatMeter::Sample(double value, double now) {
@@ -524,35 +556,51 @@ void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBeh
   ImGui::SetNextWindowBgAlpha(0.80f);
 
   if (ImGui::Begin("##recording", nullptr, kOverlayFlags)) {
-    // One slow pulse per second, so it reads as "running" without flickering.
-    const float pulse = 0.55f + 0.45f * (float)std::abs(std::sin(ImGui::GetTime() * 3.14159));
-    const float radius = ImGui::GetFontSize() * 0.32f;
-    const ImVec2 centre = ImGui::GetCursorScreenPos();
-    ImGui::GetWindowDrawList()->AddCircleFilled(
-        ImVec2(centre.x + radius, centre.y + ImGui::GetFontSize() * 0.5f), radius,
-        ImGui::GetColorU32(ImVec4(0.95f, 0.25f, 0.25f, pulse)));
-    ImGui::Dummy(ImVec2(radius * 2.0f + 6.0f, ImGui::GetFontSize()));
-    ImGui::SameLine();
+    RecordLines(seconds, encoderBehind, bufferFill, buffered);
+  }
+  ImGui::End();
+}
 
-    const int total = (int)seconds;
-    ImGui::Text("%s  %02d:%02d:%02d", T("Aufnahme", "REC"), total / 3600, (total / 60) % 60,
-                total % 60);
-    if (encoderBehind) {
-      ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s",
-                         T("Encoder überlastet", "Encoder overloaded"));
+ScreenPanelAction DrawScreenPanel(const ScreenPanelState& s) {
+  ScreenPanelAction action = ScreenPanelAction::None;
+  const ImGuiViewport* vp = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(
+      ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+      ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowBgAlpha(0.92f);
+  // Behind the settings, as the empty state is: ImGui orders by focus, and a
+  // click on a button here would otherwise lift it over the dialog.
+  const ImGuiWindowFlags flags = (kOverlayFlags & ~ImGuiWindowFlags_NoInputs) |
+                                 ImGuiWindowFlags_NoBringToFrontOnFocus;
+  if (ImGui::Begin("##screenpanel", nullptr, flags)) {
+    ImGui::TextUnformatted(s.source.c_str());
+    std::string line = s.width > 0 ? Format("%d × %d", s.width, s.height) : std::string("—");
+    if (s.refreshHz > 0.0) line += Format("  ·  %.0f Hz", s.refreshHz);
+    line += s.still ? std::string(T("  ·  Bild unverändert", "  ·  picture unchanged"))
+                    : "  ·  " + Decimal(s.fps, 0) + " fps";
+    ImGui::TextDisabled("%s", line.c_str());
+
+    if (s.recording) {
+      ImGui::Spacing();
+      RecordLines(s.recordSeconds, s.encoderBehind, s.bufferFill, s.buffered);
     }
-    // Only once the disk is behind: a few frames on their way are always there.
-    if (bufferFill >= 0.1) {
-      const std::string line = Format(T("Puffer %.0f %% (%s)", "Buffer %.0f %% (%s)"),
-                                      bufferFill * 100.0, FormatBytes(buffered).c_str());
-      if (bufferFill >= 0.75) {
-        ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s", line.c_str());
-      } else {
-        ImGui::TextUnformatted(line.c_str());
-      }
+
+    ImGui::Spacing();
+    ImGui::BeginDisabled(!s.canRecord && !s.recording);
+    if (ImGui::Button(s.recording ? T("Aufnahme stoppen", "Stop recording")
+                                  : T("Aufnahme starten", "Start recording"))) {
+      action = ScreenPanelAction::ToggleRecording;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(T("Screenshot", "Screenshot"))) action = ScreenPanelAction::Screenshot;
+    ImGui::SameLine();
+    if (ImGui::Button(T("Vorschau zeigen", "Show preview"))) {
+      action = ScreenPanelAction::ShowPreview;
     }
   }
   ImGui::End();
+  return action;
 }
 
 void DrawVolumeOsd(float volume, bool muted, OsdCorner corner, double age, double duration) {

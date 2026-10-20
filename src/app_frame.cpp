@@ -317,8 +317,10 @@ void App::RenderFrame() {
 
   // Right after the first pass, so the still is the picture that was just put on
   // screen -- and before the UI is drawn, so the overlay never lands in it. The
-  // other setting takes the same shot one step later; see below.
-  if (screenshotPending_ && !config_.record.screenshotIncludeUi) {
+  // other setting takes the same shot one step later; see below. Without the
+  // screen's preview the window holds only the panel, so the shot is the
+  // picture either way.
+  if (screenshotPending_ && (!config_.record.screenshotIncludeUi || !picture)) {
     screenshotPending_ = false;
     WriteScreenshot(false, screenshotToClipboard_);
   }

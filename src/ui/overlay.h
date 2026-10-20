@@ -167,4 +167,27 @@ void DrawVolumeOsd(float volume, bool muted, OsdCorner corner, double age, doubl
 void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind,
                          double bufferFill, uint64_t buffered);
 
+// The window while the screen is taken without a preview: which screen, at
+// what size and rate, the recording if one runs, and the three things you
+// reach for. It stands in for the picture, so it takes the mouse and carries
+// the recording's lines itself -- the corner indicator is left out meanwhile.
+struct ScreenPanelState {
+  std::string source;  // "Monitor 2"
+  int width = 0;
+  int height = 0;
+  double refreshHz = 0.0;
+  double fps = 0.0;    // what arrives; the desktop only sends changes
+  bool still = false;  // nothing has arrived for a second
+  bool canRecord = true;
+  bool recording = false;
+  double recordSeconds = 0.0;
+  bool encoderBehind = false;
+  double bufferFill = 0.0;
+  uint64_t buffered = 0;
+};
+
+enum class ScreenPanelAction { None, ToggleRecording, Screenshot, ShowPreview };
+
+ScreenPanelAction DrawScreenPanel(const ScreenPanelState& state);
+
 }  // namespace cap

@@ -206,6 +206,8 @@ class App {
   void ChooseCompare(bool horizontal);
   void ToggleBypass();
   void DrawToolbarStrip();
+  // The window's content while the screen runs without its preview.
+  void DrawScreenStatus(const FrameBuffer* sink);
   // Opens the folder `configured` names, made again if it is gone, or
   // `fallback` when that cannot be. Asks the disk on folderJobs_.
   void ShowOutputFolder(std::string* configured, const std::filesystem::path& fallback);
