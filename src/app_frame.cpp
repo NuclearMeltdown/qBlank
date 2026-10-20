@@ -373,7 +373,12 @@ void App::RenderFrame() {
   // Schleife auf das Bildereignis wartet, war das fast immer dieselbe Zehntel
   // Millisekunde -- eine Zahl, die nur sagte, dass der Renderthread wach
   // geworden ist.
-  if (toScreen && captureState_ == CaptureState::Running && displayedArrivalQpc_ != 0) {
+
+  // The screen sends only what changed. While the desktop stands still the
+  // loop keeps drawing the same picture and its age runs into seconds, which
+  // is no waiting in qBlank; there only a picture's first showing counts.
+  const bool aged = !screenActive_ || (picture && haveNewFrame);
+  if (toScreen && aged && captureState_ == CaptureState::Running && displayedArrivalQpc_ != 0) {
     const int64_t leaving = ClockTicks();
     const double ageMs = TicksToSeconds(leaving - displayedArrivalQpc_) * 1000.0;
     if (ageMs >= 0.0) frameAgeMeter_.Sample(ageMs, TicksToSeconds(leaving));
