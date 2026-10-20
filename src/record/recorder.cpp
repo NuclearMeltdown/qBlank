@@ -19,10 +19,15 @@ std::string TimestampedName(RecordContainer container) {
   const LocalTime t = NowLocal();
   return Format("%s_%04d-%02d-%02d_%02d-%02d-%02d.%s", AppNameUtf8().c_str(), t.year, t.month,
                 t.day, t.hour, t.minute, t.second,
-                container == RecordContainer::Mp4 ? "mp4" : "mkv");
+                container == RecordContainer::Mp4   ? "mp4"
+                : container == RecordContainer::Avi ? "avi"
+                                                    : "mkv");
 }
 
 constexpr int kAudioBitrate = 192000;
+// What a second of sound costs in an AVI, which takes it as it is: two
+// channels of sixteen bits.
+constexpr int kPcmBytesPerFrame = 4;
 // What the audio thread pulls at a time, in frames.
 constexpr size_t kAudioChunk = 4096;
 // The tracks' rate when there is no card sound to set it: the recording
@@ -60,12 +65,21 @@ AVRational RecordingRate(const Libav& av, double fps) {
 
 }  // namespace
 
-double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks) {
-  const double kbps = (double)settings.bitrateKbps +
-                      (double)kAudioBitrate / 1000.0 * (double)std::max(audioTracks, 0);
+double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks, int width,
+                               int height, double fps) {
+  const bool pcm = ContainerFor(settings.encoder, settings.container) == RecordContainer::Avi;
+  const double audio = pcm ? (double)kClockRate * kPcmBytesPerFrame : kAudioBitrate / 8.0;
   // Container overhead is left out: a few bytes of index per frame against
   // twenty megabit of picture is below the error of the bitrate itself.
-  return kbps * 1000.0 / 8.0;
+  double video = (double)settings.bitrateKbps * 1000.0 / 8.0;
+  if (IsLosslessEncoder(settings.encoder)) {
+    // Three bytes a pixel as it is. Both codecs came to 0.3 of that on real
+    // composite captures and to 0.5 on a noisy 1080p picture. The estimate
+    // takes the worse.
+    video = (double)width * (double)height * 3.0 * fps;
+    if (settings.encoder != RecordEncoder::Uncompressed) video *= 0.5;
+  }
+  return video + audio * (double)std::max(audioTracks, 0);
 }
 
 // ------------------------------------------------------------------ session
@@ -139,6 +153,8 @@ struct Recorder::Session {
   void StopMuxer();
   // Takes what `codec` has finished and queues it for the muxer.
   int Drain(AVCodecContext* codec, int stream, AVPacket** spare);
+  // Hands one packet, timed in `timeBase`, to the muxer.
+  void Queue(AVPacket* packet, int stream, AVRational timeBase);
   // Appends interleaved stereo to a track, sending each frame as it fills.
   int Encode(Track& track, const float* interleaved, size_t frames);
   // Lets the encoders finish and writes the container's index. True when the
@@ -213,16 +229,20 @@ int Recorder::Session::Drain(AVCodecContext* codec, int stream, AVPacket** spare
     if (result < 0) return result;
     AVPacket* packet = *spare;
     *spare = nullptr;
-    packet->stream_index = stream;
-    av->av_packet_rescale_ts(packet, codec->time_base, output->streams[stream]->time_base);
-    if (counter) counter->fetch_add((uint64_t)packet->size, std::memory_order_relaxed);
-    queuedBytes.fetch_add(packet->size, std::memory_order_relaxed);
-    {
-      std::lock_guard<std::mutex> lock(muxMutex);
-      queue.push_back(packet);
-    }
-    muxWake.notify_one();
+    Queue(packet, stream, codec->time_base);
   }
+}
+
+void Recorder::Session::Queue(AVPacket* packet, int stream, AVRational timeBase) {
+  packet->stream_index = stream;
+  av->av_packet_rescale_ts(packet, timeBase, output->streams[stream]->time_base);
+  if (counter) counter->fetch_add((uint64_t)packet->size, std::memory_order_relaxed);
+  queuedBytes.fetch_add(packet->size, std::memory_order_relaxed);
+  {
+    std::lock_guard<std::mutex> lock(muxMutex);
+    queue.push_back(packet);
+  }
+  muxWake.notify_one();
 }
 
 int Recorder::Session::Encode(Track& track, const float* in, size_t frames) {
@@ -234,11 +254,20 @@ int Recorder::Session::Encode(Track& track, const float* in, size_t frames) {
       if (result < 0) return result;
     }
     const int n = (int)std::min(frames, (size_t)(frameSize - track.fill));
-    float* left = (float*)track.frame->data[0] + track.fill;
-    float* right = (float*)track.frame->data[1] + track.fill;
-    for (int i = 0; i < n; ++i) {
-      left[i] = in[2 * i];
-      right[i] = in[2 * i + 1];
+    if (track.frame->format == AV_SAMPLE_FMT_S16) {
+      // Times 32768, the inverse of what made the floats of sixteen bit
+      // sound, so a card's samples come out as they went in.
+      int16_t* out = (int16_t*)track.frame->data[0] + 2 * (size_t)track.fill;
+      for (int i = 0; i < 2 * n; ++i) {
+        out[i] = (int16_t)std::clamp(std::lrintf(in[i] * 32768.0f), -32768L, 32767L);
+      }
+    } else {
+      float* left = (float*)track.frame->data[0] + track.fill;
+      float* right = (float*)track.frame->data[1] + track.fill;
+      for (int i = 0; i < n; ++i) {
+        left[i] = in[2 * i];
+        right[i] = in[2 * i + 1];
+      }
     }
     in += 2 * (size_t)n;
     frames -= (size_t)n;
@@ -322,6 +351,16 @@ Recorder::Family Recorder::FamilyOf(const std::string& name) {
 
 YuvFormat Recorder::FormatFor(const EncoderInfo& encoder, bool wide, bool fullChroma) {
   YuvFormat f;
+  // Lossless is 4:4:4 whatever the setting, and ten bits only where NVENC
+  // passed them; uncompressed is the RGB an AVI holds, in eight.
+  if (encoder.id == RecordEncoder::Uncompressed) {
+    f.layout = YuvLayout::Bgr;
+    return f;
+  }
+  if (IsLosslessEncoder(encoder.id)) {
+    wide = wide && encoder.full10;
+    fullChroma = true;
+  }
   f.matrix = wide ? YuvMatrix::Bt2020Pq : YuvMatrix::Bt709;
   // Ten bits at the top of sixteen for the hardware, as P010 has them; x264
   // and x265 count from the bottom.
@@ -381,6 +420,10 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
     out.push_back(std::move(key));
     out.push_back(std::move(value));
   };
+  if (IsLosslessEncoder(encoder.id)) {
+    for (const auto& [key, value] : LosslessOptions(encoder.id)) pair(key, value);
+    return out;
+  }
 
   // ---- how the bitrate is spent ----
   //
@@ -524,8 +567,8 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   fps_ = av_q2d(rate);
   audioRate_ = main.active() ? main.sampleRate : 0;
   format_ = FormatFor(*encoder, wide_, settings.fullChroma);
-  frameBytes_ = (size_t)width_ * (size_t)YuvRows(format_.layout, height_) *
-                (size_t)format_.sampleBytes();
+  frameBytes_ = (size_t)YuvColumns(format_.layout, width_) *
+                (size_t)YuvRows(format_.layout, height_) * (size_t)format_.sampleBytes();
   pullAudio_ = audioRate_ > 0 ? main.pull : nullptr;
   extras.erase(std::remove_if(extras.begin(), extras.end(),
                               [](const ExtraAudio& e) { return !e.source.active(); }),
@@ -593,10 +636,13 @@ bool Recorder::Open(Session* s) {
     return false;
   };
 
+  // An AVI takes its sound as PCM, as an editor reading one expects it.
+  const RecordContainer container = ContainerFor(s->encoder.id, s->settings.container);
+  const bool avi = container == RecordContainer::Avi;
   LibavClearError();
   int result = av.avformat_alloc_output_context2(
-      &s->output, nullptr, s->settings.container == RecordContainer::Mp4 ? "mp4" : "matroska",
-      file.c_str());
+      &s->output, nullptr,
+      container == RecordContainer::Mp4 ? "mp4" : avi ? "avi" : "matroska", file.c_str());
   if (result < 0 || !s->output) {
     return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
                   result);
@@ -664,10 +710,15 @@ bool Recorder::Open(Session* s) {
       v->colorspace = AVCOL_SPC_BT709;
     }
     v->color_range = AVCOL_RANGE_MPEG;
+    if (format_.layout == YuvLayout::Bgr) {
+      v->colorspace = AVCOL_SPC_RGB;
+      v->color_range = AVCOL_RANGE_JPEG;
+    }
     if (globalHeader) v->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-    if (s->settings.rateControl == RateControl::Quality) {
+    if (s->settings.rateControl == RateControl::Quality || IsLosslessEncoder(s->encoder.id)) {
       // A quality target and a bitrate are contradictory instructions, and the
       // encoders resolve them by quietly ignoring one. Better to give only one.
+      // Lossless has nothing to aim for.
       v->bit_rate = 0;
     } else {
       // Constant means constant: the ceiling is the bitrate. Variable is
@@ -739,21 +790,21 @@ bool Recorder::Open(Session* s) {
   auto addTrack = [&](const char* title) -> int {
     const int trackCount = (int)s->tracks.size();
     Session::Track& track = s->tracks.emplace_back();
-    const AVCodec* aac = av.avcodec_find_encoder_by_name("aac");
-    if (!aac || !(track.codec = av.avcodec_alloc_context3(aac))) {
+    const AVCodec* encoder = av.avcodec_find_encoder_by_name(avi ? "pcm_s16le" : "aac");
+    if (!encoder || !(track.codec = av.avcodec_alloc_context3(encoder))) {
       failed("Der Audio-Encoder ließ sich nicht öffnen: %s", "Could not open the audio encoder: %s",
              AVERROR_ENCODER_NOT_FOUND);
       return -1;
     }
     AVCodecContext* a = track.codec;
-    a->sample_fmt = AV_SAMPLE_FMT_FLTP;
+    a->sample_fmt = avi ? AV_SAMPLE_FMT_S16 : AV_SAMPLE_FMT_FLTP;
     a->sample_rate = trackRate;
     av.av_channel_layout_default(&a->ch_layout, 2);
-    a->bit_rate = kAudioBitrate;
+    if (!avi) a->bit_rate = kAudioBitrate;
     a->time_base = AVRational{1, trackRate};
     if (globalHeader) a->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     LibavClearError();
-    int r = av.avcodec_open2(a, aac, nullptr);
+    int r = av.avcodec_open2(a, encoder, nullptr);
     if (r < 0) {
       failed("Der Audio-Encoder ließ sich nicht öffnen: %s", "Could not open the audio encoder: %s",
              r);
@@ -774,7 +825,7 @@ bool Recorder::Open(Session* s) {
     av.avcodec_parameters_from_context(st->codecpar, a);
     track.stream = st->index;
 
-    track.frame->format = AV_SAMPLE_FMT_FLTP;
+    track.frame->format = a->sample_fmt;
     track.frame->sample_rate = trackRate;
     track.frame->nb_samples = a->frame_size > 0 ? a->frame_size : 1024;
     av.av_channel_layout_default(&track.frame->ch_layout, 2);
@@ -825,7 +876,12 @@ bool Recorder::Open(Session* s) {
                   result);
   }
   s->fileOpen = true;
-  result = av.avformat_write_header(s->output, nullptr);
+  // Uncompressed RGB comes bottom-up from the GPU, as a bitmap keeps it, and
+  // the header has to say so.
+  AVDictionary* header = nullptr;
+  if (avi) av.av_dict_set(&header, "flipped_raw_rgb", "1", 0);
+  result = av.avformat_write_header(s->output, &header);
+  av.av_dict_free(&header);
   if (result < 0) {
     return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
                   result);
@@ -967,7 +1023,8 @@ void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int heigh
   // planes then lie one after another, as the video thread points into them.
   AVBufferRef* buffer = Av()->av_buffer_pool_get(session_->pool);
   if (!buffer) return;
-  const size_t rowBytes = (size_t)width_ * (size_t)format_.sampleBytes();
+  const size_t rowBytes =
+      (size_t)YuvColumns(format_.layout, width_) * (size_t)format_.sampleBytes();
   const int rows = YuvRows(format_.layout, height_);
   uint8_t* dst = buffer->data;
   if ((size_t)stride == rowBytes) {
@@ -1041,8 +1098,9 @@ void Recorder::VideoThread(Session* s) {
   // a reference, so the same frame goes out again with the next number when
   // the timeline needs a repeat.
   const AVCodecContext* v = s->video;
+  const bool raw = s->encoder.id == RecordEncoder::Uncompressed && !s->gpu;
   const AVPixelFormat softFormat = av.av_get_pix_fmt(FfmpegPixelFormat(format_));
-  const int rowBytes = width_ * format_.sampleBytes();
+  const int rowBytes = YuvColumns(format_.layout, width_) * format_.sampleBytes();
   auto tag = [&](AVFrame* f) {
     f->color_primaries = v->color_primaries;
     f->color_trc = v->color_trc;
@@ -1074,6 +1132,8 @@ void Recorder::VideoThread(Session* s) {
         f->data[2] = chroma + (size_t)rowBytes * (size_t)height_;
         f->linesize[1] = f->linesize[2] = rowBytes;
         break;
+      case YuvLayout::Bgr:
+        break;  // one plane
     }
   };
   // On the GPU the frame is one of the encoder's pool: the picture of a
@@ -1243,14 +1303,32 @@ void Recorder::VideoThread(Session* s) {
     // the video shorter than the audio and desync the file for good. If the
     // encoder stalls, it stalls here, which is exactly where the waiting
     // belongs.
+    //
+    // Uncompressed goes past the encoder, which would only copy it: the frame's
+    // buffer is the packet, and a repeat one more reference to it.
     int result = 0;
     for (uint64_t i = written; i < target && running_.load(std::memory_order_relaxed); ++i) {
-      frame->pts = (int64_t)i;
-      frame->duration = 1;
-      LibavClearError();
-      result = av.avcodec_send_frame(s->video, frame);
-      if (result >= 0) result = s->Drain(s->video, s->videoStream, &s->videoPacket);
-      if (result < 0) break;
+      if (raw) {
+        AVPacket* packet = av.av_packet_alloc();
+        if (!packet || !(packet->buf = av.av_buffer_ref(frame->buf[0]))) {
+          av.av_packet_free(&packet);
+          result = AVERROR(ENOMEM);
+          break;
+        }
+        packet->data = packet->buf->data;
+        packet->size = (int)frameBytes_;
+        packet->pts = packet->dts = (int64_t)i;
+        packet->duration = 1;
+        packet->flags = AV_PKT_FLAG_KEY;
+        s->Queue(packet, s->videoStream, v->time_base);
+      } else {
+        frame->pts = (int64_t)i;
+        frame->duration = 1;
+        LibavClearError();
+        result = av.avcodec_send_frame(s->video, frame);
+        if (result >= 0) result = s->Drain(s->video, s->videoStream, &s->videoPacket);
+        if (result < 0) break;
+      }
       videoFramesWritten_.fetch_add(1, std::memory_order_relaxed);
       if (!fresh || i > written) duplicated_.fetch_add(1, std::memory_order_relaxed);
     }

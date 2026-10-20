@@ -2113,6 +2113,10 @@ R"HLSL(        // gradient. Vertical detail that is genuinely in the picture rai
 // Eight bits, or ten in sixteen with gShift putting them at the top (P010)
 // or leaving them at the bottom. Limited range throughout.
 //
+// Or no Y'CbCr at all, for an uncompressed AVI: the picture's own R'G'B',
+// full range, packed B G R with three samples a pixel and the bottom row
+// first, each row padded to four bytes, as such a file keeps it.
+//
 // Done here rather than by ffmpeg, so the arithmetic stays float to the last
 // rounding and the readback carries what the file keeps and no more.
 //
@@ -2134,7 +2138,7 @@ cbuffer YuvCB : register(b0) {
   float gPaperWhite;  // the nits of 1.0, for gPq
   uint gPq;           // and with it ten bits rather than eight
   uint gShift;        // 6 for the ten bits at the top of sixteen
-  uint gLayout;       // 0 NV12, 1 I420, 2 I444
+  uint gLayout;       // 0 NV12, 1 I420, 2 I444, 3 BGR
   int gWidth;         // of the luma, even
   int gHeight;        // even
 };
@@ -2201,6 +2205,13 @@ float3 Sited(int cx, int top) {
 uint main(VSOut i) : SV_Target {
   const int x = (int)i.pos.x;
   const int y = (int)i.pos.y;
+  if (gLayout == 3) {
+    const int pixel = x / 3;
+    const int channel = x - pixel * 3;
+    if (pixel >= gWidth) return 0;  // what pads the row to four bytes
+    const float3 c = Fetch(pixel, gHeight - 1 - y);
+    return (uint)((channel == 0 ? c.b : channel == 1 ? c.g : c.r) * 255.0 + 0.5);
+  }
   const float3 weights = float3(gKr, 1.0 - gKr - gKb, gKb);
   if (y < gHeight) return Code(16.0, 219.0, dot(Fetch(x, y), weights));
   const int row = y - gHeight;

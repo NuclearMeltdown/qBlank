@@ -2701,7 +2701,8 @@ void VideoRenderer::QueueYuv(Yuv stream, PassImage from) {
     ring.width = width;
     ring.height = height;
     ring.made = format;
-    ring.failed = !passes_->CreateYuvStream((int)stream, width, YuvRows(format.layout, height),
+    ring.failed = !passes_->CreateYuvStream((int)stream, YuvColumns(format.layout, width),
+                                            YuvRows(format.layout, height),
                                             format.sampleBytes() == 2);
   }
 

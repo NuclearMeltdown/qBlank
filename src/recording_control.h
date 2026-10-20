@@ -116,6 +116,9 @@ class RecordingControl {
   // answered.
   void LaunchRecording();
   bool SourcesOpening() const;
+  // The source's frame rate: measured where there is a measurement, which
+  // beats what the format says (LaunchRecording).
+  double SourceFps() const;
 
   Config& config_;
   Recorder& recorder_;

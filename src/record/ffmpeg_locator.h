@@ -11,6 +11,7 @@
 
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common.h"
@@ -21,7 +22,9 @@ namespace cap {
 struct EncoderInfo {
   RecordEncoder id = RecordEncoder::Auto;
   std::string ffmpegName;  // e.g. "h264_nvenc"
-  std::string label;       // what the settings show
+  // What the log and the statistics show. The settings ask RecordEncoderName,
+  // which follows a change of language.
+  std::string label;
   bool hardware = false;
   bool tested = false;     // the test encode has been run for this entry
   bool available = false;  // survived the test encode
@@ -36,6 +39,10 @@ struct EncoderInfo {
 // H.264 and H.265 on NVENC and the CPU. AV1, AMF and QuickSync take 4:2:0
 // only, so they are not even asked.
 bool FullChromaCandidate(const std::string& ffmpegName);
+
+// All a lossless encoder is told, as key and value: nothing in the settings
+// applies to one. The test encode passes the same as the recording.
+std::vector<std::pair<const char*, const char*>> LosslessOptions(RecordEncoder id);
 
 struct FfmpegInfo {
   bool found = false;   // the libraries are loaded

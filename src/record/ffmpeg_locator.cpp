@@ -16,23 +16,25 @@ namespace {
 struct Candidate {
   RecordEncoder id;
   const char* ffmpegName;
-  const char* label;
   bool hardware;
 };
 
 // H.264 first: it plays everywhere. AV1 sits behind it because it needs recent
 // hardware on both ends, and H.265 in the middle. The order is what
-// RecordEncoder::Auto walks down.
+// RecordEncoder::Auto walks down, past the lossless three at the end.
 const Candidate kCandidates[] = {
-    {RecordEncoder::Nvenc, "h264_nvenc", "H.264 (NVIDIA NVENC)", true},
-    {RecordEncoder::QuickSync, "h264_qsv", "H.264 (Intel QuickSync / Arc)", true},
-    {RecordEncoder::Amf, "h264_amf", "H.264 (AMD AMF)", true},
-    {RecordEncoder::NvencHevc, "hevc_nvenc", "H.265 (NVIDIA NVENC)", true},
-    {RecordEncoder::Av1Nvenc, "av1_nvenc", "AV1 (NVIDIA NVENC, RTX 40+)", true},
-    {RecordEncoder::Av1QuickSync, "av1_qsv", "AV1 (Intel Arc)", true},
-    {RecordEncoder::Av1Amf, "av1_amf", "AV1 (AMD RDNA 3+)", true},
-    {RecordEncoder::X264, "libx264", "H.264 (CPU, x264)", false},
-    {RecordEncoder::X265, "libx265", "H.265 (CPU, x265)", false},
+    {RecordEncoder::Nvenc, "h264_nvenc", true},
+    {RecordEncoder::QuickSync, "h264_qsv", true},
+    {RecordEncoder::Amf, "h264_amf", true},
+    {RecordEncoder::NvencHevc, "hevc_nvenc", true},
+    {RecordEncoder::Av1Nvenc, "av1_nvenc", true},
+    {RecordEncoder::Av1QuickSync, "av1_qsv", true},
+    {RecordEncoder::Av1Amf, "av1_amf", true},
+    {RecordEncoder::X264, "libx264", false},
+    {RecordEncoder::X265, "libx265", false},
+    {RecordEncoder::NvencLossless, "hevc_nvenc", true},
+    {RecordEncoder::UtVideo, "utvideo", false},
+    {RecordEncoder::Uncompressed, "rawvideo", false},
 };
 
 // The other way round: quality per bit first. Nothing here is a judgement about
@@ -127,6 +129,15 @@ bool FullChromaCandidate(const std::string& ffmpegName) {
          ffmpegName == "libx265";
 }
 
+std::vector<std::pair<const char*, const char*>> LosslessOptions(RecordEncoder id) {
+  // For NVENC the preset hardly matters here: p1 and p7 ran at the same speed,
+  // p1 two percent larger. UT Video's median prediction makes a tenth smaller
+  // files than the default for a twentieth of the speed.
+  if (id == RecordEncoder::NvencLossless) return {{"preset", "p1"}, {"tune", "lossless"}};
+  if (id == RecordEncoder::UtVideo) return {{"pred", "median"}};
+  return {};
+}
+
 void ApplyCachedProbe(FfmpegInfo* info, const std::vector<int>& available, bool fullProbed,
                       const std::vector<int>& full8, const std::vector<int>& full10) {
   if (!info) return;
@@ -151,7 +162,7 @@ std::vector<EncoderInfo> KnownEncoders() {
     EncoderInfo e;
     e.id = c.id;
     e.ffmpegName = c.ffmpegName;
-    e.label = c.label;
+    e.label = RecordEncoderName((int)c.id);
     e.hardware = c.hardware;
     out.push_back(std::move(e));
   }
@@ -193,7 +204,8 @@ int Drain(const Libav& av, AVCodecContext* context, AVPacket* packet) {
 // A two frame encode in `pixelFormat`, flushed. True when the encoder opened
 // and got through it; `error` gets why not.
 bool TestEncode(const Libav& av, const std::string& encoder, const char* pixelFormat,
-                std::string* error, std::string* logged) {
+                std::string* error, std::string* logged,
+                const std::vector<std::pair<const char*, const char*>>& options = {}) {
   LibavQuiet quiet;
   LibavClearError();
   const AVCodec* codec = av.avcodec_find_encoder_by_name(encoder.c_str());
@@ -214,7 +226,10 @@ bool TestEncode(const Libav& av, const std::string& encoder, const char* pixelFo
     context->time_base = AVRational{1, 30};
     context->framerate = AVRational{30, 1};
     context->pix_fmt = av.av_get_pix_fmt(pixelFormat);
-    result = av.avcodec_open2(context, codec, nullptr);
+    AVDictionary* told = nullptr;
+    for (const auto& [key, value] : options) av.av_dict_set(&told, key, value, 0);
+    result = av.avcodec_open2(context, codec, &told);
+    av.av_dict_free(&told);
   }
   if (result >= 0) {
     frame->format = context->pix_fmt;
@@ -247,6 +262,22 @@ bool TestEncode(const Libav& av, const std::string& encoder, const char* pixelFo
 bool TestOne(const Libav& av, EncoderInfo* e) {
   if (e->tested) return e->available;
   std::string logged;
+  if (IsLosslessEncoder(e->id)) {
+    // 4:4:4 or nothing, that being the point, and RGB for uncompressed. Ten
+    // bits only on NVENC, which keeps them in sixteen as from the GPU.
+    const char* format = e->id == RecordEncoder::Uncompressed ? "bgr24" : "yuv444p";
+    const auto options = LosslessOptions(e->id);
+    e->available = TestEncode(av, e->ffmpegName, format, &e->error, &logged, options);
+    e->tested = e->fullTested = true;
+    e->full8 = e->available;
+    std::string error;
+    e->full10 = e->available && e->id == RecordEncoder::NvencLossless &&
+                TestEncode(av, e->ffmpegName, "yuv444p16le", &error, &logged, options);
+    CAP_LOG("Encoder %s lossless: %s%s%s%s", e->ffmpegName.c_str(),
+            e->available ? "ok" : "not available", e->full10 ? ", 10 bit ok" : "",
+            logged.empty() ? "" : " - ", logged.c_str());
+    return e->available;
+  }
   // What the recorder hands it in 4:2:0: NV12, planar for x265, which takes no
   // NV12 at all.
   const char* format = e->ffmpegName == "libx265" ? "yuv420p" : "nv12";
@@ -298,7 +329,7 @@ const EncoderInfo* EnsureUsableEncoder(FfmpegInfo* info, RecordEncoder wanted) {
     return nullptr;
   }
   for (EncoderInfo& e : info->encoders) {
-    if (TestOne(*av, &e)) return &e;
+    if (!IsLosslessEncoder(e.id) && TestOne(*av, &e)) return &e;
   }
   return nullptr;
 }
@@ -342,7 +373,7 @@ const EncoderInfo* FfmpegInfo::BestAvailable(bool preferEfficiency) const {
   }
   // kCandidates is already in compatibility order, and encoders keeps that order.
   for (const EncoderInfo& e : encoders) {
-    if (e.available) return &e;
+    if (e.available && !IsLosslessEncoder(e.id)) return &e;
   }
   return nullptr;
 }

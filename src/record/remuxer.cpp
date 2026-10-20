@@ -82,8 +82,15 @@ Said RemuxOne(const Libav& av, const std::filesystem::path& input,
   // in a sentence of our own: ffmpeg's would only name the codec.
   for (unsigned i = 0; i < in->nb_streams; ++i) {
     const AVStream* source = in->streams[i];
-    if (av.avformat_query_codec(out->oformat, source->codecpar->codec_id,
-                                FF_COMPLIANCE_NORMAL) != 1) {
+    const AVCodecID codec = source->codecpar->codec_id;
+    if (av.avformat_query_codec(out->oformat, codec, FF_COMPLIANCE_NORMAL) != 1) {
+      // qBlank's own lossless AVIs, which are where they belong.
+      if (codec == AV_CODEC_ID_UTVIDEO || codec == AV_CODEC_ID_RAWVIDEO) {
+        return finish(CAP_SAID(T("UT Video und unkomprimierte Aufnahmen passen nicht in eine "
+                                 "MP4. Schnittprogramme lesen das AVI direkt.",
+                                 "UT Video and uncompressed recordings do not fit in an MP4. "
+                                 "Editors read the AVI as it is.")));
+      }
       return finish(CAP_SAID(T("Dieses Format passt nicht in eine MP4. Nur Umpacken geht hier "
                                "nicht, das müsste neu kodiert werden.",
                                "This format does not fit in an MP4. Rewrapping cannot help; it "

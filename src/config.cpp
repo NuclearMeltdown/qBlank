@@ -315,8 +315,8 @@ const char* TrackModeName(int i) {
 }
 
 const char* RecordContainerName(int i) {
-  static const char* names[2] = {"MKV (Matroska)", "MP4"};
-  return names[Pick(i, 2)];
+  static const char* names[3] = {"MKV (Matroska)", "MP4", "AVI"};
+  return names[Pick(i, 3)];
 }
 
 const char* ScreenshotFormatName(int i) {
@@ -325,7 +325,8 @@ const char* ScreenshotFormatName(int i) {
 }
 
 const char* RecordEncoderName(int i) {
-  // Only the first entry differs between languages; the rest are product names.
+  // The automatic and the lossless ones differ between languages; the rest are
+  // product names.
   static const char* names[kRecordEncoderCount] = {
       "",
       "H.264 (CPU, x264)",
@@ -338,8 +339,20 @@ const char* RecordEncoderName(int i) {
       "AV1 (Intel Arc)",
       "AV1 (AMD RDNA 3+)",
       "",
+      "",
+      "",
+      "",
   };
   i = Pick(i, kRecordEncoderCount);
+  if (i == (int)RecordEncoder::NvencLossless) {
+    return T("H.265 verlustfrei (NVIDIA NVENC)", "H.265 lossless (NVIDIA NVENC)");
+  }
+  if (i == (int)RecordEncoder::UtVideo) {
+    return T("UT Video (verlustfrei, CPU)", "UT Video (lossless, CPU)");
+  }
+  if (i == (int)RecordEncoder::Uncompressed) {
+    return T("Unkomprimiert (RGB)", "Uncompressed (RGB)");
+  }
   if (i == (int)RecordEncoder::Auto) {
     return T("Automatisch — überall abspielbar", "Automatic — plays anywhere");
   }

@@ -3774,16 +3774,27 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   // ---- output ----
   ImGui::SeparatorText(T("Ausgabe", "Output"));
 
-  int container = (int)rec.container;
+  // A lossless encoder brings its own container, shown here and not changed:
+  // the choice stays for when the encoder goes back.
+  const bool lossless = IsLosslessEncoder(rec.encoder);
+  int container = (int)ContainerFor(rec.encoder, rec.container);
+  ImGui::BeginDisabled(lossless);
   ImGui::SetNextItemWidth(-260.0f);
-  if (ComboEnum(T("Container", "Container"), &container, 2, RecordContainerName)) {
+  if (ComboEnum(T("Container", "Container"), &container, lossless ? 3 : 2, RecordContainerName) &&
+      !lossless) {
     rec.container = (RecordContainer)container;
   }
   Anchor("container");
+  ImGui::EndDisabled();
   ImGui::SameLine();
-  HelpMarker(T("MKV übersteht einen Absturz. Eine nicht sauber geschlossene MP4 lässt sich nicht "
-               "öffnen.",
-               "MKV survives a crash. An MP4 that was not closed properly will not open."));
+  HelpMarker(lossless ? T("Verlustfrei legt den Container fest: H.265 in MKV, UT Video und "
+                          "Unkomprimiert in AVI.",
+                          "Lossless sets the container: H.265 in MKV, UT Video and uncompressed "
+                          "in AVI.")
+                      : T("MKV übersteht einen Absturz. Eine nicht sauber geschlossene MP4 lässt "
+                          "sich nicht öffnen.",
+                          "MKV survives a crash. An MP4 that was not closed properly will not "
+                          "open."));
 
   // Die Bitrate stand frueher hier und steht jetzt im Reiter Encoder, direkt
   // unter der Ratensteuerung. Getrennt waren die beiden nicht zu verstehen: bei
@@ -3826,10 +3837,12 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
     }
     ImGui::TextDisabled("%s", line.c_str());
     ImGui::SameLine();
-    HelpMarker(T("Geschätzt aus der eingestellten Bitrate. Bei Qualitätsmodus ist die Bitrate nur "
-                 "die Obergrenze, es reicht also meist länger.",
-                 "Estimated from the configured bitrate. In quality mode the bitrate is only a "
-                 "ceiling, so it usually lasts longer."));
+    HelpMarker(lossless ? T("Geschätzt aus Bildgröße und Bildrate.",
+                            "Estimated from picture size and frame rate.")
+                        : T("Geschätzt aus der eingestellten Bitrate. Bei Qualitätsmodus ist die "
+                            "Bitrate nur die Obergrenze, es reicht also meist länger.",
+                            "Estimated from the configured bitrate. In quality mode the bitrate "
+                            "is only a ceiling, so it usually lasts longer."));
   }
 
   ImGui::Checkbox(T("Bei Größe aufteilen", "Split at size"), &rec.splitFiles);
@@ -3957,10 +3970,12 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::SeparatorText(T("Nach MP4 umpacken", "Rewrap to MP4"));
   Anchor("remux");
 
-  ImGui::TextWrapped(T("Legt MKV-Dateien ohne Neukodierung in eine MP4 um. Dauert Sekunden und "
-                       "kostet keine Qualität. Das Original bleibt erhalten.",
-                       "Puts MKV files into an MP4 without re-encoding. Takes seconds and costs "
-                       "no quality. The original is kept."));
+  ImGui::TextWrapped(T("Legt MKV-Dateien ohne Neukodierung in eine MP4 um, auch verlustfreie "
+                       "H.265-Aufnahmen. Dauert Sekunden und kostet keine Qualität. Das Original "
+                       "bleibt erhalten. UT Video und Unkomprimiert passen nicht in eine MP4.",
+                       "Puts MKV files into an MP4 without re-encoding, lossless H.265 included. "
+                       "Takes seconds and costs no quality. The original is kept. UT Video and "
+                       "uncompressed do not fit in an MP4."));
   ImGui::Spacing();
 
   const bool remuxBusy = remuxer_.busy();
@@ -4045,10 +4060,18 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
       }
     }
     ImGui::Separator();
+    // The lossless ones last, under a line of their own (kCandidates).
+    bool lossyListed = false, losslessListed = false;
     for (const EncoderInfo& e : ffmpeg->encoders) {
       if (!e.available) continue;
+      if (IsLosslessEncoder(e.id)) {
+        if (lossyListed && !losslessListed) ImGui::Separator();
+        losslessListed = true;
+      } else {
+        lossyListed = true;
+      }
       const bool selected = (rec.encoder == e.id);
-      if (ImGui::Selectable(e.label.c_str(), selected)) rec.encoder = e.id;
+      if (ImGui::Selectable(RecordEncoderName((int)e.id), selected)) rec.encoder = e.id;
       if (selected) ImGui::SetItemDefaultFocus();
     }
     ImGui::EndCombo();
@@ -4073,7 +4096,8 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                 "AV1 and H.265 first: much smaller files at the same quality, but older "
                 "devices cannot play them."));
     if (picked) {
-      ImGui::TextDisabled(T("Hier heißt das: %s", "Here that means: %s"), picked->label.c_str());
+      ImGui::TextDisabled(T("Hier heißt das: %s", "Here that means: %s"),
+                          RecordEncoderName((int)picked->id));
     }
   }
 
@@ -4112,7 +4136,7 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
       if (!e.tested) continue;
       std::string& target = e.available ? works : fails;
       if (!target.empty()) target += ", ";
-      target += e.label;
+      target += RecordEncoderName((int)e.id);
     }
     if (!works.empty()) {
       ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.85f, 0.5f, 1.0f));
@@ -4128,9 +4152,10 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
 
   const EncoderInfo* selected =
       ffmpeg ? (IsAutoEncoder(rec.encoder) ? nullptr : ffmpeg->Find(rec.encoder)) : nullptr;
-  const bool softwareSelected = rec.encoder == RecordEncoder::X264 ||
-                                rec.encoder == RecordEncoder::X265 ||
-                                (selected && !selected->hardware);
+  const bool lossless = IsLosslessEncoder(rec.encoder);
+  const bool softwareSelected = !lossless && (rec.encoder == RecordEncoder::X264 ||
+                                              rec.encoder == RecordEncoder::X265 ||
+                                              (selected && !selected->hardware));
   ImGui::BeginDisabled(!softwareSelected);
   int speed = (int)rec.speed;
   ImGui::SetNextItemWidth(-260.0f);
@@ -4148,9 +4173,13 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
   // encoder settings below; the line under it says why.
   const EncoderInfo* active =
       selected ? selected : (ffmpeg ? ffmpeg->Resolve(rec.encoder) : nullptr);
-  ImGui::BeginDisabled(!active || !active->full8);
-  ImGui::Checkbox(T("Volle Farbauflösung (4:4:4)", "Full colour resolution (4:4:4)"),
-                  &rec.fullChroma);
+  // Lossless is 4:4:4 whatever it says; the setting stays for the others.
+  bool fullChroma = rec.fullChroma || lossless;
+  ImGui::BeginDisabled(lossless || !active || !active->full8);
+  if (ImGui::Checkbox(T("Volle Farbauflösung (4:4:4)", "Full colour resolution (4:4:4)"),
+                      &fullChroma)) {
+    rec.fullChroma = fullChroma;
+  }
   Anchor("fullchroma");
   ImGui::EndDisabled();
   ImGui::SameLine();
@@ -4160,7 +4189,23 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                "Keeps the colour of every pixel instead of averaging it over four. Worth it "
                "for HDMI and RGB sources. Larger files; browsers, phones and many editors "
                "cannot play it, VLC and mpv can."));
-  if (active && rec.fullChroma) {
+  if (lossless) {
+    // What lossless costs, in the number that decides whether the disk keeps
+    // up -- see the free space on the Recording tab for how long it lasts.
+    if (diskBytesPerSecond_ > 1.0) {
+      TextDisabledWrapped(
+          Format(T("Etwa %s pro Sekunde, %s pro Minute. Die Platte muss das schreiben können.",
+                   "About %s a second, %s a minute. The disk has to keep up with that."),
+                 FormatBytes((uint64_t)diskBytesPerSecond_).c_str(),
+                 FormatBytes((uint64_t)(diskBytesPerSecond_ * 60.0)).c_str())
+              .c_str());
+    }
+    if (cfg().app.recordHdr && hdrSourceTransfer_ != 0 && !(active && active->full10)) {
+      TextDisabledWrapped(T("HDR wird hier als SDR aufgenommen: verlustfrei in HDR geht nur mit "
+                            "NVENC.",
+                            "HDR is recorded as SDR here: lossless HDR takes NVENC."));
+    }
+  } else if (active && rec.fullChroma) {
     const char* why = nullptr;
     if (!active->fullTested) {
       why = T("Noch nicht auf 4:4:4 geprüft: Encoder erneut testen.",
@@ -4174,7 +4219,10 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
     if (why) TextDisabledWrapped(why);
   }
 
+  // Lossless has nothing to set: no rate to aim for, and NVENC's own preset.
+  ImGui::BeginDisabled(lossless);
   DrawEncoderBlock(active);
+  ImGui::EndDisabled();
 
   ImGui::EndDisabled();
 

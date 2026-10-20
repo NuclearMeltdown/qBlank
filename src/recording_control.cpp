@@ -24,6 +24,15 @@ namespace {
 // unruhig, und die letzten Bytes eines Dateisystems sind die langsamsten.
 const uint64_t kDiskFloorBytes = 256ull * 1024 * 1024;
 
+// What a cached encoder test holds for. The ffmpeg build belongs in it as well
+// as the hardware: a different build can be missing an encoder the last one
+// had, and would then be judged by a result it never produced. The number at
+// the end goes up when the test itself learns new encoders, as it did the
+// lossless ones.
+std::string ProbeSignature(const std::string& version) {
+  return GraphicsAdapterSignature() + " | " + version + " | 2";
+}
+
 }  // namespace
 
 RecordingControl::RecordingControl(Config& config, Recorder& recorder, VideoRenderer& renderer,
@@ -62,10 +71,7 @@ void RecordingControl::StartEncoderProbe(bool full) {
     } else {
       EnsureUsableEncoder(&copy, config_.record.encoder);
     }
-    // The ffmpeg build belongs in here as well as the hardware: a different
-    // build can be missing an encoder the last one had, and would then be
-    // judged by a result it never produced.
-    probeSignature_ = GraphicsAdapterSignature() + " | " + copy.version;
+    probeSignature_ = ProbeSignature(copy.version);
     probeResult_ = std::move(copy);
     probing_.store(false, std::memory_order_relaxed);
     probeDone_.store(true, std::memory_order_release);
@@ -107,7 +113,7 @@ bool RecordingControl::RelocateFfmpeg() {
   probeThread_ = std::thread([this]() {
     SystemThreadScope onThisThread;
     probeResult_ = LocateFfmpeg();
-    probeSignature_ = GraphicsAdapterSignature() + " | " + probeResult_.version;
+    probeSignature_ = ProbeSignature(probeResult_.version);
     probing_.store(false, std::memory_order_relaxed);
     probeDone_.store(true, std::memory_order_release);
   });
@@ -219,6 +225,8 @@ void RecordingControl::StartRecording() {
   // device that does not answer, three seconds; the picture goes on meanwhile,
   // and FeedRecorder launches once they and the disk have answered.
   pendingSettings_ = config_.record;
+  // A lossless encoder brings its own container, and the file is named for it.
+  pendingSettings_.container = ContainerFor(usable->id, pendingSettings_.container);
   pendingAudio_ = wantAudio;
   pendingFile_.clear();
   startPending_ = true;
@@ -285,7 +293,6 @@ void RecordingControl::LaunchRecording() {
   startPending_ = false;
   const bool wantAudio = pendingAudio_;
 
-  const VideoFormatInfo format = renderer_.sourceFormat();
   std::string error;
   Recorder::AudioSource mainTrack;
   if (wantAudio) {
@@ -355,11 +362,7 @@ void RecordingControl::LaunchRecording() {
   // eingeschalteter Automatik doppelte Bilder in der Datei. Das ist der
   // billigere der beiden Fehler: Platz laesst sich nachtraeglich sparen,
   // weggeworfene Halbbilder nicht.
-  double recordFps = format.fps;
-  if (const FrameBuffer* sink = capture_.sink()) {
-    const double measured = sink->stats().sourceFps;
-    if (measured > 1.0) recordFps = measured;
-  }
+  double recordFps = SourceFps();
   // Vor dem Doppeln festgehalten: `FeedRecorder` vergleicht damit, ob die
   // Quelle waehrend der Aufnahme eine andere geworden ist, und das soll ein
   // umgestellter Deinterlacer nicht ausloesen.
@@ -391,9 +394,17 @@ void RecordingControl::LaunchRecording() {
     host_.Toast(error);
     return;
   }
+  // HDR asked for and not given: only NVENC keeps ten bits losslessly.
+  if (IsLosslessEncoder(pendingSettings_.encoder) && config_.app.recordHdr &&
+      renderer_.sourceHdr() && !recorder_.hdr()) {
+    host_.Toast(T("Aufnahme läuft, in SDR: verlustfrei geht HDR nur mit NVENC.",
+                  "Recording, in SDR: lossless HDR takes NVENC."));
+    return;
+  }
   // 4:4:4 asked for and not given: the encoder did not pass it at this depth,
   // or was never tested for it. Recording anyway, but not silently.
-  if (pendingSettings_.fullChroma && recorder_.format().layout != YuvLayout::I444) {
+  const YuvLayout layout = recorder_.format().layout;
+  if (pendingSettings_.fullChroma && layout != YuvLayout::I444 && layout != YuvLayout::Bgr) {
     host_.Toast(T("Aufnahme läuft, in 4:2:0: der Encoder kann hier kein 4:4:4.",
                   "Recording, in 4:2:0: the encoder cannot do 4:4:4 here."));
     return;
@@ -448,7 +459,21 @@ void RecordingControl::UpdateDiskSpace() {
     const SourceCapture& source = *sources_[i].capture;
     if (list[i].enabled && source.running() && source.sampleRate() > 0) plan.Add(list[i].tracks);
   }
-  diskBytesPerSecond_ = EstimatedBytesPerSecond(config_.record, plan.count());
+  // Lossless goes by the picture: the one there is, at the rate LaunchRecording
+  // would choose, or 1080p60 while there is none.
+  int width = renderer_.outputWidth() & ~1;
+  int height = renderer_.outputHeight() & ~1;
+  if (width <= 0 || height <= 0) {
+    width = 1920;
+    height = 1080;
+  }
+  double fps = config_.record.fps;
+  if (fps <= 0.0) {
+    fps = SourceFps();
+    if (config_.active().image.deinterlace != Deinterlace::Off) fps *= 2.0;
+    if (fps <= 1.0) fps = 60.0;
+  }
+  diskBytesPerSecond_ = EstimatedBytesPerSecond(config_.record, plan.count(), width, height, fps);
 
   const double now = TicksToSeconds(ClockTicks());
   // Der Arbeitsspeicher im selben Takt, aber ohne den Umweg ueber den Job: die
@@ -560,6 +585,15 @@ bool RecordingControl::SourcesOpening() const {
   return false;
 }
 
+double RecordingControl::SourceFps() const {
+  double fps = renderer_.sourceFormat().fps;
+  if (const FrameBuffer* sink = capture_.sink()) {
+    const double measured = sink->stats().sourceFps;
+    if (measured > 1.0) fps = measured;
+  }
+  return fps;
+}
+
 void RecordingControl::FeedRecorder() {
   CollectFinished();
   disk_.Collect();
@@ -646,7 +680,7 @@ void RecordingControl::FeedRecorder() {
     // steht genauso mit dem Encoder fest, und der breite Pfad liefert ohne HDR
     // gar kein Bild.
     const bool liveWide = config_.app.recordHdr && renderer_.sourceHdr();
-    const bool formatDiffers = liveWide != recorder_.hdr();
+    const bool formatDiffers = liveWide != recorder_.wideAsked();
 
     if (!shapeDiffers && !rateDiffers && !formatDiffers) {
       pendingSince_ = -1.0;

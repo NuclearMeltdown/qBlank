@@ -57,13 +57,15 @@ struct RecordStats {
 
 // Roughly what a second of recording costs on disk, for the remaining time
 // estimate. The video bitrate is what the encoder is asked for; every audio
-// track is the 192 kbit/s the recorder fixes. A running recording has a
-// measured rate and does not need this -- this is for the number shown before
-// anything is running, where there is nothing to measure.
+// track is the 192 kbit/s the recorder fixes, or PCM in an AVI. A running
+// recording has a measured rate and does not need this -- this is for the
+// number shown before anything is running, where there is nothing to measure.
 //
 // Under RateControl::Quality the bitrate is a ceiling rather than a target, so
 // the estimate is a worst case there and the file usually turns out smaller.
-double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks);
+// A lossless encoder has no bitrate, and goes by the picture's size and rate.
+double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks, int width,
+                               int height, double fps);
 
 // Where the next recording in `folder` goes: named to the second, with a number
 // added when that name is taken -- a file cut within the same second as the
@@ -97,6 +99,9 @@ class Recorder {
   // Whether the picture keeps the full range on the PQ curve. Set before
   // Start, which works out the rest of the format from the encoder.
   void SetWide(bool wide) { wide_ = wide; }
+  // What was asked, which hdr() need not be: lossless keeps the range only on
+  // NVENC.
+  bool wideAsked() const { return wide_; }
   // The renderer's adapter (VideoRenderer::sharedAdapter), 0 for none. A
   // hardware encoder then takes the picture there, on the GPU, where it can.
   // Set before Start.

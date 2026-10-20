@@ -162,7 +162,9 @@ inline constexpr int kHdrInputCount = 4;
 enum class HdrOutput { Off, Auto, Always };
 inline constexpr int kHdrOutputCount = 3;
 
-enum class RecordContainer { Mkv, Mp4 };
+// Avi is never chosen and never saved: only a lossless encoder that belongs
+// there puts its file in one (ContainerFor).
+enum class RecordContainer { Mkv, Mp4, Avi };
 
 // How the bitrate is spent. The three every encoder here understands, under one
 // set of names -- what each vendor calls them differs, and translating that is
@@ -207,15 +209,32 @@ inline constexpr int kHdrShotFormatCount = 2;
 // what an existing configuration means.
 enum class RecordEncoder {
   Auto, X264, Nvenc, QuickSync, Amf, X265, NvencHevc, Av1Nvenc, Av1QuickSync, Av1Amf,
-  AutoEfficient
+  AutoEfficient, NvencLossless, UtVideo, Uncompressed
 };
-const int kRecordEncoderCount = 11;
+const int kRecordEncoderCount = 14;
 
 // Both automatic modes pick an encoder for you; the difference is what they
 // optimise for. Neither refers to a specific encoder, so anything that looks one
 // up by id has to check this first.
 inline bool IsAutoEncoder(RecordEncoder e) {
   return e == RecordEncoder::Auto || e == RecordEncoder::AutoEfficient;
+}
+
+// The three that keep every bit of the picture, in 4:4:4 and whatever the
+// rate settings say. Never picked automatically: a minute of them is gigabytes.
+inline bool IsLosslessEncoder(RecordEncoder e) {
+  return e == RecordEncoder::NvencLossless || e == RecordEncoder::UtVideo ||
+         e == RecordEncoder::Uncompressed;
+}
+
+// Where an encoder's file goes. The lossless ones each have their own: H.265
+// in Matroska, which MP4 can take over later; UT Video and uncompressed RGB in
+// an AVI, which is what an editor reads them from. Past 4 GB that is the AVI
+// 2.0 index, as ffmpeg writes on its own.
+inline RecordContainer ContainerFor(RecordEncoder e, RecordContainer chosen) {
+  if (e == RecordEncoder::NvencLossless) return RecordContainer::Mkv;
+  if (e == RecordEncoder::UtVideo || e == RecordEncoder::Uncompressed) return RecordContainer::Avi;
+  return chosen;
 }
 
 // Only the software encoder gets a speed knob -- for the hardware encoders the
