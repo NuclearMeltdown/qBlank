@@ -336,17 +336,20 @@ void SettingsWindow::RefreshDeviceLists() {
       std::vector<AudioDeviceInfo> inputs;
       std::vector<AudioDeviceInfo> outputs;
       std::vector<MonitorInfoEntry> monitors;
+      std::vector<ScreenInfo> screens;
     };
     auto lists = std::make_shared<Lists>();
     lists->video = EnumerateVideoDevices();
     lists->inputs = EnumerateAudioDevices(true);
     lists->outputs = EnumerateAudioDevices(false);
     lists->monitors = EnumerateMonitors();
+    lists->screens = ListScreens();
     return [this, lists] {
       videoDevices_ = std::move(lists->video);
       audioInputs_ = std::move(lists->inputs);
       audioOutputs_ = std::move(lists->outputs);
       monitors_ = std::move(lists->monitors);
+      screens_ = std::move(lists->screens);
       listsBusy_ = false;
     };
   });
@@ -469,13 +472,16 @@ void SettingsWindow::MeasureTabs() {
   // wirken sollen, das es nicht gibt, sind an dieser Stelle kein Angebot
   // sondern eine Hürde. Sie kommen zurück, sobald die Karte läuft -- und dann
   // gleich passend zu dem, was sie tatsächlich liefert.
-  const bool haveDevice = !cfg().active().capture.video.empty();
+  const CaptureSettings& capture = cfg().active().capture;
+  const bool screen = capture.source == VideoSource::Screen;
+  const bool haveDevice = screen || !capture.video.empty();
   float row = -style.ItemInnerSpacing.x;
   bool activeShown = false;
   shownTabCount_ = 0;
   for (int i = 0; i < (int)std::size(kTabNames); ++i) {
     const TabName& t = kTabNames[i];
     if (!haveDevice && SettingsTabNeedsDevice(t.tab)) continue;
+    if (screen && !SettingsTabOnScreen(t.tab)) continue;
     const float width = ImGui::CalcTextSize(T(t.de, t.en)).x + style.FramePadding.x * 2.0f;
     shownTabs_[shownTabCount_++] = {i, width};
     row += width + style.ItemInnerSpacing.x;
@@ -869,7 +875,15 @@ void SettingsWindow::PickSearchHit(int entry) {
   jumpLabel_ = SearchLabel(entry);
   // Without a device only General, Source and Updates exist. Pointing at the
   // device list is the useful answer: that is the step between here and there.
-  if (SettingsTabNeedsDevice(tab) && cfg().active().capture.video.empty()) {
+  const CaptureSettings& capture = cfg().active().capture;
+  if (capture.source == VideoSource::Screen) {
+    if (!SettingsTabOnScreen(tab)) {
+      tab = kTabSource;
+      key = "source";
+      searchNote_ = T("Gilt nur für die Capture-Karte.", "Applies to the capture card only.");
+      searchNoteTime_ = ImGui::GetTime();
+    }
+  } else if (SettingsTabNeedsDevice(tab) && capture.video.empty()) {
     tab = kTabSource;
     key = "videodev";
     searchNote_ = T("Erst ein Videogerät wählen.", "Select a video device first.");
@@ -1069,10 +1083,88 @@ void SettingsWindow::DrawAboutTab() {
 
 // ---------------------------------------------------------------- source tab
 
+void SettingsWindow::DrawScreenSource() {
+  CaptureSettings& c = cfg().active().capture;
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Bildschirm", "Screen"));
+
+  // Numbered like the monitors on the Display tab, from the same order.
+  auto name = [&](size_t i) {
+    const ScreenInfo& s = screens_[i];
+    return Format("Monitor %d  (%dx%d)%s", (int)i + 1, s.width, s.height,
+                  s.primary ? T("  [Hauptmonitor]", "  [primary]") : "");
+  };
+  const char* primary = T("Hauptmonitor", "Primary monitor");
+  std::string preview = primary;
+  if (!c.screen.empty() && !screens_.empty()) {
+    // Unplugged, the capture falls back to the primary monitor.
+    preview = T("Nicht angeschlossen – es läuft der Hauptmonitor",
+                "Not connected – the primary monitor runs instead");
+    for (size_t i = 0; i < screens_.size(); ++i) {
+      if (screens_[i].id == c.screen) preview = name(i);
+    }
+  }
+  ImGui::SetNextItemWidth(-150.0f);
+  if (ImGui::BeginCombo("##screen", preview.c_str())) {
+    if (ImGui::Selectable(primary, c.screen.empty())) c.screen.clear();
+    ImGui::Separator();
+    for (size_t i = 0; i < screens_.size(); ++i) {
+      const bool selected = screens_[i].id == c.screen;
+      if (ImGui::Selectable(name(i).c_str(), selected)) c.screen = screens_[i].id;
+      if (selected) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  Anchor("screen");
+  ImGui::SameLine();
+  if (ImGui::Button(T("Aktualisieren", "Refresh"), ImVec2(-1, 0))) InvalidateDeviceLists();
+  Anchor("refresh");
+
+  ImGui::Checkbox(T("Mauszeiger mit aufnehmen", "Include the mouse pointer"), &c.screenCursor);
+  Anchor("screencursor");
+  ImGui::Checkbox(T("Vorschau", "Preview"), &c.screenPreview);
+  Anchor("screenpreview");
+  HelpMarker(T("Zeigt im Fenster, was aufgenommen wird: ob es der richtige Bildschirm ist "
+               "oder nur Schwarz ankommt. Aus zeigt das Fenster nur Auflösung, Bildrate und "
+               "Aufnahmezeit und zeichnet seltener.",
+               "Shows in the window what is being captured: whether it is the right screen "
+               "or only black arrives. Off, the window shows just resolution, frame rate and "
+               "recording time, and redraws less often."));
+
+  ImGui::Spacing();
+  TextDisabledWrapped(T("Ältere Spiele im exklusiven Vollbild lassen sich nicht aufnehmen; im "
+                        "randlosen Fenster geht es.",
+                        "Older games in exclusive fullscreen cannot be captured; borderless "
+                        "windowed works."));
+  TextDisabledWrapped(T("Ton: im Reiter Ton „Systemton ohne qBlank“ hinzufügen.",
+                        "Sound: add “System sound without qBlank” on the Audio tab."));
+}
+
 void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   Profile& p = cfg().active();
   ImGui::Spacing();
 
+  // Karte oder Bildschirm vor allem anderen: davon haengt ab, was darunter
+  // ueberhaupt eine Frage ist.
+  ImGui::SeparatorText(T("Bildquelle", "Picture source"));
+  {
+    int source = (int)p.capture.source;
+    ImGui::RadioButton(T("Capture-Karte", "Capture card"), &source, (int)VideoSource::Card);
+    Anchor("source");
+    ImGui::SameLine();
+    ImGui::RadioButton(T("Bildschirm", "Screen"), &source, (int)VideoSource::Screen);
+    HelpMarker(T("Bildschirm nimmt einen Monitor auf, wie Windows ihn zeigt, etwa für Spiele "
+                 "am PC. Die Karte ist solange zu.",
+                 "Screen captures a monitor as Windows shows it, for games on the PC say. The "
+                 "card is closed meanwhile."));
+    p.capture.source = (VideoSource)source;
+  }
+  if (p.capture.source == VideoSource::Screen) {
+    DrawScreenSource();
+    return;
+  }
+
+  ImGui::Spacing();
   ImGui::SeparatorText(T("Videogerät", "Video device"));
 
   // A hybrid card carries both halves on one board and cannot say which one has
@@ -1799,8 +1891,12 @@ void SettingsWindow::DrawImageTab() {
   // Reiter, nicht eine andere Sortierung innerhalb dieses hier.
   ImGui::Spacing();
 
+  // Am Bildschirm gibt es nichts zu entflechten, zu entstoeren oder
+  // zuzuschneiden (App::EffectiveImage). Was bleibt, ist die Skalierung.
+  const bool screen = cfg().active().capture.source == VideoSource::Screen;
+
   // Ganz oben, weil sonst jeder Regler darunter scheinbar nichts tut.
-  if (bypassOn_) {
+  if (bypassOn_ && !screen) {
     TextWarningWrapped(Format(T("Alle Filter sind aus (%s). Schärfen, Bildregler, natives Pixelraster, "
                                 "Composite-Filter und Bildröhre wirken erst danach wieder.",
                                 "All filters are off (%s). Sharpen, picture controls, native "
@@ -1822,6 +1918,12 @@ void SettingsWindow::DrawImageTab() {
   Anchor("filter");
   ImGui::SameLine();
   HelpMarker(ScaleFilterHelp(filter));
+  if (screen) {
+    TextDisabledWrapped(T("Am Bildschirm wirkt nur das, und nur auf die Vorschau im Fenster.",
+                          "On the screen only this applies, and only to the preview in the "
+                          "window."));
+    return;
+  }
 
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderFloat(T("Schärfen", "Sharpen"), &img.sharpen, 0.0f, 1.0f, "%.2f");
@@ -2864,6 +2966,13 @@ void SettingsWindow::DrawAudioTab() {
   AudioSettings& audio = cfg().active().audio;
   ImGui::Spacing();
 
+  // The screen brings no sound to play, delay or turn down: what is left is
+  // what the recording takes.
+  if (cfg().active().capture.source == VideoSource::Screen) {
+    DrawRecordSources(true);
+    return;
+  }
+
   ImGui::SeparatorText(T("Wiedergabe", "Playback"));
   const char* outPreview =
       audio.output.name.empty() ? T("Systemstandard", "System default") : audio.output.name.c_str();
@@ -2927,8 +3036,12 @@ void SettingsWindow::DrawAudioTab() {
   ImGui::Checkbox(T("Stumm", "Muted"), &audio.mute);
   Anchor("mute");
 
-  // ---- recording sources ----
   ImGui::Spacing();
+  DrawRecordSources(false);
+}
+
+void SettingsWindow::DrawRecordSources(bool screen) {
+  AudioSettings& audio = cfg().active().audio;
   ImGui::SeparatorText(T("Tonquellen der Aufnahme", "Recording sources"));
   Anchor("sources");
   if (sourcesLocked_) {
@@ -2937,25 +3050,34 @@ void SettingsWindow::DrawAudioTab() {
   }
   ImGui::Spacing();
 
-  // The card's sound is always the first one; the list adds to it. Which device
-  // that is gets picked under Source.
-  const CaptureSettings& capture = cfg().active().capture;
-  ImGui::TextUnformatted(T("Ton der Karte", "Card audio"));
-  Anchor("cardaudio");
-  if (capture.audioSource == AudioSource::None) {
-    ImGui::TextDisabled(T("Keiner, im Reiter Quelle wählbar.", "None, chosen under Source."));
+  if (screen) {
+    // Nothing comes with the picture; the game is in what Windows plays.
+    TextDisabledWrapped(T("Der Bildschirm bringt keinen Ton mit. Für das Spiel „Systemton ohne "
+                          "qBlank“ hinzufügen.",
+                          "The screen brings no sound. For the game, add “System sound "
+                          "without qBlank”."));
   } else {
-    const bool found = capture.audioSource == AudioSource::Manual ||
-                       (embeddedAudioForDevice_ == capture.video.id && !embeddedAudioName_.empty());
-    ImGui::TextDisabled("%s", !found ? T("Eingebettetes Audio", "Embedded audio")
-                              : capture.audioSource == AudioSource::Manual
-                                  ? capture.audio.name.c_str()
-                                  : embeddedAudioName_.c_str());
-    ImGui::SetNextItemWidth(-260.0f);
-    LevelMeter(T("Pegel", "Level"), inputPeak_, true);
-    ImGui::SameLine();
-    HelpMarker(T("Vor Lautstärke und Stumm, so wie er aufgenommen wird.",
-                 "Before volume and mute, as it is recorded."));
+    // The card's sound is always the first one; the list adds to it. Which
+    // device that is gets picked under Source.
+    const CaptureSettings& capture = cfg().active().capture;
+    ImGui::TextUnformatted(T("Ton der Karte", "Card audio"));
+    Anchor("cardaudio");
+    if (capture.audioSource == AudioSource::None) {
+      ImGui::TextDisabled(T("Keiner, im Reiter Quelle wählbar.", "None, chosen under Source."));
+    } else {
+      const bool found =
+          capture.audioSource == AudioSource::Manual ||
+          (embeddedAudioForDevice_ == capture.video.id && !embeddedAudioName_.empty());
+      ImGui::TextDisabled("%s", !found ? T("Eingebettetes Audio", "Embedded audio")
+                                : capture.audioSource == AudioSource::Manual
+                                    ? capture.audio.name.c_str()
+                                    : embeddedAudioName_.c_str());
+      ImGui::SetNextItemWidth(-260.0f);
+      LevelMeter(T("Pegel", "Level"), inputPeak_, true);
+      ImGui::SameLine();
+      HelpMarker(T("Vor Lautstärke und Stumm, so wie er aufgenommen wird.",
+                   "Before volume and mute, as it is recorded."));
+    }
   }
   ImGui::Spacing();
 
@@ -3017,8 +3139,8 @@ void SettingsWindow::DrawAudioTab() {
       }
       ImGui::EndDisabled();
       // The game is in that file once already, through the card.
-      const AudioDeviceInfo* at = input ? nullptr : outputOf(source.device);
-      if (!input && (at ? at == playback : source.device == audio.output)) {
+      const AudioDeviceInfo* at = input || screen ? nullptr : outputOf(source.device);
+      if (!input && !screen && (at ? at == playback : source.device == audio.output)) {
         ImGui::TextColored(warn, "%s",
                            T("Dort läuft auch der Ton der Karte: er wäre doppelt in der Aufnahme.",
                              "The card's sound plays there too: it would be recorded twice."));
@@ -4190,17 +4312,20 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                "for HDMI and RGB sources. Larger files; browsers, phones and many editors "
                "cannot play it, VLC and mpv can."));
   // Only where nothing is lost on the way: the card's own bytes are the point.
-  bool unfiltered = rec.unfiltered && lossless;
-  ImGui::BeginDisabled(!lossless);
-  if (ImGui::Checkbox(T("Ohne Filter", "Unfiltered"), &unfiltered)) rec.unfiltered = unfiltered;
-  Anchor("unfiltered");
-  ImGui::EndDisabled();
-  ImGui::SameLine();
-  HelpMarker(T("Nur verlustfrei: die Bilder der Karte, wie sie ankommen, ohne Deinterlacing, "
-               "Zuschnitt, Skalierung und Filter, mit der Bildrate der Karte. Aus: das Bild, "
-               "wie man es sieht.",
-               "Lossless only: the card's frames as they arrive, without deinterlacing, crop, "
-               "scaling or filters, at the card's frame rate. Off: the picture as you see it."));
+  // The screen has no other bytes: it is recorded as it comes either way.
+  if (cfg().active().capture.source != VideoSource::Screen) {
+    bool unfiltered = rec.unfiltered && lossless;
+    ImGui::BeginDisabled(!lossless);
+    if (ImGui::Checkbox(T("Ohne Filter", "Unfiltered"), &unfiltered)) rec.unfiltered = unfiltered;
+    Anchor("unfiltered");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    HelpMarker(T("Nur verlustfrei: die Bilder der Karte, wie sie ankommen, ohne Deinterlacing, "
+                 "Zuschnitt, Skalierung und Filter, mit der Bildrate der Karte. Aus: das Bild, "
+                 "wie man es sieht.",
+                 "Lossless only: the card's frames as they arrive, without deinterlacing, crop, "
+                 "scaling or filters, at the card's frame rate. Off: the picture as you see it."));
+  }
   if (lossless) {
     // What lossless costs, in the number that decides whether the disk keeps
     // up -- see the free space on the Recording tab for how long it lasts.

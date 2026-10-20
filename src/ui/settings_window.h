@@ -13,6 +13,7 @@
 struct ImGuiContext;
 
 #include "audio/audio_devices.h"
+#include "capture/screen_capture.h"
 #include "capture/video_capture.h"
 #include "update/updater.h"
 #include "config.h"
@@ -242,8 +243,12 @@ class SettingsWindow {
   void RefreshDeviceLists();
   const DeviceProbeResult& CapsFor(const DeviceRef& device, const DeviceProbeResult* liveCaps);
   void DrawSourceTab(const DeviceProbeResult& caps);
+  // In place of everything about the card when the screen is the source.
+  void DrawScreenSource();
   void DrawImageTab();
   void DrawAudioTab();
+  // Part of the sound tab, and all of it on the screen.
+  void DrawRecordSources(bool screen);
   void DrawGeneralTab();
   void DrawDisplayTab();
   void DrawHdrBlock();
@@ -298,6 +303,7 @@ class SettingsWindow {
   std::vector<AudioDeviceInfo> audioInputs_;
   std::vector<AudioDeviceInfo> audioOutputs_;
   std::vector<MonitorInfoEntry> monitors_;
+  std::vector<ScreenInfo> screens_;
 
   // Whether the start menu and the desktop have a shortcut to this copy. Read
   // from disk on setupJobs_, once per opening and again after each button.

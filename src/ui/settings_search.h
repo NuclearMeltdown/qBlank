@@ -30,6 +30,10 @@ inline bool SettingsTabNeedsDevice(int tab) {
   return tab != kTabGeneral && tab != kTabSource && tab != kTabAbout;
 }
 
+// The screen comes as SDR, so HDR has nothing to say about it. The sound tab
+// stays for the recording sources.
+inline bool SettingsTabOnScreen(int tab) { return tab != kTabHdr; }
+
 struct SettingsSearchHit {
   int entry;
   int score;
