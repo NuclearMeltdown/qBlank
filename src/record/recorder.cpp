@@ -590,17 +590,20 @@ bool Recorder::Open(Session* s) {
   }
 
   // A hardware encoder takes the picture on the GPU, where the renderer draws
-  // it, when it takes D3D11 frames and the renderer can share them. 4:4:4 is
-  // read back: no encoder's frames on the GPU hold it.
-  if (gpuAdapter_ != 0 && format_.layout == YuvLayout::Nv12 &&
+  // it, when it takes D3D11 frames and the renderer can share them. 4:4:4 goes
+  // as CUDA frames: no D3D11 format holds it, and NVENC, the one encoder that
+  // does, takes those as well.
+  const bool fullChroma = format_.layout == YuvLayout::I444;
+  if (gpuAdapter_ != 0 && (fullChroma || format_.layout == YuvLayout::Nv12) &&
       FamilyOf(s->encoder.ffmpegName) != Family::Software) {
+    const AVPixelFormat wanted = fullChroma ? AV_PIX_FMT_CUDA : AV_PIX_FMT_D3D11;
     bool takes = false;
     for (int i = 0; const AVCodecHWConfig* c = av.avcodec_get_hw_config(codec, i); ++i) {
-      takes |= c->pix_fmt == AV_PIX_FMT_D3D11 &&
-               (c->methods & AV_CODEC_HW_CONFIG_METHOD_HW_FRAMES_CTX) != 0;
+      takes |= c->pix_fmt == wanted && (c->methods & AV_CODEC_HW_CONFIG_METHOD_HW_FRAMES_CTX) != 0;
     }
     if (takes) {
-      s->gpu = CreateGpuFrames(av, gpuAdapter_, width_, height_, format_.sampleBytes() == 2);
+      s->gpu = CreateGpuFrames(av, gpuAdapter_, width_, height_, fullChroma,
+                               format_.sampleBytes() == 2);
     }
   }
 
@@ -615,7 +618,7 @@ bool Recorder::Open(Session* s) {
     v->width = width_;
     v->height = height_;
     if (s->gpu) {
-      v->pix_fmt = AV_PIX_FMT_D3D11;
+      v->pix_fmt = ((const AVHWFramesContext*)s->gpu->framesContext()->data)->format;
       if (!(v->hw_frames_ctx = av.av_buffer_ref(s->gpu->framesContext()))) return AVERROR(ENOMEM);
     } else {
       v->pix_fmt = av.av_get_pix_fmt(FfmpegPixelFormat(format_));

@@ -4,9 +4,11 @@
 //
 // A hardware encoder takes its frames from a pool on a device of its own. This
 // is that device, on the adapter the renderer draws with, with the pool, the
-// three textures the yuv pass draws into, and the step between them: one small
-// pass that splits a texture's luma and chroma rows into a frame of the pool,
-// NV12 or P010. The picture never leaves the GPU.
+// three textures the yuv pass draws into, and the step between them. NV12 and
+// P010 go into D3D11 frames through one small pass that splits a texture's
+// luma and chroma rows. 4:4:4 goes into CUDA frames, for NVENC, the one
+// hardware encoder that takes it: three copies, one per plane. The picture
+// never leaves the GPU.
 
 #include <atomic>
 #include <cstdint>
@@ -38,8 +40,9 @@ class GpuFrames {
 
 // Null when any of it cannot be made on the adapter with this LUID, which the
 // log then says; the recording reads the picture back instead. `width` and
-// `height` are even; ten bits on sixteen with `sixteenBit`.
+// `height` are even; planar 4:4:4 with `fullChroma`, else 4:2:0; ten bits on
+// sixteen with `sixteenBit`.
 std::unique_ptr<GpuFrames> CreateGpuFrames(const Libav& av, uint64_t adapter, int width,
-                                           int height, bool sixteenBit);
+                                           int height, bool fullChroma, bool sixteenBit);
 
 }  // namespace cap

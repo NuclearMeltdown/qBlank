@@ -47,7 +47,8 @@ namespace cap {
   X(av_get_pix_fmt) X(av_d2q) X(av_rescale_q) X(av_dict_set) X(av_dict_get) X(av_dict_copy)     \
   X(av_dict_free) X(av_opt_set_int) X(av_channel_layout_default) X(av_channel_layout_uninit)    \
   X(av_frame_move_ref) X(av_hwdevice_ctx_alloc) X(av_hwdevice_ctx_init) X(av_hwframe_ctx_alloc) \
-  X(av_hwframe_ctx_init) X(av_hwframe_get_buffer) X(av_hwframe_transfer_data)
+  X(av_hwframe_ctx_init) X(av_hwframe_get_buffer) X(av_hwframe_transfer_data)                   \
+  X(av_hwdevice_ctx_create)
 #define QB_SWRESAMPLE_FUNCTIONS(X)                                                   \
   X(swresample_version) X(swr_alloc_set_opts2) X(swr_init) X(swr_convert)            \
   X(swr_set_compensation) X(swr_get_delay) X(swr_get_out_samples) X(swr_free)

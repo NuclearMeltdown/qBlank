@@ -11,10 +11,16 @@
 #include "record/libav.h"
 #include "render/shared_frames.h"
 
+// The two handles hwcontext_cuda.h takes from cuda.h, declared as cuda.h does.
+#define CUDA_VERSION 12000
+typedef struct CUctx_st* CUcontext;
+typedef struct CUstream_st* CUstream;
+
 extern "C" {
 #ifdef _MSC_VER
 #pragma warning(push, 0)
 #endif
+#include <libavutil/hwcontext_cuda.h>
 #include <libavutil/hwcontext_d3d11va.h>
 #ifdef _MSC_VER
 #pragma warning(pop)
@@ -63,19 +69,133 @@ bool Failed(int code, const char* what) {
   return true;
 }
 
-class D3D11GpuFrames : public GpuFrames {
+// The device on the renderer's adapter and the three textures the yuv pass
+// draws into, whichever way the picture goes on from there.
+class SharedGpuFrames : public GpuFrames {
  public:
-  D3D11GpuFrames(const Libav& av) : av_(av) {}
-  ~D3D11GpuFrames() override {
-    targets_.clear();
+  ~SharedGpuFrames() override {
     av_.av_buffer_unref(&frames_);
     av_.av_buffer_unref(&device_);
   }
 
-  bool Create(uint64_t adapter, int width, int height, bool sixteenBit);
-
   std::shared_ptr<SharedFrames> frames() const override { return shared_; }
   AVBufferRef* framesContext() const override { return frames_; }
+
+ protected:
+  explicit SharedGpuFrames(const Libav& av) : av_(av) {}
+
+  // The textures hold `rows` of the yuv pass's image.
+  bool CreateShared(uint64_t adapter, UINT deviceFlags, int width, int height, int rows,
+                    bool sixteenBit);
+  // Key 1 once the yuv pass has drawn it. That is released before the slot is
+  // handed over, so this hardly ever waits; a renderer that went away does not
+  // hold the recording up for more than a second.
+  bool Acquire(int slot, const std::atomic<bool>& keepWaiting);
+  void Release(int slot);
+
+  const Libav& av_;
+  ComPtr<IDXGIAdapter1> adapter_;
+  ComPtr<ID3D11Device> dev_;
+  ComPtr<ID3D11DeviceContext> dc_;
+  AVBufferRef* device_ = nullptr;
+  AVBufferRef* frames_ = nullptr;
+  int width_ = 0;
+  int height_ = 0;
+  bool sixteenBit_ = false;
+
+  std::shared_ptr<OwnedFrames> shared_;
+  ComPtr<ID3D11Texture2D> tex_[SharedFrames::kSlots];
+  ComPtr<IDXGIKeyedMutex> mutex_[SharedFrames::kSlots];
+};
+
+bool SharedGpuFrames::CreateShared(uint64_t adapter, UINT deviceFlags, int width, int height,
+                                   int rows, bool sixteenBit) {
+  width_ = width;
+  height_ = height;
+  sixteenBit_ = sixteenBit;
+
+  // The device, on the renderer's adapter: a texture is shared within one.
+  ComPtr<IDXGIFactory1> factory;
+  if (Failed(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "CreateDXGIFactory1")) return false;
+  ComPtr<IDXGIAdapter1> a;
+  for (UINT i = 0; !adapter_ && factory->EnumAdapters1(i, &a) != DXGI_ERROR_NOT_FOUND; ++i) {
+    DXGI_ADAPTER_DESC1 desc = {};
+    uint64_t luid = 0;
+    if (SUCCEEDED(a->GetDesc1(&desc))) memcpy(&luid, &desc.AdapterLuid, sizeof(luid));
+    if (luid == adapter) adapter_ = a;
+  }
+  if (!adapter_) {
+    CAP_WARN("Recording on the GPU: the renderer's adapter is not there");
+    return false;
+  }
+  const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
+  if (Failed(D3D11CreateDevice(adapter_.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, deviceFlags,
+                               levels, 2, D3D11_SDK_VERSION, &dev_, nullptr, &dc_),
+             "D3D11CreateDevice")) {
+    return false;
+  }
+
+  D3D11_TEXTURE2D_DESC td = {};
+  td.Width = (UINT)width;
+  td.Height = (UINT)rows;
+  td.MipLevels = 1;
+  td.ArraySize = 1;
+  td.Format = sixteenBit ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R8_UINT;
+  td.SampleDesc.Count = 1;
+  td.Usage = D3D11_USAGE_DEFAULT;
+  td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+  td.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+  shared_ = std::make_shared<OwnedFrames>();
+  shared_->width = width;
+  shared_->height = height;
+  shared_->rows = rows;
+  shared_->sixteenBit = sixteenBit;
+  for (int i = 0; i < SharedFrames::kSlots; ++i) {
+    ComPtr<IDXGIResource1> resource;
+    HANDLE handle = nullptr;
+    if (Failed(dev_->CreateTexture2D(&td, nullptr, &tex_[i]), "CreateTexture2D") ||
+        Failed(tex_[i].As(&mutex_[i]), "IDXGIKeyedMutex") ||
+        Failed(tex_[i].As(&resource), "IDXGIResource1") ||
+        Failed(resource->CreateSharedHandle(
+                   nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr,
+                   &handle),
+               "CreateSharedHandle")) {
+      return false;
+    }
+    shared_->handle[i] = handle;
+  }
+  return true;
+}
+
+bool SharedGpuFrames::Acquire(int slot, const std::atomic<bool>& keepWaiting) {
+  IDXGIKeyedMutex* mutex = mutex_[slot].Get();
+  HRESULT hr = (HRESULT)WAIT_TIMEOUT;
+  for (int i = 0; i < 10 && hr == (HRESULT)WAIT_TIMEOUT &&
+                  keepWaiting.load(std::memory_order_relaxed);
+       ++i) {
+    hr = mutex->AcquireSync(1, 100);
+  }
+  if (hr == S_OK) return true;
+  if (hr != (HRESULT)WAIT_TIMEOUT) CAP_WARN("Recording on the GPU: AcquireSync gave 0x%08lx", hr);
+  return false;
+}
+
+void SharedGpuFrames::Release(int slot) {
+  mutex_[slot]->ReleaseSync(0);
+  shared_->key[slot] = 0;
+}
+
+// ---- NV12 and P010: D3D11 frames ----
+//
+// One small pass splits a texture's luma and chroma rows into a frame of the
+// encoder's D3D11 pool.
+
+class D3D11GpuFrames : public SharedGpuFrames {
+ public:
+  explicit D3D11GpuFrames(const Libav& av) : SharedGpuFrames(av) {}
+  ~D3D11GpuFrames() override { targets_.clear(); }
+
+  bool Create(uint64_t adapter, int width, int height, bool sixteenBit);
   bool Convert(int slot, AVFrame* out, const std::atomic<bool>& keepWaiting) override;
 
  private:
@@ -90,19 +210,7 @@ class D3D11GpuFrames : public GpuFrames {
   Targets* TargetsFor(const AVFrame* frame);
   bool CreateShader(const Packed& packed, bool pixel);
 
-  const Libav& av_;
-  ComPtr<ID3D11Device> dev_;
-  ComPtr<ID3D11DeviceContext> dc_;
-  AVBufferRef* device_ = nullptr;
-  AVBufferRef* frames_ = nullptr;
   AVD3D11VADeviceContext* hw_ = nullptr;
-  int width_ = 0;
-  int height_ = 0;
-  bool sixteenBit_ = false;
-
-  std::shared_ptr<OwnedFrames> shared_;
-  ComPtr<ID3D11Texture2D> tex_[SharedFrames::kSlots];
-  ComPtr<IDXGIKeyedMutex> mutex_[SharedFrames::kSlots];
   ComPtr<ID3D11ShaderResourceView> srv_[SharedFrames::kSlots];
 
   ComPtr<ID3D11VertexShader> vs_;
@@ -126,30 +234,8 @@ bool D3D11GpuFrames::CreateShader(const Packed& packed, bool pixel) {
 }
 
 bool D3D11GpuFrames::Create(uint64_t adapter, int width, int height, bool sixteenBit) {
-  width_ = width;
-  height_ = height;
-  sixteenBit_ = sixteenBit;
-
-  // The device, on the renderer's adapter: a texture is shared within one.
-  ComPtr<IDXGIFactory1> factory;
-  if (Failed(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "CreateDXGIFactory1")) return false;
-  ComPtr<IDXGIAdapter1> found;
-  ComPtr<IDXGIAdapter1> a;
-  for (UINT i = 0; !found && factory->EnumAdapters1(i, &a) != DXGI_ERROR_NOT_FOUND; ++i) {
-    DXGI_ADAPTER_DESC1 desc = {};
-    uint64_t luid = 0;
-    if (SUCCEEDED(a->GetDesc1(&desc))) memcpy(&luid, &desc.AdapterLuid, sizeof(luid));
-    if (luid == adapter) found = a;
-  }
-  if (!found) {
-    CAP_WARN("Recording on the GPU: the renderer's adapter is not there");
-    return false;
-  }
-  const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
-  if (Failed(D3D11CreateDevice(found.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr,
-                               D3D11_CREATE_DEVICE_VIDEO_SUPPORT, levels, 2, D3D11_SDK_VERSION,
-                               &dev_, nullptr, &dc_),
-             "D3D11CreateDevice")) {
+  if (!CreateShared(adapter, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, width, height,
+                    height + height / 2, sixteenBit)) {
     return false;
   }
   // The encoder may use the device from threads of its own, as ffmpeg's own
@@ -177,41 +263,11 @@ bool D3D11GpuFrames::Create(uint64_t adapter, int width, int height, bool sixtee
   ((AVD3D11VAFramesContext*)fc->hwctx)->BindFlags |= D3D11_BIND_RENDER_TARGET;
   if (Failed(av_.av_hwframe_ctx_init(frames_), "av_hwframe_ctx_init")) return false;
 
-  // The three textures the yuv pass draws into.
-  const int rows = height + height / 2;
-  const DXGI_FORMAT format = sixteenBit ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R8_UINT;
-  D3D11_TEXTURE2D_DESC td = {};
-  td.Width = (UINT)width;
-  td.Height = (UINT)rows;
-  td.MipLevels = 1;
-  td.ArraySize = 1;
-  td.Format = format;
-  td.SampleDesc.Count = 1;
-  td.Usage = D3D11_USAGE_DEFAULT;
-  td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-  td.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
   D3D11_SHADER_RESOURCE_VIEW_DESC sd = {};
-  sd.Format = format;
+  sd.Format = sixteenBit ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R8_UINT;
   sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
   sd.Texture2D.MipLevels = 1;
-  shared_ = std::make_shared<OwnedFrames>();
-  shared_->width = width;
-  shared_->height = height;
-  shared_->rows = rows;
-  shared_->sixteenBit = sixteenBit;
   for (int i = 0; i < SharedFrames::kSlots; ++i) {
-    ComPtr<IDXGIResource1> resource;
-    HANDLE handle = nullptr;
-    if (Failed(dev_->CreateTexture2D(&td, nullptr, &tex_[i]), "CreateTexture2D") ||
-        Failed(tex_[i].As(&mutex_[i]), "IDXGIKeyedMutex") ||
-        Failed(tex_[i].As(&resource), "IDXGIResource1") ||
-        Failed(resource->CreateSharedHandle(
-                   nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr,
-                   &handle),
-               "CreateSharedHandle")) {
-      return false;
-    }
-    shared_->handle[i] = handle;
     if (Failed(dev_->CreateShaderResourceView(tex_[i].Get(), &sd, &srv_[i]),
                "CreateShaderResourceView")) {
       return false;
@@ -275,20 +331,7 @@ D3D11GpuFrames::Targets* D3D11GpuFrames::TargetsFor(const AVFrame* frame) {
 }
 
 bool D3D11GpuFrames::Convert(int slot, AVFrame* out, const std::atomic<bool>& keepWaiting) {
-  // Key 1 once the yuv pass has drawn it. That is released before the slot is
-  // handed over, so this hardly ever waits; a renderer that went away does not
-  // hold the recording up for more than a second.
-  IDXGIKeyedMutex* mutex = mutex_[slot].Get();
-  HRESULT hr = (HRESULT)WAIT_TIMEOUT;
-  for (int i = 0; i < 10 && hr == (HRESULT)WAIT_TIMEOUT &&
-                  keepWaiting.load(std::memory_order_relaxed);
-       ++i) {
-    hr = mutex->AcquireSync(1, 100);
-  }
-  if (hr != S_OK) {
-    if (hr != (HRESULT)WAIT_TIMEOUT) CAP_WARN("Recording on the GPU: AcquireSync gave 0x%08lx", hr);
-    return false;
-  }
+  if (!Acquire(slot, keepWaiting)) return false;
 
   const Targets* t = TargetsFor(out);
   if (t) {
@@ -332,16 +375,224 @@ bool D3D11GpuFrames::Convert(int slot, AVFrame* out, const std::atomic<bool>& ke
     hw_->unlock(hw_->lock_ctx);
   }
 
-  mutex->ReleaseSync(0);
-  shared_->key[slot] = 0;
+  Release(slot);
   return t != nullptr;
+}
+
+// ---- 4:4:4: CUDA frames ----
+//
+// No D3D11 texture holds planar 4:4:4, and NVENC, the one hardware encoder
+// that encodes it, also takes CUDA frames. The yuv pass's image already is the
+// three planes one under the other, so three copies on the GPU move it into a
+// frame of the pool. CUDA does not register a texture shared by NT handle, so
+// the slot is first copied into one of this device's own, which it does. The
+// driver's library is opened at run time; what is declared here is the little
+// of cuda.h that is called.
+
+using CUresult = int;
+using CUdevice = int;
+using CUdeviceptr = unsigned long long;
+typedef struct CUarray_st* CUarray;
+typedef struct CUgraphicsResource_st* CUgraphicsResource;
+
+enum CUmemorytype : int { kCuMemoryDevice = 2, kCuMemoryArray = 3 };
+
+struct CudaCopy2D {  // CUDA_MEMCPY2D
+  size_t srcXInBytes, srcY;
+  CUmemorytype srcMemoryType;
+  const void* srcHost;
+  CUdeviceptr srcDevice;
+  CUarray srcArray;
+  size_t srcPitch;
+  size_t dstXInBytes, dstY;
+  CUmemorytype dstMemoryType;
+  void* dstHost;
+  CUdeviceptr dstDevice;
+  CUarray dstArray;
+  size_t dstPitch;
+  size_t WidthInBytes, Height;
+};
+
+struct Cuda {
+  CUresult(__stdcall* cuInit)(unsigned flags);
+  CUresult(__stdcall* cuDeviceGetCount)(int* count);
+  CUresult(__stdcall* cuDeviceGet)(CUdevice* device, int ordinal);
+  CUresult(__stdcall* cuD3D11GetDevice)(CUdevice* device, IDXGIAdapter* adapter);
+  CUresult(__stdcall* cuCtxPushCurrent_v2)(CUcontext ctx);
+  CUresult(__stdcall* cuCtxPopCurrent_v2)(CUcontext* ctx);
+  CUresult(__stdcall* cuGraphicsD3D11RegisterResource)(CUgraphicsResource* resource,
+                                                       ID3D11Resource* d3d, unsigned flags);
+  CUresult(__stdcall* cuGraphicsUnregisterResource)(CUgraphicsResource resource);
+  CUresult(__stdcall* cuGraphicsMapResources)(unsigned count, CUgraphicsResource* resources,
+                                              CUstream stream);
+  CUresult(__stdcall* cuGraphicsUnmapResources)(unsigned count, CUgraphicsResource* resources,
+                                                CUstream stream);
+  CUresult(__stdcall* cuGraphicsSubResourceGetMappedArray)(CUarray* array,
+                                                           CUgraphicsResource resource,
+                                                           unsigned index, unsigned level);
+  CUresult(__stdcall* cuMemcpy2DAsync_v2)(const CudaCopy2D* copy, CUstream stream);
+  CUresult(__stdcall* cuStreamSynchronize)(CUstream stream);
+  CUresult(__stdcall* cuGetErrorName)(CUresult error, const char** name);
+};
+
+#define QB_CUDA_FUNCTIONS(X)                                                                    \
+  X(cuInit) X(cuDeviceGetCount) X(cuDeviceGet) X(cuD3D11GetDevice) X(cuCtxPushCurrent_v2)       \
+  X(cuCtxPopCurrent_v2) X(cuGraphicsD3D11RegisterResource) X(cuGraphicsUnregisterResource)      \
+  X(cuGraphicsMapResources) X(cuGraphicsUnmapResources) X(cuGraphicsSubResourceGetMappedArray) \
+  X(cuMemcpy2DAsync_v2) X(cuStreamSynchronize) X(cuGetErrorName)
+
+class CudaGpuFrames : public SharedGpuFrames {
+ public:
+  explicit CudaGpuFrames(const Libav& av) : SharedGpuFrames(av) {}
+  ~CudaGpuFrames() override;
+
+  bool Create(uint64_t adapter, int width, int height, bool sixteenBit);
+  bool Convert(int slot, AVFrame* out, const std::atomic<bool>& keepWaiting) override;
+
+ private:
+  bool CuFailed(CUresult result, const char* what) const;
+
+  HMODULE dll_ = nullptr;
+  Cuda cu_ = {};
+  // ffmpeg's: the pool's memory is the context's, and frames the encoder
+  // still holds may outlive this.
+  CUcontext ctx_ = nullptr;
+  ComPtr<ID3D11Texture2D> copy_;
+  CUgraphicsResource resource_ = nullptr;
+};
+
+bool CudaGpuFrames::CuFailed(CUresult result, const char* what) const {
+  if (result == 0) return false;
+  const char* name = nullptr;
+  if (cu_.cuGetErrorName(result, &name) != 0 || !name) name = "?";
+  CAP_WARN("Recording on the GPU: %s failed: %s (%d)", what, name, result);
+  return true;
+}
+
+CudaGpuFrames::~CudaGpuFrames() {
+  if (resource_ && cu_.cuCtxPushCurrent_v2(ctx_) == 0) {
+    cu_.cuGraphicsUnregisterResource(resource_);
+    CUcontext popped = nullptr;
+    cu_.cuCtxPopCurrent_v2(&popped);
+  }
+  av_.av_buffer_unref(&frames_);
+  av_.av_buffer_unref(&device_);
+  if (dll_) FreeLibrary(dll_);  // ffmpeg holds its own as long as it needs it
+}
+
+bool CudaGpuFrames::Create(uint64_t adapter, int width, int height, bool sixteenBit) {
+  dll_ = LoadLibraryExW(L"nvcuda.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+  if (!dll_) {
+    CAP_LOG("Recording on the GPU: no CUDA driver; 4:4:4 is read back");
+    return false;
+  }
+#define QB_CUDA_LOAD(name)                                                    \
+  if (!(cu_.name = (decltype(cu_.name))(void*)GetProcAddress(dll_, #name))) { \
+    CAP_WARN("Recording on the GPU: nvcuda.dll has no " #name);              \
+    return false;                                                             \
+  }
+  QB_CUDA_FUNCTIONS(QB_CUDA_LOAD)
+#undef QB_CUDA_LOAD
+
+  if (!CreateShared(adapter, 0, width, height, height * 3, sixteenBit)) return false;
+
+  // The renderer's adapter as CUDA counts them, for ffmpeg's device on it.
+  CUdevice device = 0;
+  int count = 0;
+  int ordinal = -1;
+  if (CuFailed(cu_.cuInit(0), "cuInit") ||
+      CuFailed(cu_.cuD3D11GetDevice(&device, adapter_.Get()), "cuD3D11GetDevice") ||
+      CuFailed(cu_.cuDeviceGetCount(&count), "cuDeviceGetCount")) {
+    return false;
+  }
+  for (int i = 0; i < count && ordinal < 0; ++i) {
+    CUdevice d = 0;
+    if (cu_.cuDeviceGet(&d, i) == 0 && d == device) ordinal = i;
+  }
+  if (ordinal < 0) {
+    CAP_WARN("Recording on the GPU: CUDA does not list the renderer's adapter");
+    return false;
+  }
+  if (Failed(av_.av_hwdevice_ctx_create(&device_, AV_HWDEVICE_TYPE_CUDA,
+                                        Format("%d", ordinal).c_str(), nullptr, 0),
+             "av_hwdevice_ctx_create")) {
+    return false;
+  }
+  ctx_ = ((AVCUDADeviceContext*)((AVHWDeviceContext*)device_->data)->hwctx)->cuda_ctx;
+
+  frames_ = av_.av_hwframe_ctx_alloc(device_);
+  if (!frames_) return false;
+  AVHWFramesContext* fc = (AVHWFramesContext*)frames_->data;
+  fc->format = AV_PIX_FMT_CUDA;
+  // Ten bits at the top of sixteen, as the yuv pass writes them for NVENC.
+  fc->sw_format = sixteenBit ? AV_PIX_FMT_YUV444P16 : AV_PIX_FMT_YUV444P;
+  fc->width = width;
+  fc->height = height;
+  fc->initial_pool_size = 0;
+  if (Failed(av_.av_hwframe_ctx_init(frames_), "av_hwframe_ctx_init")) return false;
+
+  // The texture CUDA copies from: a slot's own, unshared.
+  D3D11_TEXTURE2D_DESC td = {};
+  tex_[0]->GetDesc(&td);
+  td.MiscFlags = 0;
+  if (Failed(dev_->CreateTexture2D(&td, nullptr, &copy_), "CreateTexture2D")) return false;
+  if (CuFailed(cu_.cuCtxPushCurrent_v2(ctx_), "cuCtxPushCurrent")) return false;
+  const bool ok = !CuFailed(cu_.cuGraphicsD3D11RegisterResource(&resource_, copy_.Get(), 0),
+                            "cuGraphicsD3D11RegisterResource");
+  CUcontext popped = nullptr;
+  cu_.cuCtxPopCurrent_v2(&popped);
+  return ok;
+}
+
+bool CudaGpuFrames::Convert(int slot, AVFrame* out, const std::atomic<bool>& keepWaiting) {
+  // The copy waits for the yuv pass on the keyed mutex; the renderer can have
+  // the slot back as soon as it is queued.
+  if (!Acquire(slot, keepWaiting)) return false;
+  dc_->CopyResource(copy_.Get(), tex_[slot].Get());
+  Release(slot);
+
+  bool ok = !CuFailed(cu_.cuCtxPushCurrent_v2(ctx_), "cuCtxPushCurrent");
+  if (ok) {
+    // The map waits for the D3D11 copy, the unmap has D3D11 wait for CUDA's.
+    // Waiting for them here as well means the encoder never sees a frame half
+    // filled.
+    CUgraphicsResource resource = resource_;
+    ok = !CuFailed(cu_.cuGraphicsMapResources(1, &resource, nullptr), "cuGraphicsMapResources");
+    if (ok) {
+      CUarray array = nullptr;
+      ok = !CuFailed(cu_.cuGraphicsSubResourceGetMappedArray(&array, resource, 0, 0),
+                   "cuGraphicsSubResourceGetMappedArray");
+      for (int p = 0; ok && p < 3; ++p) {
+        CudaCopy2D copy = {};
+        copy.srcMemoryType = kCuMemoryArray;
+        copy.srcArray = array;
+        copy.srcY = (size_t)p * (size_t)height_;
+        copy.dstMemoryType = kCuMemoryDevice;
+        copy.dstDevice = (CUdeviceptr)out->data[p];
+        copy.dstPitch = (size_t)out->linesize[p];
+        copy.WidthInBytes = (size_t)width_ * (sixteenBit_ ? 2 : 1);
+        copy.Height = (size_t)height_;
+        ok = !CuFailed(cu_.cuMemcpy2DAsync_v2(&copy, nullptr), "cuMemcpy2DAsync");
+      }
+      ok = !CuFailed(cu_.cuStreamSynchronize(nullptr), "cuStreamSynchronize") && ok;
+      cu_.cuGraphicsUnmapResources(1, &resource, nullptr);
+    }
+    CUcontext popped = nullptr;
+    cu_.cuCtxPopCurrent_v2(&popped);
+  }
+  return ok;
 }
 
 }  // namespace
 
 std::unique_ptr<GpuFrames> CreateGpuFrames(const Libav& av, uint64_t adapter, int width,
-                                           int height, bool sixteenBit) {
+                                           int height, bool fullChroma, bool sixteenBit) {
   if (!adapter || width < 2 || height < 2 || (width | height) & 1) return nullptr;
+  if (fullChroma) {
+    auto frames = std::make_unique<CudaGpuFrames>(av);
+    if (!frames->Create(adapter, width, height, sixteenBit)) return nullptr;
+    return frames;
+  }
   auto frames = std::make_unique<D3D11GpuFrames>(av);
   if (!frames->Create(adapter, width, height, sixteenBit)) return nullptr;
   return frames;
