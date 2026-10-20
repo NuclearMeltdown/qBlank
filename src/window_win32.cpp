@@ -839,6 +839,19 @@ void Window::SetTopmost(bool topmost) {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
+void Window::SetHiddenFromCapture(bool hidden) {
+  const HWND hwnd = impl_->hwnd;
+  if (!hwnd) return;
+  // Windows 10 2004 and later. Before that the call fails and the window stays
+  // in the picture, which is all that can be done there: the older WDA_MONITOR
+  // would put a black rectangle in its place instead.
+  constexpr DWORD kExclude = 0x11;  // WDA_EXCLUDEFROMCAPTURE
+  DWORD now = WDA_NONE;
+  ::GetWindowDisplayAffinity(hwnd, &now);
+  if ((now == kExclude) == hidden) return;
+  ::SetWindowDisplayAffinity(hwnd, hidden ? kExclude : WDA_NONE);
+}
+
 void Window::SetDarkFrame(bool dark) {
   const HWND hwnd = impl_->hwnd;
   if (!hwnd) return;

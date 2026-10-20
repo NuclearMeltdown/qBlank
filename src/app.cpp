@@ -290,6 +290,10 @@ void App::ApplyWindowFlags() {
   window_.SetTopmost(top);
   // Second, so that it ends up in front of the preview rather than behind it.
   settingsHost_.SetTopmost(top);
+  // While the screen is the source, qBlank is not part of it. Only then: a card
+  // user may well be taking the window into a stream.
+  window_.SetHiddenFromCapture(screenActive_);
+  settingsHost_.SetHiddenFromCapture(screenActive_);
 }
 
 void App::SetFullscreen(bool on) {
@@ -565,6 +569,7 @@ bool App::StartScreen(std::string* error) {
     return false;
   }
   screenActive_ = true;
+  ApplyWindowFlags();
   screenLabel_ = T("Bildschirm", "Screen");
   const std::vector<ScreenInfo> screens = ListScreens();
   for (size_t i = 0; i < screens.size(); ++i) {
@@ -627,6 +632,7 @@ void App::StopCapture() {
     renderer_.AttachSourceFrames(nullptr);
     screen_->Stop();
     screenActive_ = false;
+    ApplyWindowFlags();
   }
   renderer_.DropFrame();
   delayLine_.Clear();

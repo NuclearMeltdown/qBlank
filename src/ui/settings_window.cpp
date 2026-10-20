@@ -1136,6 +1136,8 @@ void SettingsWindow::DrawScreenSource() {
                         "randlosen Fenster geht es.",
                         "Older games in exclusive fullscreen cannot be captured; borderless "
                         "windowed works."));
+  TextDisabledWrapped(T("qBlank selbst ist auf der Aufnahme nicht zu sehen.",
+                        "qBlank itself does not appear in the recording."));
   TextDisabledWrapped(T("Ton: im Reiter Ton „Systemton ohne qBlank“ hinzufügen.",
                         "Sound: add “System sound without qBlank” on the Audio tab."));
 }

@@ -77,6 +77,8 @@ class SettingsHost {
   // Mirrors the preview's "always on top". Without an owner nothing else keeps
   // the settings above a topmost preview.
   void SetTopmost(bool top);
+  // As the preview: out of the picture while the screen is captured.
+  void SetHiddenFromCapture(bool hidden) { window_.SetHiddenFromCapture(hidden); }
 
   // True when the user clicked the window's close button since the last call.
   bool takeCloseRequest();

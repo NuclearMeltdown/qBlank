@@ -156,6 +156,10 @@ class Window {
 
   // Acts only on a change.
   void SetTopmost(bool topmost);
+  // Left out of every capture of the screen, ours included, while it stays on
+  // the screen itself. Otherwise a preview of the screen it stands on would
+  // record itself, picture inside picture. Acts only on a change.
+  void SetHiddenFromCapture(bool hidden);
   void SetDarkFrame(bool dark);
   // How much larger than at 96 dpi the screen the window is on draws.
   float DpiScale() const;
