@@ -9,6 +9,11 @@
 // devices says the keyed mutex every texture carries, by the key it was last
 // released with: 1 once the yuv pass drew into it, 0 once the recorder took
 // the picture out.
+//
+// The screen capture hands its pictures to the renderer the same way, the
+// other way round: three BGRA textures of its device, released with key 1 once
+// a picture is in and with 0 once the renderer copied it out. Which one holds
+// what says its frame buffer there; `state` stays unused.
 
 #include <atomic>
 #include <cstdint>
@@ -35,6 +40,8 @@ class SharedFrames {
   int height = 0;  // luma rows
   int rows = 0;    // YuvRows of `height`
   bool sixteenBit = false;
+  // B8G8R8A8_UNORM, `width` x `height`, `rows` == `height`: the screen's.
+  bool bgra = false;
 
   std::atomic<uint8_t> state[kSlots] = {};
   // Written by whoever holds the slot, read by the next one after the state

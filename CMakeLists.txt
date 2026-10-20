@@ -95,6 +95,7 @@ add_executable(qBlank WIN32
   src/capture/dshow_util.cpp
   src/capture/frame_buffer.cpp
   src/capture/frame_sink_win32.cpp
+  src/capture/screen_capture_win32.cpp
   src/capture/video_capture.cpp
   src/capture/video_format.cpp
   src/capture/video_standard.cpp
@@ -214,6 +215,7 @@ set(qblank_shaders
   scale_ps:ps_6_0:kScalePS:kSpirvScale:ps_4_0
   yuv_ps:ps_6_0:kYuvPS:kSpirvYuv:ps_4_0
   yuv_split_ps:ps_6_0:kYuvSplitPS:-:ps_4_0
+  cursor_ps:ps_6_0:kCursorPS:-:ps_4_0
   ui_composite_ps:ps_6_0:kUiCompositePS:kSpirvUiComposite:ps_4_0
   rem_dec_ps:ps_6_0:kRemDecPS:kSpirvRemDec:ps_5_0
   rem_res_ps:ps_6_0:kRemResPS:kSpirvRemRes:ps_5_0

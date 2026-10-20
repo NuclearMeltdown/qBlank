@@ -28,9 +28,10 @@ class VulkanSharedImages {
   virtual ~VulkanSharedImages() = default;
 
   // Records taking `slot`'s image over from the other API, its old contents
-  // dropped, ready to be drawn into whole.
+  // dropped, ready to be drawn into whole. The screen's (SharedFrames::bgra)
+  // the other way: its contents kept, ready to be copied from.
   virtual VulkanImage* Begin(VkCommandBuffer cmd, int slot) = 0;
-  // Records handing it back once drawn.
+  // Records handing it back once drawn, or copied from.
   virtual void End(VkCommandBuffer cmd, int slot) = 0;
   // For VkSubmitInfo2::pNext: the submission takes `slot`'s mutex with
   // `acquireKey`, waiting up to `timeoutMs`, and gives it back with

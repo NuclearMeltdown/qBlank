@@ -2262,6 +2262,23 @@ uint4 main(VSOut i) : SV_Target {
 }
 )HLSL";
 
+// The mouse pointer over the screen's picture (screen_capture_win32.cpp): the
+// viewport is the pointer's rectangle, the blend says how it goes on.
+inline const char* kCursorPS = R"HLSL(
+Texture2D<float4> texCursor : register(t0);
+
+struct VSOut {
+  float4 pos : SV_Position;
+  float2 uv  : TEXCOORD0;
+};
+
+float4 main(VSOut i) : SV_Target {
+  uint w, h;
+  texCursor.GetDimensions(w, h);
+  return texCursor.Load(int3(i.uv * float2(w, h), 0));
+}
+)HLSL";
+
 // Pass four, and only when the swapchain is scRGB: the interface, brought into
 // linear light.
 //

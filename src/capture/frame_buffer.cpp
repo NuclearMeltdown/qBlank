@@ -18,12 +18,17 @@ uint32_t NextFormatGen() {
 
 // ------------------------------------------------------------- writer side
 
-void FrameBuffer::Configure(const VideoFormatInfo& info) {
+void FrameBuffer::Configure(const VideoFormatInfo& info, bool onGpu) {
   std::lock_guard<std::mutex> lock(mutex_);
   format_ = info;
   formatGen_ = NextFormatGen();
+  onGpu_ = onGpu;
   for (int i = 0; i < 3; ++i) {
-    slots_[i].assign(info.imageSize, 0);
+    if (onGpu) {
+      std::vector<uint8_t>().swap(slots_[i]);
+    } else {
+      slots_[i].assign(info.imageSize, 0);
+    }
     slotSize_[i] = 0;
   }
   readyIdx_ = -1;
@@ -74,17 +79,23 @@ int FrameBuffer::PickWriteSlotLocked() const {
 
 void FrameBuffer::Write(const uint8_t* data, size_t length) {
   int slot;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    slot = PickWriteSlotLocked();
-    if (length > slots_[slot].size()) slots_[slot].resize(length);
-  }
-
+  uint8_t* target = BeginWrite(length, &slot);
   // Copy outside the lock. The chosen slot is neither the one the reader holds
   // nor the one waiting to be picked up, so nobody else can touch it. There is
   // only one writer.
-  memcpy(slots_[slot].data(), data, length);
+  if (target) memcpy(target, data, length);
+  EndWrite(slot, length);
+}
 
+uint8_t* FrameBuffer::BeginWrite(size_t length, int* slot) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  *slot = PickWriteSlotLocked();
+  if (length == 0) return nullptr;
+  if (length > slots_[*slot].size()) slots_[*slot].resize(length);
+  return slots_[*slot].data();
+}
+
+void FrameBuffer::EndWrite(int slot, size_t length) {
   const int64_t now = ClockTicks();
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -131,10 +142,11 @@ bool FrameBuffer::AcquireFrame(FrameView* out) {
   }
   if (out) {
     if (readIdx_ >= 0) {
-      out->data = slots_[readIdx_].data();
+      out->data = onGpu_ ? nullptr : slots_[readIdx_].data();
       out->size = slotSize_[readIdx_];
       out->sequence = readSequence_;
       out->formatGen = slotGen_[readIdx_];
+      out->slot = onGpu_ ? readIdx_ : -1;
     } else {
       *out = FrameView{};
     }

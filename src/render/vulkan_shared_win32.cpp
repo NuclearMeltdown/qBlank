@@ -33,9 +33,12 @@ class Win32SharedImages : public VulkanSharedImages {
 
   VulkanImage* Begin(VkCommandBuffer cmd, int slot) override {
     VulkanImage* image = &slots_[slot].image;
-    Barrier(cmd, image, VK_QUEUE_FAMILY_EXTERNAL, vk_->queueFamily(), VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    image->layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    // What the other side drew is kept only from the layout it is in.
+    const VkImageLayout to =
+        read_ ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    Barrier(cmd, image, VK_QUEUE_FAMILY_EXTERNAL, vk_->queueFamily(),
+            read_ ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED, to);
+    image->layout = to;
     return image;
   }
 
@@ -79,15 +82,20 @@ class Win32SharedImages : public VulkanSharedImages {
   };
 
   // The queue family transfer an external image needs on the way in and out.
-  // The colour output is the only stage that touches it here.
-  static void Barrier(VkCommandBuffer cmd, VulkanImage* image, uint32_t fromFamily,
-                      uint32_t toFamily, VkImageLayout from, VkImageLayout to) {
+  // The colour output is the only stage that touches it here, or the copy out
+  // of a screen's.
+  void Barrier(VkCommandBuffer cmd, VulkanImage* image, uint32_t fromFamily, uint32_t toFamily,
+               VkImageLayout from, VkImageLayout to) const {
     VkImageMemoryBarrier2 barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     const bool in = fromFamily == VK_QUEUE_FAMILY_EXTERNAL;
-    barrier.srcStageMask = in ? VK_PIPELINE_STAGE_2_NONE : VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.srcAccessMask = in ? VK_ACCESS_2_NONE : VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.dstStageMask = in ? VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT : VK_PIPELINE_STAGE_2_NONE;
-    barrier.dstAccessMask = in ? VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_2_NONE;
+    const VkPipelineStageFlags2 stage =
+        read_ ? VK_PIPELINE_STAGE_2_COPY_BIT : VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkAccessFlags2 access =
+        read_ ? VK_ACCESS_2_TRANSFER_READ_BIT : VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.srcStageMask = in ? VK_PIPELINE_STAGE_2_NONE : stage;
+    barrier.srcAccessMask = in ? VK_ACCESS_2_NONE : access;
+    barrier.dstStageMask = in ? stage : VK_PIPELINE_STAGE_2_NONE;
+    barrier.dstAccessMask = in ? access : VK_ACCESS_2_NONE;
     barrier.oldLayout = from;
     barrier.newLayout = to;
     barrier.srcQueueFamilyIndex = fromFamily;
@@ -102,14 +110,16 @@ class Win32SharedImages : public VulkanSharedImages {
     vkCmdPipelineBarrier2(cmd, &dep);
   }
 
-  bool Import(HANDLE handle, VkFormat format, int width, int height, VulkanImage* out);
+  bool Import(HANDLE handle, VkFormat format, VkImageUsageFlags usage, int width, int height,
+              VulkanImage* out);
 
   VulkanDevice* vk_;
+  bool read_ = false;  // the screen's, copied from rather than drawn into
   Slot slots_[SharedFrames::kSlots];
 };
 
-bool Win32SharedImages::Import(HANDLE handle, VkFormat format, int width, int height,
-                               VulkanImage* out) {
+bool Win32SharedImages::Import(HANDLE handle, VkFormat format, VkImageUsageFlags usage, int width,
+                               int height, VulkanImage* out) {
   const VkDevice device = vk_->device();
   VkExternalMemoryImageCreateInfo external = {VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
   external.handleTypes = kHandleType;
@@ -122,7 +132,7 @@ bool Win32SharedImages::Import(HANDLE handle, VkFormat format, int width, int he
   info.arrayLayers = 1;
   info.samples = VK_SAMPLE_COUNT_1_BIT;
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  info.usage = usage;
   info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -193,7 +203,13 @@ bool Win32SharedImages::Import(HANDLE handle, VkFormat format, int width, int he
 }
 
 bool Win32SharedImages::Open(const SharedFrames& frames) {
-  const VkFormat format = frames.sixteenBit ? VK_FORMAT_R16_UINT : VK_FORMAT_R8_UINT;
+  read_ = frames.bgra;
+  const VkFormat format = read_                ? VK_FORMAT_B8G8R8A8_UNORM
+                          : frames.sixteenBit ? VK_FORMAT_R16_UINT
+                                              : VK_FORMAT_R8_UINT;
+  const VkImageUsageFlags usage =
+      read_ ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+            : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
   // Asked first, so a driver that cannot is a line in the log and not an error
   // halfway through.
@@ -206,7 +222,7 @@ bool Win32SharedImages::Open(const SharedFrames& frames) {
   formatInfo.format = format;
   formatInfo.type = VK_IMAGE_TYPE_2D;
   formatInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-  formatInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  formatInfo.usage = usage;
   VkExternalImageFormatProperties externalProps = {
       VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES};
   VkImageFormatProperties2 formatProps = {VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2};
@@ -220,7 +236,8 @@ bool Win32SharedImages::Open(const SharedFrames& frames) {
   }
 
   for (int i = 0; i < SharedFrames::kSlots; ++i) {
-    if (!Import((HANDLE)frames.handle[i], format, frames.width, frames.rows, &slots_[i].image)) {
+    if (!Import((HANDLE)frames.handle[i], format, usage, frames.width, frames.rows,
+                &slots_[i].image)) {
       return false;
     }
   }

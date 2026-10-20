@@ -10,6 +10,10 @@
 // The capture backend writes, the render thread reads. How frames get here is
 // the backend's business -- on Windows a DirectShow renderer filter, see
 // frame_sink_win32.h.
+//
+// A source whose pictures stay on the GPU keeps them in three textures of its
+// own (screen_capture.h) and uses the slots only for who holds which: a frame
+// then carries the slot's number and no bytes.
 
 #include <cstddef>
 #include <cstdint>
@@ -29,8 +33,10 @@ struct FrameView {
   uint64_t sequence = 0;
   // Which format the bytes are in, see FrameBuffer::FormatOf.
   uint32_t formatGen = 0;
+  // The texture the picture is in, for a buffer configured `onGpu`; -1 else.
+  int slot = -1;
 
-  bool valid() const { return data != nullptr && size > 0; }
+  bool valid() const { return slot >= 0 || (data != nullptr && size > 0); }
 };
 
 struct SinkStats {
@@ -51,8 +57,9 @@ class FrameBuffer {
   // ---- writer side (the backend) ----
 
   // A connection with this format: sizes the slots for it and starts the
-  // counters over.
-  void Configure(const VideoFormatInfo& info);
+  // counters over. `onGpu` leaves them empty: the pictures are elsewhere and
+  // only the slot numbers go through here.
+  void Configure(const VideoFormatInfo& info, bool onGpu = false);
 
   // The connection is gone.
   void Clear();
@@ -68,6 +75,13 @@ class FrameBuffer {
 
   // Copies one frame in and publishes it. One writer at a time.
   void Write(const uint8_t* data, size_t length);
+
+  // The same in two steps, for a writer that fills the slot itself: the slot
+  // that is neither waiting nor held by the reader, with room for `length`
+  // bytes at the pointer returned (null for none), and then the frame in it
+  // published. A slot begun and not ended is simply begun again.
+  uint8_t* BeginWrite(size_t length, int* slot);
+  void EndWrite(int slot, size_t length);
 
   // ---- reader side (render thread) ----
 
@@ -115,6 +129,7 @@ class FrameBuffer {
   uint64_t sequence_ = 0;
   uint64_t readSequence_ = 0;
   VideoFormatInfo format_;
+  bool onGpu_ = false;
 
   // Stats.
   uint64_t received_ = 0;
