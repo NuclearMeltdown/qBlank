@@ -506,7 +506,8 @@ void DrawSearchResult(const std::string& text, const std::string& detail, double
   ImGui::PopStyleVar();
 }
 
-void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind) {
+void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind,
+                         double bufferFill, uint64_t buffered) {
   // Opposite corner to the volume readout: both can appear at once, and a
   // number sliding out from under a dot looks like a bug.
   OsdCorner corner = OsdCorner::TopRight;
@@ -539,6 +540,16 @@ void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBeh
     if (encoderBehind) {
       ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s",
                          T("Encoder überlastet", "Encoder overloaded"));
+    }
+    // Only once the disk is behind: a few frames on their way are always there.
+    if (bufferFill >= 0.1) {
+      const std::string line = Format(T("Puffer %.0f %% (%s)", "Buffer %.0f %% (%s)"),
+                                      bufferFill * 100.0, FormatBytes(buffered).c_str());
+      if (bufferFill >= 0.75) {
+        ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s", line.c_str());
+      } else {
+        ImGui::TextUnformatted(line.c_str());
+      }
     }
   }
   ImGui::End();

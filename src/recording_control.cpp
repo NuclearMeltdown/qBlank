@@ -377,6 +377,7 @@ void RecordingControl::LaunchRecording() {
   // dem Start, nicht eine von vor einer Sekunde.
   diskWarned_ = false;
   encoderWarned_ = false;
+  bufferWarned_ = false;
   recordingFile_ = pendingFile_;
   recordingBytes_ = 0;
 
@@ -573,6 +574,19 @@ void RecordingControl::FeedRecorder() {
                   "Encoder overloaded — try a faster preset, or a lower resolution or frame rate."));
   }
 
+  // Die Platte faellt zurueck, und was sie nicht nimmt, wartet im Speicher. Bei
+  // drei Vierteln einmal sagen, ein zweites Mal erst, wenn sie zwischendurch
+  // wieder unter die Haelfte aufgeholt hat. Voll beendet der Recorder selbst.
+  const double fill = recorder_.bufferFill();
+  if (!bufferWarned_ && fill >= 0.75) {
+    bufferWarned_ = true;
+    host_.Toast(Format(T("Platte kommt nicht hinterher — Puffer zu %.0f %% voll.",
+                         "The disk is falling behind — the buffer is %.0f %% full."),
+                       fill * 100.0));
+  } else if (fill < 0.5) {
+    bufferWarned_ = false;
+  }
+
   const double now = TicksToSeconds(ClockTicks());
 
   // Die Quelle hat mitten in der Aufnahme die Norm gewechselt. Bildgroesse und
@@ -670,14 +684,16 @@ void RecordingControl::FeedRecorder() {
     const uint64_t written = recorder_.bytesWritten();
     double rate = diskBytesPerSecond_;
     if (seconds > 3.0 && written > 0) rate = (double)written / seconds;
-    const double left = rate > 1.0 ? (double)diskFreeBytes_ / rate : 0.0;
+    // Was im Puffer wartet, kommt noch auf die Platte.
+    const uint64_t pending = recorder_.queuedBytes();
+    const uint64_t room = diskFreeBytes_ > pending ? diskFreeBytes_ - pending : 0;
+    const double left = rate > 1.0 ? (double)room / rate : 0.0;
 
     // Ein fester Boden zusaetzlich zur Zeit: bei kleiner Bitrate reichen 30 s
     // rechnerisch noch lange, waehrend Windows schon keinen Platz mehr fuer
     // seine eigenen Schreibpuffer hat.
-    if (diskFreeBytes_ < kDiskFloorBytes || (rate > 1.0 && left < 20.0)) {
-      CAP_WARN("Recording: disk almost full (%s free), stopped",
-               FormatBytes(diskFreeBytes_).c_str());
+    if (room < kDiskFloorBytes || (rate > 1.0 && left < 20.0)) {
+      CAP_WARN("Recording: disk almost full (%s free), stopped", FormatBytes(room).c_str());
       StopRecording();
       host_.Toast(T("Aufnahme beendet — Speicherplatz fast aufgebraucht.",
               "Recording stopped — the disk is nearly full."));
@@ -689,7 +705,7 @@ void RecordingControl::FeedRecorder() {
       diskWarned_ = true;
       host_.Toast(Format(T("Nur noch %s frei — etwa %s Aufnahme.",
                      "Only %s free — about %s of recording."),
-                   FormatBytes(diskFreeBytes_).c_str(), FormatDuration(left).c_str()));
+                   FormatBytes(room).c_str(), FormatDuration(left).c_str()));
     }
   }
 }

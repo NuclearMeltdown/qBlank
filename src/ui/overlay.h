@@ -162,7 +162,9 @@ void DrawVolumeOsd(float volume, bool muted, OsdCorner corner, double age, doubl
 
 // Recording indicator: a pulsing dot and the elapsed time, in the corner
 // opposite the volume readout so the two never overlap. A second line while
-// the encoder is not keeping up.
-void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind);
+// the encoder is not keeping up, and one for the buffer while the disk is
+// behind (Recorder::bufferFill, and its bytes).
+void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind,
+                         double bufferFill, uint64_t buffered);
 
 }  // namespace cap

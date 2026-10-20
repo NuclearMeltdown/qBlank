@@ -608,6 +608,9 @@ struct AudioSettings {
   std::vector<RecordSource> sources;
 };
 
+// The most RecordSettings::bufferGb may hold.
+const int kMaxRecordBufferGb = 256;
+
 // Recording is deliberately thin: it writes what the viewer shows, at the
 // source resolution, and the only knobs are the ones that change the result in
 // a way a preset cannot guess.
@@ -642,6 +645,11 @@ struct RecordSettings {
   // Off by default: only FAT32 needs it, NTFS does not.
   bool splitFiles = false;
   int splitSizeMb = 4000;
+  // What waits in memory for the disk. Off: a fixed 512 MB, seconds of a stall
+  // at any bitrate worth encoding. On: as much as is set here, for recording
+  // uncompressed onto a disk that is not always fast enough.
+  bool largeBuffer = false;
+  int bufferGb = 8;
 
   // Result of the encoder test, kept so the list is filled on the next start
   // instead of making everyone test again. The signature is the graphics

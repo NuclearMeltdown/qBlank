@@ -171,6 +171,11 @@ class Recorder {
   // stats() under their lock.
   double seconds() const;
   uint64_t bytesWritten() const { return bytesWritten_.load(std::memory_order_relaxed); }
+  // What is encoded and waits in memory for the disk, and that against what
+  // may wait (RecordSettings::largeBuffer): at 1 the recording stops. From the
+  // thread that starts and stops.
+  uint64_t queuedBytes() const;
+  double bufferFill() const;
 
  private:
   // The encoders, the muxer and what feeds them, for one file. Handed to the

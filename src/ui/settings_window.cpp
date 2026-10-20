@@ -3821,6 +3821,32 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ResetOnRightClick(rec.splitSizeMb, kRecord.splitSizeMb);
   ImGui::EndDisabled();
 
+  // Wie viel, sagt der Nutzer selbst: wer 64 GB hat, will vielleicht mehr davon
+  // hergeben, und was gerade frei ist, weiss er besser als eine Schaetzung.
+  ImGui::Checkbox(T("Größerer Puffer im Arbeitsspeicher", "Larger buffer in memory"),
+                  &rec.largeBuffer);
+  Anchor("buffer");
+  ImGui::SameLine();
+  HelpMarker(T("Was die Platte noch nicht geschrieben hat, wartet im Arbeitsspeicher, sonst bis "
+               "512 MB. Belegt wird er nur, solange die Platte hinterherhängt. Ist er voll, endet "
+               "die Aufnahme, und was drin ist, wird noch geschrieben.",
+               "What the disk has not written yet waits in memory, otherwise up to 512 MB. It is "
+               "only used while the disk lags behind. When it is full the recording stops, and "
+               "what is in it is still written."));
+  ImGui::BeginDisabled(!rec.largeBuffer);
+  ImGui::SetNextItemWidth(-360.0f);
+  ImGui::SliderInt("##buffergb", &rec.bufferGb, 1, kMaxRecordBufferGb, "%d GB",
+                   ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+  Anchor("buffersize");
+  ResetOnRightClick(rec.bufferGb, kRecord.bufferGb);
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(Px(96.0f));
+  if (ImGui::InputInt(T("Puffergröße (GB)", "Buffer size (GB)"), &rec.bufferGb, 0, 0,
+                      ImGuiInputTextFlags_CharsDecimal)) {
+    rec.bufferGb = Clamp(rec.bufferGb, 1, kMaxRecordBufferGb);
+  }
+  ImGui::EndDisabled();
+
   ImGui::EndDisabled();
 
   // ---- stills ----

@@ -1063,6 +1063,8 @@ bool Config::Load(std::string* error) {
   record.fps = Clamp(r["fps"].AsNumber(0.0), 0.0, 480.0);
   record.splitFiles = r["splitFiles"].AsBool(false);
   record.splitSizeMb = Clamp(r["splitSizeMb"].AsInt(4000), 100, 100000);
+  record.largeBuffer = r["largeBuffer"].AsBool(false);
+  record.bufferGb = Clamp(r["bufferGb"].AsInt(8), 1, kMaxRecordBufferGb);
   record.fullChroma = r["fullChroma"].AsBool(false);
   record.encoderProbeSignature = r["encoderProbeSignature"].AsString();
   auto readEncoders = [&r](const char* key, std::vector<int>* out) {
@@ -1221,6 +1223,8 @@ std::string Config::Serialize() const {
   r["fps"] = record.fps;
   r["splitFiles"] = record.splitFiles;
   r["splitSizeMb"] = record.splitSizeMb;
+  r["largeBuffer"] = record.largeBuffer;
+  r["bufferGb"] = record.bufferGb;
   r["fullChroma"] = record.fullChroma;
   r["encoderProbeSignature"] = record.encoderProbeSignature;
   auto writeEncoders = [&r](const char* key, const std::vector<int>& ids) {

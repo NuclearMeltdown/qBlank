@@ -734,7 +734,8 @@ void App::DrawUi() {
 
   // ---- recording indicator ----
   if (recorder_.recording()) {
-    DrawRecordIndicator(recorder_.seconds(), config_.app.osdCorner, recorder_.encoderBehind());
+    DrawRecordIndicator(recorder_.seconds(), config_.app.osdCorner, recorder_.encoderBehind(),
+                        recorder_.bufferFill(), recorder_.queuedBytes());
   }
 
   // ---- volume readout ----

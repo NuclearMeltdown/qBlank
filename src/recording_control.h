@@ -199,6 +199,7 @@ class RecordingControl {
   // Meldung je Sekunde waere keine Warnung mehr, sondern ein Dauerzustand.
   bool diskWarned_ = false;
   bool encoderWarned_ = false;
+  bool bufferWarned_ = false;
 
   // Everything that asks the disk the recording goes to: the checks before a
   // start, the free space, the size of the file. One thread, because all of it

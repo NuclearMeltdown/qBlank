@@ -28,10 +28,11 @@ constexpr size_t kAudioChunk = 4096;
 // The tracks' rate when there is no card sound to set it: the recording
 // sources are then brought onto the wall clock at this.
 constexpr int kClockRate = 48000;
-// Packets the disk has not taken yet. A stall of seconds fits in this many;
-// past it the disk is simply slower than the encoder, and waiting longer only
-// ends in running out of memory.
-constexpr int64_t kMaxQueuedBytes = 512ll << 20;
+// Packets the disk has not taken yet, unless RecordSettings::largeBuffer says
+// otherwise. A stall of seconds fits in this many; past it the disk is simply
+// slower than the encoder, and waiting longer only ends in running out of
+// memory.
+constexpr int64_t kSmallQueueBytes = 512ll << 20;
 
 // The frame rate as a fraction, which is how the encoder and the container
 // want it. Measured rates jitter, so what is close to a whole number or to its
@@ -118,6 +119,7 @@ struct Recorder::Session {
   std::deque<AVPacket*> queue;
   bool closing = false;
   std::atomic<int64_t> queuedBytes{0};
+  int64_t queueLimit = kSmallQueueBytes;
   std::atomic<bool> writeFailed{false};
   std::string writeError;  // under muxMutex
   std::thread muxer;
@@ -527,6 +529,8 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   session->file = outFile;
   session->rate = rate;
   session->counter = &bytesWritten_;
+  // Nothing is reserved: the queue only grows while the disk is behind.
+  if (settings.largeBuffer) session->queueLimit = (int64_t)settings.bufferGb << 30;
 
   audioFramesWritten_.store(0, std::memory_order_relaxed);
   videoFramesWritten_.store(0, std::memory_order_relaxed);
@@ -1111,9 +1115,15 @@ void Recorder::VideoThread(Session* s) {
       Fail(CAP_SAID(Format(T("Schreiben fehlgeschlagen: %s", "Writing failed: %s"), why.c_str())));
       break;
     }
-    if (s->queuedBytes.load(std::memory_order_relaxed) > kMaxQueuedBytes) {
-      Fail(CAP_SAID(T("Die Platte kommt mit dem Schreiben nicht hinterher.",
-                      "The disk cannot keep up with the writing.")));
+    if (s->queuedBytes.load(std::memory_order_relaxed) > s->queueLimit) {
+      // What is in it still goes to the disk, as the file closes.
+      Fail(s->settings.largeBuffer
+               ? CAP_SAID(T("Puffer voll: die Platte kommt mit dem Schreiben nicht hinterher.",
+                            "Buffer full: the disk cannot keep up with the writing."))
+               : CAP_SAID(T("Die Platte kommt mit dem Schreiben nicht hinterher. Ein größerer "
+                            "Puffer lässt sich unter Aufnahme einstellen.",
+                            "The disk cannot keep up with the writing. A larger buffer can be "
+                            "set under Recording.")));
       break;
     }
 
@@ -1417,6 +1427,15 @@ void Recorder::AudioThread(Session* s) {
 
 double Recorder::seconds() const {
   return startTicks_ ? TicksToSeconds(ClockTicks() - startTicks_) : 0.0;
+}
+
+uint64_t Recorder::queuedBytes() const {
+  const int64_t queued = session_ ? session_->queuedBytes.load(std::memory_order_relaxed) : 0;
+  return queued > 0 ? (uint64_t)queued : 0;
+}
+
+double Recorder::bufferFill() const {
+  return session_ ? (double)queuedBytes() / (double)session_->queueLimit : 0.0;
 }
 
 RecordStats Recorder::stats() const {
