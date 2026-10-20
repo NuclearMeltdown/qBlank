@@ -3857,17 +3857,17 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::SameLine();
   HelpMarker(T("Was die Platte noch nicht geschrieben hat, wartet im Arbeitsspeicher, sonst bis "
                "512 MB. Belegt wird er nur, solange die Platte hinterherhängt, und nie mehr, als "
-               "gerade frei ist, abzüglich 10 % Reserve. Ist er voll, endet die Aufnahme, und was "
+               "gerade frei ist, abzüglich 2 GB Reserve. Ist er voll, endet die Aufnahme, und was "
                "drin ist, wird noch geschrieben.",
                "What the disk has not written yet waits in memory, otherwise up to 512 MB. It is "
                "only used while the disk lags behind, and never more than is free right now, "
-               "less a 10 % reserve. When it is full the recording stops, and what is in it is "
+               "less a 2 GB reserve. When it is full the recording stops, and what is in it is "
                "still written."));
   ImGui::BeginDisabled(!rec.largeBuffer);
   {
     constexpr double kGb = 1024.0 * 1024.0 * 1024.0;
     const bool known = memTotal_ > 0;
-    const uint64_t reserve = RecordBufferReserve(memTotal_);
+    const uint64_t reserve = std::min(kRecordBufferReserveBytes, memTotal_);
     const uint64_t room = memFree_ > reserve ? memFree_ - reserve : 0;
     const uint64_t used = memTotal_ > memFree_ ? memTotal_ - memFree_ : 0;
     const int maxGb = known ? std::max(2, (int)std::lround((double)memTotal_ / kGb))

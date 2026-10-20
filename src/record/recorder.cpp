@@ -37,11 +37,10 @@ constexpr int64_t kSmallQueueBytes = 512ll << 20;
 // What the queue may grow to while `queued` waits in it and `freeBytes` of
 // memory are free besides: the size set, but never into the reserve left to
 // everything else, and never below the small buffer.
-int64_t QueueLimit(const RecordSettings& settings, int64_t queued, uint64_t totalBytes,
-                   uint64_t freeBytes) {
+int64_t QueueLimit(const RecordSettings& settings, int64_t queued, uint64_t freeBytes) {
   if (!settings.largeBuffer) return kSmallQueueBytes;
   const int64_t set = (int64_t)settings.bufferGb << 30;
-  const int64_t room = queued + (int64_t)freeBytes - (int64_t)RecordBufferReserve(totalBytes);
+  const int64_t room = queued + (int64_t)freeBytes - (int64_t)kRecordBufferReserveBytes;
   return std::max(kSmallQueueBytes, std::min(set, room));
 }
 
@@ -542,9 +541,9 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   session->counter = &bytesWritten_;
   // Nothing is reserved: the queue only grows while the disk is behind.
   if (settings.largeBuffer) {
-    uint64_t total = 0, freeBytes = 0;
-    const int64_t limit = MemoryBytes(&total, &freeBytes)
-                              ? QueueLimit(settings, 0, total, freeBytes)
+    uint64_t freeBytes = 0;
+    const int64_t limit = MemoryBytes(nullptr, &freeBytes)
+                              ? QueueLimit(settings, 0, freeBytes)
                               : (int64_t)settings.bufferGb << 30;
     session->queueLimit.store(limit, std::memory_order_relaxed);
     CAP_LOG("Recording: buffer up to %s of %d GB set, %s of memory free",
@@ -1460,11 +1459,10 @@ double Recorder::bufferFill() const {
                   : 0.0;
 }
 
-void Recorder::LimitBuffer(uint64_t totalBytes, uint64_t freeBytes) {
+void Recorder::LimitBuffer(uint64_t freeBytes) {
   if (!session_ || !session_->settings.largeBuffer) return;
-  session_->queueLimit.store(
-      QueueLimit(session_->settings, (int64_t)queuedBytes(), totalBytes, freeBytes),
-      std::memory_order_relaxed);
+  session_->queueLimit.store(QueueLimit(session_->settings, (int64_t)queuedBytes(), freeBytes),
+                             std::memory_order_relaxed);
 }
 
 RecordStats Recorder::stats() const {

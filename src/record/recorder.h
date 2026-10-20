@@ -179,7 +179,7 @@ class Recorder {
   // Measures the large buffer against the memory free right now, besides what
   // it holds itself: what other programs took since the start is no longer
   // its to take. Never below the small buffer. From the same thread.
-  void LimitBuffer(uint64_t totalBytes, uint64_t freeBytes);
+  void LimitBuffer(uint64_t freeBytes);
 
  private:
   // The encoders, the muxer and what feeds them, for one file. Handed to the

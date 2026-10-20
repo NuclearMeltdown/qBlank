@@ -458,7 +458,7 @@ void RecordingControl::UpdateDiskSpace() {
     lastMemoryCheck_ = now;
     uint64_t total = 0, freeBytes = 0;
     if (MemoryBytes(&total, &freeBytes)) {
-      recorder_.LimitBuffer(total, freeBytes);
+      recorder_.LimitBuffer(freeBytes);
       settings_.SetMemory(total, freeBytes + recorder_.queuedBytes());
     }
   }
