@@ -587,6 +587,10 @@ json::Value WriteProfile(const Profile& p) {
   o["autoSelectStandard"] = (int)p.autoSelectStandard;
 
   json::Value cap = json::Value::Object();
+  cap["source"] = (int)p.capture.source;
+  cap["screen"] = p.capture.screen;
+  cap["screenCursor"] = p.capture.screenCursor;
+  cap["screenPreview"] = p.capture.screenPreview;
   cap["video"] = WriteDevice(p.capture.video);
   cap["audioSource"] = (int)p.capture.audioSource;
   cap["audio"] = WriteDevice(p.capture.audio);
@@ -693,6 +697,10 @@ Profile ReadProfile(const json::Value& v) {
   p.autoSelectStandard = (long)v["autoSelectStandard"].AsInt(0);
 
   const json::Value& c = v["capture"];
+  p.capture.source = ReadEnum<VideoSource>(c, "source", kVideoSourceCount, VideoSource::Card);
+  p.capture.screen = c["screen"].AsString("");
+  p.capture.screenCursor = c["screenCursor"].AsBool(true);
+  p.capture.screenPreview = c["screenPreview"].AsBool(true);
   p.capture.video = ReadDevice(c["video"]);
   p.capture.audioSource = ReadEnum<AudioSource>(c, "audioSource", 3, AudioSource::Embedded);
   p.capture.audio = ReadDevice(c["audio"]);

@@ -20,6 +20,7 @@
 
 #include "audio/audio_engine.h"
 #include "capture/device_config.h"
+#include "capture/screen_capture.h"
 #include "capture/video_capture.h"
 #include "common.h"
 #include "config.h"
@@ -105,8 +106,19 @@ class App {
   void DrawContextMenu();
 
   bool StartCapture(std::string* error);
+  // StartCapture's half for VideoSource::Screen.
+  bool StartScreen(std::string* error);
   void StopCapture();
   void StartAudio();
+  // Whether the active profile takes the screen. What runs is screenActive_;
+  // the two differ only until SyncConfigChanges has caught up.
+  bool OnScreen() const { return config_.active().capture.source == VideoSource::Screen; }
+  // Where the frames arrive: the card's sink or the screen's. Null while
+  // neither runs.
+  FrameBuffer* FrameSource();
+  // The screen capture is still what the profile and the renderer want.
+  // Restarts it when not; see the implementation.
+  void CheckScreen();
   void RestartAll(bool userRequested);
   // Wie lange die Anzeige hoechstens stehen darf, wenn kein Bild ankommt.
   // Haengt davon ab, ob etwas auf dem Schirm ist, das sich bewegen muss.
@@ -312,6 +324,14 @@ class App {
   // with what the analogue decoder says, because neither is sufficient alone.
   bool HaveLiveSignal() const;
   VideoCapture capture_;
+  // The screen, in place of the card while a profile takes it. Made when first
+  // needed; the card is closed meanwhile.
+  std::unique_ptr<ScreenCapture> screen_;
+  bool screenActive_ = false;
+  std::string screenLabel_;  // "Monitor 2", as the settings number them
+  // The adapter whose renderer could not open the screen's textures. On it the
+  // screen hands over bytes instead, without asking again.
+  uint64_t screenRefusedAdapter_ = 0;
   AudioEngine audio_;
   SettingsWindow settings_;
   FrameDelayLine delayLine_;
@@ -352,6 +372,9 @@ class App {
   // be told apart from a harmless one.
   struct AppliedState {
     int activeProfile = -1;
+    VideoSource source = VideoSource::Card;
+    std::string screen;
+    bool screenCursor = true;
     long videoStandard = 0;
     DeviceRef video;
     FormatSel format;
@@ -462,6 +485,7 @@ class App {
    public:
     explicit RecordingHost(App& app) : app_(app) {}
     bool CaptureRunning() const override;
+    bool OnScreen() const override { return app_.screenActive_; }
     void UseDefaultFolder(std::string* configured, const std::string& asked) override;
     void DropViewAids() override;
     void Toast(const std::string& text, const std::filesystem::path& file) override;
@@ -506,6 +530,7 @@ class App {
   // queue -- see the comment at the call to RenderFrame.
   WaitResult lastWake_ = WaitResult::Timeout;
   int64_t lastRenderQpc_ = 0;
+  int64_t lastStatusQpc_ = 0;  // the window's last frame with the preview off
   int64_t lastPictureQpc_ = 0;  // when a new picture last woke it
   int hdrDisplayPoll_ = 0;
   bool devicePagesWereBusy_ = false;

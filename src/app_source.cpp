@@ -35,6 +35,9 @@ const double kSnowSeconds = 2.0;
 // standards with nothing connected, which is measured and written down in the
 // wiki.
 bool App::HaveLiveSignal() const {
+  // A screen sends a picture only when something on it changed, so the time
+  // since the last one says nothing; and the last one stays true until then.
+  if (screenActive_) return renderer_.hasFrame();
   const FrameBuffer* sink = capture_.sink();
   if (!sink || !sink->HasRecentFrame(kNoSignalSeconds) || !renderer_.hasFrame()) return false;
 
@@ -98,6 +101,7 @@ bool App::HaveLiveSignal() const {
 // Eingang kommt. Keine Videonorm liefert mehr als 576 Zeilen, also beantwortet
 // das Bild die Frage selbst.
 bool App::SourceIsAnalogue() const {
+  if (OnScreen()) return false;
   const SignalKind kind = config_.active().capture.signalKind;
   if (kind == SignalKind::Analog) return true;
   if (kind == SignalKind::Digital) return false;
@@ -180,6 +184,15 @@ bool App::ConnectorHasColourCarrier() const {
 // Quelle ist vielleicht eine andere Konsole mit anderen Werten. Genau dafuer
 // gibt es Profile.
 ImageSettings App::EffectiveImage(const Profile& profile) const {
+  // Ein Bildschirm hat nichts davon: keine Halbbilder, keinen Traeger, keinen
+  // Wertebereich zu raten, keinen Rand. Nur skaliert wird er, wenn das Fenster
+  // kleiner ist.
+  if (OnScreen()) {
+    ImageSettings img;
+    img.filter = profile.image.filter;
+    img.deinterlace = Deinterlace::Off;
+    return img;
+  }
   ImageSettings img = profile.image;
   const VideoFormatInfo fmt = renderer_.sourceFormat();
   img.compare = compare_;
@@ -411,6 +424,7 @@ bool App::ApplyFittingResolution(int activeLines) {
 }
 
 bool App::SourceLooksInterlaced(const Profile& profile) const {
+  if (OnScreen()) return false;
   if (!profile.image.deinterlaceAuto) return true;
   // The media type is believed when it claims interlaced -- a card that bothers
   // to say so is right. It is not believed when it stays quiet, which is the

@@ -34,6 +34,9 @@ class RecordingControl {
    public:
     virtual ~Host() = default;
     virtual bool CaptureRunning() const = 0;
+    // The screen is the source: no card frames to record unfiltered, no fields,
+    // and a rate that is its refresh rate rather than what arrives.
+    virtual bool OnScreen() const = 0;
     // The folder `asked` for could not be made and the default is used instead:
     // says so, and empties `configured` if it still names `asked`.
     virtual void UseDefaultFolder(std::string* configured, const std::string& asked) = 0;

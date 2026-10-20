@@ -374,7 +374,8 @@ void RecordingControl::LaunchRecording() {
   // mit Filter aufgenommen, und das wird gesagt.
   const Profile& profile = config_.active();
   Recorder::CardFrames card;
-  bool unfiltered = pendingSettings_.unfiltered && IsLosslessEncoder(pendingSettings_.encoder);
+  bool unfiltered = !host_.OnScreen() && pendingSettings_.unfiltered &&
+                    IsLosslessEncoder(pendingSettings_.encoder);
   bool cardRefused = false;
   if (unfiltered) {
     card.format = renderer_.sourceFormat();
@@ -395,7 +396,9 @@ void RecordingControl::LaunchRecording() {
     unfiltered = !cardRefused;
   }
   recorder_.SetCard(unfiltered ? &card : nullptr);
-  if (!unfiltered && profile.image.deinterlace != Deinterlace::Off) recordFps *= 2.0;
+  if (!unfiltered && !host_.OnScreen() && profile.image.deinterlace != Deinterlace::Off) {
+    recordFps *= 2.0;
+  }
 
   // Alle drei Sehhilfen wuerden in die Datei wandern, weil Aufnahme und virtuelle
   // Kamera hinter denselben Durchgaengen abgreifen wie die Anzeige. Also fallen
@@ -505,14 +508,14 @@ void RecordingControl::UpdateDiskSpace() {
   double fps = config_.record.fps;
   if (fps <= 0.0) {
     fps = SourceFps();
-    if (config_.active().image.deinterlace != Deinterlace::Off) fps *= 2.0;
+    if (!host_.OnScreen() && config_.active().image.deinterlace != Deinterlace::Off) fps *= 2.0;
     if (fps <= 1.0) fps = 60.0;
   }
   // Ohne Filter die Karte, wie sie kommt, wenn der Encoder sie so nimmt.
   double pixelBytes = 3.0;
   const VideoFormatInfo& card = renderer_.sourceFormat();
-  if (config_.record.unfiltered && IsLosslessEncoder(config_.record.encoder) && card.width > 0 &&
-      card.height > 0) {
+  if (!host_.OnScreen() && config_.record.unfiltered && IsLosslessEncoder(config_.record.encoder) &&
+      card.width > 0 && card.height > 0) {
     const double cardBytes = Recorder::CardPixelBytes(config_.record.encoder, card);
     if (cardBytes > 0.0) {
       pixelBytes = cardBytes;
@@ -636,6 +639,9 @@ bool RecordingControl::SourcesOpening() const {
 
 double RecordingControl::SourceFps() const {
   double fps = renderer_.sourceFormat().fps;
+  // Ein Bildschirm liefert nur, wenn sich etwas aendert -- gemessen haette ein
+  // stehender Desktop zwei Bilder je Sekunde. Er hat seine Wiederholrate.
+  if (host_.OnScreen()) return fps;
   if (const FrameBuffer* sink = capture_.sink()) {
     const double measured = sink->stats().sourceFps;
     if (measured > 1.0) fps = measured;
@@ -704,7 +710,9 @@ void RecordingControl::FeedRecorder() {
     const int liveWidth = unfiltered ? card.width : renderer_.outputWidth();
     const int liveHeight = unfiltered ? card.height : renderer_.outputHeight();
     double liveFps = recordSourceFps_;
-    if (const FrameBuffer* sink = capture_.sink()) {
+    if (host_.OnScreen()) {
+      if (card.fps > 1.0) liveFps = card.fps;
+    } else if (const FrameBuffer* sink = capture_.sink()) {
       const double measured = sink->stats().sourceFps;
       if (measured > 1.0) liveFps = measured;
     }

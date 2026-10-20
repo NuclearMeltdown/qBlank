@@ -376,7 +376,7 @@ void App::DrawSettingsWindowed() {
       // Entnahme, die die Hauptschleife sonst macht. Sie laeuft in diesem
       // Moment nicht, also nimmt ihr das nichts weg.
       bool newPicture = false;
-      if (FrameBuffer* sink = capture_.sink()) {
+      if (FrameBuffer* sink = FrameSource()) {
         newPicture = sink->frameReady().Wait(0);
       }
       const int64_t nowQpc = ClockTicks();
@@ -562,7 +562,7 @@ void App::ShowVolumeOsd() {
 
 void App::DrawUi() {
   const Profile& profile = config_.active();
-  FrameBuffer* sink = capture_.sink();
+  FrameBuffer* sink = FrameSource();
 
   // ---- toolbar ----
   // Windowed it is simply there; in fullscreen it follows the pointer, which is
@@ -662,9 +662,9 @@ void App::DrawUi() {
   if (config_.app.showStats) {
     OverlayStats stats;
     stats.profileName = profile.name;
-    stats.deviceName = capture_.resolvedDevice().name;
+    stats.deviceName = screenActive_ ? screenLabel_ : capture_.resolvedDevice().name;
     const auto& inputs = capture_.capabilities().crossbarInputs;
-    if (profile.capture.crossbarInput >= 0 &&
+    if (!screenActive_ && profile.capture.crossbarInput >= 0 &&
         profile.capture.crossbarInput < (int)inputs.size()) {
       stats.inputName = inputs[(size_t)profile.capture.crossbarInput].name;
     }
@@ -936,7 +936,7 @@ void App::DrawUi() {
   // das Veto genau die Quellen erwischt, vor denen es schuetzen soll. Ohne
   // Messung 0, und 0 heisst "noch nicht gemessen", nicht "steht still".
   double measuredFps = 0.0;
-  if (const FrameBuffer* sink = capture_.sink()) {
+  if (const FrameBuffer* sink = FrameSource()) {
     const double measured = sink->stats().sourceFps;
     if (measured > 1.0) measuredFps = measured;
   }

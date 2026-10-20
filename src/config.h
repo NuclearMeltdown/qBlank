@@ -128,6 +128,12 @@ const int kVideoRegionCount = 8;
 
 enum class AudioSource { Embedded, Manual, None };
 
+// Where the picture comes from: a capture card, or a screen of this computer.
+// The screen has none of a card's settings -- no input, standard, format or
+// sound of its own -- and a profile on it ignores them.
+enum class VideoSource { Card, Screen };
+const int kVideoSourceCount = 2;
+
 enum class OsdCorner { TopLeft, TopRight, BottomLeft, BottomRight };
 
 // How a recording source ends up in the file. "Both" costs one more AAC track --
@@ -389,6 +395,13 @@ struct FormatSel {
 };
 
 struct CaptureSettings {
+  VideoSource source = VideoSource::Card;
+  // The screen's settings, see VideoSource. `screen` is ScreenInfo::id, empty
+  // for the primary one. The preview is the picture in the window: off, the
+  // window shows only how the capture is going, and costs less.
+  std::string screen;
+  bool screenCursor = true;
+  bool screenPreview = true;
   DeviceRef video;
   AudioSource audioSource = AudioSource::Embedded;
   DeviceRef audio;         // only used when audioSource == Manual

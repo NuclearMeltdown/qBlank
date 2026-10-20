@@ -259,6 +259,7 @@ class VideoRenderer {
   // is a different kind of texture for each. False when the passes cannot open
   // them; the source then has to hand over bytes.
   bool AttachSourceFrames(const std::shared_ptr<SharedFrames>& frames);
+  bool hasSourceFrames() const { return sourceFrames_ != nullptr; }
 
   // The picture as linear light, four half floats per pixel, 1.0 being diffuse
   // white, for a screenshot that keeps the range. Queued, not waited for: see

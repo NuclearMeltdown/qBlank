@@ -178,7 +178,7 @@ bool App::Initialize() {
     // its settings file left behind, may still have its shortcuts.
     notices_.QueueWelcome(!HasShortcut(ShortcutPlace::StartMenu),
                           !HasShortcut(ShortcutPlace::Desktop));
-  } else if (config_.active().capture.video.empty()) {
+  } else if (!OnScreen() && config_.active().capture.video.empty()) {
     OpenSettings(T("Noch kein Aufnahmegerät ausgewählt. Wähle unten die Capture-Karte aus.",
                    "No capture device selected yet. Pick your capture card below."));
   } else if (!StartCapture(&error)) {
@@ -438,6 +438,7 @@ void App::ApplyTheme() {
 
 bool App::StartCapture(std::string* error) {
   StopCapture();
+  if (OnScreen()) return StartScreen(error);
 
   const Profile& p = config_.active();
   std::string err;
@@ -539,6 +540,76 @@ bool App::StartCapture(std::string* error) {
   return true;
 }
 
+// Mit den Texturen der Aufnahme, wenn beide auf derselben Grafikkarte sitzen
+// und der Renderer sie oeffnen kann; sonst kommen die Bilder als Bytes wie die
+// einer Karte. Kein Ton, keine Norm, keine Signalwache: das hat ein Bildschirm
+// alles nicht.
+bool App::StartScreen(std::string* error) {
+  const CaptureSettings& c = config_.active().capture;
+  if (!screen_) screen_ = CreateScreenCapture();
+  uint64_t adapter = renderer_.sharedAdapter();
+  if (adapter == screenRefusedAdapter_) adapter = 0;
+  std::string err;
+  bool ok = screen_->Start(c.screen, c.screenCursor, adapter, &err);
+  if (ok && screen_->sharedFrames() && !renderer_.AttachSourceFrames(screen_->sharedFrames())) {
+    CAP_WARN("Screen capture: the renderer cannot open its textures, reading back instead");
+    screenRefusedAdapter_ = adapter;
+    ok = screen_->Start(c.screen, c.screenCursor, 0, &err);
+  }
+  if (!ok) {
+    screen_->Stop();
+    captureState_ = CaptureState::Reconnecting;
+    captureError_ = err;
+    nextRetryQpc_ = ClockTicks() + SecondsToTicks(kRetrySeconds);
+    if (error) *error = err;
+    return false;
+  }
+  screenActive_ = true;
+  screenLabel_ = T("Bildschirm", "Screen");
+  const std::vector<ScreenInfo> screens = ListScreens();
+  for (size_t i = 0; i < screens.size(); ++i) {
+    if (screens[i].id == screen_->screen()) screenLabel_ = Format("Monitor %d", (int)i + 1);
+  }
+  // Was an der Karte gemessen wurde, gilt fuer den Bildschirm nicht, und die
+  // Bilder auf der GPU werden gar nicht erst vermessen. Das Format stellt das
+  // erste Bild ein, wie bei der Karte.
+  renderer_.ResetAnalysis();
+
+  captureState_ = CaptureState::Running;
+  captureError_.clear();
+  retryCount_ = 0;
+  secondFieldPending_ = false;
+  sawFirstFrame_ = false;
+  displayedArrivalQpc_ = 0;
+  captureStartQpc_ = ClockTicks();
+  appliedStandardLines_ = 0;
+  UpdatePowerRequest();
+  return true;
+}
+
+FrameBuffer* App::FrameSource() {
+  if (screenActive_) return screen_->frames();
+  return capture_.sink();
+}
+
+// Neu gestartet wird, wenn der Bildschirm seine Groesse geaendert hat oder weg
+// ist, und wenn der Renderer ein anderer ist als der, fuer den gestartet wurde:
+// nach einem Neustart der Grafik oder dem Wechsel auf ein anderes Backend
+// haengen an ihm keine Texturen mehr, oder er sitzt auf einer anderen Karte.
+void App::CheckScreen() {
+  if (!screenActive_ || captureState_ != CaptureState::Running) return;
+  std::string message;
+  bool restart = screen_->needsRestart(&message);
+  uint64_t adapter = renderer_.sharedAdapter();
+  if (adapter == screenRefusedAdapter_) adapter = 0;
+  restart = restart || screen_->adapter() != adapter ||
+            (screen_->sharedFrames() && !renderer_.hasSourceFrames());
+  if (!restart) return;
+  if (!message.empty()) Toast(message);
+  std::string error;
+  if (!StartCapture(&error)) Toast(error);
+}
+
 void App::StopCapture() {
   standardSearch_.StopSignalWatch();
   // Der Ton zuerst, und zwar immer. Er kommt meist von derselben Karte, und
@@ -551,6 +622,12 @@ void App::StopCapture() {
   audio_.Stop();
   devicePages_.Reap();
   capture_.Stop();
+  if (screenActive_) {
+    // The textures first, while the capture still holds them too.
+    renderer_.AttachSourceFrames(nullptr);
+    screen_->Stop();
+    screenActive_ = false;
+  }
   renderer_.DropFrame();
   delayLine_.Clear();
   captureState_ = CaptureState::Idle;
@@ -559,6 +636,13 @@ void App::StopCapture() {
 void App::StartAudio() {
   audio_.Stop();
   const Profile& p = config_.active();
+  // A screen brings no sound to play. What it shows sounds on the speakers
+  // already, and a recording takes it from there (AudioSettings::sources).
+  // Nothing to wait for either, so no delay.
+  if (screenActive_) {
+    delayLine_.Configure(0.0);
+    return;
+  }
 
   DeviceRef input;
   switch (p.capture.audioSource) {
@@ -693,6 +777,9 @@ void App::OpenSettings(const std::string& reason) {
 void App::CaptureAppliedState() {
   const Profile& p = config_.active();
   applied_.activeProfile = config_.activeProfile;
+  applied_.source = p.capture.source;
+  applied_.screen = p.capture.screen;
+  applied_.screenCursor = p.capture.screenCursor;
   applied_.video = p.capture.video;
   applied_.format = p.capture.format;
   applied_.crossbarInput = p.capture.crossbarInput;
@@ -733,14 +820,20 @@ void App::SyncConfigChanges() {
   // Anything that changes what the card is asked to produce needs the graph
   // rebuilt. Everything else is applied without interrupting the picture.
   const bool profileChanged = config_.activeProfile != applied_.activeProfile;
-  const bool deviceChanged = !(p.capture.video == applied_.video);
+  // Karte gegen Bildschirm, oder ein anderer Bildschirm. Am Bildschirm hat
+  // keine Einstellung der Karte etwas zu sagen; die Einstellungen zeigen sie
+  // dann auch nicht.
+  const bool sourceChanged = p.capture.source != applied_.source ||
+                             (OnScreen() && p.capture.screen != applied_.screen);
+  const bool onCard = !OnScreen();
+  const bool deviceChanged = onCard && !(p.capture.video == applied_.video);
   // Ein anderer Eingang ist eine andere Quelle, nicht nur ein anderer Weg.
   // Umgeschaltet wurde frueher nur das Routing, und dann blieb das alte Format
   // stehen: am 25.09. lief HDMI in 720x576, die Normsuche lief auf dem
   // HDMI-Eingang, und Composite danach blieb ohne Bild, bis die Karte von Hand
   // neu eingelesen wurde. Also derselbe Weg wie dort, nur ohne eine
   // festgelegte Norm anzufassen -- die hat jemand ausgesucht.
-  const bool inputChanged = !profileChanged && !deviceChanged &&
+  const bool inputChanged = onCard && !profileChanged && !deviceChanged &&
                             p.capture.crossbarInput != applied_.crossbarInput;
   if (inputChanged) {
     CAP_LOG("Input changed: %d -> %d, rebuilding the graph, resolution searched again",
@@ -749,12 +842,13 @@ void App::SyncConfigChanges() {
     standardSearch_.SourceChanged();
     renderer_.ResetAnalysis();
   }
-  const bool formatChanged = !p.capture.format.SameFormat(applied_.format) ||
-                             std::abs(p.capture.format.fps - applied_.format.fps) > 0.01;
+  const bool formatChanged =
+      onCard && (!p.capture.format.SameFormat(applied_.format) ||
+                 std::abs(p.capture.format.fps - applied_.format.fps) > 0.01);
   // A different standard usually means a different number of lines, so the graph
   // has to come up again around it. Automatic is the exception: it has nothing
   // to apply until it has found something, and rebuilds by itself when it does.
-  const bool standardChanged = p.capture.videoStandard != applied_.videoStandard &&
+  const bool standardChanged = onCard && p.capture.videoStandard != applied_.videoStandard &&
                                p.capture.videoStandard > 0;
   if (standardChanged) {
     CAP_LOG("Video standard changed: %s -> %s, rebuilding the graph",
@@ -785,7 +879,8 @@ void App::SyncConfigChanges() {
     standardSearch_.StartOver();
   }
 
-  if (profileChanged || deviceChanged || inputChanged || formatChanged || standardChanged) {
+  if (profileChanged || sourceChanged || deviceChanged || inputChanged || formatChanged ||
+      standardChanged) {
     std::string error;
     if (!StartCapture(&error)) {
       // Keep the dialog open on the failing setting instead of closing over it.
@@ -795,6 +890,10 @@ void App::SyncConfigChanges() {
     CaptureAppliedState();
     UpdatePowerRequest();
     return;
+  }
+
+  if (screenActive_ && p.capture.screenCursor != applied_.screenCursor) {
+    screen_->SetCursor(p.capture.screenCursor);
   }
 
   const bool audioRouteChanged = p.capture.audioSource != applied_.audioSource ||
@@ -807,7 +906,8 @@ void App::SyncConfigChanges() {
              p.audio.volume != applied_.volume || p.audio.mute != applied_.mute) {
     audio_.ApplySettings(p.audio);
     renderer_.DropPendingAnalysis();
-    delayLine_.Configure(std::max(0, -p.audio.avOffsetMs));
+    // Am Bildschirm gibt es keinen Ton, auf den das Bild warten koennte.
+    delayLine_.Configure(screenActive_ ? 0 : std::max(0, -p.audio.avOffsetMs));
   }
 
   CaptureAppliedState();
@@ -1145,7 +1245,8 @@ void App::Tick() {
   UpdateProfileForStandard();
   cropTool_.UpdateCropForFormat();
 
-  if (captureState_ == CaptureState::Running) {
+  CheckScreen();
+  if (captureState_ == CaptureState::Running && !screenActive_) {
     std::string message;
     if (capture_.PumpEvents(&message)) {
       captureError_ = message;

@@ -125,7 +125,7 @@ int App::Run() {
       const double waitMs = TicksToSeconds(secondFieldQpc_ - ClockTicks()) * 1000.0;
       timeout = Clamp((int)std::ceil(waitMs), 0, timeout);
     }
-    FrameBuffer* sink = capture_.sink();
+    FrameBuffer* sink = FrameSource();
     lastWake_ = WaitForEventsOr(sink ? &sink->frameReady() : nullptr, timeout);
   }
   return 0;
@@ -148,7 +148,15 @@ void App::RenderFrame() {
   const Profile& profile = config_.active();
   // Minimised, the frame still goes through every pass, to the recording and
   // the camera; only the window's part is left out.
-  const bool toScreen = !minimized_;
+  bool toScreen = !minimized_;
+  // Without the preview the screen's picture goes only to the recording and
+  // the camera. The window shows how the capture is going, and for that thirty
+  // times a second is plenty -- the screen may deliver a hundred and forty-four.
+  const bool picture = !OnScreen() || profile.capture.screenPreview;
+  if (toScreen && !picture) {
+    toScreen = now - lastStatusQpc_ >= SecondsToTicks(1.0 / 30.0);
+    if (toScreen) lastStatusQpc_ = now;
+  }
 
   // Normally a no-op: the pass before has done this after its Present. Only a
   // pass run from inside another one, out of a modal loop, would otherwise pull
@@ -156,7 +164,7 @@ void App::RenderFrame() {
   renderer_.AnalyzeAfterPresent();
 
   // ---- pull the newest frame ----
-  FrameBuffer* sink = capture_.sink();
+  FrameBuffer* sink = FrameSource();
   bool haveNewFrame = false;
   if (sink) {
     FrameView view;
@@ -303,7 +311,7 @@ void App::RenderFrame() {
   const int topInset = toolbarVisible_ ? (int)std::lround(ToolbarHeight()) : 0;
   renderer_.SetTopInset(topInset);
   UpdateHdr();
-  renderer_.Draw(EffectiveImage(profile), fieldIndex_, toScreen);
+  renderer_.Draw(EffectiveImage(profile), fieldIndex_, toScreen && picture);
   // The shape Shift holds while the window is resized.
   window_.SetSizingAspect(renderer_.hasFrame() ? renderer_.pictureAspect() : 0.0, topInset);
 
