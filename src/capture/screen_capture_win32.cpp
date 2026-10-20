@@ -121,7 +121,8 @@ class Win32ScreenCapture : public ScreenCapture {
  public:
   ~Win32ScreenCapture() override { Stop(); }
 
-  bool Start(const std::string& id, bool cursor, uint64_t adapter, std::string* error) override;
+  bool Start(const CaptureTarget& target, bool cursor, uint64_t adapter,
+             std::string* error) override;
   void Stop() override;
   bool running() const override { return thread_.joinable(); }
 
@@ -218,8 +219,9 @@ class Win32ScreenCapture : public ScreenCapture {
   std::string error_;
 };
 
-bool Win32ScreenCapture::Start(const std::string& id, bool cursor, uint64_t adapter,
+bool Win32ScreenCapture::Start(const CaptureTarget& target, bool cursor, uint64_t adapter,
                                std::string* error) {
+  const std::string& id = target.screen;
   Stop();
   auto fail = [&](const Said& said) {
     if (error) *error = said.shown;

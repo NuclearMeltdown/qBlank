@@ -99,6 +99,7 @@ add_executable(qBlank WIN32
   src/capture/video_capture.cpp
   src/capture/video_format.cpp
   src/capture/video_standard.cpp
+  src/capture/window_capture_win32.cpp
   src/audio/audio_devices.cpp
   src/audio/audio_devices_win32.cpp
   src/audio/audio_engine.cpp
@@ -397,7 +398,7 @@ target_link_libraries(qBlank PRIVATE
   d3d11 dxgi d3dcompiler dxguid
   strmiids ole32 oleaut32 uuid
   winmm avrt mmdevapi dwmapi shlwapi shcore winhttp bcrypt windowscodecs
-  user32 gdi32 advapi32 comdlg32 propsys
+  user32 gdi32 advapi32 comdlg32 propsys runtimeobject
 )
 # Only the interface's Direct3D 11 backend compiles shaders at runtime -- its
 # own two, with D3DCompile, the first time it draws. On Vulkan that is the

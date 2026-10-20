@@ -589,6 +589,8 @@ json::Value WriteProfile(const Profile& p) {
   json::Value cap = json::Value::Object();
   cap["source"] = (int)p.capture.source;
   cap["screen"] = p.capture.screen;
+  cap["windowApp"] = p.capture.windowApp;
+  cap["windowTitle"] = p.capture.windowTitle;
   cap["screenCursor"] = p.capture.screenCursor;
   cap["screenPreview"] = p.capture.screenPreview;
   cap["video"] = WriteDevice(p.capture.video);
@@ -699,6 +701,8 @@ Profile ReadProfile(const json::Value& v) {
   const json::Value& c = v["capture"];
   p.capture.source = ReadEnum<VideoSource>(c, "source", kVideoSourceCount, VideoSource::Card);
   p.capture.screen = c["screen"].AsString("");
+  p.capture.windowApp = c["windowApp"].AsString("");
+  p.capture.windowTitle = c["windowTitle"].AsString("");
   p.capture.screenCursor = c["screenCursor"].AsBool(true);
   p.capture.screenPreview = c["screenPreview"].AsBool(true);
   p.capture.video = ReadDevice(c["video"]);

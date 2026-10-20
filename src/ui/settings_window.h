@@ -245,6 +245,8 @@ class SettingsWindow {
   void DrawSourceTab(const DeviceProbeResult& caps);
   // In place of everything about the card when the screen is the source.
   void DrawScreenSource();
+  // The same for one window.
+  void DrawWindowSource();
   void DrawImageTab();
   void DrawAudioTab();
   // Part of the sound tab, and all of it on the screen.
@@ -304,6 +306,7 @@ class SettingsWindow {
   std::vector<AudioDeviceInfo> audioOutputs_;
   std::vector<MonitorInfoEntry> monitors_;
   std::vector<ScreenInfo> screens_;
+  std::vector<WindowInfo> windows_;
 
   // Whether the start menu and the desktop have a shortcut to this copy. Read
   // from disk on setupJobs_, once per opening and again after each button.

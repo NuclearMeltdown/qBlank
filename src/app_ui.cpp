@@ -626,8 +626,10 @@ void App::DrawUi() {
       const VideoRenderer::SignalVerdict verdict = renderer_.detectedSignal();
       DrawIdleScreen(
           idleIcon_.id(), idleIconSize_,
-          screenActive_ ? T("Warte auf das erste Bild vom Bildschirm.",
-                            "Waiting for the screen's first picture.")
+          screenActive_ && screenSource_ == VideoSource::Window
+              ? T("Warte auf das erste Bild vom Fenster.", "Waiting for the window's first picture.")
+          : screenActive_ ? T("Warte auf das erste Bild vom Bildschirm.",
+                              "Waiting for the screen's first picture.")
           : verdict == VideoRenderer::SignalVerdict::Snow
               ? T("Kein Signal — die Karte empfängt nur Rauschen. Kabel und Eingang prüfen.",
                   "No signal — the card is receiving noise only. Check the cable and input.")

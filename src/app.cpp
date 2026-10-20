@@ -45,6 +45,14 @@ void DropResolution(FormatSel& f) {
   f.autoSubtype = autoSubtype;
 }
 
+// A window title for the status line, cut at a whole UTF-8 character.
+std::string ShortTitle(const std::string& title, size_t maxBytes) {
+  if (title.size() <= maxBytes) return title;
+  size_t end = maxBytes;
+  while (end > 0 && (static_cast<unsigned char>(title[end]) & 0xC0) == 0x80) --end;
+  return title.substr(0, end) + "...";
+}
+
 }  // namespace
 
 // ------------------------------------------------------------ FrameDelayLine
@@ -291,9 +299,11 @@ void App::ApplyWindowFlags() {
   // Second, so that it ends up in front of the preview rather than behind it.
   settingsHost_.SetTopmost(top);
   // While the screen is the source, qBlank is not part of it. Only then: a card
-  // user may well be taking the window into a stream.
-  window_.SetHiddenFromCapture(screenActive_);
-  settingsHost_.SetHiddenFromCapture(screenActive_);
+  // user may well be taking the window into a stream, and a window's picture
+  // has no other window in it.
+  const bool hidden = screenActive_ && screenSource_ == VideoSource::Screen;
+  window_.SetHiddenFromCapture(hidden);
+  settingsHost_.SetHiddenFromCapture(hidden);
 }
 
 void App::SetFullscreen(bool on) {
@@ -550,15 +560,24 @@ bool App::StartCapture(std::string* error) {
 // alles nicht.
 bool App::StartScreen(std::string* error) {
   const CaptureSettings& c = config_.active().capture;
-  if (!screen_) screen_ = CreateScreenCapture();
+  const bool window = c.source == VideoSource::Window;
+  if (!screen_ || screenSource_ != c.source) {
+    screen_.reset();
+    screen_ = window ? CreateWindowCapture() : CreateScreenCapture();
+    screenSource_ = c.source;
+  }
+  CaptureTarget target;
+  target.screen = c.screen;
+  target.app = c.windowApp;
+  target.title = c.windowTitle;
   uint64_t adapter = renderer_.sharedAdapter();
   if (adapter == screenRefusedAdapter_) adapter = 0;
   std::string err;
-  bool ok = screen_->Start(c.screen, c.screenCursor, adapter, &err);
+  bool ok = screen_->Start(target, c.screenCursor, adapter, &err);
   if (ok && screen_->sharedFrames() && !renderer_.AttachSourceFrames(screen_->sharedFrames())) {
     CAP_WARN("Screen capture: the renderer cannot open its textures, reading back instead");
     screenRefusedAdapter_ = adapter;
-    ok = screen_->Start(c.screen, c.screenCursor, 0, &err);
+    ok = screen_->Start(target, c.screenCursor, 0, &err);
   }
   if (!ok) {
     screen_->Stop();
@@ -570,10 +589,15 @@ bool App::StartScreen(std::string* error) {
   }
   screenActive_ = true;
   ApplyWindowFlags();
-  screenLabel_ = T("Bildschirm", "Screen");
-  const std::vector<ScreenInfo> screens = ListScreens();
-  for (size_t i = 0; i < screens.size(); ++i) {
-    if (screens[i].id == screen_->screen()) screenLabel_ = Format("Monitor %d", (int)i + 1);
+  if (window) {
+    screenLabel_ = screen_->screen().empty() ? T("Fenster", "Window")
+                                             : ShortTitle(screen_->screen(), 48);
+  } else {
+    screenLabel_ = T("Bildschirm", "Screen");
+    const std::vector<ScreenInfo> screens = ListScreens();
+    for (size_t i = 0; i < screens.size(); ++i) {
+      if (screens[i].id == screen_->screen()) screenLabel_ = Format("Monitor %d", (int)i + 1);
+    }
   }
   // Was an der Karte gemessen wurde, gilt fuer den Bildschirm nicht, und die
   // Bilder auf der GPU werden gar nicht erst vermessen. Das Format stellt das
@@ -785,6 +809,8 @@ void App::CaptureAppliedState() {
   applied_.activeProfile = config_.activeProfile;
   applied_.source = p.capture.source;
   applied_.screen = p.capture.screen;
+  applied_.windowApp = p.capture.windowApp;
+  applied_.windowTitle = p.capture.windowTitle;
   applied_.screenCursor = p.capture.screenCursor;
   applied_.video = p.capture.video;
   applied_.format = p.capture.format;
@@ -826,11 +852,14 @@ void App::SyncConfigChanges() {
   // Anything that changes what the card is asked to produce needs the graph
   // rebuilt. Everything else is applied without interrupting the picture.
   const bool profileChanged = config_.activeProfile != applied_.activeProfile;
-  // Karte gegen Bildschirm, oder ein anderer Bildschirm. Am Bildschirm hat
-  // keine Einstellung der Karte etwas zu sagen; die Einstellungen zeigen sie
-  // dann auch nicht.
-  const bool sourceChanged = p.capture.source != applied_.source ||
-                             (OnScreen() && p.capture.screen != applied_.screen);
+  // Karte gegen Bildschirm, oder ein anderer Bildschirm oder ein anderes
+  // Fenster. Am Bildschirm hat keine Einstellung der Karte etwas zu sagen; die
+  // Einstellungen zeigen sie dann auch nicht.
+  const bool sourceChanged =
+      p.capture.source != applied_.source ||
+      (p.capture.source == VideoSource::Screen && p.capture.screen != applied_.screen) ||
+      (p.capture.source == VideoSource::Window && (p.capture.windowApp != applied_.windowApp ||
+                                                   p.capture.windowTitle != applied_.windowTitle));
   const bool onCard = !OnScreen();
   const bool deviceChanged = onCard && !(p.capture.video == applied_.video);
   // Ein anderer Eingang ist eine andere Quelle, nicht nur ein anderer Weg.

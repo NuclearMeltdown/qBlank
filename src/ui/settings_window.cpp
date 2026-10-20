@@ -337,6 +337,7 @@ void SettingsWindow::RefreshDeviceLists() {
       std::vector<AudioDeviceInfo> outputs;
       std::vector<MonitorInfoEntry> monitors;
       std::vector<ScreenInfo> screens;
+      std::vector<WindowInfo> windows;
     };
     auto lists = std::make_shared<Lists>();
     lists->video = EnumerateVideoDevices();
@@ -344,12 +345,14 @@ void SettingsWindow::RefreshDeviceLists() {
     lists->outputs = EnumerateAudioDevices(false);
     lists->monitors = EnumerateMonitors();
     lists->screens = ListScreens();
+    lists->windows = ListWindows();
     return [this, lists] {
       videoDevices_ = std::move(lists->video);
       audioInputs_ = std::move(lists->inputs);
       audioOutputs_ = std::move(lists->outputs);
       monitors_ = std::move(lists->monitors);
       screens_ = std::move(lists->screens);
+      windows_ = std::move(lists->windows);
       listsBusy_ = false;
     };
   });
@@ -473,7 +476,7 @@ void SettingsWindow::MeasureTabs() {
   // sondern eine Hürde. Sie kommen zurück, sobald die Karte läuft -- und dann
   // gleich passend zu dem, was sie tatsächlich liefert.
   const CaptureSettings& capture = cfg().active().capture;
-  const bool screen = capture.source == VideoSource::Screen;
+  const bool screen = capture.source != VideoSource::Card;
   const bool haveDevice = screen || !capture.video.empty();
   float row = -style.ItemInnerSpacing.x;
   bool activeShown = false;
@@ -876,7 +879,7 @@ void SettingsWindow::PickSearchHit(int entry) {
   // Without a device only General, Source and Updates exist. Pointing at the
   // device list is the useful answer: that is the step between here and there.
   const CaptureSettings& capture = cfg().active().capture;
-  if (capture.source == VideoSource::Screen) {
+  if (capture.source != VideoSource::Card) {
     if (!SettingsTabOnScreen(tab)) {
       tab = kTabSource;
       key = "source";
@@ -1142,6 +1145,65 @@ void SettingsWindow::DrawScreenSource() {
                         "Sound: add “System sound without qBlank” on the Audio tab."));
 }
 
+void SettingsWindow::DrawWindowSource() {
+  CaptureSettings& c = cfg().active().capture;
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Fenster", "Window"));
+
+  std::string preview = T("Fenster wählen", "Choose a window");
+  if (!c.windowApp.empty()) {
+    preview = Format("%s  —  %s", c.windowTitle.c_str(), c.windowApp.c_str());
+    // Without the title, the same program's other window stands in.
+    bool open = windows_.empty();
+    for (const WindowInfo& w : windows_) open = open || w.app == c.windowApp;
+    if (!open) preview += T("  [nicht offen]", "  [not open]");
+  }
+  ImGui::SetNextItemWidth(-150.0f);
+  if (ImGui::BeginCombo("##window", preview.c_str())) {
+    for (size_t i = 0; i < windows_.size(); ++i) {
+      const WindowInfo& w = windows_[i];
+      const bool selected = w.app == c.windowApp && w.title == c.windowTitle;
+      ImGui::PushID((int)i);
+      const std::string name =
+          Format("%s  —  %s  (%dx%d)", w.title.c_str(), w.app.c_str(), w.width, w.height);
+      if (ImGui::Selectable(name.c_str(), selected)) {
+        c.windowApp = w.app;
+        c.windowTitle = w.title;
+      }
+      if (selected) ImGui::SetItemDefaultFocus();
+      ImGui::PopID();
+    }
+    ImGui::EndCombo();
+  }
+  Anchor("window");
+  ImGui::SameLine();
+  if (ImGui::Button(T("Aktualisieren", "Refresh"), ImVec2(-1, 0))) InvalidateDeviceLists();
+  Anchor("refresh");
+
+  ImGui::Checkbox(T("Mauszeiger mit aufnehmen", "Include the mouse pointer"), &c.screenCursor);
+  Anchor("screencursor");
+  ImGui::Checkbox(T("Vorschau", "Preview"), &c.screenPreview);
+  Anchor("screenpreview");
+  HelpMarker(T("Zeigt im Fenster, was aufgenommen wird: ob es das richtige Fenster ist "
+               "oder nur Schwarz ankommt. Aus zeigt das Fenster nur Auflösung, Bildrate und "
+               "Aufnahmezeit und zeichnet seltener.",
+               "Shows in the window what is being captured: whether it is the right window "
+               "or only black arrives. Off, the window shows just resolution, frame rate and "
+               "recording time, and redraws less often."));
+
+  ImGui::Spacing();
+  TextDisabledWrapped(T("Das Fenster darf verdeckt sein, aber nicht minimiert.",
+                        "The window may be covered, but not minimized."));
+  TextDisabledWrapped(T("Ist der Titel weg, nimmt qBlank ein anderes Fenster desselben Programms.",
+                        "If the title is gone, qBlank takes another window of the same program."));
+  TextDisabledWrapped(T("Ältere Spiele im exklusiven Vollbild lassen sich nicht aufnehmen; im "
+                        "randlosen Fenster geht es.",
+                        "Older games in exclusive fullscreen cannot be captured; borderless "
+                        "windowed works."));
+  TextDisabledWrapped(T("Ton: im Reiter Ton „Systemton ohne qBlank“ hinzufügen.",
+                        "Sound: add “System sound without qBlank” on the Audio tab."));
+}
+
 void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   Profile& p = cfg().active();
   ImGui::Spacing();
@@ -1155,14 +1217,22 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     Anchor("source");
     ImGui::SameLine();
     ImGui::RadioButton(T("Bildschirm", "Screen"), &source, (int)VideoSource::Screen);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!CanCaptureWindows());
+    ImGui::RadioButton(T("Fenster", "Window"), &source, (int)VideoSource::Window);
+    ImGui::EndDisabled();
     HelpMarker(T("Bildschirm nimmt einen Monitor auf, wie Windows ihn zeigt, etwa für Spiele "
-                 "am PC. Die Karte ist solange zu.",
-                 "Screen captures a monitor as Windows shows it, for games on the PC say. The "
-                 "card is closed meanwhile."));
+                 "am PC; Fenster nur ein Programmfenster. Die Karte ist solange zu.",
+                 "Screen captures a monitor as Windows shows it, for games on the PC say; "
+                 "Window just one program's window. The card is closed meanwhile."));
     p.capture.source = (VideoSource)source;
   }
   if (p.capture.source == VideoSource::Screen) {
     DrawScreenSource();
+    return;
+  }
+  if (p.capture.source == VideoSource::Window) {
+    DrawWindowSource();
     return;
   }
 
@@ -1895,7 +1965,7 @@ void SettingsWindow::DrawImageTab() {
 
   // Am Bildschirm gibt es nichts zu entflechten, zu entstoeren oder
   // zuzuschneiden (App::EffectiveImage). Was bleibt, ist die Skalierung.
-  const bool screen = cfg().active().capture.source == VideoSource::Screen;
+  const bool screen = cfg().active().capture.source != VideoSource::Card;
 
   // Ganz oben, weil sonst jeder Regler darunter scheinbar nichts tut.
   if (bypassOn_ && !screen) {
@@ -2970,7 +3040,7 @@ void SettingsWindow::DrawAudioTab() {
 
   // The screen brings no sound to play, delay or turn down: what is left is
   // what the recording takes.
-  if (cfg().active().capture.source == VideoSource::Screen) {
+  if (cfg().active().capture.source != VideoSource::Card) {
     DrawRecordSources(true);
     return;
   }
@@ -4315,7 +4385,7 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                "cannot play it, VLC and mpv can."));
   // Only where nothing is lost on the way: the card's own bytes are the point.
   // The screen has no other bytes: it is recorded as it comes either way.
-  if (cfg().active().capture.source != VideoSource::Screen) {
+  if (cfg().active().capture.source == VideoSource::Card) {
     bool unfiltered = rec.unfiltered && lossless;
     ImGui::BeginDisabled(!lossless);
     if (ImGui::Checkbox(T("Ohne Filter", "Unfiltered"), &unfiltered)) rec.unfiltered = unfiltered;

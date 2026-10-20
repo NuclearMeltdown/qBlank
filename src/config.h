@@ -128,11 +128,12 @@ const int kVideoRegionCount = 8;
 
 enum class AudioSource { Embedded, Manual, None };
 
-// Where the picture comes from: a capture card, or a screen of this computer.
-// The screen has none of a card's settings -- no input, standard, format or
-// sound of its own -- and a profile on it ignores them.
-enum class VideoSource { Card, Screen };
-const int kVideoSourceCount = 2;
+// Where the picture comes from: a capture card, a screen of this computer, or
+// one window on it. Screen and window have none of a card's settings -- no
+// input, standard, format or sound of their own -- and a profile on them
+// ignores them.
+enum class VideoSource { Card, Screen, Window };
+const int kVideoSourceCount = 3;
 
 enum class OsdCorner { TopLeft, TopRight, BottomLeft, BottomRight };
 
@@ -397,9 +398,13 @@ struct FormatSel {
 struct CaptureSettings {
   VideoSource source = VideoSource::Card;
   // The screen's settings, see VideoSource. `screen` is ScreenInfo::id, empty
-  // for the primary one. The preview is the picture in the window: off, the
-  // window shows only how the capture is going, and costs less.
+  // for the primary one; the window is WindowInfo's program and title. The
+  // pointer and the preview are both's. The preview is the picture in the
+  // window: off, the window shows only how the capture is going, and costs
+  // less.
   std::string screen;
+  std::string windowApp;
+  std::string windowTitle;
   bool screenCursor = true;
   bool screenPreview = true;
   DeviceRef video;

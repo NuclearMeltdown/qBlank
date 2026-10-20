@@ -106,13 +106,13 @@ class App {
   void DrawContextMenu();
 
   bool StartCapture(std::string* error);
-  // StartCapture's half for VideoSource::Screen.
+  // StartCapture's half for VideoSource::Screen and Window.
   bool StartScreen(std::string* error);
   void StopCapture();
   void StartAudio();
-  // Whether the active profile takes the screen. What runs is screenActive_;
-  // the two differ only until SyncConfigChanges has caught up.
-  bool OnScreen() const { return config_.active().capture.source == VideoSource::Screen; }
+  // Whether the active profile takes the screen or a window. What runs is
+  // screenActive_; the two differ only until SyncConfigChanges has caught up.
+  bool OnScreen() const { return config_.active().capture.source != VideoSource::Card; }
   // Where the frames arrive: the card's sink or the screen's. Null while
   // neither runs.
   FrameBuffer* FrameSource();
@@ -326,11 +326,13 @@ class App {
   // with what the analogue decoder says, because neither is sufficient alone.
   bool HaveLiveSignal() const;
   VideoCapture capture_;
-  // The screen, in place of the card while a profile takes it. Made when first
-  // needed; the card is closed meanwhile.
+  // The screen or the window, in place of the card while a profile takes it.
+  // Made when first needed, and anew for the other of the two; the card is
+  // closed meanwhile.
   std::unique_ptr<ScreenCapture> screen_;
+  VideoSource screenSource_ = VideoSource::Card;  // which of the two screen_ is
   bool screenActive_ = false;
-  std::string screenLabel_;  // "Monitor 2", as the settings number them
+  std::string screenLabel_;  // "Monitor 2", as the settings number them, or the window's title
   // The adapter whose renderer could not open the screen's textures. On it the
   // screen hands over bytes instead, without asking again.
   uint64_t screenRefusedAdapter_ = 0;
@@ -376,6 +378,8 @@ class App {
     int activeProfile = -1;
     VideoSource source = VideoSource::Card;
     std::string screen;
+    std::string windowApp;
+    std::string windowTitle;
     bool screenCursor = true;
     long videoStandard = 0;
     DeviceRef video;
