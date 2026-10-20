@@ -140,7 +140,7 @@
         <tr><td><strong>Source</strong></td><td>Video device, video standard, card input, source audio, format</td></tr>
         <tr><td><strong>Picture</strong></td><td>Scaling, picture controls, fields (deinterlacing), crop, native pixel grid, composite filter or noise, cathode ray tube, compare, colour</td></tr>
         <tr><td><strong>HDR</strong></td><td>High dynamic range: tone mapping or passthrough, and what keeps the range in screenshots and recordings</td></tr>
-        <tr><td><strong>Audio</strong></td><td>Playback device, delay, volume, microphone</td></tr>
+        <tr><td><strong>Audio</strong></td><td>Playback device, delay, volume, recording sources</td></tr>
         <tr><td><strong>Display</strong></td><td>Graphics (Direct3D 11 or Vulkan), VSync and behaviour, volume readout, fullscreen</td></tr>
         <tr><td><strong>Recording</strong></td><td>Output folder and format, screenshots, virtual camera, rewrap to MP4</td></tr>
         <tr><td><strong>Encoder</strong></td><td>Encoder, ffmpeg, encoder settings</td></tr>
@@ -158,10 +158,12 @@
         <li>Recording needs ffmpeg. <strong>Encoder &rarr; Download ffmpeg</strong> fetches it and keeps it current.</li>
         <li>Pick the encoder in the Encoder tab: NVENC, Quick Sync, AMF, x264 or x265, with H.264, H.265 or AV1.</li>
         <li><strong>Full colour resolution (4:4:4)</strong> keeps the colour of every pixel, worth it for HDMI and RGB sources. Larger files, and VLC or mpv play them where browsers and phones cannot. NVENC, x264 and x265 can.</li>
+        <li>Lossless: <em>H.265 lossless (NVIDIA NVENC)</em> writes MKV, <em>UT Video</em> and <em>Uncompressed</em> write AVI, with no 4&nbsp;GB limit. <strong>Unfiltered</strong> records the card's frames as they arrive: no deinterlacing, crop, scaling or filters.</li>
         <li><kbd>F9</kbd> starts and stops. A red dot on the taskbar button shows that it is recording.</li>
         <li>The Recording tab shows the free space as recording time. A recording stops itself before the drive is full.</li>
+        <li><strong>Larger buffer in memory</strong> holds what a slow drive has not written yet, more than the usual 512&nbsp;MB.</li>
         <li>If the encoder cannot keep up, a notice says so, and the recording indicator shows it while it lasts. A faster preset, or a lower resolution or frame rate, helps.</li>
-        <li>A microphone can go on a track of its own: <strong>Audio &rarr; Microphone</strong>.</li>
+        <li><strong>Audio &rarr; Recording sources</strong> adds to the card audio: a microphone, an output device or the system sound without qBlank. Each has its own gain and goes on the mix, on a track of its own, or both. None of it is played back.</li>
         <li><strong>Rewrap to MP4</strong> turns finished recordings into MP4 without encoding them again.</li>
       </ul>
       <h3>Screenshots</h3>
@@ -171,7 +173,7 @@
         <li><em>Include the interface</em> in the Recording tab grabs the finished window instead.</li>
       </ul>
       <figure class="ui">
-        <img src="shots/recording.png" width="528" height="590" loading="lazy" alt="The Recording tab: container MKV, frame rate same as source, the output folder with the free space as recording time, and under Screenshots the format PNG and the screenshot folder">
+        <img src="shots/recording.png" width="528" height="696" loading="lazy" alt="The Recording tab: container MKV, frame rate same as source, the output folder with the free space as recording time, the larger buffer in memory, and under Screenshots the format PNG and the screenshot folder">
         <figcaption>Settings &rarr; Recording: container, folder and free space, below them the screenshots.</figcaption>
       </figure>
       <h3>Virtual camera</h3>

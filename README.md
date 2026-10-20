@@ -15,7 +15,7 @@ file, any DirectShow device, and as little delay as the hardware allows.
 Measured on a StarTech PEXHDCAP60L: **1080p60 sustained, around 1 ms from a
 frame arriving to the present that hands it to the compositor.**
 
-Recording, screenshots, a microphone track and a virtual camera are included;
+Recording (lossless too), screenshots and a virtual camera are included;
 scenes, overlays, compositing and streaming are not. For those, use OBS.
 
 > **The [manual](https://qblank.com/manual.html) explains how
@@ -117,15 +117,19 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Embedded card audio or any Windows recording device, out through WASAPI.
 - Buffer target, optional exclusive mode, A/V offset.
 - Clock drift corrected by nudging the playback rate a fraction of a per cent.
-- Optional microphone on its own track, never played back.
+- Recording sources on top of the card audio: microphones, output devices, the system sound without qBlank — each with its own gain, mixed, separate or both, never played back.
 
 **Recording** · [wiki](../../wiki/Recording)
 - H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265, encoded inside qBlank by ffmpeg's libraries.
+- 4:2:0 or full colour resolution (4:4:4), converted on the GPU; zero-copy into NVENC and AMF.
+- Lossless: H.265 lossless (NVENC) in MKV, UT Video or uncompressed RGB in AVI, no 4 GB limit.
+- **Unfiltered**: the card's frames as they arrive — no deinterlacing, crop, scaling or filters.
 - At source resolution: after crop and deinterlacing, before window scaling.
 - Capture audio is the master clock — constant frame rate, 1 ms drift over 15 seconds.
 - 60 to 50 Hz mid-recording **cuts the file and continues in a new one**.
 - Rate control, preset, tuning, look-ahead, adaptive quantisation and multipass under one set of names.
 - Free space shown as remaining recording time; a recording will not start on a full drive and stops itself before one fills up.
+- An optional larger memory buffer for slow drives, never more than is free.
 - A notice when the encoder cannot keep up.
 
 **Screenshots** · [wiki](../../wiki/Screenshots)
