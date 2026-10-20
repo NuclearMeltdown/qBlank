@@ -1079,6 +1079,7 @@ bool Config::Load(std::string* error) {
   record.largeBuffer = r["largeBuffer"].AsBool(false);
   record.bufferGb = Clamp(r["bufferGb"].AsInt(8), 1, kMaxRecordBufferGb);
   record.fullChroma = r["fullChroma"].AsBool(false);
+  record.unfiltered = r["unfiltered"].AsBool(false);
   record.encoderProbeSignature = r["encoderProbeSignature"].AsString();
   auto readEncoders = [&r](const char* key, std::vector<int>* out) {
     out->clear();
@@ -1239,6 +1240,7 @@ std::string Config::Serialize() const {
   r["largeBuffer"] = record.largeBuffer;
   r["bufferGb"] = record.bufferGb;
   r["fullChroma"] = record.fullChroma;
+  r["unfiltered"] = record.unfiltered;
   r["encoderProbeSignature"] = record.encoderProbeSignature;
   auto writeEncoders = [&r](const char* key, const std::vector<int>& ids) {
     json::Value enc = json::Value::Array();

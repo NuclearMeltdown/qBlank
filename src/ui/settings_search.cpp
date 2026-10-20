@@ -355,6 +355,9 @@ const Entry kEntries[] = {
     {Kind::Control, kTabEncoder, "fullchroma", "Volle Farbauflösung (4:4:4)",
      "Full colour resolution (4:4:4)",
      "4:4:4|444|4:2:0|Chroma|Farbunterabtastung|Chroma subsampling|RGB|yuv444|Farbtiefe"},
+    {Kind::Control, kTabEncoder, "unfiltered", "Ohne Filter", "Unfiltered",
+     "Roh|Raw|Kartenbild|Card picture|Original|Deinterlacing|Halbbilder|Fields|unverändert|"
+     "untouched"},
     {Kind::Section, kTabEncoder, "encsettings", "Encoder-Einstellungen", "Encoder settings",
      "Codec-Einstellungen|Codec settings"},
     {Kind::Control, kTabEncoder, "ratecontrol", "Ratensteuerung", "Rate control",

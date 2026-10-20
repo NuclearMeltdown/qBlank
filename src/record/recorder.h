@@ -30,6 +30,8 @@
 
 #include "config.h"
 #include "i18n.h"
+#include "capture/video_format.h"
+#include "record/card_pixels.h"
 #include "record/ffmpeg_locator.h"
 #include "render/yuv_format.h"
 
@@ -63,9 +65,10 @@ struct RecordStats {
 //
 // Under RateControl::Quality the bitrate is a ceiling rather than a target, so
 // the estimate is a worst case there and the file usually turns out smaller.
-// A lossless encoder has no bitrate, and goes by the picture's size and rate.
+// A lossless encoder has no bitrate, and goes by the picture's size and rate,
+// at `pixelBytes` a pixel before the codec (Recorder::CardPixelBytes).
 double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks, int width,
-                               int height, double fps);
+                               int height, double fps, double pixelBytes = 3.0);
 
 // Where the next recording in `folder` goes: named to the second, with a number
 // added when that name is taken -- a file cut within the same second as the
@@ -108,7 +111,28 @@ class Recorder {
   void SetGpuAdapter(uint64_t adapter) { gpuAdapter_ = adapter; }
   // What the writer takes, from Start on: the renderer delivers exactly this.
   const YuvFormat& format() const { return format_; }
-  bool hdr() const { return format_.pq(); }
+  bool hdr() const { return unfiltered_ ? card_.transfer != 0 : format_.pq(); }
+
+  // The card's frames as they arrive, for a lossless recording without
+  // filters (RecordSettings::unfiltered): their format, and how the renderer
+  // reads their colour, which is what the file is tagged with.
+  struct CardFrames {
+    VideoFormatInfo format;
+    bool fullRange = false;
+    bool bt709 = false;
+    int transfer = 0;    // VideoRenderer::Transfer: 0 SDR, 1 PQ, 2 HLG
+    int fieldOrder = 0;  // 0 not known, 1 top field first, 2 bottom field first
+  };
+  // Set before Start; null for the picture as it is shown.
+  void SetCard(const CardFrames* card) {
+    unfiltered_ = card != nullptr;
+    card_ = card ? *card : CardFrames{};
+  }
+  bool unfiltered() const { return unfiltered_; }
+  const VideoFormatInfo& card() const { return card_.format; }
+  // What a pixel of `card` costs in the file before `encoder`; 0 when it
+  // cannot take the card's frames as they are.
+  static double CardPixelBytes(RecordEncoder encoder, const VideoFormatInfo& card);
 
   // Which family an encoder belongs to. The settings are one set of names; what
   // each vendor actually calls them is another, and this is the seam.
@@ -156,6 +180,9 @@ class Recorder {
   // one the encoder was opened for is dropped rather than written.
   void PushVideo(const uint8_t* pixels, int stride, int width, int height,
                  const YuvFormat& format);
+  // Without filters instead: a frame as the card delivered it, `size` bytes in
+  // the format of SetCard. One copy here; the rest happens on the writer.
+  void PushCardFrame(const uint8_t* data, size_t size);
 
   // On the GPU instead (shared_frames.h): the frames to draw into while the
   // encoder takes them there, null while it does not. PushVideo still works
@@ -198,6 +225,8 @@ class Recorder {
   void AudioThread(Session* session);
   bool Open(Session* session);
   void Fail(const Said& said);
+  // Hands a filled buffer of the session's pool to the writer.
+  void Offer(AVBufferRef* buffer);
 
   // Everything the settings say, in the words this particular encoder uses:
   // option name and value, by turns.
@@ -207,6 +236,10 @@ class Recorder {
   bool wide_ = false;
   uint64_t gpuAdapter_ = 0;
   YuvFormat format_;
+  bool unfiltered_ = false;
+  CardFrames card_;
+  CardPlan plan_;      // from Start on, while unfiltered_
+  size_t cardBytes_ = 0;
   // The session's, set by the writer before ready_ and let go of in Stop.
   std::shared_ptr<SharedFrames> shared_;
   std::atomic<bool> sharedRefused_{false};
@@ -234,7 +267,8 @@ class Recorder {
   int height_ = 0;
   double fps_ = 60.0;  // as a fraction in the session; this is that, divided out
   int audioRate_ = 0;
-  // One frame: the luma rows and the chroma rows after them, without padding.
+  // One frame: the luma rows and the chroma rows after them, without padding;
+  // without filters, what the encoder takes (CardOutBytes).
   size_t frameBytes_ = 0;
 
   // The newest frame, waiting for the writer: one buffer of the session's pool.

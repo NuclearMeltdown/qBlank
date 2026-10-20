@@ -440,7 +440,16 @@ void App::RenderFrame() {
 }
 
 void App::FeedFrameConsumers() {
-  const bool wantRecorder = recorder_.recording();
+  // Without filters the recorder takes the card's frame as it was uploaded,
+  // and nothing is converted or read back for it.
+  const bool unfiltered = recorder_.recording() && recorder_.unfiltered();
+  if (unfiltered) {
+    const FrameView* card = renderer_.uploadedFrame();
+    if (card && SameCardFormat(renderer_.sourceFormat(), recorder_.card())) {
+      recorder_.PushCardFrame(card->data, card->size);
+    }
+  }
+  const bool wantRecorder = recorder_.recording() && !unfiltered;
   // Only while something is actually watching. An idle camera costs a flag.
   const bool wantCamera = virtualCamera_.running() && virtualCamera_.consumed();
 

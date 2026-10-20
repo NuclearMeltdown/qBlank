@@ -159,6 +159,13 @@ class VideoRenderer {
     hdrWideGamut_ = wideGamut;
   }
   Transfer hdrTransfer() const { return hdrTransfer_; }
+  // How the last draw read the card's Y'CbCr: full range or limited, BT.709
+  // or BT.601. What a recording without filters is tagged with.
+  bool cardFullRange() const { return cardFullRange_; }
+  bool cardBt709() const { return cardBt709_; }
+  // The frame uploaded last, as the card delivered it, until the analyses
+  // after Present are done with it; null after that.
+  const FrameView* uploadedFrame() const { return analysisPending_ ? &analysisFrame_ : nullptr; }
 
   // The interface, when the swapchain is scRGB. Between these two calls the
   // interface draws into a buffer of its own; the second brings it back over
@@ -541,6 +548,8 @@ class VideoRenderer {
   bool tenBitContainer_ = false;
   Transfer hdrTransfer_ = Transfer::Sdr;
   bool hdrWideGamut_ = false;
+  bool cardFullRange_ = false;
+  bool cardBt709_ = false;
   bool hdrOutput_ = false;
   float paperWhiteNits_ = 203.0f;
   float sourcePeakNits_ = 1000.0f;

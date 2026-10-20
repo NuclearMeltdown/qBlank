@@ -107,6 +107,7 @@ add_executable(qBlank WIN32
   src/audio/source_capture.cpp
   src/audio/pcm.cpp
   src/audio/pcm_win32.cpp
+  src/record/card_pixels.cpp
   src/record/ffmpeg_download.cpp
   src/record/ffmpeg_locator.cpp
   src/record/gpu_frames_win32.cpp

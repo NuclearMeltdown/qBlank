@@ -3269,6 +3269,8 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
     }
   }
   MatrixCoefficients(matrix, hd, cb.coef);
+  cardFullRange_ = range == ColorRange::Full;
+  cardBt709_ = matrix == ColorMatrix::BT709 || (matrix == ColorMatrix::Auto && hd);
 
   cb.pixelScale = (kind_ == FormatKind::P010 && tenBitContainer_) ? 65535.0f / 65472.0f : 1.0f;
   cb.transfer = (int32_t)hdrTransfer_;

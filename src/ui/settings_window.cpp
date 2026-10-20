@@ -4189,6 +4189,18 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                "Keeps the colour of every pixel instead of averaging it over four. Worth it "
                "for HDMI and RGB sources. Larger files; browsers, phones and many editors "
                "cannot play it, VLC and mpv can."));
+  // Only where nothing is lost on the way: the card's own bytes are the point.
+  bool unfiltered = rec.unfiltered && lossless;
+  ImGui::BeginDisabled(!lossless);
+  if (ImGui::Checkbox(T("Ohne Filter", "Unfiltered"), &unfiltered)) rec.unfiltered = unfiltered;
+  Anchor("unfiltered");
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  HelpMarker(T("Nur verlustfrei: die Bilder der Karte, wie sie ankommen, ohne Deinterlacing, "
+               "Zuschnitt, Skalierung und Filter, mit der Bildrate der Karte. Aus: das Bild, "
+               "wie man es sieht.",
+               "Lossless only: the card's frames as they arrive, without deinterlacing, crop, "
+               "scaling or filters, at the card's frame rate. Off: the picture as you see it."));
   if (lossless) {
     // What lossless costs, in the number that decides whether the disk keeps
     // up -- see the free space on the Recording tab for how long it lasts.

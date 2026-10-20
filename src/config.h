@@ -663,6 +663,10 @@ struct RecordSettings {
   // 4:4:4 instead of 4:2:0, where the encoder can. Off by default: few players
   // and editors open such a file.
   bool fullChroma = false;
+  // A lossless recording of the card's frames as they arrive: no
+  // deinterlacing, crop, scaling or filters, at the card's own rate. Off: the
+  // picture as it is shown.
+  bool unfiltered = false;
   // 0 = whatever the source delivers. Otherwise frames are dropped to hit this.
   double fps = 0.0;
   // Off by default: only FAT32 needs it, NTFS does not.

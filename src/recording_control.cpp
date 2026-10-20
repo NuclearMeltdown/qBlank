@@ -368,13 +368,41 @@ void RecordingControl::LaunchRecording() {
   // umgestellter Deinterlacer nicht ausloesen.
   recordSourceFps_ = recordFps;
   pendingSince_ = -1.0;
-  if (config_.active().image.deinterlace != Deinterlace::Off) recordFps *= 2.0;
+  // Ohne Filter die Bilder der Karte, wie sie ankommen: mit den Farben, mit
+  // denen der Renderer sie liest, und mit der Rate der Karte -- gewebte
+  // Halbbilder bleiben ein Bild. Nimmt der Encoder das Format so nicht, wird
+  // mit Filter aufgenommen, und das wird gesagt.
+  const Profile& profile = config_.active();
+  Recorder::CardFrames card;
+  bool unfiltered = pendingSettings_.unfiltered && IsLosslessEncoder(pendingSettings_.encoder);
+  bool cardRefused = false;
+  if (unfiltered) {
+    card.format = renderer_.sourceFormat();
+    card.fullRange = renderer_.cardFullRange();
+    card.bt709 = renderer_.cardBt709();
+    card.transfer = (int)renderer_.hdrTransfer();
+    const bool interlaced =
+        card.format.interlaced ||
+        (profile.image.deinterlace != Deinterlace::Off &&
+         (!profile.image.deinterlaceAuto ||
+          renderer_.detectedInterlace() == VideoRenderer::InterlaceVerdict::Interlaced));
+    bool topFirst = card.format.fieldOneFirst;
+    if (profile.image.fieldOrder != FieldOrder::Auto) {
+      topFirst = profile.image.fieldOrder == FieldOrder::TopFirst;
+    }
+    card.fieldOrder = interlaced ? (topFirst ? 1 : 2) : 0;
+    cardRefused = Recorder::CardPixelBytes(pendingSettings_.encoder, card.format) <= 0.0;
+    unfiltered = !cardRefused;
+  }
+  recorder_.SetCard(unfiltered ? &card : nullptr);
+  if (!unfiltered && profile.image.deinterlace != Deinterlace::Off) recordFps *= 2.0;
 
   // Alle drei Sehhilfen wuerden in die Datei wandern, weil Aufnahme und virtuelle
   // Kamera hinter denselben Durchgaengen abgreifen wie die Anzeige. Also fallen
   // sie hier weg, statt die Aufnahme zu verweigern: wer aufnimmt, meint das
-  // ganze Bild von jetzt. Erst hier, weil alles davor noch abbrechen kann.
-  host_.DropViewAids();
+  // ganze Bild von jetzt. Erst hier, weil alles davor noch abbrechen kann. Ohne
+  // Filter kommen sie nicht hinein.
+  if (!unfiltered) host_.DropViewAids();
 
   // Die Platzwarnung gilt je Aufnahme. Die Zahl dazu ist die der Pruefung vor
   // dem Start, nicht eine von vor einer Sekunde.
@@ -386,12 +414,18 @@ void RecordingControl::LaunchRecording() {
 
   recorder_.SetGpuAdapter(renderer_.sharedAdapter());
   const bool ok = recorder_.Start(pendingSettings_, pendingFile_, ffmpeg_,
-                                  renderer_.outputWidth(), renderer_.outputHeight(), recordFps,
-                                  mainTrack, std::move(extras), &error);
+                                  unfiltered ? card.format.width : renderer_.outputWidth(),
+                                  unfiltered ? card.format.height : renderer_.outputHeight(),
+                                  recordFps, mainTrack, std::move(extras), &error);
 
   if (!ok) {
     audio_.SetTapEnabled(false);
     host_.Toast(error);
+    return;
+  }
+  if (cardRefused) {
+    host_.Toast(T("Aufnahme läuft, mit Filter: dieser Encoder nimmt das Kartenformat nicht roh.",
+                  "Recording, filtered: this encoder does not take the card's format raw."));
     return;
   }
   // HDR asked for and not given: only NVENC keeps ten bits losslessly.
@@ -404,7 +438,8 @@ void RecordingControl::LaunchRecording() {
   // 4:4:4 asked for and not given: the encoder did not pass it at this depth,
   // or was never tested for it. Recording anyway, but not silently.
   const YuvLayout layout = recorder_.format().layout;
-  if (pendingSettings_.fullChroma && layout != YuvLayout::I444 && layout != YuvLayout::Bgr) {
+  if (pendingSettings_.fullChroma && !unfiltered && layout != YuvLayout::I444 &&
+      layout != YuvLayout::Bgr) {
     host_.Toast(T("Aufnahme läuft, in 4:2:0: der Encoder kann hier kein 4:4:4.",
                   "Recording, in 4:2:0: the encoder cannot do 4:4:4 here."));
     return;
@@ -473,7 +508,21 @@ void RecordingControl::UpdateDiskSpace() {
     if (config_.active().image.deinterlace != Deinterlace::Off) fps *= 2.0;
     if (fps <= 1.0) fps = 60.0;
   }
-  diskBytesPerSecond_ = EstimatedBytesPerSecond(config_.record, plan.count(), width, height, fps);
+  // Ohne Filter die Karte, wie sie kommt, wenn der Encoder sie so nimmt.
+  double pixelBytes = 3.0;
+  const VideoFormatInfo& card = renderer_.sourceFormat();
+  if (config_.record.unfiltered && IsLosslessEncoder(config_.record.encoder) && card.width > 0 &&
+      card.height > 0) {
+    const double cardBytes = Recorder::CardPixelBytes(config_.record.encoder, card);
+    if (cardBytes > 0.0) {
+      pixelBytes = cardBytes;
+      width = card.width & ~1;
+      height = card.height & ~1;
+      fps = SourceFps() > 1.0 ? SourceFps() : 60.0;
+    }
+  }
+  diskBytesPerSecond_ =
+      EstimatedBytesPerSecond(config_.record, plan.count(), width, height, fps, pixelBytes);
 
   const double now = TicksToSeconds(ClockTicks());
   // Der Arbeitsspeicher im selben Takt, aber ohne den Umweg ueber den Job: die
@@ -648,8 +697,12 @@ void RecordingControl::FeedRecorder() {
   // die Abweichung besteht -- kehrt die Quelle zurueck, wird gar nicht
   // geschnitten und die Datei laeuft durch.
   {
-    const int liveWidth = renderer_.outputWidth();
-    const int liveHeight = renderer_.outputHeight();
+    // Ohne Filter zaehlt das Kartenbild selbst: dieselbe Groesse reicht dort
+    // nicht, das Format der Bytes steht mit dem Encoder ebenso fest.
+    const bool unfiltered = recorder_.unfiltered();
+    const VideoFormatInfo& card = renderer_.sourceFormat();
+    const int liveWidth = unfiltered ? card.width : renderer_.outputWidth();
+    const int liveHeight = unfiltered ? card.height : renderer_.outputHeight();
     double liveFps = recordSourceFps_;
     if (const FrameBuffer* sink = capture_.sink()) {
       const double measured = sink->stats().sourceFps;
@@ -680,7 +733,9 @@ void RecordingControl::FeedRecorder() {
     // steht genauso mit dem Encoder fest, und der breite Pfad liefert ohne HDR
     // gar kein Bild.
     const bool liveWide = config_.app.recordHdr && renderer_.sourceHdr();
-    const bool formatDiffers = liveWide != recorder_.wideAsked();
+    const bool formatDiffers =
+        unfiltered ? !SameCardFormat(card, recorder_.card()) || renderer_.sourceHdr() != recorder_.hdr()
+                   : liveWide != recorder_.wideAsked();
 
     if (!shapeDiffers && !rateDiffers && !formatDiffers) {
       pendingSince_ = -1.0;

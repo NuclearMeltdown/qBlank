@@ -66,17 +66,17 @@ AVRational RecordingRate(const Libav& av, double fps) {
 }  // namespace
 
 double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks, int width,
-                               int height, double fps) {
+                               int height, double fps, double pixelBytes) {
   const bool pcm = ContainerFor(settings.encoder, settings.container) == RecordContainer::Avi;
   const double audio = pcm ? (double)kClockRate * kPcmBytesPerFrame : kAudioBitrate / 8.0;
   // Container overhead is left out: a few bytes of index per frame against
   // twenty megabit of picture is below the error of the bitrate itself.
   double video = (double)settings.bitrateKbps * 1000.0 / 8.0;
   if (IsLosslessEncoder(settings.encoder)) {
-    // Three bytes a pixel as it is. Both codecs came to 0.3 of that on real
-    // composite captures and to 0.5 on a noisy 1080p picture. The estimate
-    // takes the worse.
-    video = (double)width * (double)height * 3.0 * fps;
+    // The bytes a pixel as it is, three for RGB. Both codecs came to 0.3 of
+    // that on real composite captures and to 0.5 on a noisy 1080p picture.
+    // The estimate takes the worse.
+    video = (double)width * (double)height * pixelBytes * fps;
     if (settings.encoder != RecordEncoder::Uncompressed) video *= 0.5;
   }
   return video + audio * (double)std::max(audioTracks, 0);
@@ -105,6 +105,9 @@ struct Recorder::Session {
   // The frames PushVideo fills. A buffer comes back once nobody refers to it
   // any more, the encoder included, so none is ever written into while read.
   AVBufferPool* pool = nullptr;
+  // Without filters, the card's frames as the encoder takes them, where they
+  // had to be repacked.
+  AVBufferPool* repacked = nullptr;
   // Where the encoder takes its frames on the GPU instead, when it does.
   std::unique_ptr<GpuFrames> gpu;
 
@@ -175,6 +178,7 @@ Recorder::Session::~Session() {
   }
   for (Feed& feed : feeds) av->swr_free(&feed.resampler);
   if (pool) av->av_buffer_pool_uninit(&pool);
+  if (repacked) av->av_buffer_pool_uninit(&repacked);
   if (output) {
     if (fileOpen) av->avio_closep(&output->pb);
     av->avformat_free_context(output);
@@ -377,6 +381,11 @@ YuvFormat Recorder::FormatFor(const EncoderInfo& encoder, bool wide, bool fullCh
   return f;
 }
 
+double Recorder::CardPixelBytes(RecordEncoder encoder, const VideoFormatInfo& card) {
+  const CardPlan plan = PlanCard(encoder, card);
+  return plan.pixelFormat ? plan.pixelBytes : 0.0;
+}
+
 namespace {
 
 // The seven speed steps, in each vendor's own words. Empty means "this one has
@@ -562,13 +571,24 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   // recorded, which helps nobody.
   width_ = width & ~1;
   height_ = height & ~1;
-  const AVRational rate =
-      RecordingRate(*av, settings.fps > 0.0 ? settings.fps : (sourceFps > 1.0 ? sourceFps : 60.0));
+  // Without filters at the card's rate: dropping frames would be a filter too.
+  const double fps =
+      settings.fps > 0.0 && !unfiltered_ ? settings.fps : (sourceFps > 1.0 ? sourceFps : 60.0);
+  const AVRational rate = RecordingRate(*av, fps);
   fps_ = av_q2d(rate);
   audioRate_ = main.active() ? main.sampleRate : 0;
   format_ = FormatFor(*encoder, wide_, settings.fullChroma);
   frameBytes_ = (size_t)YuvColumns(format_.layout, width_) *
                 (size_t)YuvRows(format_.layout, height_) * (size_t)format_.sampleBytes();
+  if (unfiltered_) {
+    plan_ = PlanCard(encoder->id, card_.format);
+    if (!plan_.pixelFormat) {
+      return fail(CAP_SAID(T("Dieser Encoder nimmt das Kartenformat nicht ohne Filter.",
+                             "This encoder does not take the card's format unfiltered.")));
+    }
+    cardBytes_ = CardFrameBytes(card_.format);
+    frameBytes_ = CardOutBytes(plan_.out, width_, height_);
+  }
   pullAudio_ = audioRate_ > 0 ? main.pull : nullptr;
   extras.erase(std::remove_if(extras.begin(), extras.end(),
                               [](const ExtraAudio& e) { return !e.source.active(); }),
@@ -624,6 +644,11 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
 
   CAP_LOG("Recording started: %s, %dx%d @ %.3f fps, %s", PathToUtf8(outFile).c_str(), width_,
           height_, fps_, encoder->label.c_str());
+  if (unfiltered_) {
+    CAP_LOG("Recording: unfiltered, card %s %dx%d as %s%s", card_.format.subtypeLabel.c_str(),
+            card_.format.width, card_.format.height, plan_.pixelFormat,
+            plan_.repack == CardRepack::None ? "" : ", repacked");
+  }
   return true;
 }
 
@@ -662,7 +687,7 @@ bool Recorder::Open(Session* s) {
   // as CUDA frames: no D3D11 format holds it, and NVENC, the one encoder that
   // does, takes those as well.
   const bool fullChroma = format_.layout == YuvLayout::I444;
-  if (gpuAdapter_ != 0 && (fullChroma || format_.layout == YuvLayout::Nv12) &&
+  if (gpuAdapter_ != 0 && !unfiltered_ && (fullChroma || format_.layout == YuvLayout::Nv12) &&
       FamilyOf(s->encoder.ffmpegName) != Family::Software) {
     const AVPixelFormat wanted = fullChroma ? AV_PIX_FMT_CUDA : AV_PIX_FMT_D3D11;
     bool takes = false;
@@ -689,7 +714,7 @@ bool Recorder::Open(Session* s) {
       v->pix_fmt = ((const AVHWFramesContext*)s->gpu->framesContext()->data)->format;
       if (!(v->hw_frames_ctx = av.av_buffer_ref(s->gpu->framesContext()))) return AVERROR(ENOMEM);
     } else {
-      v->pix_fmt = av.av_get_pix_fmt(FfmpegPixelFormat(format_));
+      v->pix_fmt = av.av_get_pix_fmt(unfiltered_ ? plan_.pixelFormat : FfmpegPixelFormat(format_));
     }
     v->time_base = AVRational{s->rate.den, s->rate.num};
     v->framerate = s->rate;
@@ -713,6 +738,22 @@ bool Recorder::Open(Session* s) {
     if (format_.layout == YuvLayout::Bgr) {
       v->colorspace = AVCOL_SPC_RGB;
       v->color_range = AVCOL_RANGE_JPEG;
+    }
+    // Without filters the card's own colours, as the renderer reads them.
+    if (unfiltered_) {
+      const bool hd = card_.bt709 || plan_.rgb;  // RGB is sRGB, on BT.709's primaries
+      const AVColorPrimaries sd = height_ > 480 ? AVCOL_PRI_BT470BG : AVCOL_PRI_SMPTE170M;
+      v->color_primaries = card_.transfer != 0 ? AVCOL_PRI_BT2020 : hd ? AVCOL_PRI_BT709 : sd;
+      v->color_trc = card_.transfer == 1   ? AVCOL_TRC_SMPTE2084
+                     : card_.transfer == 2 ? AVCOL_TRC_ARIB_STD_B67
+                                           : AVCOL_TRC_BT709;
+      v->colorspace = plan_.rgb               ? AVCOL_SPC_RGB
+                      : card_.transfer != 0   ? AVCOL_SPC_BT2020_NCL
+                      : hd                    ? AVCOL_SPC_BT709
+                      : height_ > 480         ? AVCOL_SPC_BT470BG
+                                              : AVCOL_SPC_SMPTE170M;
+      v->color_range = card_.fullRange ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
+      if (card_.fieldOrder != 0) v->field_order = card_.fieldOrder == 1 ? AV_FIELD_TT : AV_FIELD_BB;
     }
     if (globalHeader) v->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     if (s->settings.rateControl == RateControl::Quality || IsLosslessEncoder(s->encoder.id)) {
@@ -877,9 +918,11 @@ bool Recorder::Open(Session* s) {
   }
   s->fileOpen = true;
   // Uncompressed RGB comes bottom-up from the GPU, as a bitmap keeps it, and
-  // the header has to say so.
+  // the header has to say so. Without filters in the card's own row order.
   AVDictionary* header = nullptr;
-  if (avi) av.av_dict_set(&header, "flipped_raw_rgb", "1", 0);
+  if (avi && (!unfiltered_ || card_.format.bottomUp)) {
+    av.av_dict_set(&header, "flipped_raw_rgb", "1", 0);
+  }
   result = av.avformat_write_header(s->output, &header);
   av.av_dict_free(&header);
   if (result < 0) {
@@ -893,23 +936,32 @@ bool Recorder::Open(Session* s) {
   // now, so the first copies on the render thread do not fault their pages in.
   // On the GPU they are only there for when the renderer cannot share after
   // all, and stay untouched until then.
-  const size_t bufferBytes = frameBytes_ + AV_INPUT_BUFFER_PADDING_SIZE;
+  // Without filters the card's frames as they come, and where the encoder
+  // takes them otherwise, a second pool for the repacked ones.
+  const size_t bufferBytes = (unfiltered_ ? cardBytes_ : frameBytes_) + AV_INPUT_BUFFER_PADDING_SIZE;
+  const size_t repackedBytes = frameBytes_ + AV_INPUT_BUFFER_PADDING_SIZE;
   s->pool = av.av_buffer_pool_init(bufferBytes, nullptr);
-  if (!s->pool) {
+  if (unfiltered_ && plan_.repack != CardRepack::None) {
+    s->repacked = av.av_buffer_pool_init(repackedBytes, nullptr);
+  }
+  if (!s->pool || (unfiltered_ && plan_.repack != CardRepack::None && !s->repacked)) {
     Fail(CAP_SAID(T("Kein Speicher für die Aufnahme.", "Out of memory for the recording.")));
     return false;
   }
-  if (!s->gpu) {
-    AVBufferRef* warm[4] = {};
-    for (AVBufferRef*& buffer : warm) {
-      buffer = av.av_buffer_pool_get(s->pool);
-      if (buffer) memset(buffer->data, 0, bufferBytes);
+  auto warm = [&](AVBufferPool* pool, size_t bytes) {
+    AVBufferRef* buffers[4] = {};
+    for (AVBufferRef*& buffer : buffers) {
+      buffer = av.av_buffer_pool_get(pool);
+      if (buffer) memset(buffer->data, 0, bytes);
     }
-    for (AVBufferRef*& buffer : warm) av.av_buffer_unref(&buffer);
-  }
+    for (AVBufferRef*& buffer : buffers) av.av_buffer_unref(&buffer);
+  };
+  if (!s->gpu) warm(s->pool, bufferBytes);
+  if (s->repacked) warm(s->repacked, repackedBytes);
 
   CAP_LOG("Recording: %s %dx%d %s%s at %d/%d fps,%s %d audio track%s at %d Hz",
-          s->encoder.ffmpegName.c_str(), width_, height_, FfmpegPixelFormat(format_),
+          s->encoder.ffmpegName.c_str(), width_, height_,
+          unfiltered_ ? plan_.pixelFormat : FfmpegPixelFormat(format_),
           s->gpu ? " on the GPU" : "", s->rate.num, s->rate.den,
           told.empty() ? " defaults," : told.c_str(), trackCount, trackCount == 1 ? "" : "s",
           trackCount > 0 ? trackRate : 0);
@@ -943,6 +995,7 @@ void Recorder::Stop() {
     session->counter = nullptr;
     // Freed once the encoder lets go of the last frame it holds.
     if (session->pool) av->av_buffer_pool_uninit(&session->pool);
+    if (session->repacked) av->av_buffer_pool_uninit(&session->repacked);
 
     Finished done;
     {
@@ -1034,7 +1087,22 @@ void Recorder::PushVideo(const uint8_t* pixels, int stride, int width, int heigh
       memcpy(dst + (size_t)y * rowBytes, pixels + (size_t)y * (size_t)stride, rowBytes);
     }
   }
+  Offer(buffer);
+}
 
+void Recorder::PushCardFrame(const uint8_t* data, size_t size) {
+  if (!running_.load(std::memory_order_relaxed) || !ready_.load(std::memory_order_acquire) ||
+      !unfiltered_ || !data || size < cardBytes_) {
+    return;
+  }
+  // One copy as it is: the repacking waits for the video thread.
+  AVBufferRef* buffer = Av()->av_buffer_pool_get(session_->pool);
+  if (!buffer) return;
+  memcpy(buffer->data, data, cardBytes_);
+  Offer(buffer);
+}
+
+void Recorder::Offer(AVBufferRef* buffer) {
   AVBufferRef* stale = nullptr;
   {
     std::lock_guard<std::mutex> lock(frameMutex_);
@@ -1099,7 +1167,8 @@ void Recorder::VideoThread(Session* s) {
   // the timeline needs a repeat.
   const AVCodecContext* v = s->video;
   const bool raw = s->encoder.id == RecordEncoder::Uncompressed && !s->gpu;
-  const AVPixelFormat softFormat = av.av_get_pix_fmt(FfmpegPixelFormat(format_));
+  const AVPixelFormat softFormat =
+      av.av_get_pix_fmt(unfiltered_ ? plan_.pixelFormat : FfmpegPixelFormat(format_));
   const int rowBytes = YuvColumns(format_.layout, width_) * format_.sampleBytes();
   auto tag = [&](AVFrame* f) {
     f->color_primaries = v->color_primaries;
@@ -1135,6 +1204,25 @@ void Recorder::VideoThread(Session* s) {
       case YuvLayout::Bgr:
         break;  // one plane
     }
+  };
+  // Without filters the card's frame as it is, or repacked into a buffer of
+  // its own, and the card's goes back to the pool.
+  auto pointCard = [&](AVFrame* f, AVBufferRef* buffer) {
+    AVBufferRef* out = nullptr;
+    if (plan_.repack != CardRepack::None && !(out = av.av_buffer_pool_get(s->repacked))) {
+      av.av_buffer_unref(&buffer);
+      return false;
+    }
+    av.av_frame_unref(f);
+    f->format = softFormat;
+    f->width = width_;
+    f->height = height_;
+    tag(f);
+    RepackCard(plan_, card_.format, width_, height_, buffer->data, out ? out->data : nullptr,
+               f->data, f->linesize);
+    if (out) av.av_buffer_unref(&buffer);
+    f->buf[0] = out ? out : buffer;
+    return true;
   };
   // On the GPU the frame is one of the encoder's pool: the picture of a
   // shared slot split into it, or a read back one uploaded. Slots that fail
@@ -1228,7 +1316,13 @@ void Recorder::VideoThread(Session* s) {
       dropped_.fetch_add(1, std::memory_order_relaxed);
       av.av_buffer_unref(&buffer);
     }
-    if (!s->gpu && buffer) {
+    if (unfiltered_ && buffer) {
+      if (pointCard(frame, buffer)) {
+        holding = fresh = true;
+      } else {
+        dropped_.fetch_add(1, std::memory_order_relaxed);
+      }
+    } else if (!s->gpu && buffer) {
       point(frame, buffer);
       holding = fresh = true;
     } else if (slot >= 0 || buffer) {
