@@ -4714,6 +4714,18 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
                "ceiling. NVENC only."));
   ImGui::EndDisabled();
 
+  ImGui::BeginDisabled(!nvenc || encoder->ffmpegName.compare(0, 4, "h264") == 0);
+  ImGui::Checkbox(T("Alle Encoder-Chips", "All encoder chips"), &rec.allEncoderChips);
+  Anchor("encoderchips");
+  ImGui::SameLine();
+  HelpMarker(T("Teilt jedes Bild auf die NVENC-Chips der Karte auf. Mit zwei (etwa RTX 4080) "
+               "gut 60 % mehr Bilder je Sekunde, bei gleicher Datenrate etwas weniger "
+               "Qualität. Mit einem Chip ohne Wirkung. Nur H.265 und AV1.",
+               "Splits every picture across the card's NVENC chips. With two (an RTX 4080, "
+               "say) over 60 % more frames per second, at the same data rate a little less "
+               "quality. No effect with one chip. H.265 and AV1 only."));
+  ImGui::EndDisabled();
+
   ImGui::BeginDisabled(!nvenc && !amf && !qsv);
   ImGui::Checkbox(T("Vorausschau", "Look-ahead"), &rec.lookAhead);
   Anchor("lookahead");

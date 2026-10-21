@@ -522,6 +522,13 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
                                                                 : "fullres");
   }
 
+  // ---- every encoder chip on the card ----
+  // H.264 cannot be split. For the others the driver makes one strip per chip.
+  if (family == Family::Nvenc && settings.allEncoderChips &&
+      encoder.ffmpegName.compare(0, 4, "h264") != 0) {
+    pair("split_encode_mode", "forced");
+  }
+
   return out;
 }
 

@@ -1085,6 +1085,7 @@ bool Config::Load(std::string* error) {
   record.multipass = ReadEnum<Multipass>(r, "multipass", kMultipassCount, Multipass::Auto);
   record.lookAhead = r["lookAhead"].AsBool(false);
   record.adaptiveQuant = r["adaptiveQuant"].AsBool(false);
+  record.allEncoderChips = r["allEncoderChips"].AsBool(false);
   record.fps = Clamp(r["fps"].AsNumber(0.0), 0.0, 480.0);
   record.splitFiles = r["splitFiles"].AsBool(false);
   record.splitSizeMb = Clamp(r["splitSizeMb"].AsInt(4000), 100, 100000);
@@ -1246,6 +1247,7 @@ std::string Config::Serialize() const {
   r["multipass"] = (int)record.multipass;
   r["lookAhead"] = record.lookAhead;
   r["adaptiveQuant"] = record.adaptiveQuant;
+  r["allEncoderChips"] = record.allEncoderChips;
   r["fps"] = record.fps;
   r["splitFiles"] = record.splitFiles;
   r["splitSizeMb"] = record.splitSizeMb;

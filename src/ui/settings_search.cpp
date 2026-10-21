@@ -385,6 +385,9 @@ const Entry kEntries[] = {
      "Tune|geringe Latenz|Low latency|Zerolatency|Film|Animation"},
     {Kind::Control, kTabEncoder, "multipass", "Durchläufe", "Multipass",
      "2-Pass|Two pass|Zwei Durchläufe|Pass"},
+    {Kind::Control, kTabEncoder, "encoderchips", "Alle Encoder-Chips", "All encoder chips",
+     "NVENC|Split|Split frame|Split encode|Zwei Encoder|Dual encoder|Mehrere Encoder|"
+     "Multiple encoders|Streifen|Strips"},
     {Kind::Control, kTabEncoder, "lookahead", "Vorausschau", "Look-ahead",
      "Lookahead|RC lookahead|B-Frames"},
     {Kind::Control, kTabEncoder, "aq", "Adaptive Quantisierung", "Adaptive quantisation",

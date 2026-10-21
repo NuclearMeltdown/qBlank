@@ -678,6 +678,11 @@ struct RecordSettings {
   // quantisation spends bits where the eye looks. Both cost a little speed.
   bool lookAhead = false;
   bool adaptiveQuant = false;
+  // NVENC, H.265 and AV1: every picture cut into strips, one per encoder chip
+  // on the card, encoded side by side. With two chips (RTX 4080) AV1 at 1440p
+  // p7 went from 110 to 183 fps. Off: a strip edge costs a little at the same
+  // rate, and one chip is usually enough.
+  bool allEncoderChips = false;
   // 4:4:4 instead of 4:2:0, where the encoder can. Off by default: few players
   // and editors open such a file.
   bool fullChroma = false;
