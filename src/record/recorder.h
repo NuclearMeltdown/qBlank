@@ -174,6 +174,10 @@ class Recorder {
   // The encoder has not kept up for seconds on end, and the file repeats frames
   // to stay in step with the sound. Clears once it catches up again.
   bool encoderBehind() const { return encoderBehind_.load(std::memory_order_relaxed); }
+  // Slots left out so far because the encoder was still busy with the frame
+  // before: what the file shows as a stutter. Not the ones a slow source or the
+  // sound's clock leaves out, which the writer was waiting through.
+  uint64_t leftOut() const { return leftOut_.load(std::memory_order_relaxed); }
 
   // Called from the render thread with a freshly read back frame. Its size and
   // format are passed along and checked: a frame of a different shape than the
@@ -284,6 +288,7 @@ class Recorder {
   std::atomic<uint64_t> audioFramesWritten_{0};
   std::atomic<uint64_t> videoFramesWritten_{0};
   std::atomic<uint64_t> duplicated_{0};
+  std::atomic<uint64_t> leftOut_{0};
   std::atomic<uint64_t> dropped_{0};
   std::atomic<uint64_t> bytesWritten_{0};
   int64_t startTicks_ = 0;

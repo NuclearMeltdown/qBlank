@@ -616,6 +616,7 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   audioFramesWritten_.store(0, std::memory_order_relaxed);
   videoFramesWritten_.store(0, std::memory_order_relaxed);
   duplicated_.store(0, std::memory_order_relaxed);
+  leftOut_.store(0, std::memory_order_relaxed);
   dropped_.store(0, std::memory_order_relaxed);
   bytesWritten_.store(0, std::memory_order_relaxed);
   startTicks_ = ClockTicks();
@@ -1004,13 +1005,14 @@ void Recorder::Stop() {
     }
     done.seconds = seconds();
     const unsigned long long frames = videoFramesWritten_.load(std::memory_order_relaxed);
+    const unsigned long long leftOut = leftOut_.load(std::memory_order_relaxed);
 
     // The encoders give up what they still hold and the container writes its
     // index -- an MP4 that never gets that far has no moov atom and does not
     // play at all.
     std::thread previous = std::move(closer_);
     closer_ = std::thread([this, previous = std::move(previous), session = std::move(session),
-                           done = std::move(done), frames, wasRunning]() mutable {
+                           done = std::move(done), frames, leftOut, wasRunning]() mutable {
       if (previous.joinable()) previous.join();
       const bool written = session->headerWritten;
       const bool created = session->fileOpen;
@@ -1026,7 +1028,7 @@ void Recorder::Stop() {
         return;
       }
       if (wasRunning) {
-        CAP_LOG("Recording stopped, %llu frames%s", frames,
+        CAP_LOG("Recording stopped, %llu frames, %llu left out%s", frames, leftOut,
                 done.complete ? "" : ", the file was not finished cleanly");
       }
       std::lock_guard<std::mutex> lock(finishedMutex_);
@@ -1272,6 +1274,12 @@ void Recorder::VideoThread(Session* s) {
   int64_t caughtUpTicks = originTicks_;
   int64_t gapTicks = 0;
   bool everCaughtUp = false;
+  // Whether the writer waited since it last encoded. Slots left out after a
+  // wait were the clock's doing -- the sound moves it on in steps of its
+  // packets, a sleep can run long -- and the source's frames went missing
+  // for those just the same before any encoder saw them. Only the ones after
+  // an encode with no wait in between are the encoder's (leftOut).
+  bool waited = true;
 
   while (running_.load(std::memory_order_relaxed)) {
     if (s->writeFailed.load(std::memory_order_acquire)) {
@@ -1383,6 +1391,7 @@ void Recorder::VideoThread(Session* s) {
         wait = (double)(written + 1) / fps_ - TicksToSeconds(now - originTicks_);
         wait = std::clamp(wait, 0.001, 0.05);
       }
+      waited = true;
       std::unique_lock<std::mutex> lock(frameMutex_);
       if (!readyBuffer_ && readySlot_ < 0 && running_.load(std::memory_order_relaxed)) {
         frameReady_.wait_for(lock, std::chrono::microseconds((int64_t)(wait * 1e6)));
@@ -1417,7 +1426,12 @@ void Recorder::VideoThread(Session* s) {
       gapTicks = now;
       videoFramesWritten_.fetch_add(first - written, std::memory_order_relaxed);
       duplicated_.fetch_add(first - written, std::memory_order_relaxed);
+      if (!waited && leftOut_.fetch_add(first - written, std::memory_order_relaxed) == 0) {
+        CAP_LOG("Recording: %llu slots left out at %.1f s, the encoder was still busy",
+                (unsigned long long)(first - written), TicksToSeconds(now - originTicks_));
+      }
     }
+    waited = false;
     int result = 0;
     for (uint64_t i = first; i < target && running_.load(std::memory_order_relaxed); ++i) {
       if (raw) {

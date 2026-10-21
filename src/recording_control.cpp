@@ -412,6 +412,7 @@ void RecordingControl::LaunchRecording() {
   diskWarned_ = false;
   encoderWarned_ = false;
   bufferWarned_ = false;
+  leftOutSeen_ = 0;
   recordingFile_ = pendingFile_;
   recordingBytes_ = 0;
 
@@ -649,6 +650,10 @@ double RecordingControl::SourceFps() const {
   return fps;
 }
 
+bool RecordingControl::leftOutLately() const {
+  return leftOutSeen_ > 0 && TicksToSeconds(ClockTicks()) - leftOutAt_ < 10.0;
+}
+
 void RecordingControl::FeedRecorder() {
   CollectFinished();
   disk_.Collect();
@@ -660,18 +665,34 @@ void RecordingControl::FeedRecorder() {
   if (recorder_.failed()) {
     const RecordStats stats = recorder_.stats();
     StopRecording();
-    host_.Toast(stats.error.empty() ? T("Aufnahme abgebrochen.", "Recording aborted.") : stats.error);
+    host_.Warn(stats.error.empty() ? T("Aufnahme abgebrochen.", "Recording aborted.") : stats.error);
     return;
   }
+
+  const double now = TicksToSeconds(ClockTicks());
 
   // Der Encoder schafft die Bilder nicht so schnell, wie sie kommen. Einmal je
   // Aufnahme, wie die Platzwarnung; solange es anhaelt, sagt es die Anzeige im
   // Bild.
   if (!encoderWarned_ && recorder_.encoderBehind()) {
     encoderWarned_ = true;
-    host_.Toast(T("Encoder kommt nicht hinterher — schnellere Voreinstellung, kleinere Auflösung "
-                  "oder Bildrate wählen.",
-                  "Encoder overloaded — try a faster preset, or a lower resolution or frame rate."));
+    host_.Warn(T("Encoder kommt nicht hinterher — schnellere Voreinstellung, kleinere Auflösung "
+                 "oder Bildrate wählen.",
+                 "Encoder overloaded — try a faster preset, or a lower resolution or frame rate."));
+  }
+
+  // Bilder, fuer die der Encoder keine Zeit hatte: in der Datei ein Ruckler.
+  // Gesagt beim ersten, und wieder, wenn nach einer halben Minute Ruhe neue
+  // dazukommen -- ein Encoder an der Grenze laesst laufend welche aus, und
+  // dafuer steht die Zahl im Bild.
+  const uint64_t leftOut = recorder_.leftOut();
+  if (leftOut > leftOutSeen_) {
+    if (leftOutSeen_ == 0 || now - leftOutAt_ > 30.0) {
+      host_.Warn(T("Bilder ausgelassen — der Encoder kam nicht hinterher.",
+                   "Frames dropped — the encoder fell behind."));
+    }
+    leftOutSeen_ = leftOut;
+    leftOutAt_ = now;
   }
 
   // Die Platte faellt zurueck, und was sie nicht nimmt, wartet im Speicher. Bei
@@ -680,14 +701,12 @@ void RecordingControl::FeedRecorder() {
   const double fill = recorder_.bufferFill();
   if (!bufferWarned_ && fill >= 0.75) {
     bufferWarned_ = true;
-    host_.Toast(Format(T("Platte kommt nicht hinterher — Puffer zu %.0f %% voll.",
-                         "The disk is falling behind — the buffer is %.0f %% full."),
-                       fill * 100.0));
+    host_.Warn(Format(T("Platte kommt nicht hinterher — Puffer zu %.0f %% voll.",
+                        "The disk is falling behind — the buffer is %.0f %% full."),
+                      fill * 100.0));
   } else if (fill < 0.5) {
     bufferWarned_ = false;
   }
-
-  const double now = TicksToSeconds(ClockTicks());
 
   // Die Quelle hat mitten in der Aufnahme die Norm gewechselt. Bildgroesse und
   // Rate stehen fest, seit der Encoder offen ist, also passt ab dem Wechsel
@@ -803,17 +822,17 @@ void RecordingControl::FeedRecorder() {
     if (room < kDiskFloorBytes || (rate > 1.0 && left < 20.0)) {
       CAP_WARN("Recording: disk almost full (%s free), stopped", FormatBytes(room).c_str());
       StopRecording();
-      host_.Toast(T("Aufnahme beendet — Speicherplatz fast aufgebraucht.",
-              "Recording stopped — the disk is nearly full."));
+      host_.Warn(T("Aufnahme beendet — Speicherplatz fast aufgebraucht.",
+                   "Recording stopped — the disk is nearly full."));
       return;
     }
     // Einmal je Aufnahme: eine Warnung, die im Sekundentakt wiederkommt, ist
     // keine Warnung mehr.
     if (!diskWarned_ && rate > 1.0 && left < 120.0) {
       diskWarned_ = true;
-      host_.Toast(Format(T("Nur noch %s frei — etwa %s Aufnahme.",
-                     "Only %s free — about %s of recording."),
-                   FormatBytes(room).c_str(), FormatDuration(left).c_str()));
+      host_.Warn(Format(T("Nur noch %s frei — etwa %s Aufnahme.",
+                          "Only %s free — about %s of recording."),
+                        FormatBytes(room).c_str(), FormatDuration(left).c_str()));
     }
   }
 }

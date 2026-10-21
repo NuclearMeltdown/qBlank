@@ -208,6 +208,8 @@ class App {
   void DrawToolbarStrip();
   // The window's content while the screen runs without its preview.
   void DrawScreenStatus(const FrameBuffer* sink);
+  // The running recording, for the lines that show it.
+  RecordStatus RecordingStatus() const;
   // Opens the folder `configured` names, made again if it is gone, or
   // `fallback` when that cannot be. Asks the disk on folderJobs_.
   void ShowOutputFolder(std::string* configured, const std::filesystem::path& fallback);
@@ -287,8 +289,9 @@ class App {
   void OpenWebsite();
 
   // `file`, if given, makes the toast clickable: a click shows that file in
-  // Explorer.
-  void Toast(const std::string& text, const std::filesystem::path& file = {});
+  // Explorer. A `warning` stands longer and stands out.
+  void Toast(const std::string& text, const std::filesystem::path& file = {},
+             bool warning = false);
   // `lift`: so viel hoeher, damit er ueber einem offenen Hinweis steht.
   void DrawToastStrip(float lift = 0.0f);
   void UpdatePowerRequest();
@@ -495,6 +498,7 @@ class App {
     void UseDefaultFolder(std::string* configured, const std::string& asked) override;
     void DropViewAids() override;
     void Toast(const std::string& text, const std::filesystem::path& file) override;
+    void Warn(const std::string& text) override;
 
    private:
     App& app_;
@@ -582,6 +586,7 @@ class App {
 
   std::string toastText_;
   std::filesystem::path toastFile_;  // what a click on the toast shows, empty if nothing
+  bool toastWarning_ = false;
   bool toastHint_ = false;     // this one says that it can be clicked
   bool toastTouched_ = false;  // the mouse has moved over it since it appeared
   double toastStart_ = 0.0;

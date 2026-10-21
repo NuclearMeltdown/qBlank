@@ -32,6 +32,8 @@ void App::RecordingHost::Toast(const std::string& text, const std::filesystem::p
   app_.Toast(text, file);
 }
 
+void App::RecordingHost::Warn(const std::string& text) { app_.Toast(text, {}, true); }
+
 bool App::StandardSearchHost::CaptureRunning() const {
   return app_.captureState_ == CaptureState::Running;
 }

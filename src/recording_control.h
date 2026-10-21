@@ -44,6 +44,8 @@ class RecordingControl {
     // switches them off as it starts.
     virtual void DropViewAids() = 0;
     virtual void Toast(const std::string& text, const std::filesystem::path& file = {}) = 0;
+    // Something going wrong with the recording: stands longer and stands out.
+    virtual void Warn(const std::string& text) = 0;
   };
 
   RecordingControl(Config& config, Recorder& recorder, VideoRenderer& renderer,
@@ -83,6 +85,9 @@ class RecordingControl {
   void StopRecording(bool announce = false);
   // Hands the readback frame to the recorder, if one is running.
   void FeedRecorder();
+  // The running recording left frames out (Recorder::leftOut) in the last few
+  // seconds, as FeedRecorder last saw it.
+  bool leftOutLately() const;
   // Fragt den freien Platz auf dem Aufnahmelaufwerk ab, hoechstens einmal je
   // Sekunde, und die Groesse der laufenden Datei, wenn nach Groesse geteilt
   // wird. Die Einstellungen zeigen den Platz an, die laufende Aufnahme haengt
@@ -207,6 +212,9 @@ class RecordingControl {
   bool diskWarned_ = false;
   bool encoderWarned_ = false;
   bool bufferWarned_ = false;
+  // Recorder::leftOut as last seen, and when it last grew.
+  uint64_t leftOutSeen_ = 0;
+  double leftOutAt_ = 0.0;
 
   // Everything that asks the disk the recording goes to: the checks before a
   // start, the free space, the size of the file. One thread, because all of it

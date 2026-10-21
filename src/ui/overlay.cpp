@@ -1,5 +1,6 @@
 #include "ui/overlay.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "i18n.h"
@@ -70,9 +71,12 @@ void PositionInCorner(OsdCorner corner, float inset) {
   ImGui::SetNextWindowPos(pos, ImGuiCond_Always, ImVec2(right ? 1.0f : 0.0f, bottom ? 1.0f : 0.0f));
 }
 
+// Whatever is going wrong: the lines under a recording, and a toast that warns.
+constexpr ImVec4 kWarnColor(1.0f, 0.72f, 0.25f, 1.0f);
+
 // The running recording: a pulsing dot and the time, and below it whatever is
 // falling behind. In the corner indicator and in the screen's panel.
-void RecordLines(double seconds, bool encoderBehind, double bufferFill, uint64_t buffered) {
+void RecordLines(const RecordStatus& r) {
   // One slow pulse per second, so it reads as "running" without flickering.
   const float pulse = 0.55f + 0.45f * (float)std::abs(std::sin(ImGui::GetTime() * 3.14159));
   const float radius = ImGui::GetFontSize() * 0.32f;
@@ -83,19 +87,29 @@ void RecordLines(double seconds, bool encoderBehind, double bufferFill, uint64_t
   ImGui::Dummy(ImVec2(radius * 2.0f + 6.0f, ImGui::GetFontSize()));
   ImGui::SameLine();
 
-  const int total = (int)seconds;
+  const int total = (int)r.seconds;
   ImGui::Text("%s  %02d:%02d:%02d", T("Aufnahme", "REC"), total / 3600, (total / 60) % 60,
               total % 60);
-  if (encoderBehind) {
-    ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s",
-                       T("Encoder überlastet", "Encoder overloaded"));
+  if (r.encoderBehind) {
+    ImGui::TextColored(kWarnColor, "%s", T("Encoder überlastet", "Encoder overloaded"));
+  }
+  // Stays for the rest of the file, quieter once it stopped: the stutter is
+  // in it either way.
+  if (r.leftOut > 0) {
+    const std::string line = Format(T("%llu Bilder ausgelassen", "%llu frames dropped"),
+                                    (unsigned long long)r.leftOut);
+    if (r.leftOutLately) {
+      ImGui::TextColored(kWarnColor, "%s", line.c_str());
+    } else {
+      ImGui::TextDisabled("%s", line.c_str());
+    }
   }
   // Only once the disk is behind: a few frames on their way are always there.
-  if (bufferFill >= 0.1) {
+  if (r.bufferFill >= 0.1) {
     const std::string line = Format(T("Puffer %.0f %% (%s)", "Buffer %.0f %% (%s)"),
-                                    bufferFill * 100.0, FormatBytes(buffered).c_str());
-    if (bufferFill >= 0.75) {
-      ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "%s", line.c_str());
+                                    r.bufferFill * 100.0, FormatBytes(r.buffered).c_str());
+    if (r.bufferFill >= 0.75) {
+      ImGui::TextColored(kWarnColor, "%s", line.c_str());
     } else {
       ImGui::TextUnformatted(line.c_str());
     }
@@ -421,7 +435,7 @@ void DrawStatusCard(const std::string& title, const std::string& detail, bool sp
 }
 
 ToastResult DrawToast(const std::string& text, double age, double duration, bool clickable,
-                      const char* hint, float lift) {
+                      const char* hint, float lift, bool warning) {
   ToastResult result;
   if (age >= duration) return result;
   const float fade = (float)Clamp((duration - age) / 0.4, 0.0, 1.0);
@@ -432,13 +446,23 @@ ToastResult DrawToast(const std::string& text, double age, double duration, bool
       ImGuiCond_Always, ImVec2(0.5f, 1.0f));
   ImGui::SetNextWindowBgAlpha(0.82f * fade);
   ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fade);
+  if (warning) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Border, kWarnColor);
+    ImGui::PushStyleColor(ImGuiCol_Text, kWarnColor);
+  }
 
   // Klickbar heisst: die Maus gehoert dem Toast. Sonst ginge ein Klick darauf
   // durch aufs Bild, und zwei davon machten Vollbild statt Explorer.
   const ImGuiWindowFlags flags =
       clickable ? kOverlayFlags & ~ImGuiWindowFlags_NoInputs : kOverlayFlags;
   if (ImGui::Begin("##toast", nullptr, flags)) {
+    // Hoechstens halb so breit wie das Fenster, sonst reicht eine lange
+    // Warnung in einem kleinen Fenster unter die Aufnahme-Anzeige in der Ecke.
+    ImGui::PushTextWrapPos(std::max(vp->WorkSize.x * 0.5f, ImGui::GetFontSize() * 22.0f) -
+                           ImGui::GetStyle().WindowPadding.x);
     ImGui::TextUnformatted(text.c_str());
+    ImGui::PopTextWrapPos();
     if (clickable && hint && *hint) ImGui::TextDisabled("%s", hint);
     if (clickable && ImGui::IsWindowHovered()) {
       result.hovered = true;
@@ -447,6 +471,10 @@ ToastResult DrawToast(const std::string& text, double age, double duration, bool
     }
   }
   ImGui::End();
+  if (warning) {
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar();
+  }
   ImGui::PopStyleVar();
   return result;
 }
@@ -538,8 +566,7 @@ void DrawSearchResult(const std::string& text, const std::string& detail, double
   ImGui::PopStyleVar();
 }
 
-void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind,
-                         double bufferFill, uint64_t buffered) {
+void DrawRecordIndicator(const RecordStatus& status, OsdCorner volumeCorner) {
   // Opposite corner to the volume readout: both can appear at once, and a
   // number sliding out from under a dot looks like a bug.
   OsdCorner corner = OsdCorner::TopRight;
@@ -556,7 +583,7 @@ void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBeh
   ImGui::SetNextWindowBgAlpha(0.80f);
 
   if (ImGui::Begin("##recording", nullptr, kOverlayFlags)) {
-    RecordLines(seconds, encoderBehind, bufferFill, buffered);
+    RecordLines(status);
   }
   ImGui::End();
 }
@@ -582,7 +609,7 @@ ScreenPanelAction DrawScreenPanel(const ScreenPanelState& s) {
 
     if (s.recording) {
       ImGui::Spacing();
-      RecordLines(s.recordSeconds, s.encoderBehind, s.bufferFill, s.buffered);
+      RecordLines(s.record);
     }
 
     ImGui::Spacing();

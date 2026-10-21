@@ -100,28 +100,35 @@ namespace {
 // der kurze schon halb verblasst.
 constexpr double kToastSeconds = 2.5;
 constexpr double kFileToastSeconds = 4.0;
+// Eine Warnung kommt, waehrend der Blick auf dem Spiel liegt, und muss auch
+// dann noch dastehen, wenn er unten ankommt.
+constexpr double kWarnToastSeconds = 8.0;
 // Wie viele Toasts zu einer Datei dazusagen, dass ein Klick sie zeigt.
 constexpr int kFileToastHints = 3;
 
 }  // namespace
 
-void App::Toast(const std::string& text, const std::filesystem::path& file) {
+void App::Toast(const std::string& text, const std::filesystem::path& file, bool warning) {
   // Zwei Meldungen kurz nacheinander stehen untereinander, statt dass die
   // zweite die erste verdraengt, bevor jemand sie lesen konnte. So kommt nach
   // dem Anpassen der Aufloesung der Neubau mit seiner eigenen Meldung zum
   // Zuschnitt. Nur zwei Zeilen, und nicht bei einem Toast zu einer Datei:
-  // dessen Klick gehoert zu genau einer Meldung.
+  // dessen Klick gehoert zu genau einer Meldung. Unter eine Warnung kommt die
+  // zweite, solange die Warnung steht.
   const double now = ImGui::GetTime();
+  const double window = toastWarning_ ? kWarnToastSeconds : 1.5;
   if (file.empty() && toastFile_.empty() && !toastText_.empty() && toastText_ != text &&
-      toastText_.find('\n') == std::string::npos && now - toastStart_ < 1.5) {
+      toastText_.find('\n') == std::string::npos && now - toastStart_ < window) {
     toastText_ += "\n" + text;
     toastStart_ = now;
+    toastWarning_ = toastWarning_ || warning;
     return;
   }
   toastText_ = text;
   toastFile_ = file;
+  toastWarning_ = warning;
   toastTouched_ = false;
-  toastStart_ = ImGui::GetTime();
+  toastStart_ = now;
   // Beim Entstehen entschieden, nicht je Bild: sonst verschwaende die Zeile
   // beim letzten Mal mitten im Toast, sobald der Zaehler oben ankommt.
   toastHint_ = !file.empty() && config_.app.fileToastHints < kFileToastHints;
@@ -136,7 +143,8 @@ void App::Toast(const std::string& text, const std::filesystem::path& file) {
 void App::DrawToastStrip(float lift) {
   if (toastText_.empty()) return;
   const bool clickable = !toastFile_.empty();
-  const double duration = clickable ? kFileToastSeconds : kToastSeconds;
+  const double duration =
+      toastWarning_ ? kWarnToastSeconds : clickable ? kFileToastSeconds : kToastSeconds;
   const double age = ImGui::GetTime() - toastStart_;
   if (age > duration) {
     toastText_.clear();
@@ -148,7 +156,7 @@ void App::DrawToastStrip(float lift) {
       DrawToast(toastText_, age, duration, clickable,
                 toastHint_ ? T("Klicken zeigt die Datei im Ordner", "Click to show the file in its folder")
                            : nullptr,
-                lift);
+                lift, toastWarning_);
   if (!result.hovered) return;
 
   const ImVec2 delta = ImGui::GetIO().MouseDelta;
@@ -273,6 +281,17 @@ void App::DrawToolbarStrip() {
   }
 }
 
+RecordStatus App::RecordingStatus() const {
+  RecordStatus s;
+  s.seconds = recorder_.seconds();
+  s.encoderBehind = recorder_.encoderBehind();
+  s.bufferFill = recorder_.bufferFill();
+  s.buffered = recorder_.queuedBytes();
+  s.leftOut = recorder_.leftOut();
+  s.leftOutLately = recording_.leftOutLately();
+  return s;
+}
+
 void App::DrawScreenStatus(const FrameBuffer* sink) {
   ScreenPanelState state;
   state.source = screenLabel_;
@@ -287,12 +306,7 @@ void App::DrawScreenStatus(const FrameBuffer* sink) {
   }
   state.canRecord = renderer_.hasFrame();
   state.recording = recorder_.recording();
-  if (state.recording) {
-    state.recordSeconds = recorder_.seconds();
-    state.encoderBehind = recorder_.encoderBehind();
-    state.bufferFill = recorder_.bufferFill();
-    state.buffered = recorder_.queuedBytes();
-  }
+  if (state.recording) state.record = RecordingStatus();
 
   switch (DrawScreenPanel(state)) {
     case ScreenPanelAction::ToggleRecording: recording_.ToggleRecording(); break;
@@ -771,8 +785,7 @@ void App::DrawUi() {
 
   // ---- recording indicator ----
   if (recorder_.recording() && !screenPanel) {
-    DrawRecordIndicator(recorder_.seconds(), config_.app.osdCorner, recorder_.encoderBehind(),
-                        recorder_.bufferFill(), recorder_.queuedBytes());
+    DrawRecordIndicator(RecordingStatus(), config_.app.osdCorner);
   }
 
   // ---- volume readout ----

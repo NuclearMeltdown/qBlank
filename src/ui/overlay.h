@@ -120,9 +120,10 @@ struct ToastResult {
   bool clicked = false;
 };
 // `lift` hebt ihn um so viele Pixel an, damit er ueber einem Hinweis steht
-// statt darauf.
+// statt darauf. Eine Warnung steht in Bernstein, mit Rahmen.
 ToastResult DrawToast(const std::string& text, double age, double duration,
-                      bool clickable = false, const char* hint = nullptr, float lift = 0.0f);
+                      bool clickable = false, const char* hint = nullptr, float lift = 0.0f,
+                      bool warning = false);
 
 // Ein Hinweis mit zwei Knoepfen, an der Stelle der Toasts. Er blendet nicht
 // aus: was hier steht, braucht eine Antwort, und ein Toast, der nach zwei
@@ -160,12 +161,22 @@ void DrawSearchResult(const std::string& text, const std::string& detail, double
 // after every change so the level is visible without opening anything.
 void DrawVolumeOsd(float volume, bool muted, OsdCorner corner, double age, double duration);
 
+// A running recording, as its lines show it: the time, and whatever falls
+// behind -- the encoder, the disk (Recorder::bufferFill, and its bytes), and
+// the frames left out so far (Recorder::leftOut).
+struct RecordStatus {
+  double seconds = 0.0;
+  bool encoderBehind = false;
+  double bufferFill = 0.0;
+  uint64_t buffered = 0;
+  uint64_t leftOut = 0;
+  bool leftOutLately = false;  // the last of them within seconds
+};
+
 // Recording indicator: a pulsing dot and the elapsed time, in the corner
-// opposite the volume readout so the two never overlap. A second line while
-// the encoder is not keeping up, and one for the buffer while the disk is
-// behind (Recorder::bufferFill, and its bytes).
-void DrawRecordIndicator(double seconds, OsdCorner volumeCorner, bool encoderBehind,
-                         double bufferFill, uint64_t buffered);
+// opposite the volume readout so the two never overlap, and below them
+// whatever of RecordStatus is wrong.
+void DrawRecordIndicator(const RecordStatus& status, OsdCorner volumeCorner);
 
 // The window while the screen is taken without a preview: which screen, at
 // what size and rate, the recording if one runs, and the three things you
@@ -180,10 +191,7 @@ struct ScreenPanelState {
   bool still = false;  // nothing has arrived for a second
   bool canRecord = true;
   bool recording = false;
-  double recordSeconds = 0.0;
-  bool encoderBehind = false;
-  double bufferFill = 0.0;
-  uint64_t buffered = 0;
+  RecordStatus record;
 };
 
 enum class ScreenPanelAction { None, ToggleRecording, Screenshot, ShowPreview };
