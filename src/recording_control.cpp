@@ -239,12 +239,15 @@ void RecordingControl::StartRecording() {
   // The folder is made again if it was deleted, or answered with the default,
   // instead of failing the start.
   disk_.Ask([this, serial, asked = pendingSettings_.outputFolder,
-             container = pendingSettings_.container]() -> std::function<void()> {
+             container = pendingSettings_.container,
+             kind = IsLosslessEncoder(usable->id) ? RecordingKind::Lossless
+                                                  : RecordingKind::Normal]()
+                -> std::function<void()> {
     StartCheck check;
     check.folder = ChooseFolder(asked, DefaultRecordFolder());
     if (!check.folder.folder.empty()) {
       check.freeKnown = DiskFreeBytes(check.folder.folder, &check.freeBytes);
-      check.file = NextRecordingFile(check.folder.folder, container);
+      check.file = NextRecordingFile(check.folder.folder, container, kind);
     }
     return [this, serial, asked, check] { StartChecked(serial, asked, check); };
   });

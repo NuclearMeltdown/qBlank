@@ -15,10 +15,13 @@
 namespace cap {
 namespace {
 
-std::string TimestampedName(RecordContainer container) {
+std::string TimestampedName(RecordContainer container, RecordingKind kind) {
   const LocalTime t = NowLocal();
-  return Format("%s_%04d-%02d-%02d_%02d-%02d-%02d.%s", AppNameUtf8().c_str(), t.year, t.month,
-                t.day, t.hour, t.minute, t.second,
+  return Format("%s%s_%04d-%02d-%02d_%02d-%02d-%02d.%s", AppNameUtf8().c_str(),
+                kind == RecordingKind::Lossless ? "-raw"
+                : kind == RecordingKind::Clip   ? "-clip"
+                                                : "",
+                t.year, t.month, t.day, t.hour, t.minute, t.second,
                 container == RecordContainer::Mp4   ? "mp4"
                 : container == RecordContainer::Avi ? "avi"
                                                     : "mkv");
@@ -535,8 +538,15 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
 // -------------------------------------------------------------------- start
 
 std::filesystem::path NextRecordingFile(const std::filesystem::path& folder,
-                                        RecordContainer container) {
-  const std::filesystem::path named = folder / Utf8ToPath(TimestampedName(container));
+                                        RecordContainer container, RecordingKind kind) {
+  std::filesystem::path dir = folder;
+  if (kind != RecordingKind::Normal) {
+    dir /= kind == RecordingKind::Lossless ? "raw" : "clips";
+    std::error_code made;
+    std::filesystem::create_directories(dir, made);
+    if (made) dir = folder;
+  }
+  const std::filesystem::path named = dir / Utf8ToPath(TimestampedName(container, kind));
   std::filesystem::path outFile = named;
   std::error_code exists;
   for (int n = 2; std::filesystem::exists(outFile, exists); ++n) {

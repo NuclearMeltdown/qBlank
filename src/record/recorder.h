@@ -70,12 +70,19 @@ struct RecordStats {
 double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks, int width,
                                int height, double fps, double pixelBytes = 3.0);
 
+// What a file is. A lossless one (gigabytes a minute, for editing) goes into
+// raw\ as qBlank-raw_..., a replay clip into clips\ as qBlank-clip_..., so
+// neither sits among the recordings someone shares.
+enum class RecordingKind { Normal, Lossless, Clip };
+
 // Where the next recording in `folder` goes: named to the second, with a number
 // added when that name is taken -- a file cut within the same second as the
 // last one started would otherwise land on it while the one before may still
-// be finishing it. Looks at the disk, so never on the thread that draws.
+// be finishing it. Makes the subfolder of its kind; where that fails, the
+// file goes into `folder` itself. Looks at the disk, so never on the thread
+// that draws.
 std::filesystem::path NextRecordingFile(const std::filesystem::path& folder,
-                                        RecordContainer container);
+                                        RecordContainer container, RecordingKind kind);
 
 class Recorder {
  public:
