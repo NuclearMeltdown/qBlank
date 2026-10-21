@@ -399,6 +399,9 @@ const Entry kEntries[] = {
      "Belegung|Binding|Kürzel"},
     {Kind::Control, kTabKeys, "keysreset", "Alle zurücksetzen", "Reset all",
      "Tasten zurücksetzen|Standardbelegung|Default keys|Hotkeys"},
+    {Kind::Control, kTabKeys, "globalkeys", "Systemweit", "System-wide",
+     "Global|Globale Hotkeys|Global hotkeys|Globale Tasten|Im Spiel|In game|Hintergrund|"
+     "Background|Anderes Programm|Other program"},
 
     // ---- profiles
     {Kind::Tab, kTabProfiles, nullptr, "Profile", "Profiles",

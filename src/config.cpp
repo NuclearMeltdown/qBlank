@@ -1139,6 +1139,19 @@ bool Config::Load(std::string* error) {
     b.alt = entry["alt"].AsBool(false);
   }
 
+  // By name only: no qBlank that stored numbers knew them.
+  const json::Value& gh = root["globalHotkeys"];
+  globalHotkeys.on = gh["on"].AsBool(true);
+  for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
+    const json::Value& entry = gh[HotkeyActionKey((HotkeyAction)i)];
+    if (!IsGlobalAction((HotkeyAction)i) || !entry.IsObject()) continue;
+    HotkeyBinding& b = globalHotkeys.items[i];
+    if (!KeyFromName(entry["key"].AsString(), &b.key)) continue;
+    b.ctrl = entry["ctrl"].AsBool(false);
+    b.shift = entry["shift"].AsBool(false);
+    b.alt = entry["alt"].AsBool(false);
+  }
+
   profiles.clear();
   const json::Value& list = root["profiles"];
   for (size_t i = 0; i < list.Size(); ++i) {
@@ -1285,6 +1298,20 @@ std::string Config::Serialize() const {
     hk[HotkeyActionKey((HotkeyAction)i)] = std::move(entry);
   }
   root["hotkeys"] = std::move(hk);
+
+  json::Value gh = json::Value::Object();
+  gh["on"] = globalHotkeys.on;
+  for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
+    const HotkeyBinding& b = globalHotkeys.items[i];
+    if (!IsGlobalAction((HotkeyAction)i) || !b.bound()) continue;
+    json::Value entry = json::Value::Object();
+    entry["key"] = KeyName(b.key);
+    entry["ctrl"] = b.ctrl;
+    entry["shift"] = b.shift;
+    entry["alt"] = b.alt;
+    gh[HotkeyActionKey((HotkeyAction)i)] = std::move(entry);
+  }
+  root["globalHotkeys"] = std::move(gh);
 
   json::Value list = json::Value::Array();
   for (const Profile& p : profiles) list.Push(WriteProfile(p));

@@ -25,6 +25,7 @@
 #include "common.h"
 #include "config.h"
 #include "crop_tool.h"
+#include "global_hotkeys.h"
 #include "job_thread.h"
 #include "record/ffmpeg_download.h"
 #include "record/recorder.h"
@@ -172,6 +173,11 @@ class App {
   // The icon's menu, when it is open, and whatever is picked there.
   void DrawTrayMenu();
   void RunTrayCommand(int id);
+  // The system-wide shortcuts: held as configured, refusals reported, presses
+  // carried out on this thread.
+  void UpdateGlobalHotkeys();
+  // False for Count: nothing bound.
+  bool RunHotkeyAction(HotkeyAction action);
   void AdjustVolume(float delta);
   void ToggleMute();
   void ShowVolumeOsd();
@@ -437,6 +443,10 @@ class App {
   std::vector<TrayMenuItem> trayMenu_;  // what the icon's menu holds right now
   const char* trayTooltipState_ = nullptr;  // see UpdateTray
   bool trayFailed_ = false;  // not retried until the setting goes off and on
+  SystemHotkeys systemHotkeys_;
+  // Refused by the system, by action; read by the settings. Each refusal is
+  // told once, when it happens.
+  bool globalRefused_[(int)HotkeyAction::Count] = {};
   bool bypass_ = false;
   // Whether the bar was drawn this frame; the picture layout follows it.
   bool toolbarVisible_ = false;

@@ -1328,6 +1328,7 @@ void App::Tick() {
   // the same.
   recording_.UpdateDiskSpace();
   UpdateTray();
+  UpdateGlobalHotkeys();
 
   // Hide the pointer once it has been still for a while in fullscreen.
   if (fullscreen_ && config_.app.hideCursorFullscreen && !settings_.isOpen()) {

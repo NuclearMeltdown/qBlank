@@ -2,6 +2,7 @@
 
 #include "app.h"
 
+#include "i18n.h"
 #include "imgui_internal.h"
 
 namespace cap {
@@ -40,7 +41,23 @@ bool App::HandleKeyDown(Key key, bool ctrl, bool shift, bool alt) {
     return true;
   }
 
-  switch (config_.hotkeys.Find(key, ctrl, shift, alt)) {
+  if (RunHotkeyAction(config_.hotkeys.Find(key, ctrl, shift, alt))) return true;
+
+  // The numeric keypad follows the main volume keys without needing its own
+  // binding -- nobody expects to have to bind both.
+  if (key == Key::NumAdd && config_.hotkeys[HotkeyAction::VolumeUp].bound()) {
+    AdjustVolume(kVolumeStep);
+    return true;
+  }
+  if (key == Key::NumSubtract && config_.hotkeys[HotkeyAction::VolumeDown].bound()) {
+    AdjustVolume(-kVolumeStep);
+    return true;
+  }
+  return false;
+}
+
+bool App::RunHotkeyAction(HotkeyAction action) {
+  switch (action) {
     case HotkeyAction::Fullscreen:
       ToggleFullscreen();
       return true;
@@ -106,20 +123,38 @@ bool App::HandleKeyDown(Key key, bool ctrl, bool shift, bool alt) {
       AdjustVolume(-kVolumeStep);
       return true;
     default:
-      break;
+      return false;
   }
+}
 
-  // The numeric keypad follows the main volume keys without needing its own
-  // binding -- nobody expects to have to bind both.
-  if (key == Key::NumAdd && config_.hotkeys[HotkeyAction::VolumeUp].bound()) {
-    AdjustVolume(kVolumeStep);
-    return true;
+void App::UpdateGlobalHotkeys() {
+  // Let go of while the binding editor waits for a key: a combination held
+  // system-wide never reaches it, so it could not be bound to anything else,
+  // and pressing it there would start a recording instead.
+  static const HotkeyBinding kNone[(int)HotkeyAction::Count];
+  const GlobalHotkeys& global = config_.globalHotkeys;
+  const bool hold = global.on && !settings_.waitingForKey();
+  systemHotkeys_.Hold(hold ? global.items : kNone);
+
+  for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
+    const HotkeyAction action = (HotkeyAction)i;
+    const bool refused = hold && global.items[i].bound() && systemHotkeys_.Refused(action);
+    if (refused && !globalRefused_[i]) {
+      const std::string keys = HotkeyText(global.items[i]);
+      CAP_WARN("System-wide shortcut %s (%s) is held by another program", keys.c_str(),
+               HotkeyActionKey(action));
+      Toast(Format(T("%s ist schon von einem anderen Programm belegt", "%s is taken by another program"),
+                   keys.c_str()),
+            {}, true);
+    }
+    // While let go, the last answer stands: the editor is about to change it.
+    if (hold) globalRefused_[i] = refused;
   }
-  if (key == Key::NumSubtract && config_.hotkeys[HotkeyAction::VolumeDown].bound()) {
-    AdjustVolume(-kVolumeStep);
-    return true;
-  }
-  return false;
+  settings_.SetGlobalHotkeysRefused(globalRefused_);
+
+  // Not from inside a move or resize, like the icon's events: they wait.
+  if (inModalFrame_) return;
+  for (HotkeyAction action : systemHotkeys_.TakePressed()) RunHotkeyAction(action);
 }
 
 bool App::OnKey(Key key, bool ctrl, bool shift, bool alt, bool busy) {

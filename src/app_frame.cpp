@@ -134,8 +134,11 @@ int App::Run() {
 bool App::FeedsWhileHidden() const {
   // A recording that is starting waits for answers, and those are collected
   // by a loop that runs.
+  // A screenshot of the picture alone, asked for by a system-wide key or the
+  // tray icon, needs one pass; the window's own waits for the window.
   return recorder_.recording() || recording_.starting() ||
-         (virtualCamera_.running() && virtualCamera_.consumed());
+         (virtualCamera_.running() && virtualCamera_.consumed()) ||
+         (screenshotPending_ && !config_.record.screenshotIncludeUi);
 }
 
 void App::RenderFrame() {

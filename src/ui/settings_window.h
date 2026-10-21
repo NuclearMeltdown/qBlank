@@ -235,6 +235,8 @@ class SettingsWindow {
   // key messages here instead of acting on them.
   bool waitingForKey() const { return captureAction_ >= 0; }
   void OfferKey(Key key, bool ctrl, bool shift, bool alt);
+  // By action: the system refused that system-wide shortcut.
+  void SetGlobalHotkeysRefused(const bool* refused) { globalRefused_ = refused; }
 
   // Forces the device and format lists to be read again on the next frame.
   void InvalidateDeviceLists();
@@ -356,8 +358,11 @@ class SettingsWindow {
   std::filesystem::path recordFolderDefault_;
   std::filesystem::path shotFolderDefault_;
 
-  // Index into Hotkeys::items currently being rebound, -1 when idle.
+  // Index into Hotkeys::items currently being rebound, -1 when idle; into
+  // GlobalHotkeys::items with captureGlobal_.
   int captureAction_ = -1;
+  bool captureGlobal_ = false;
+  const bool* globalRefused_ = nullptr;
   const char* const* detectedRange_ = nullptr;
   const std::string* rangeNumbers_ = nullptr;
   bool rangeRemeasureRequested_ = false;

@@ -881,6 +881,7 @@ struct Config {
   AppSettings app;
   RecordSettings record;
   Hotkeys hotkeys;
+  GlobalHotkeys globalHotkeys;
   std::vector<Profile> profiles;
   int activeProfile = 0;
 

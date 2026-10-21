@@ -1,6 +1,5 @@
 #include "keys_win32.h"
 
-#include "common.h"
 #include "common_win32.h"
 #include "text_win32.h"
 
@@ -25,9 +24,9 @@ std::string KeyLabel(Key key) {
   wchar_t name[64] = {};
   if (scan != 0 && ::GetKeyNameTextW((LONG)(scan << 16), name, 64) > 0) return ToUtf8(name);
 
-  if (vk >= 'A' && vk <= 'Z') return std::string(1, (char)vk);
-  if (vk >= '0' && vk <= '9') return std::string(1, (char)vk);
-  return Format("VK 0x%02X", vk);
+  // F13 to F24 and the media keys have no scan code on most layouts; their
+  // file name ("F15", "VolumeUp") reads well enough.
+  return KeyName(key);
 }
 
 }  // namespace cap

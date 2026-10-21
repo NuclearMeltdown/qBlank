@@ -4762,46 +4762,63 @@ void SettingsWindow::DrawHotkeysTab() {
   ImGui::Spacing();
 
   Hotkeys& keys = cfg().hotkeys;
+  GlobalHotkeys& global = cfg().globalHotkeys;
 
-  if (ImGui::BeginTable("hotkeys", 2,
-                        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
-                            ImGuiTableFlags_SizingStretchProp)) {
+  // One table for the window's keys, one for the system-wide ones.
+  const auto table = [this, &keys, &global](bool system) {
+    if (!ImGui::BeginTable(system ? "globalkeys" : "hotkeys", 2,
+                           ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                               ImGuiTableFlags_SizingStretchProp)) {
+      return;
+    }
     ImGui::TableSetupColumn(T("Aktion", "Action"), ImGuiTableColumnFlags_WidthStretch, 0.6f);
     ImGui::TableSetupColumn(T("Taste", "Shortcut"), ImGuiTableColumnFlags_WidthStretch, 0.4f);
     ImGui::TableHeadersRow();
 
+    HotkeyBinding* set = system ? global.items : keys.items;
     for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
       const HotkeyAction action = (HotkeyAction)i;
+      if (system && !IsGlobalAction(action)) continue;
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
       ImGui::AlignTextToFramePadding();
       ImGui::TextUnformatted(HotkeyActionName(action));
 
       ImGui::TableSetColumnIndex(1);
-      const bool capturing = (captureAction_ == i);
+      const bool capturing = (captureAction_ == i && captureGlobal_ == system);
       const std::string label = (capturing ? std::string(T("Taste drücken ...", "Press a key ..."))
-                                           : HotkeyText(keys[action])) +
-                                "##hk" + std::to_string(i);
+                                           : HotkeyText(set[i])) +
+                                (system ? "##ghk" : "##hk") + std::to_string(i);
 
       // A duplicate is flagged rather than refused: which of the two the user
-      // meant to keep is not something this dialog can know.
+      // meant to keep is not something this dialog can know. A system-wide key
+      // also clashes with the window's key for another action: it wins there.
       bool clash = false;
-      if (keys[action].bound()) {
+      if (set[i].bound()) {
         for (int j = 0; j < (int)HotkeyAction::Count && !clash; ++j) {
-          if (j != i && keys.items[j] == keys[action]) clash = true;
+          if (j != i && (set[j] == set[i] || (system && keys.items[j] == set[i]))) clash = true;
         }
       }
-      if (clash) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.6f, 0.35f, 1.0f));
+      const bool refused = system && !clash && global.on && set[i].bound() && globalRefused_ &&
+                           globalRefused_[i];
+      if (clash || refused) {
+        ImGui::PushStyleColor(ImGuiCol_Text, refused ? ImVec4(1.0f, 0.42f, 0.38f, 1.0f)
+                                                     : ImVec4(0.95f, 0.6f, 0.35f, 1.0f));
+      }
       if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
         captureAction_ = capturing ? -1 : i;
+        captureGlobal_ = system;
       }
-      if (clash) {
+      if (clash || refused) {
         ImGui::PopStyleColor();
-        ImGui::SetItemTooltip(T("Mehrfach belegt.", "Bound more than once."));
+        ImGui::SetItemTooltip("%s", clash ? T("Mehrfach belegt.", "Bound more than once.")
+                                          : T("Von einem anderen Programm belegt.",
+                                              "Taken by another program."));
       }
     }
     ImGui::EndTable();
-  }
+  };
+  table(false);
 
   ImGui::Spacing();
   if (ImGui::Button(T("Alle zurücksetzen", "Reset all"))) {
@@ -4815,6 +4832,22 @@ void SettingsWindow::DrawHotkeysTab() {
                         "Strg+1 bis Strg+9 wählen ein Profil, Alt+F4 beendet.",
                         "Fixed: Esc leaves fullscreen and closes dialogs, Ctrl+1 to Ctrl+9 pick "
                         "a profile, Alt+F4 quits."));
+
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Systemweit", "System-wide"));
+  ImGui::Checkbox(T("Auch wenn ein anderes Programm vorn ist", "Also while another program is in front"),
+                  &global.on);
+  Anchor("globalkeys");
+  ImGui::SameLine();
+  HelpMarker(T("Diese Tasten wirken überall, auch mitten im Spiel. Solange qBlank läuft, gehört "
+               "die Kombination ihm allein; kein anderes Programm bekommt sie. Eine schon "
+               "vergebene steht rot da.",
+               "These keys work everywhere, in the middle of a game too. While qBlank runs, the "
+               "combination is its alone; no other program gets it. One already taken shows "
+               "red."));
+  ImGui::BeginDisabled(!global.on);
+  table(true);
+  ImGui::EndDisabled();
 }
 
 void SettingsWindow::OfferKey(Key key, bool ctrl, bool shift, bool alt) {
@@ -4824,8 +4857,9 @@ void SettingsWindow::OfferKey(Key key, bool ctrl, bool shift, bool alt) {
     captureAction_ = -1;
     return;
   }
+  HotkeyBinding* set = captureGlobal_ ? cfg().globalHotkeys.items : cfg().hotkeys.items;
   if (key == Key::Delete || key == Key::Backspace) {  // unbind
-    cfg().hotkeys.items[captureAction_] = HotkeyBinding{};
+    set[captureAction_] = HotkeyBinding{};
     captureAction_ = -1;
     return;
   }
@@ -4840,7 +4874,7 @@ void SettingsWindow::OfferKey(Key key, bool ctrl, bool shift, bool alt) {
   binding.ctrl = ctrl;
   binding.shift = shift;
   binding.alt = alt;
-  cfg().hotkeys.items[captureAction_] = binding;
+  set[captureAction_] = binding;
   captureAction_ = -1;
 }
 
