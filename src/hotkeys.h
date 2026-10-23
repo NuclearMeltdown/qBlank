@@ -66,18 +66,13 @@ struct Hotkeys {
   HotkeyAction Find(Key key, bool ctrl, bool shift, bool alt) const;
 };
 
-// The same actions while another program has the keyboard, for the few that
-// make sense from inside a game (IsGlobalAction). All unbound out of the box: a
-// combination held system-wide is taken from every other program, and that is
-// not something to do unasked.
+// The same actions while another program has the keyboard, any of them. All
+// unbound out of the box: a combination held system-wide is taken from every
+// other program, and that is not something to do unasked.
 struct GlobalHotkeys {
   bool on = true;  // off keeps the bindings but holds none of them
   HotkeyBinding items[(int)HotkeyAction::Count];
 };
-
-// Whether an action can be bound system-wide: the ones that need no window in
-// sight to make sense.
-bool IsGlobalAction(HotkeyAction action);
 
 // Label shown in the settings and the context menu, in the current language.
 const char* HotkeyActionName(HotkeyAction action);

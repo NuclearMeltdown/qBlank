@@ -67,12 +67,6 @@ HotkeyAction Hotkeys::Find(Key key, bool ctrl, bool shift, bool alt) const {
   return HotkeyAction::Count;
 }
 
-bool IsGlobalAction(HotkeyAction action) {
-  return action == HotkeyAction::Record || action == HotkeyAction::ReplaySave ||
-         action == HotkeyAction::ReplayToggle || action == HotkeyAction::Screenshot ||
-         action == HotkeyAction::ScreenshotClipboard;
-}
-
 const char* HotkeyActionName(HotkeyAction action) {
   switch (action) {
     case HotkeyAction::Fullscreen: return T("Vollbild", "Fullscreen");

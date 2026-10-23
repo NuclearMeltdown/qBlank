@@ -210,8 +210,8 @@ class Recorder {
   // Set when the encoder could not open or writing failed; the app should stop
   // and report. active() stays true until it does.
   bool failed() const { return failed_.load(std::memory_order_relaxed); }
-  // The encoder has not kept up for seconds on end, and the file repeats frames
-  // to stay in step with the sound. Clears once it catches up again.
+  // The encoder has not kept up for seconds on end, and the file leaves frames
+  // out to stay in step with the sound. Clears once it catches up again.
   bool encoderBehind() const { return encoderBehind_.load(std::memory_order_relaxed); }
   // Slots left out so far because the encoder was still busy with the frame
   // before: what the file shows as a stutter. Not the ones a slow source or the

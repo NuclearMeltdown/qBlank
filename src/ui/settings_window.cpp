@@ -4947,8 +4947,7 @@ void SettingsWindow::DrawHotkeysTab() {
     }
   };
 
-  // The system-wide keys sit beside the window's, for the actions that have
-  // them; the rest leave that cell empty.
+  // The system-wide keys sit beside the window's.
   if (ImGui::BeginTable("hotkeys", 3,
                         ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
                             ImGuiTableFlags_SizingStretchProp)) {
@@ -4965,7 +4964,6 @@ void SettingsWindow::DrawHotkeysTab() {
       ImGui::TextUnformatted(HotkeyActionName(action));
       ImGui::TableSetColumnIndex(1);
       keyButton(i, false);
-      if (!IsGlobalAction(action)) continue;
       ImGui::TableSetColumnIndex(2);
       ImGui::BeginDisabled(!global.on);
       keyButton(i, true);

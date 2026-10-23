@@ -1182,7 +1182,7 @@ bool Config::Load(std::string* error) {
   globalHotkeys.on = gh["on"].AsBool(true);
   for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
     const json::Value& entry = gh[HotkeyActionKey((HotkeyAction)i)];
-    if (!IsGlobalAction((HotkeyAction)i) || !entry.IsObject()) continue;
+    if (!entry.IsObject()) continue;
     HotkeyBinding& b = globalHotkeys.items[i];
     if (!KeyFromName(entry["key"].AsString(), &b.key)) continue;
     b.ctrl = entry["ctrl"].AsBool(false);
@@ -1346,7 +1346,7 @@ std::string Config::Serialize() const {
   gh["on"] = globalHotkeys.on;
   for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
     const HotkeyBinding& b = globalHotkeys.items[i];
-    if (!IsGlobalAction((HotkeyAction)i) || !b.bound()) continue;
+    if (!b.bound()) continue;
     json::Value entry = json::Value::Object();
     entry["key"] = KeyName(b.key);
     entry["ctrl"] = b.ctrl;
