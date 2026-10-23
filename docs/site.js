@@ -261,10 +261,13 @@ function pickProgram(assets) {
 (function(){
   var box = document.getElementById('releases');
   if (!box) return;
-  var KEY = 'qblank-rels';
+  var KEY = 'qblank-rels2';  // with the files since 7.1
 
+  function esc(s){
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
   function inline(s){
-    s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    s = esc(s);
     // Code and links are put aside, or the emphasis rules would reach into them.
     var kept = [];
     function keep(html){ kept.push(html); return '\u0000' + (kept.length - 1) + '\u0000'; }
@@ -321,6 +324,19 @@ function pickProgram(assets) {
   }
 
   var when = new Intl.DateTimeFormat(L('en-GB', 'de-DE'), {day: 'numeric', month: 'long', year: 'numeric'});
+  var mb = new Intl.NumberFormat(L('en-GB', 'de-DE'), {minimumFractionDigits: 1, maximumFractionDigits: 1});
+  // The program first. Beside qBlank.exe, CapView.exe is the migrator; up to
+  // 3.7 it was the program itself.
+  function files(assets){
+    if (!assets || !assets.length) return '';
+    var prog = pickProgram(assets);
+    return '<p class="files">' + assets.slice().sort(function(a, b){ return (b === prog) - (a === prog); }).map(function(a){
+      return '<span><a href="' + esc(a.browser_download_url) + '">' + esc(a.name) + '</a>' +
+             '<span class="size">' + mb.format(a.size / 1048576) + ' MB' +
+             (a === prog ? '' : ' · <a href="install.html#capview">' + L('moves CapView over', 'Umzug von CapView') + '</a>') +
+             '</span></span>';
+    }).join('') + '</p>';
+  }
   function show(rels){
     var groups = {};
     rels.forEach(function(r){
@@ -333,7 +349,7 @@ function pickProgram(assets) {
         groups[n].sort(function(a, b){ return a.published_at < b.published_at ? 1 : -1; }).map(function(r){
           return '<article class="rel"><h3><a href="' + r.html_url + '">' + inline(r.tag_name) + '</a>' +
                  '<span class="when">' + when.format(new Date(r.published_at)) + '</span></h3>' +
-                 md(r.body || '') + '</article>';
+                 files(r.assets) + md(r.body || '') + '</article>';
         }).join('') + '</section>';
     }).join('');
     var secs = document.querySelector('.toc .secs');
@@ -355,7 +371,10 @@ function pickProgram(assets) {
     .then(function(r){ return r.ok ? r.json() : Promise.reject(); })
     .then(function(list){
       var rels = list.filter(function(r){ return !r.draft; }).map(function(r){
-        return {tag_name: r.tag_name, html_url: r.html_url, published_at: r.published_at, body: r.body};
+        return {tag_name: r.tag_name, html_url: r.html_url, published_at: r.published_at, body: r.body,
+                assets: (r.assets || []).filter(function(a){ return /\.exe$/i.test(a.name); }).map(function(a){
+                  return {name: a.name, label: a.label, size: a.size, browser_download_url: a.browser_download_url};
+                })};
       });
       try { sessionStorage.setItem(KEY, JSON.stringify({t: Date.now(), rels: rels})); } catch (e) {}
       show(rels);

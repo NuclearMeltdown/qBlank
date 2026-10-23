@@ -277,6 +277,8 @@ footer .made{margin-top:18px}
 .rel h4{font-size:.92rem;margin:16px 0 4px;color:var(--accent-soft)}
 .rel p{margin-top:10px}
 .rel table{display:block;overflow-x:auto}
+.rel .files{display:flex;flex-wrap:wrap;gap:4px 22px;margin-top:6px;font-size:.88rem}
+.rel .files .size{color:var(--dim);margin-left:8px}
 .kind{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin-right:7px}
 .doc section{padding:0 0 52px;scroll-margin-top:84px}
 .doc h2{font-size:clamp(1.4rem,3vw,1.75rem);margin-bottom:14px}
