@@ -682,7 +682,12 @@ void App::StopCapture() {
   devicePages_.Reap();
   capture_.Stop();
   if (screenActive_) {
-    // The textures first, while the capture still holds them too.
+    // Its size first: until the card has one, the crop would take it for the
+    // card's, and the renderer would set its own textures up in it once more.
+    // The next frame, from whichever source, brings one.
+    renderer_.SetSourceFormat(VideoFormatInfo{}, nullptr);
+    sourceFormatGen_ = 0;
+    // Then the textures, while the capture still holds them too.
     renderer_.AttachSourceFrames(nullptr);
     screen_->Stop();
     screenActive_ = false;
@@ -1310,7 +1315,9 @@ void App::Tick() {
   standardSearch_.UpdateSignalWatch();
   standardSearch_.UpdateVideoStandard();
   UpdateProfileForStandard();
-  cropTool_.UpdateCropForFormat();
+  // The crop is the card's: the screen is shown whole (EffectiveImage), and
+  // its sizes would end up among the card's crops.
+  if (!screenActive_) cropTool_.UpdateCropForFormat();
 
   CheckScreen();
   if (captureState_ == CaptureState::Running && !screenActive_) {

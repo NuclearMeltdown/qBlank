@@ -111,7 +111,7 @@ bool App::RunHotkeyAction(HotkeyAction action) {
       ToggleBypass();
       return true;
     case HotkeyAction::DetectCrop:
-      cropTool_.DetectCrop();
+      if (!screenActive_) cropTool_.DetectCrop();  // the screen is never cropped
       return true;
     case HotkeyAction::DetectStandard:
       standardSearch_.RescanVideoStandard();
