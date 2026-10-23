@@ -249,6 +249,7 @@ bool RecordingControl::SameSession(const RecordSettings& wanted) const {
          wanted.lookAhead == s.lookAhead && wanted.adaptiveQuant == s.adaptiveQuant &&
          wanted.allEncoderChips == s.allEncoderChips && wanted.fullChroma == s.fullChroma &&
          wanted.unfiltered == s.unfiltered && wanted.fps == s.fps &&
+         wanted.maxLines == s.maxLines &&
          config_.app.recordHdr == sessionHdrAsked_;
 }
 
@@ -494,9 +495,10 @@ void RecordingControl::LaunchRecording() {
   recordingBytes_ = 0;
 
   recorder_.SetGpuAdapter(renderer_.sharedAdapter());
+  renderer_.SetRecordLines(unfiltered ? 0 : pendingSettings_.maxLines);
   const bool ok = recorder_.Start(pendingSettings_, pendingFile_, ffmpeg_,
-                                  unfiltered ? card.format.width : renderer_.outputWidth(),
-                                  unfiltered ? card.format.height : renderer_.outputHeight(),
+                                  unfiltered ? card.format.width : renderer_.recordWidth(),
+                                  unfiltered ? card.format.height : renderer_.recordHeight(),
                                   recordFps, mainTrack, std::move(extras), &error);
 
   if (!ok) {
@@ -746,8 +748,10 @@ void RecordingControl::UpdateDiskSpace() {
   }
   // Lossless goes by the picture: the one there is, at the rate LaunchRecording
   // would choose, or 1080p60 while there is none.
-  int width = renderer_.outputWidth() & ~1;
-  int height = renderer_.outputHeight() & ~1;
+  int width = 0;
+  int height = 0;
+  CappedRecordSize(renderer_.outputWidth(), renderer_.outputHeight(), config_.record.maxLines,
+                   &width, &height);
   if (width <= 0 || height <= 0) {
     width = 1920;
     height = 1080;
@@ -1002,8 +1006,8 @@ void RecordingControl::FeedRecorder() {
     // nicht, das Format der Bytes steht mit dem Encoder ebenso fest.
     const bool unfiltered = recorder_.unfiltered();
     const VideoFormatInfo& card = renderer_.sourceFormat();
-    const int liveWidth = unfiltered ? card.width : renderer_.outputWidth();
-    const int liveHeight = unfiltered ? card.height : renderer_.outputHeight();
+    const int liveWidth = unfiltered ? card.width : renderer_.recordWidth();
+    const int liveHeight = unfiltered ? card.height : renderer_.recordHeight();
     double liveFps = recordSourceFps_;
     if (host_.OnScreen()) {
       if (card.fps > 1.0) liveFps = card.fps;

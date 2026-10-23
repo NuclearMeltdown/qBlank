@@ -92,7 +92,7 @@ class D3D11Passes : public RenderPasses {
   void CleanAndConvert(const ConvertParams& params, int srcWidth, int srcHeight, int outWidth,
                        int outHeight, int historyWrite) override;
   void ScaleToScreen(const ScaleParams& params, int x, int y, int width, int height) override;
-  bool Deliver(bool half, int width, int height, const ScaleParams& params) override;
+  bool Deliver(PassImage target, int width, int height, const ScaleParams& params) override;
   void RebuildGrid(const ScaleParams& params, int rowsPerLine, const int* stages,
                    int count) override;
   bool BeginUiLayer(int width, int height) override;
@@ -116,33 +116,24 @@ class D3D11Passes : public RenderPasses {
   bool CreateStates(std::string* error);
   void DrawYuv(ID3D11RenderTargetView* rtv, int width, int rows, PassImage from,
                const YuvParams& params);
-  bool EnsureDelivery(int width, int height, bool half);
+  bool EnsureDelivery(int width, int height, PassImage target);
   bool EnsureUiLayer(int width, int height);
 
   // Each drops one group of pictures and forgets its size.
   void ReleaseClean();
   void ReleaseIntermediate();
-  void ReleaseDelivery(bool half);
   void ReleaseUiLayer();
 
   ID3D11Device* dev() const { return NativeDevice(*display_); }
   ID3D11DeviceContext* dc() const { return NativeContext(*display_); }
 
   ID3D11Texture2D* Texture(PassImage image) const {
-    switch (image) {
-      case PassImage::Delivery: return delivery_.Get();
-      case PassImage::DeliveryHalf: return deliveryHalf_.Get();
-      case PassImage::Intermediate:
-      default: return intermediate_.Get();
-    }
+    if (image == PassImage::Intermediate) return intermediate_.Get();
+    return delivery_[DeliveryIndex(image)].tex.Get();
   }
   ID3D11ShaderResourceView* View(PassImage image) const {
-    switch (image) {
-      case PassImage::DeliveryHalf: return deliveryHalfSrv_.Get();
-      case PassImage::Delivery: return deliverySrv_.Get();
-      case PassImage::Intermediate:
-      default: return intermediateSrv_.Get();
-    }
+    if (image == PassImage::Intermediate) return intermediateSrv_.Get();
+    return delivery_[DeliveryIndex(image)].srv.Get();
   }
 
   Display* display_ = nullptr;
@@ -201,19 +192,17 @@ class D3D11Passes : public RenderPasses {
   // Where the picture goes when it is leaving for something that is not the
   // window and cannot be handed the intermediate as it stands -- because it
   // needs square pixels, or because it is eight bit and the intermediate is
-  // not.
-  ComPtr<ID3D11Texture2D> delivery_;
-  ComPtr<ID3D11RenderTargetView> deliveryRtv_;
-  ComPtr<ID3D11ShaderResourceView> deliverySrv_;
-  int deliveryTexWidth_ = 0;
-  int deliveryTexHeight_ = 0;
-  // The same, still in linear light: a resample that must not be tone mapped
-  // on the way, because a PQ recording and a wide screenshot come off it.
-  ComPtr<ID3D11Texture2D> deliveryHalf_;
-  ComPtr<ID3D11RenderTargetView> deliveryHalfRtv_;
-  ComPtr<ID3D11ShaderResourceView> deliveryHalfSrv_;
-  int deliveryHalfTexWidth_ = 0;
-  int deliveryHalfTexHeight_ = 0;
+  // not. The half ones stay in linear light: a resample that must not be tone
+  // mapped on the way, because a PQ recording and a wide screenshot come off
+  // it. In PassImage's order.
+  struct DeliveryTarget {
+    ComPtr<ID3D11Texture2D> tex;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    int width = 0;
+    int height = 0;
+  };
+  DeliveryTarget delivery_[kDeliveryTargets];
 
   // The yuv pass: one picture per stream, one plane of luma rows and then
   // chroma rows, and the readbacks it is copied into.
@@ -292,8 +281,7 @@ void D3D11Passes::Shutdown() {
   // past the display's own shutdown.
   for (int s = 0; s < kYuvStreams; ++s) ReleaseYuvStream(s);
   ReleaseUiLayer();
-  ReleaseDelivery(true);
-  ReleaseDelivery(false);
+  for (DeliveryTarget& target : delivery_) target = DeliveryTarget();
   ReleaseIntermediate();
   ReleaseClean();
   ReleasePlanes();
@@ -636,22 +624,6 @@ void D3D11Passes::ReleaseIntermediate() {
   intermediateFormat_ = DXGI_FORMAT_R8G8B8A8_UNORM;
 }
 
-void D3D11Passes::ReleaseDelivery(bool half) {
-  if (half) {
-    deliveryHalfSrv_.Reset();
-    deliveryHalfRtv_.Reset();
-    deliveryHalf_.Reset();
-    deliveryHalfTexWidth_ = 0;
-    deliveryHalfTexHeight_ = 0;
-  } else {
-    deliverySrv_.Reset();
-    deliveryRtv_.Reset();
-    delivery_.Reset();
-    deliveryTexWidth_ = 0;
-    deliveryTexHeight_ = 0;
-  }
-}
-
 void D3D11Passes::ReleaseUiLayer() {
   uiSrv_.Reset();
   uiRtv_.Reset();
@@ -783,39 +755,35 @@ bool D3D11Passes::EnsureIntermediate(int width, int height, bool wide) {
   return true;
 }
 
-bool D3D11Passes::EnsureDelivery(int width, int height, bool half) {
+bool D3D11Passes::EnsureDelivery(int width, int height, PassImage target) {
   width = std::max(1, width);
   height = std::max(1, height);
 
-  ComPtr<ID3D11Texture2D>& tex = half ? deliveryHalf_ : delivery_;
-  ComPtr<ID3D11RenderTargetView>& rtv = half ? deliveryHalfRtv_ : deliveryRtv_;
-  int& haveW = half ? deliveryHalfTexWidth_ : deliveryTexWidth_;
-  int& haveH = half ? deliveryHalfTexHeight_ : deliveryTexHeight_;
-  if (tex && haveW == width && haveH == height) return true;
+  DeliveryTarget& t = delivery_[DeliveryIndex(target)];
+  if (t.tex && t.width == width && t.height == height) return true;
 
-  ReleaseDelivery(half);
+  t = DeliveryTarget();
 
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = (UINT)width;
   td.Height = (UINT)height;
   td.MipLevels = 1;
   td.ArraySize = 1;
-  td.Format = half ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+  td.Format = HalfImage(target) ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
   td.SampleDesc.Count = 1;
   td.Usage = D3D11_USAGE_DEFAULT;
   // Both are read again afterwards, by the yuv pass.
   td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
   ID3D11Device* dev = NativeDevice(*display_);
-  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &tex))) ||
-      FAILED(CAP_HR(dev->CreateRenderTargetView(tex.Get(), nullptr, &rtv))) ||
-      FAILED(CAP_HR(dev->CreateShaderResourceView(
-          tex.Get(), nullptr, half ? &deliveryHalfSrv_ : &deliverySrv_)))) {
-    ReleaseDelivery(half);
+  if (FAILED(CAP_HR(dev->CreateTexture2D(&td, nullptr, &t.tex))) ||
+      FAILED(CAP_HR(dev->CreateRenderTargetView(t.tex.Get(), nullptr, &t.rtv))) ||
+      FAILED(CAP_HR(dev->CreateShaderResourceView(t.tex.Get(), nullptr, &t.srv)))) {
+    t = DeliveryTarget();
     return false;
   }
-  haveW = width;
-  haveH = height;
+  t.width = width;
+  t.height = height;
   return true;
 }
 
@@ -1156,9 +1124,9 @@ void D3D11Passes::ScaleToScreen(const ScaleParams& params, int x, int y, int wid
   dc->RSSetViewports(1, &vp);
 }
 
-bool D3D11Passes::Deliver(bool half, int width, int height, const ScaleParams& params) {
+bool D3D11Passes::Deliver(PassImage target, int width, int height, const ScaleParams& params) {
   if (!intermediate_) return false;
-  if (!EnsureDelivery(width, height, half)) return false;
+  if (!EnsureDelivery(width, height, target)) return false;
 
   ID3D11DeviceContext* dc = NativeContext(*display_);
 
@@ -1172,7 +1140,7 @@ bool D3D11Passes::Deliver(bool half, int width, int height, const ScaleParams& p
     dc->Unmap(cbScale_.Get(), 0);
   }
 
-  ID3D11RenderTargetView* rtv[] = {half ? deliveryHalfRtv_.Get() : deliveryRtv_.Get()};
+  ID3D11RenderTargetView* rtv[] = {delivery_[DeliveryIndex(target)].rtv.Get()};
   dc->OMSetRenderTargets(1, rtv, nullptr);
 
   D3D11_VIEWPORT vp = {};

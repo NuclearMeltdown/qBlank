@@ -4065,6 +4065,48 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
                  : T("0 = Bildrate der Quelle. Niedriger verwirft Bilder, Auflösung bleibt.",
                      "0 = source frame rate. Lower drops frames, resolution unchanged."));
 
+  // Only ever down: the list holds what is smaller than the picture, and a cap
+  // the picture is already under shows as the source. The value stays, for a
+  // larger source later.
+  static const int kLines[] = {2160, 1440, 1080, 900, 720, 540, 480, 360};
+  const int shortSide = std::min(pictureWidth_, pictureHeight_);
+  auto linesLabel = [&](int lines) {
+    if (lines <= 0 || (shortSide > 0 && lines >= shortSide)) {
+      if (shortSide <= 0) return std::string(T("wie die Quelle", "same as source"));
+      return Format(T("wie die Quelle (%dx%d)", "same as source (%dx%d)"), pictureWidth_ & ~1,
+                    pictureHeight_ & ~1);
+    }
+    if (shortSide <= 0) return Format("%dp", lines);
+    int w = 0, h = 0;
+    CappedRecordSize(pictureWidth_, pictureHeight_, lines, &w, &h);
+    return Format("%dp (%dx%d)", lines, w, h);
+  };
+  const bool cardBytes =
+      cfg().active().capture.source == VideoSource::Card && rec.unfiltered && lossless;
+  ImGui::BeginDisabled(cardBytes);
+  ImGui::SetNextItemWidth(-260.0f);
+  if (ImGui::BeginCombo(T("Auflösung", "Resolution"), linesLabel(rec.maxLines).c_str())) {
+    const bool asSource = rec.maxLines <= 0 || (shortSide > 0 && rec.maxLines >= shortSide);
+    if (ImGui::Selectable(linesLabel(0).c_str(), asSource)) {
+      rec.maxLines = 0;
+    }
+    for (int lines : kLines) {
+      if (shortSide > 0 && lines >= shortSide) continue;
+      if (ImGui::Selectable(linesLabel(lines).c_str(), rec.maxLines == lines)) rec.maxLines = lines;
+    }
+    ImGui::EndCombo();
+  }
+  Anchor("recsize");
+  ResetOnRightClick(rec.maxLines, kRecord.maxLines);
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  HelpMarker(cardBytes ? T("Ohne Filter nimmt die Karte in ihrer eigenen Auflösung auf.",
+                           "Unfiltered records the card at its own resolution.")
+                       : T("Kleiner als die Quelle, im selben Seitenverhältnis. Entlastet den "
+                           "Encoder; Anzeige, Kamera und Screenshots bleiben in voller Größe.",
+                           "Smaller than the source, same aspect ratio. Eases the encoder; the "
+                           "display, camera and screenshots keep full size."));
+
   FolderRow("recfolder", kPickRecordFolder, folderBuffer_, sizeof(folderBuffer_),
             &rec.outputFolder, recordFolderDefault_);
 

@@ -320,6 +320,16 @@ const char* RecordContainerName(int i) {
   return names[Pick(i, 3)];
 }
 
+void CappedRecordSize(int width, int height, int maxLines, int* w, int* h) {
+  *w = width & ~1;
+  *h = height & ~1;
+  const int shortSide = std::min(width, height);
+  if (maxLines <= 0 || shortSide <= maxLines) return;
+  const double scale = (double)maxLines / (double)shortSide;
+  *w = std::max(2, 2 * (int)std::lround((double)width * scale / 2.0));
+  *h = std::max(2, 2 * (int)std::lround((double)height * scale / 2.0));
+}
+
 const char* ScreenshotFormatName(int i) {
   static const char* names[2] = {"PNG", "JPEG"};
   return names[Pick(i, 2)];
@@ -1092,6 +1102,7 @@ bool Config::Load(std::string* error) {
   record.adaptiveQuant = r["adaptiveQuant"].AsBool(false);
   record.allEncoderChips = r["allEncoderChips"].AsBool(false);
   record.fps = Clamp(r["fps"].AsNumber(0.0), 0.0, 480.0);
+  record.maxLines = Clamp(r["maxLines"].AsInt(0), 0, 4320);
   record.splitFiles = r["splitFiles"].AsBool(false);
   record.splitSizeMb = Clamp(r["splitSizeMb"].AsInt(4000), 100, 100000);
   record.largeBuffer = r["largeBuffer"].AsBool(false);
@@ -1289,6 +1300,7 @@ std::string Config::Serialize() const {
   r["adaptiveQuant"] = record.adaptiveQuant;
   r["allEncoderChips"] = record.allEncoderChips;
   r["fps"] = record.fps;
+  r["maxLines"] = record.maxLines;
   r["splitFiles"] = record.splitFiles;
   r["splitSizeMb"] = record.splitSizeMb;
   r["largeBuffer"] = record.largeBuffer;

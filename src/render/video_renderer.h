@@ -200,6 +200,18 @@ class VideoRenderer {
   int outputWidth() const { return deliveryWidth_ > 0 ? deliveryWidth_ : outputWidth_; }
   int outputHeight() const { return deliveryHeight_ > 0 ? deliveryHeight_ : outputHeight_; }
 
+  // The recording's own size: the picture above, or with a cap on its short
+  // side that picture shrunk in the same shape. The cap is set when a
+  // recording starts, so a setting changed meanwhile cannot change the file.
+  // The camera and the stills keep the full size.
+  void SetRecordLines(int maxLines) {
+    recordLines_ = maxLines;
+    ComputeRecordSize();
+  }
+  int recordWidth() const { return recordScaled_ ? recordWidth_ : outputWidth(); }
+  int recordHeight() const { return recordScaled_ ? recordHeight_ : outputHeight(); }
+  bool recordScaled() const { return recordScaled_; }
+
   // Ausgabezeilen je echter Bildzeile, wie sie beim letzten Zeichnen anlagen.
   // Zwei ist die Grenze, unter der keine Zeilenluecke mehr hineinpasst; 0 heisst
   // gedreht oder noch nichts gezeichnet. Steht hier, weil die Zahl aus dem
@@ -491,11 +503,11 @@ class VideoRenderer {
 
   bool CreateSourceTextures(std::string* error);
   bool EnsureIntermediate(int width, int height);
-  // The pass between the intermediate and everything that is not the window.
-  // "half" picks the linear light target, which is what the PQ recording and
-  // the wide screenshot read; the other one is an ordinary eight bit picture.
-  bool RenderDelivery(bool half);
+  // The pass between the intermediate and everything that is not the window,
+  // into one of the four targets past it (render_passes.h).
+  bool RenderDelivery(PassImage target);
   void ComputeDeliverySize(const ImageSettings& image);
+  void ComputeRecordSize();
   // Shape the picture should be seen in, as width over height. Cropping,
   // rotation and the media type's own aspect all land here; the window and the
   // delivery pass then each get there their own way.
@@ -574,6 +586,11 @@ class VideoRenderer {
   // the readback and the stills run outside it and read these.
   int deliveryWidth_ = 0;
   int deliveryHeight_ = 0;
+  // The recording's cap (0 none) and the size it gives; always even.
+  int recordLines_ = 0;
+  int recordWidth_ = 0;
+  int recordHeight_ = 0;
+  bool recordScaled_ = false;
   float scanlineRoom_ = 0.0f;
   int deliveryFilter_ = 0;
   // The picture controls, cached from the same place and for the same reason.

@@ -2328,7 +2328,7 @@ cbuffer ScaleCB : register(b0) {
   float2 gSrcSize;
   float2 gDstSize;
 
-  int    gFilter;   // 0 nearest, 1 bilinear, 2 bicubic, 3 lanczos3, 4 sharp bilinear
+  int    gFilter;   // 0 nearest, 1 bilinear, 2 bicubic, 3 lanczos3, 4 sharp bilinear, 5 shrink
   float  gSharpen;  // 0..1
   int    gTransfer;    // 0 the picture is display referred, otherwise it is linear light
   int    gOutputHdr;   // the swapchain is scRGB and wants linear light
@@ -2436,6 +2436,27 @@ float3 SampleSharpBilinear(float2 pos) {
   float2 f = (centerDist - clamp(centerDist, -regionRange, regionRange)) * scale + 0.5;
   float2 uv = (texelFloor + f) / gSrcSize;
   return texSrc.SampleLevel(sampLinear, uv, 0).rgb;
+}
+
+// For a recording smaller than the picture: a tent as wide as one output pixel
+// reaches into the source, per axis, so nothing finer than the new grid is left
+// to alias. At 2:1 that is 1 3 3 1. An axis that is not shrinking gets the tent
+// at its narrowest, which is bilinear.
+float3 SampleShrink(float2 pos) {
+  const float2 radius = max(gSrcSize / gDstSize, 1.0);
+  const int2 first = (int2)ceil(pos - 0.5 - radius);
+  const int2 last = (int2)floor(pos - 0.5 + radius);
+  float3 sum = 0.0;
+  float wsum = 0.0;
+  [loop] for (int y = first.y; y <= last.y; ++y) {
+    const float wy = saturate(1.0 - abs(float(y) + 0.5 - pos.y) / radius.y);
+    [loop] for (int x = first.x; x <= last.x; ++x) {
+      const float w = wy * saturate(1.0 - abs(float(x) + 0.5 - pos.x) / radius.x);
+      sum += Tap(float2(x, y)) * w;
+      wsum += w;
+    }
+  }
+  return sum / max(wsum, 1e-5);
 }
 
 // Light contrast adaptive sharpening: boost the centre against its cross
@@ -2812,6 +2833,8 @@ float4 main(VSOut i) : SV_Target {
     rgb = SampleBicubic(pos);
   } else if (gFilter == 3) {
     rgb = SampleLanczos(pos);
+  } else if (gFilter == 5) {
+    rgb = SampleShrink(pos);
   } else {
     rgb = SampleSharpBilinear(pos);
   }

@@ -128,6 +128,11 @@ class SettingsWindow {
 
   // Frame rate the card is currently delivering; caps the recording rate.
   void SetSourceFps(double fps) { sourceFps_ = fps; }
+  // The picture's size on its way out; the recording's size list is cut to it.
+  void SetPictureSize(int width, int height) {
+    pictureWidth_ = width;
+    pictureHeight_ = height;
+  }
   // Wie gross das Quellbild ist und ob es Halbbilder hat. Entscheidet, welche
   // Abschnitte im Reiter Bild ueberhaupt erscheinen -- siehe DrawImageTab.
   void SetSourceHeight(int lines) { sourceHeight_ = lines; }
@@ -457,6 +462,8 @@ class SettingsWindow {
   float hdrDisplayPeak_ = 100.0f;
   int hdrSourceTransfer_ = 0;  // 0 SDR, 1 PQ, 2 HLG
   double sourceFps_ = 0.0;
+  int pictureWidth_ = 0;
+  int pictureHeight_ = 0;
   int sourceHeight_ = 0;  // 0 = noch nichts gemessen
   bool sourceInterlaced_ = false;
   float scanlineRoom_ = 0.0f;

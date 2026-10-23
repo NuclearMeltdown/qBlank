@@ -136,7 +136,7 @@ class VulkanPasses : public RenderPasses {
   void CleanAndConvert(const ConvertParams& params, int srcWidth, int srcHeight, int outWidth,
                        int outHeight, int historyWrite) override;
   void ScaleToScreen(const ScaleParams& params, int x, int y, int width, int height) override;
-  bool Deliver(bool half, int width, int height, const ScaleParams& params) override;
+  bool Deliver(PassImage target, int width, int height, const ScaleParams& params) override;
   void RebuildGrid(const ScaleParams& params, int rowsPerLine, const int* stages,
                    int count) override;
   bool BeginUiLayer(int width, int height) override;
@@ -226,22 +226,18 @@ class VulkanPasses : public RenderPasses {
   void ReleaseReadback(Readback* readback);
 
   VulkanImage* Image(PassImage image) {
-    switch (image) {
-      case PassImage::Delivery: return &delivery_;
-      case PassImage::DeliveryHalf: return &deliveryHalf_;
-      case PassImage::Intermediate:
-      default: return &intermediate_;
-    }
+    if (image == PassImage::Intermediate) return &intermediate_;
+    return &delivery_[DeliveryIndex(image)];
   }
-  // All three, since the yuv pass reads the eight bit delivery target too.
+  // All of them, since the yuv pass reads the eight bit delivery targets too.
   VulkanImage* Sampled(PassImage image) { return Image(image); }
 
-  bool EnsureDelivery(int width, int height, bool half);
+  bool EnsureDelivery(int width, int height, PassImage target);
   bool EnsureUiLayer(int width, int height);
   void ReleasePlane(int index);
   void ReleaseClean();
   void ReleaseIntermediate();
-  void ReleaseDelivery(bool half);
+  void ReleaseDelivery(PassImage target);
   void ReleaseUiLayer();
   // Drops every handle without destroying it, for when the device went first.
   void Forget();
@@ -272,8 +268,7 @@ class VulkanPasses : public RenderPasses {
   VulkanImage clean_;
   VulkanImage cleanPrev_;
   VulkanImage intermediate_;
-  VulkanImage delivery_;
-  VulkanImage deliveryHalf_;
+  VulkanImage delivery_[kDeliveryTargets];  // in PassImage's order
   VulkanImage uiLayer_;
 
   // The yuv pass, as in Direct3D 11: one picture per stream and its readbacks.
@@ -507,8 +502,7 @@ void VulkanPasses::Shutdown() {
     AttachSourceFrames(nullptr);
     ReleaseClean();
     ReleaseIntermediate();
-    ReleaseDelivery(false);
-    ReleaseDelivery(true);
+    for (VulkanImage& target : delivery_) vk_->DestroyImage(&target);
     ReleaseUiLayer();
     for (int s = 0; s < kYuvStreams; ++s) ReleaseYuvStream(s);
     ReleaseRemover();
@@ -567,7 +561,8 @@ void VulkanPasses::Forget() {
   dummy_ = VulkanImage();
   for (Plane& plane : planes_) plane = Plane();
   clean_ = cleanPrev_ = intermediate_ = VulkanImage();
-  delivery_ = deliveryHalf_ = uiLayer_ = VulkanImage();
+  for (VulkanImage& target : delivery_) target = VulkanImage();
+  uiLayer_ = VulkanImage();
   for (YuvStream& stream : yuv_) {
     if (stream.sharedImages) stream.sharedImages->Forget();
     stream = YuvStream();
@@ -1131,8 +1126,8 @@ void VulkanPasses::ReleaseIntermediate() {
   if (vk_) vk_->DestroyImage(&intermediate_);
 }
 
-void VulkanPasses::ReleaseDelivery(bool half) {
-  if (vk_) vk_->DestroyImage(half ? &deliveryHalf_ : &delivery_);
+void VulkanPasses::ReleaseDelivery(PassImage target) {
+  if (vk_) vk_->DestroyImage(&delivery_[DeliveryIndex(target)]);
 }
 
 void VulkanPasses::ReleaseUiLayer() {
@@ -1195,19 +1190,20 @@ bool VulkanPasses::EnsureIntermediate(int width, int height, bool wide) {
   return true;
 }
 
-bool VulkanPasses::EnsureDelivery(int width, int height, bool half) {
+bool VulkanPasses::EnsureDelivery(int width, int height, PassImage target) {
   width = std::max(1, width);
   height = std::max(1, height);
-  VulkanImage& image = half ? deliveryHalf_ : delivery_;
+  VulkanImage& image = delivery_[DeliveryIndex(target)];
   if (image && image.width == width && image.height == height) return true;
 
-  ReleaseDelivery(half);
-  // Both are read again afterwards, by the yuv pass.
+  ReleaseDelivery(target);
+  // All are read again afterwards, by the yuv pass.
   const VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  const VkFormat format = half ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+  const VkFormat format =
+      HalfImage(target) ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
   if (!vk_->CreateImage(width, height, format, usage, &image)) {
-    ReleaseDelivery(half);
+    ReleaseDelivery(target);
     return false;
   }
   return true;
@@ -1365,15 +1361,15 @@ void VulkanPasses::ScaleToScreen(const ScaleParams& params, int x, int y, int wi
   Draw(fsScale_, vk_->backBuffer(), x, y, width, height, source, 2, &sc, sizeof(sc));
 }
 
-bool VulkanPasses::Deliver(bool half, int width, int height, const ScaleParams& params) {
+bool VulkanPasses::Deliver(PassImage target, int width, int height, const ScaleParams& params) {
   if (!vk_ || !intermediate_) return false;
-  if (!EnsureDelivery(width, height, half)) return false;
+  if (!EnsureDelivery(width, height, target)) return false;
   ScaleCB sc = {};
   sc.params = params;
   UseGrid(&sc.params);
   VulkanImage* source[2] = {&intermediate_, sc.params.grid[1] > 0 ? &grid_[0] : nullptr};
-  VulkanImage* target = half ? &deliveryHalf_ : &delivery_;
-  Draw(fsScale_, target, 0, 0, target->width, target->height, source, 2, &sc, sizeof(sc));
+  VulkanImage* image = &delivery_[DeliveryIndex(target)];
+  Draw(fsScale_, image, 0, 0, image->width, image->height, source, 2, &sc, sizeof(sc));
   return true;
 }
 

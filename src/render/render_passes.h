@@ -60,7 +60,23 @@ enum class PassImage {
   Intermediate,  // after convert: the picture at output resolution
   Delivery,      // after deliver: eight bit, square pixels
   DeliveryHalf,  // after deliver: linear light, square pixels
+  Record,        // the same two at the recording's own size, when that is smaller
+  RecordHalf,
 };
+
+// The deliver targets, counted from Delivery, and which of them carry linear light.
+constexpr int kDeliveryTargets = 4;
+inline int DeliveryIndex(PassImage image) { return (int)image - (int)PassImage::Delivery; }
+inline bool HalfImage(PassImage image) {
+  return image == PassImage::DeliveryHalf || image == PassImage::RecordHalf;
+}
+inline bool RecordImage(PassImage image) {
+  return image == PassImage::Record || image == PassImage::RecordHalf;
+}
+
+// ScaleParams::filter past the user's ScaleFilter: a tent as wide as the
+// shrink, for the recording's own size (kScalePS).
+constexpr int32_t kShrinkFilter = 5;
 
 // One plane opened for writing. `rowPitch` is the backend's, not the source's.
 struct MappedPlane {
@@ -303,10 +319,11 @@ class RenderPasses {
   virtual void ScaleToScreen(const ScaleParams& params, int x, int y, int width,
                              int height) = 0;
 
-  // deliver: the intermediate to square pixels at `width` x `height`. `half`
-  // picks the linear light target, which the PQ recording and the wide
-  // screenshot read; the other one is an ordinary eight bit picture.
-  virtual bool Deliver(bool half, int width, int height, const ScaleParams& params) = 0;
+  // deliver: the intermediate to square pixels at `width` x `height`, into
+  // `target`, one of the four past Intermediate. The half ones carry linear
+  // light, which the PQ recording and the wide screenshot read; the others an
+  // ordinary eight bit picture.
+  virtual bool Deliver(PassImage target, int width, int height, const ScaleParams& params) = 0;
 
   // The snapped picture's console pixels, worked out once from the
   // intermediate (kGridPS), for the scale and deliver passes after it that snap

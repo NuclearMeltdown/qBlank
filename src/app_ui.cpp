@@ -1003,6 +1003,7 @@ void App::DrawUi() {
   }
   renderer_.SetFrameRateHint(measuredFps);
   settings_.SetSourceFps(renderer_.sourceFormat().fps);
+  settings_.SetPictureSize(renderer_.outputWidth(), renderer_.outputHeight());
   // Woraus sich entscheidet, welche Abschnitte im Reiter Bild erscheinen: die
   // Zeilenzahl fuer die Bildroehreneffekte, die Halbbilder fuer das
   // Deinterlacing. Beides aus der Quelle, nicht daraus, ob sie analog ist --

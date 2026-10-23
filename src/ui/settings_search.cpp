@@ -324,6 +324,9 @@ const Entry kEntries[] = {
      "MKV|MP4|Matroska|Dateiformat|File format|Dateityp|Format"},
     {Kind::Control, kTabRecord, "recfps", "Bildrate", "Frame rate",
      "FPS|Framerate|30fps|60fps|Aufnahme-Bildrate|Recording frame rate"},
+    {Kind::Control, kTabRecord, "recsize", "Auflösung", "Resolution",
+     "1080p|720p|1440p|Größe|Size|Herunterskalieren|Downscale|Kleiner|Smaller|Aufnahmeauflösung|"
+     "Recording resolution|Output resolution"},
     {Kind::Control, kTabRecord, "recfolder", "Aufnahmeordner", "Recording folder",
      "Speicherort|Ordner|Pfad|Folder|Path|Location|Verzeichnis|Directory|Zielordner|Save location"},
     {Kind::Control, kTabRecord, "split", "Bei Größe aufteilen", "Split at size",

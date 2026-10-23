@@ -220,7 +220,7 @@ std::unique_ptr<StillCopy> VideoRenderer::CopyStillHalf() {
   int fromW = passes_->intermediateWidth();
   int fromH = passes_->intermediateHeight();
   if (deliveryHalfNeeded()) {
-    if (!RenderDelivery(true)) return nullptr;
+    if (!RenderDelivery(PassImage::DeliveryHalf)) return nullptr;
     from = PassImage::DeliveryHalf;
     fromW = deliveryWidth_;
     fromH = deliveryHeight_;
@@ -233,20 +233,29 @@ std::unique_ptr<StillCopy> VideoRenderer::CopyStillHalf() {
 // and -- when the source is HDR and the destination is not -- lay the tone
 // curve over it. It reuses the scaling shader because that shader already
 // knows both, and there is no reason to keep a second copy of either.
-bool VideoRenderer::RenderDelivery(bool half) {
+//
+// The recording at its own, smaller size is a third job of the same pass,
+// into its own target: the camera and the stills keep the full picture.
+bool VideoRenderer::RenderDelivery(PassImage target) {
   if (!passes_->hasIntermediate() || !display_) return false;
-  if (deliveryWidth_ <= 0 || deliveryHeight_ <= 0) return false;
+  const bool own = RecordImage(target);
+  const int width = own ? recordWidth_ : deliveryWidth_;
+  const int height = own ? recordHeight_ : deliveryHeight_;
+  if (width <= 0 || height <= 0) return false;
+  const bool half = HalfImage(target);
 
   ScaleParams sc = {};
   sc.srcSize[0] = (float)passes_->intermediateWidth();
   sc.srcSize[1] = (float)passes_->intermediateHeight();
-  sc.dstSize[0] = (float)deliveryWidth_;
-  sc.dstSize[1] = (float)deliveryHeight_;
+  sc.dstSize[0] = (float)width;
+  sc.dstSize[1] = (float)height;
   // At one to one nearest is exact, and it is the only filter that cannot
   // invent anything. When the size does change, the picture gets the same
   // filter the window would have used -- that is the whole point of the
-  // setting reaching this far.
-  sc.filter = deliveryResize() ? (int32_t)deliveryFilter_ : 0;
+  // setting reaching this far. Shrinking for the recording takes a tent as
+  // wide as the shrink: the window's filters look at four pixels, and from
+  // 1440 lines to 720 that would skip half of them and alias.
+  sc.filter = own ? kShrinkFilter : deliveryResize() ? (int32_t)deliveryFilter_ : 0;
   // All of these belong to the display rather than to the picture. Scanlines
   // and the mask especially: they are drawn for a particular size on a
   // particular screen, and baking them into a file would put the gaps in the
@@ -287,7 +296,7 @@ bool VideoRenderer::RenderDelivery(bool half) {
   sc.compareAxis = compareAxis_;
   sc.rotation = rotation_;
 
-  return passes_->Deliver(half, deliveryWidth_, deliveryHeight_, sc);
+  return passes_->Deliver(target, width, height, sc);
 }
 
 // ----------------------------------------------------------------- uploading
@@ -2662,19 +2671,26 @@ void VideoRenderer::QueueReadback() {
   // the curve. The other way round would interpolate between PQ coded values,
   // which are not proportional to anything, and every soft edge would end up
   // at the wrong brightness.
-  int delivered[2] = {0, 0};  // per half: 0 not yet, 1 done, -1 failed
+  //
+  // A recording at its own size always takes the pass, into its own target.
+  int delivered[kDeliveryTargets] = {};  // per target: 0 not yet, 1 done, -1 failed
   for (int s = 0; s < kYuvStreams; ++s) {
     const YuvRing& ring = yuv_[s];
     if (!ring.wanted) continue;
     const bool half = ring.format.pq();
     if (half && !sourceHdr()) continue;
-    if (!(half ? deliveryHalfNeeded() : deliveryNeeded())) {
+    PassImage target;
+    if (s == (int)Yuv::Record && recordScaled_) {
+      target = half ? PassImage::RecordHalf : PassImage::Record;
+    } else if (half ? deliveryHalfNeeded() : deliveryNeeded()) {
+      target = half ? PassImage::DeliveryHalf : PassImage::Delivery;
+    } else {
       QueueYuv((Yuv)s, PassImage::Intermediate);
       continue;
     }
-    int& done = delivered[half ? 1 : 0];
-    if (done == 0) done = RenderDelivery(half) ? 1 : -1;
-    if (done > 0) QueueYuv((Yuv)s, half ? PassImage::DeliveryHalf : PassImage::Delivery);
+    int& done = delivered[DeliveryIndex(target)];
+    if (done == 0) done = RenderDelivery(target) ? 1 : -1;
+    if (done > 0) QueueYuv((Yuv)s, target);
   }
 }
 
@@ -2682,8 +2698,9 @@ void VideoRenderer::QueueYuv(Yuv stream, PassImage from) {
   YuvRing& ring = yuv_[(int)stream];
   if (!ring.wanted) return;
 
-  const int width = deliveryWidth_ & ~1;
-  const int height = deliveryHeight_ & ~1;
+  const bool own = RecordImage(from);
+  const int width = own ? recordWidth_ : deliveryWidth_ & ~1;
+  const int height = own ? recordHeight_ : deliveryHeight_ & ~1;
   const YuvFormat format = ring.format;
 
   // Into a free shared slot. A picture of another size has no place there;
@@ -2832,7 +2849,7 @@ std::unique_ptr<StillCopy> VideoRenderer::CopyStill() {
   // correct -- copying a half float intermediate straight into an eight bit
   // staging texture never was a legal copy.
   const bool viaDelivery = deliveryNeeded();
-  if (viaDelivery && !RenderDelivery(false)) return nullptr;
+  if (viaDelivery && !RenderDelivery(PassImage::Delivery)) return nullptr;
   const PassImage from = viaDelivery ? PassImage::Delivery : PassImage::Intermediate;
   const int fromW = viaDelivery ? deliveryWidth_ : passes_->intermediateWidth();
   const int fromH = viaDelivery ? deliveryHeight_ : passes_->intermediateHeight();
@@ -3010,6 +3027,13 @@ void VideoRenderer::ComputeDeliverySize(const ImageSettings& image) {
   }
 }
 
+void VideoRenderer::ComputeRecordSize() {
+  const int width = outputWidth();
+  const int height = outputHeight();
+  CappedRecordSize(width, height, recordLines_, &recordWidth_, &recordHeight_);
+  recordScaled_ = recordWidth_ != (width & ~1) || recordHeight_ != (height & ~1);
+}
+
 bool VideoRenderer::PictureSizeAt(int factor, int* w, int* h) const {
   if (!hasFrame_ || factor < 1 || pictureAspect_ <= 0.0 || outputWidth_ <= 0 ||
       outputHeight_ <= 0)
@@ -3147,6 +3171,7 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
   // settings; the readback and the stills run outside Draw and read what this
   // leaves behind.
   ComputeDeliverySize(image);
+  ComputeRecordSize();
 
   if (!passes_->EnsureClean(srcW, srcH)) return;
   if (!EnsureIntermediate(outputWidth_, outputHeight_)) return;

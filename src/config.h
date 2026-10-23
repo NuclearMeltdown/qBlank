@@ -700,6 +700,9 @@ struct RecordSettings {
   bool unfiltered = false;
   // 0 = whatever the source delivers. Otherwise frames are dropped to hit this.
   double fps = 0.0;
+  // 0 = the picture's own size. Otherwise its short side shrinks to this many
+  // lines, in the same shape; nothing is ever enlarged.
+  int maxLines = 0;
   // Off by default: only FAT32 needs it, NTFS does not.
   bool splitFiles = false;
   int splitSizeMb = 4000;
@@ -744,6 +747,12 @@ struct RecordSettings {
   // Groesse, nicht die der Quelle.
   bool screenshotIncludeUi = false;
 };
+
+// The size a recording of a `width` x `height` picture comes out at under
+// RecordSettings::maxLines. The short side, so that 720 means 1280x720 lying
+// down and 720x1280 turned. Only ever down, and both sides even for the
+// chroma rows.
+void CappedRecordSize(int width, int height, int maxLines, int* w, int* h);
 
 struct Profile {
   std::string name = "Standard";

@@ -482,9 +482,10 @@ void App::FeedFrameConsumers() {
   // for it; the camera then reads its own.
   static const std::shared_ptr<SharedFrames> none;
   const std::shared_ptr<SharedFrames>& shared = wantRecorder ? recorder_.sharedFrames() : none;
-  // When both want the same bytes, they are converted and read once.
-  const bool share =
-      wantRecorder && wantCamera && !shared && recorder_.format() == cameraFormat;
+  // When both want the same bytes, they are converted and read once. A
+  // recording at its own size has other bytes.
+  const bool share = wantRecorder && wantCamera && !shared && !renderer_.recordScaled() &&
+                     recorder_.format() == cameraFormat;
   renderer_.SetReadbackWanted(wantRecorder ? &recorder_.format() : nullptr,
                               wantCamera && !share ? &cameraFormat : nullptr);
 
