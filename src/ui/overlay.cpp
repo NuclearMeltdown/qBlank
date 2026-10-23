@@ -608,6 +608,10 @@ ScreenPanelAction DrawScreenPanel(const ScreenPanelState& s) {
     line += s.still ? std::string(T("  ·  Bild unverändert", "  ·  picture unchanged"))
                     : "  ·  " + Decimal(s.fps, 0) + " fps";
     ImGui::TextDisabled("%s", line.c_str());
+    if (s.warning) {
+      ImGui::Spacing();
+      ImGui::TextColored(kWarnColor, "%s", s.warning);
+    }
 
     if (s.recording) {
       ImGui::Spacing();

@@ -85,6 +85,11 @@ class ScreenCapture {
   // longer fits, and it wants a Stop and a Start. `error` then says why, when
   // there is something to tell the user.
   virtual bool needsRestart(std::string* error) const = 0;
+
+  // True while a game in exclusive fullscreen holds what is captured: on that
+  // screen, or the window's program. No capture sees through that, so nothing
+  // comes. Asked only while nothing does.
+  virtual bool exclusiveFullscreen() const = 0;
 };
 
 std::unique_ptr<ScreenCapture> CreateScreenCapture();

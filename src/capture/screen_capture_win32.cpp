@@ -15,6 +15,7 @@
 #include <avrt.h>
 #include <d3d11.h>
 #include <dxgi1_5.h>
+#include <shellapi.h>  // SHQueryUserNotificationState
 
 #include <atomic>
 #include <cstring>
@@ -96,6 +97,21 @@ bool FindOutput(const std::wstring& device, ComPtr<IDXGIAdapter1>* adapter,
   return false;
 }
 
+// The window in front while Windows says a Direct3D program holds a screen in
+// exclusive fullscreen, else null; never one of qBlank's.
+HWND ExclusiveFullscreenWindow() {
+  QUERY_USER_NOTIFICATION_STATE state;
+  if (FAILED(::SHQueryUserNotificationState(&state)) || state != QUNS_RUNNING_D3D_FULL_SCREEN) {
+    return nullptr;
+  }
+  HWND front = ::GetForegroundWindow();
+  DWORD pid = 0;
+  if (!front || !::GetWindowThreadProcessId(front, &pid) || pid == ::GetCurrentProcessId()) {
+    return nullptr;
+  }
+  return front;
+}
+
 // Why a duplication could not be had, for the user.
 Said DuplicationRefused(HRESULT hr) {
   switch (hr) {
@@ -143,6 +159,14 @@ class Win32ScreenCapture : public ScreenCapture {
       *error = error_;
     }
     return true;
+  }
+
+  bool exclusiveFullscreen() const override {
+    HWND front = ExclusiveFullscreenWindow();
+    MONITORINFOEXW mi = {};
+    mi.cbSize = sizeof(mi);
+    return front && ::GetMonitorInfoW(::MonitorFromWindow(front, MONITOR_DEFAULTTONULL), &mi) &&
+           ToUtf8(mi.szDevice) == screen_;
   }
 
  private:

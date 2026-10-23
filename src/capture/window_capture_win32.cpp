@@ -17,6 +17,7 @@
 #include <d3d11_4.h>
 #include <dwmapi.h>
 #include <roapi.h>
+#include <shellapi.h>  // SHQueryUserNotificationState
 #include <winstring.h>
 
 #include <Windows.Graphics.Capture.Interop.h>
@@ -181,6 +182,21 @@ std::vector<Candidate> Candidates() {
   return list;
 }
 
+// The window in front while Windows says a Direct3D program holds a screen in
+// exclusive fullscreen, else null; never one of qBlank's.
+HWND ExclusiveFullscreenWindow() {
+  QUERY_USER_NOTIFICATION_STATE state;
+  if (FAILED(::SHQueryUserNotificationState(&state)) || state != QUNS_RUNNING_D3D_FULL_SCREEN) {
+    return nullptr;
+  }
+  HWND front = ::GetForegroundWindow();
+  DWORD pid = 0;
+  if (!front || !::GetWindowThreadProcessId(front, &pid) || pid == ::GetCurrentProcessId()) {
+    return nullptr;
+  }
+  return front;
+}
+
 // The monitor's refresh rate as the display path has it, fractions and all.
 double RefreshOf(HMONITOR monitor) {
   MONITORINFOEXW mi = {};
@@ -237,6 +253,15 @@ class Win32WindowCapture : public ScreenCapture {
       *error = error_;
     }
     return true;
+  }
+
+  // By program: a game in exclusive fullscreen may well put up a window of its
+  // own for it.
+  bool exclusiveFullscreen() const override {
+    HWND front = ExclusiveFullscreenWindow();
+    DWORD frontPid = 0, ownPid = 0;
+    return front && hwnd_ && ::GetWindowThreadProcessId(front, &frontPid) &&
+           ::GetWindowThreadProcessId(hwnd_, &ownPid) && frontPid == ownPid;
   }
 
  private:

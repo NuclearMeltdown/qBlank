@@ -628,7 +628,9 @@ FrameBuffer* App::FrameSource() {
 // nach einem Neustart der Grafik oder dem Wechsel auf ein anderes Backend
 // haengen an ihm keine Texturen mehr, oder er sitzt auf einer anderen Karte.
 void App::CheckScreen() {
+  if (!screenActive_) screenExclusive_ = false;
   if (!screenActive_ || captureState_ != CaptureState::Running) return;
+  CheckExclusiveFullscreen();
   std::string message;
   bool restart = screen_->needsRestart(&message);
   uint64_t adapter = renderer_.sharedAdapter();
@@ -639,6 +641,32 @@ void App::CheckScreen() {
   if (!message.empty()) Toast(message);
   std::string error;
   if (!StartCapture(&error)) Toast(error);
+}
+
+void App::CheckExclusiveFullscreen() {
+  const int64_t now = ClockTicks();
+  if (now < exclusiveCheckQpc_) return;
+  exclusiveCheckQpc_ = now + SecondsToTicks(1.0);
+  FrameBuffer* sink = screen_->frames();
+  if (!sink) return;
+  const SinkStats stats = sink->stats();
+  const uint64_t fresh = stats.received >= exclusiveReceived_ ? stats.received - exclusiveReceived_
+                                                              : stats.received;
+  exclusiveReceived_ = stats.received;
+  if (screenExclusive_) {
+    // Over once pictures flow again or the game is out of the way. A stray one
+    // now and then does not count: DDA lets the odd one through meanwhile.
+    screenExclusive_ = fresh < 10 && screen_->exclusiveFullscreen();
+    return;
+  }
+  // A desktop at rest sends nothing either, so silence alone says little.
+  const double silentMs = stats.lastArrivalAgeMs >= 0.0
+                              ? stats.lastArrivalAgeMs
+                              : TicksToSeconds(now - captureStartQpc_) * 1000.0;
+  if (silentMs < 2000.0 || !screen_->exclusiveFullscreen()) return;
+  screenExclusive_ = true;
+  CAP_LOG("Screen capture: a game holds %s in exclusive fullscreen", screenLabel_.c_str());
+  Toast(ExclusiveFullscreenHint(), {}, true);
 }
 
 void App::StopCapture() {

@@ -292,6 +292,13 @@ RecordStatus App::RecordingStatus() const {
   return s;
 }
 
+const char* App::ExclusiveFullscreenHint() {
+  return T("Ein Spiel hält das Bild im exklusiven Vollbild, Windows gibt es nicht frei.\n"
+           "Im Spiel Fenster oder Randlos einstellen.",
+           "A game holds the picture in exclusive fullscreen, and Windows does not share it.\n"
+           "Set the game to windowed or borderless.");
+}
+
 void App::DrawScreenStatus(const FrameBuffer* sink) {
   ScreenPanelState state;
   state.source = screenLabel_;
@@ -304,6 +311,7 @@ void App::DrawScreenStatus(const FrameBuffer* sink) {
     state.fps = stats.sourceFps;
     state.still = stats.lastArrivalAgeMs >= 1000.0;
   }
+  if (screenExclusive_) state.warning = ExclusiveFullscreenHint();
   state.canRecord = renderer_.hasFrame();
   state.recording = recorder_.recording();
   if (state.recording) state.record = RecordingStatus();
@@ -640,7 +648,8 @@ void App::DrawUi() {
       const VideoRenderer::SignalVerdict verdict = renderer_.detectedSignal();
       DrawIdleScreen(
           idleIcon_.id(), idleIconSize_,
-          screenActive_ && screenSource_ == VideoSource::Window
+          screenExclusive_ ? ExclusiveFullscreenHint()
+          : screenActive_ && screenSource_ == VideoSource::Window
               ? T("Warte auf das erste Bild vom Fenster.", "Waiting for the window's first picture.")
           : screenActive_ ? T("Warte auf das erste Bild vom Bildschirm.",
                               "Waiting for the screen's first picture.")

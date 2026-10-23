@@ -120,6 +120,8 @@ class App {
   // The screen capture is still what the profile and the renderer want.
   // Restarts it when not; see the implementation.
   void CheckScreen();
+  void CheckExclusiveFullscreen();
+  static const char* ExclusiveFullscreenHint();
   void RestartAll(bool userRequested);
   // Wie lange die Anzeige hoechstens stehen darf, wenn kein Bild ankommt.
   // Haengt davon ab, ob etwas auf dem Schirm ist, das sich bewegen muss.
@@ -345,6 +347,12 @@ class App {
   // The adapter whose renderer could not open the screen's textures. On it the
   // screen hands over bytes instead, without asking again.
   uint64_t screenRefusedAdapter_ = 0;
+  // A game in exclusive fullscreen holds what the screen capture takes: told
+  // once as a toast, then in the panel and the empty state while it lasts.
+  // Looked at once a second, and only while nothing arrives.
+  bool screenExclusive_ = false;
+  int64_t exclusiveCheckQpc_ = 0;
+  uint64_t exclusiveReceived_ = 0;
   AudioEngine audio_;
   SettingsWindow settings_;
   FrameDelayLine delayLine_;

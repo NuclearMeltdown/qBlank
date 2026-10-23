@@ -191,6 +191,7 @@ struct ScreenPanelState {
   double refreshHz = 0.0;
   double fps = 0.0;    // what arrives; the desktop only sends changes
   bool still = false;  // nothing has arrived for a second
+  const char* warning = nullptr;  // why nothing arrives, when that is known
   bool canRecord = true;
   bool recording = false;
   RecordStatus record;
