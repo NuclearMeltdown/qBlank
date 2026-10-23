@@ -5,7 +5,7 @@
 <h1 align="center">qBlank</h1>
 
 <p align="center">
-  A low-latency viewer and recorder for DirectShow capture cards on Windows.
+  A low-latency viewer and recorder for capture cards, screens and windows on Windows.
 </p>
 
 ![The viewer in fullscreen showing a console at 1080p60, with the statistics overlay reading a frame age of 1.2 ms](docs/viewer.jpg)
@@ -15,9 +15,12 @@ file, any DirectShow device, and as little delay as the hardware allows.
 Measured on a StarTech PEXHDCAP60L: **1080p60 sustained, around 1 ms from a
 frame arriving to the present that hands it to the compositor.**
 
+No card needed for the rest: qBlank also records your screen or a single
+window, PC games included, with the same recording, replay and screenshots.
+
 Recording (lossless too), a replay buffer, screenshots and a virtual camera
-are included, and a screen or a window can stand in for the card; scenes,
-overlays, compositing and streaming are not. For those, use OBS.
+are included; scenes, overlays, compositing and streaming are not. For
+those, use OBS.
 
 > **The [manual](https://qblank.com/manual.html) explains how
 > to use it** (English and German). **The [wiki](../../wiki) is the documentation** —
@@ -241,7 +244,7 @@ it the build is Direct3D 11 only, with a warning.
 build.bat
 ```
 
-- `qBlank.exe` lands in the repository root, about 2.7 MB, static CRT.
+- `qBlank.exe` lands in the repository root, about 3 MB, static CRT.
 - `build.bat keep` retains the build tree, `build.bat debug` builds a debug configuration.
 - Settings live in `qBlank.json` beside the executable; nothing goes into the registry.
 - Prebuilt executables are attached to each [release](../../releases). [Building](../../wiki/Building)

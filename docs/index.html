@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>qBlank — low-latency capture card viewer for Windows</title>
-<meta name="description" content="Play any console through your capture card. A lightweight, low-latency viewer and recorder for DirectShow devices on Windows.">
+<title>qBlank — low-latency capture card viewer and screen recorder for Windows</title>
+<meta name="description" content="Play any console through your capture card, or record your screen or a window. A lightweight, low-latency viewer and recorder for Windows.">
 <meta name="google-site-verification" content="zkK4oRYIiJiUn2IDG4ro3Swa_DOlJFm9yj_ki8pOME8">
 <link rel="icon" href="icon.png">
 <meta property="og:title" content="qBlank">
-<meta property="og:description" content="Play any console through your capture card. Lightweight, low latency, any DirectShow device.">
+<meta property="og:description" content="Play any console through your capture card, or record your screen or a window. Lightweight, low latency.">
 <meta property="og:image" content="https://qblank.com/viewer.jpg">
 <meta property="og:site_name" content="qBlank">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"qBlank","url":"https://qblank.com/"}</script>
@@ -56,7 +56,7 @@
   <div class="wrap">
     <img class="logo" src="icon.png" alt="">
     <h1>qBlank</h1>
-    <p class="tag">Play any console through your capture card. A lightweight, low-latency viewer and recorder for&nbsp;Windows.</p>
+    <p class="tag">Play any console through your capture card &mdash; or record your screen or a single window. A lightweight, low-latency viewer and recorder for&nbsp;Windows.</p>
     <div class="cta">
       <a class="btn btn-main" id="dl" href="https://github.com/NuclearMeltdown/qBlank/releases/latest">Download the latest release</a>
       <a class="btn btn-ghost" href="manual.html">Manual</a>
@@ -69,7 +69,7 @@
         </button>
       </div>
     </div>
-    <p class="sub">One file, about 2.7&nbsp;MB. No installer, nothing written to the registry. <a href="install.html">Installation guide</a></p>
+    <p class="sub">One file, about 3&nbsp;MB. No installer, nothing written to the registry. <a href="install.html">Installation guide</a></p>
   </div>
 </header>
 
@@ -78,6 +78,7 @@
     <div class="secs">
       <a href="#glance">At a glance</a>
       <a href="#latency">Latency</a>
+      <a href="#screen">Screen and window</a>
       <a href="#record">Recording</a>
       <a href="#setup">Setup</a>
       <b>Analogue consoles</b>
@@ -121,14 +122,28 @@
   </div>
 </section>
 
+<section id="screen" class="reveal">
+  <div class="wrap">
+    <h2><span class="num">02</span>Your screen, or one window</h2>
+    <p class="lead">No card needed: qBlank also records a monitor or a single program's window, PC games included, with the same recording, replay and screenshots as for a console.</p>
+    <div class="grid">
+      <div class="card"><h3>A whole monitor</h3><p>Through Desktop Duplication, at its own resolution and up to its refresh rate, copied on the GPU. Older games in exclusive fullscreen keep their picture to themselves; qBlank says so, and borderless windowed works.</p></div>
+      <div class="card"><h3>Or one window</h3><p>One program through Windows.Graphics.Capture. Covered by other windows it still comes through, minimised it does not; closed and opened again, it is found again.</p></div>
+      <div class="card"><h3>Replay for PC games</h3><p>The last seconds, up to half an hour, saved with <strong>Shift+F9</strong>. Every shortcut can be system-wide, so it works while the game has the keyboard.</p></div>
+      <div class="card"><h3>Out of its own picture</h3><p>qBlank and its settings keep themselves out of the capture, so recording the screen they are on gives no picture inside a picture. Switched off, Remote Play and Remote Desktop see qBlank again.</p></div>
+      <div class="card"><h3>Preview or panel</h3><p>With the preview off, a small panel shows resolution, frame rate and recording time instead, and draws less often.</p></div>
+      <div class="card"><h3>Game sound, not qBlank's</h3><p><em>System sound without qBlank</em> as a recording source, plus any microphone, each on a track of its own if you like.</p></div>
+    </div>
+  </div>
+</section>
+
 <section id="record" class="reveal">
   <div class="wrap">
-    <h2><span class="num">02</span>Record, capture, pass it on</h2>
+    <h2><span class="num">03</span>Record, capture, pass it on</h2>
     <p class="lead">For any DirectShow device: HDMI and analogue cards, USB dongles, webcams &mdash; or a screen or a window instead.</p>
     <div class="grid">
       <div class="card"><h3>Recording</h3><p>H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265, in 4:2:0 or full colour resolution (4:4:4), at source resolution or capped lower. The audio is the master clock, so the output is constant frame rate and does not drift — measured at 1&nbsp;ms over 15&nbsp;seconds. The free space on the drive is shown as the recording time it is worth, and a recording stops itself before the drive fills up. If the encoder cannot keep up, frames are left out rather than repeated, and a notice says so.</p></div>
       <div class="card"><h3>Replay</h3><p>The last seconds, up to half an hour, kept in memory or on disk. <strong>Shift+F9</strong> saves them as a clip, also during a recording, on the same encoder. Every shortcut can also be system-wide, so it works while a game has the keyboard.</p></div>
-      <div class="card"><h3>Screen or window</h3><p>A monitor through Desktop Duplication, or one program's window through Windows.Graphics.Capture, copied on the GPU, with the same recording, replay and screenshots. qBlank keeps itself out of the picture. Games in exclusive fullscreen cannot be captured, and it says so.</p></div>
       <div class="card"><h3>Lossless</h3><p>H.265 lossless through NVENC in MKV, UT Video or uncompressed in AVI, with no 4&nbsp;GB limit. <strong>Unfiltered</strong> keeps the card's frames as they arrive: no deinterlacing, crop, scaling or filters.</p></div>
       <div class="card"><h3>Encoder controls</h3><p>Rate control, preset, tuning, look-ahead, adaptive quantisation and multipass, under one set of names translated into each vendor's own. On cards with more than one NVENC, H.265 and AV1 can share each frame between all of them.</p></div>
       <div class="card"><h3>Audio</h3><p>The card's own audio or any Windows recording device, out through WASAPI, with clock drift corrected on the fly. The recording can add any number of microphones and output devices, and the system sound without qBlank, each with its own gain, mixed or on a track of its own, and never played back.</p></div>
@@ -142,7 +157,7 @@
 
 <section id="setup" class="reveal">
   <div class="wrap">
-    <h2><span class="num">03</span>Set up while you watch</h2>
+    <h2><span class="num">04</span>Set up while you watch</h2>
     <p class="lead">Every setting takes effect on the next frame, so it is judged on the picture rather than from memory. Where a value is easier to see than to type, it is set on the picture itself.</p>
     <div class="pair">
       <figure>
@@ -174,7 +189,7 @@
 
 <section id="composite" class="reveal">
   <div class="wrap">
-    <h2><span class="num">04</span>It cleans up composite</h2>
+    <h2><span class="num">05</span>It cleans up composite</h2>
     <p class="lead">Composite carries colour and brightness on one wire and they leak into each other. Most viewers leave that alone. qBlank removes it in real time, and the numbers behind every setting were measured on real hardware rather than guessed.</p>
     <figure>
       <img src="composite-before-after.png" width="1468" height="442" alt="The same GameCube frame over composite: filter off on the left, dot crawl beading along every letter edge and across the colour bars, the average of what stands still on and clean on the right">
@@ -200,7 +215,7 @@
 
 <section id="deinterlace" class="reveal">
   <div class="wrap">
-    <h2><span class="num">05</span>Five deinterlacers, and it measures which you need</h2>
+    <h2><span class="num">06</span>Five deinterlacers, and it measures which you need</h2>
     <p class="lead">Whether a source is interlaced is measured from the picture, not read from the media type — a media type is entitled to say so and frequently does not.</p>
     <figure>
       <img src="deinterlace-before-after.png" width="1468" height="496" alt="Left: a kart driving past a 480i barrier, woven, the chevrons torn into interlacing combs. Right: the same moment through YADIF, clean">
@@ -215,7 +230,7 @@
 
 <section id="standard" class="reveal">
   <div class="wrap">
-    <h2><span class="num">06</span>It works out the video standard on its own</h2>
+    <h2><span class="num">07</span>It works out the video standard on its own</h2>
     <p class="lead">An analogue decoder has to be told whether it is looking at PAL, NTSC or SECAM, and getting it wrong costs you either the picture or the colour. Leave it on automatic and qBlank finds it &mdash; and keeps finding it, so switching a console between 50 and 60&nbsp;Hz needs nothing from you.</p>
     <div class="grid">
       <div class="card"><h3>The card is only half the answer</h3><p>All a decoder reports is whether it has locked, and that is about line frequency. PAL&nbsp;60, NTSC&nbsp;M, PAL&nbsp;M and NTSC&nbsp;4.43 all lock on the same 525 lines, and it reports the wrong one just as confidently.</p></div>
@@ -231,7 +246,7 @@
 
 <section id="crt" class="reveal">
   <div class="wrap">
-    <h2><span class="num">07</span>And it can put the cathode ray tube back</h2>
+    <h2><span class="num">08</span>And it can put the cathode ray tube back</h2>
     <p class="lead">240p artwork was drawn for a display that had gaps between its lines and a coloured mask over its phosphors. On a flat panel the absence of both is itself a distortion. Off by default, and display only &mdash; a recording takes the picture from upstream of this pass.</p>
     <figure>
       <img src="crt-scanlines.png" width="1468" height="442" alt="Left: the Super Mario World title screen at 240p, magnified six times. Right: the same picture with scanlines at 0.35, a dark gap between each pair of picture lines">
@@ -254,7 +269,7 @@
 
 <section id="pixels" class="reveal">
   <div class="wrap">
-    <h2><span class="num">08</span>It finds the console's pixels</h2>
+    <h2><span class="num">09</span>It finds the console's pixels</h2>
     <p class="lead">A card samples a line 720 times; a SNES drew 256. Tell qBlank the <em>Source width</em>, and it measures where each console pixel lies in the picture and draws it as one block. On an analogue source it also rebuilds each pixel from the samples the card blurred across it, and if the width is not set, it notices pixel art and suggests the width.</p>
     <figure>
       <img src="pixel-grid-logo.png" width="1468" height="451" alt="Left: the Super Mario World logo from a PAL SNES over composite, snapped to the native pixel grid in qBlank 5.6.0, outlines grey and colours bleeding. Right: the same frame in 5.7.0, black outlines and one colour per letter">
@@ -269,7 +284,7 @@
 
 <section id="not" class="reveal">
   <div class="wrap">
-    <h2><span class="num">09</span>What it is not</h2>
+    <h2><span class="num">10</span>What it is not</h2>
     <p class="lead">Scenes, overlays, compositing and streaming are not here and are not planned. For those, use OBS — and note that a card grants its capture pin to one process at a time, so the two cannot hold the same card at once.</p>
     <table>
       <tr><th>Requirement</th><th></th></tr>
