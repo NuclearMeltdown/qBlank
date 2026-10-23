@@ -255,8 +255,8 @@ void StartupNotices::DrawWelcome() {
     ImGui::Checkbox(T("Auf dem Desktop", "On the desktop"), &welcomeWantDesktop_);
   }
   ImGui::Spacing();
-  ImGui::TextDisabled("%s", T("Geht auch später, in den Einstellungen unter Anzeige.",
-                              "Also possible later, in the settings under Display."));
+  ImGui::TextDisabled("%s", T("Geht auch später, in den Einstellungen unter Allgemein.",
+                              "Also possible later, in the settings under General."));
   ImGui::Spacing();
 
   const bool startMenu = welcomeStartMenu_ && welcomeWantStartMenu_;

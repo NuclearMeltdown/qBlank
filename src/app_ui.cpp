@@ -670,12 +670,12 @@ void App::DrawUi() {
       // Idee kommt, ins Bild zu klicken, findet es nie.
       DrawIdleScreen(
           idleIcon_.id(), idleIconSize_,
-          firstRun_ ? T("Willkommen, bitte zuerst die Capture-Karte auswählen: F2 öffnet die "
-                        "Einstellungen,\n"
-                        "oder Rechtsklick für das Kontextmenü.",
-                        "Welcome, please select your capture device first by pressing F2 to open "
-                        "settings,\n"
-                        "or right click for the context menu.")
+          firstRun_ ? T("Willkommen, bitte zuerst eine Quelle wählen: Capture-Karte, Bildschirm "
+                        "oder Fenster.\n"
+                        "F2 öffnet die Einstellungen, oder Rechtsklick für das Kontextmenü.",
+                        "Welcome, please pick a source first: a capture card, a screen or a "
+                        "window.\n"
+                        "Press F2 to open settings, or right click for the context menu.")
                     : T("Kein Gerät aktiv — Rechtsklick oder F2 öffnet die Einstellungen.",
                         "No device active — right-click or press F2 for the settings."));
     }
