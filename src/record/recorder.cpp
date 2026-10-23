@@ -992,7 +992,7 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
   // ---- looking ahead ----
   if (settings.lookAhead) {
     if (family == Family::Nvenc) {
-      pair("rc-lookahead", "32");
+      pair("rc-lookahead", std::to_string(settings.lookAheadFrames));
     } else if (family == Family::Qsv) {
       pair("look_ahead", "1");
     } else if (family == Family::Amf) {

@@ -685,6 +685,9 @@ struct RecordSettings {
   // Looking ahead costs latency and buys better bit distribution; adaptive
   // quantisation spends bits where the eye looks. Both cost a little speed.
   bool lookAhead = false;
+  // NVENC only: how far, 8 to 32 frames in eights. Each frame over 8 held
+  // about 15 MB at 1440p. Before 7.1 it was always 32.
+  int lookAheadFrames = 32;
   bool adaptiveQuant = false;
   // NVENC, H.265 and AV1: every picture cut into strips, one per encoder chip
   // on the card, encoded side by side. With two chips (RTX 4080) AV1 at 1440p

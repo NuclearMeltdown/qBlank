@@ -247,7 +247,8 @@ bool RecordingControl::SameSession(const RecordSettings& wanted) const {
          wanted.speed == s.speed && wanted.bitrateKbps == s.bitrateKbps &&
          wanted.rateControl == s.rateControl && wanted.qualityLevel == s.qualityLevel &&
          wanted.preset == s.preset && wanted.tune == s.tune && wanted.multipass == s.multipass &&
-         wanted.lookAhead == s.lookAhead && wanted.adaptiveQuant == s.adaptiveQuant &&
+         wanted.lookAhead == s.lookAhead && wanted.lookAheadFrames == s.lookAheadFrames &&
+         wanted.adaptiveQuant == s.adaptiveQuant &&
          wanted.allEncoderChips == s.allEncoderChips && wanted.fullChroma == s.fullChroma &&
          wanted.unfiltered == s.unfiltered &&
          wanted.FpsFor(config_.active().capture.source) == s.fps &&

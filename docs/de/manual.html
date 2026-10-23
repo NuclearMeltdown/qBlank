@@ -196,6 +196,7 @@
         <li><strong>Größerer Puffer im Arbeitsspeicher</strong> hält, was ein langsames Laufwerk noch nicht geschrieben hat, mehr als die üblichen 512&nbsp;MB.</li>
         <li>Kommt der Encoder nicht hinterher, fallen Bilder weg statt wiederholt zu werden. Ein Hinweis sagt es, und die Aufnahmeanzeige zeigt es, solange es anhält. Abhilfe: eine schnellere Voreinstellung, eine kleinere Auflösung oder Bildrate oder alle Encoder-Chips.</li>
         <li><strong>Encoder &rarr; Alle Encoder-Chips:</strong> Hat die Grafikkarte mehr als einen NVENC, teilen sich bei H.265 und AV1 alle jedes Bild. Eine RTX&nbsp;4080 schafft AV1 in 1440p mit Preset p7 dann 183 statt 110 Bilder pro Sekunde.</li>
+        <li><strong>Encoder &rarr; Bilder voraus:</strong> Bei eingeschalteter Vorausschau, wie weit NVENC vorausschaut, 8 bis 32 Bilder. Weniger sparen Arbeitsspeicher, bei 1440p rund 15&nbsp;MB je Bild.</li>
         <li><strong>Ton &rarr; Tonquellen der Aufnahme</strong> ergänzt den Ton der Karte um beliebig viele Quellen: Mikrofone, Ausgabegeräte, den Systemton ohne qBlank. Jede Quelle hat eine eigene Verstärkung und kommt in die Mischung, auf eine eigene Spur oder beides. Wiedergegeben wird davon nichts.</li>
         <li><strong>Nach MP4 umpacken</strong> macht fertige Aufnahmen zu MP4, ohne sie neu zu kodieren.</li>
       </ul>
@@ -204,7 +205,7 @@
         <figcaption>Einstellungen &rarr; Aufnahme: Container, Auflösung, Ordner und freier Platz, darunter die Screenshots.</figcaption>
       </figure>
       <figure class="ui">
-        <img src="shots/encoder.png" width="528" height="390" loading="lazy" alt="Der Abschnitt Encoder-Einstellungen: Ratensteuerung, Bitrate, Qualität, Voreinstellung, Abstimmung, Durchläufe und der Haken bei Alle Encoder-Chips">
+        <img src="shots/encoder.png" width="528" height="430" loading="lazy" alt="Der Abschnitt Encoder-Einstellungen: Ratensteuerung, Bitrate, Qualität, Voreinstellung, Abstimmung, Durchläufe, der Haken bei Alle Encoder-Chips, Vorausschau mit Bilder voraus auf 32">
         <figcaption>Einstellungen &rarr; Encoder: <em>Alle Encoder-Chips</em> unter den Encoder-Einstellungen.</figcaption>
       </figure>
       <figure class="ui">

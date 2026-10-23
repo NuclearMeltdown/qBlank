@@ -410,6 +410,8 @@ const Entry kEntries[] = {
      "Multiple encoders|Streifen|Strips"},
     {Kind::Control, kTabEncoder, "lookahead", "Vorausschau", "Look-ahead",
      "Lookahead|RC lookahead|B-Frames"},
+    {Kind::Control, kTabEncoder, "lookaheadframes", "Bilder voraus", "Frames ahead",
+     "Lookahead|RC lookahead|Lookahead-Tiefe|Lookahead depth|Vorausschau|Look-ahead|NVENC"},
     {Kind::Control, kTabEncoder, "aq", "Adaptive Quantisierung", "Adaptive quantisation",
      "AQ|Spatial AQ|Temporal AQ|Quantisierung|Quantization"},
 

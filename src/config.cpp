@@ -1099,6 +1099,7 @@ bool Config::Load(std::string* error) {
   record.tune = ReadEnum<EncoderTune>(r, "tune", kEncoderTuneCount, EncoderTune::Auto);
   record.multipass = ReadEnum<Multipass>(r, "multipass", kMultipassCount, Multipass::Auto);
   record.lookAhead = r["lookAhead"].AsBool(false);
+  record.lookAheadFrames = Clamp((r["lookAheadFrames"].AsInt(32) + 7) / 8 * 8, 8, 32);
   record.adaptiveQuant = r["adaptiveQuant"].AsBool(false);
   record.allEncoderChips = r["allEncoderChips"].AsBool(false);
   record.fps = Clamp(r["fps"].AsNumber(0.0), 0.0, 480.0);
@@ -1300,6 +1301,7 @@ std::string Config::Serialize() const {
   r["tune"] = (int)record.tune;
   r["multipass"] = (int)record.multipass;
   r["lookAhead"] = record.lookAhead;
+  r["lookAheadFrames"] = record.lookAheadFrames;
   r["adaptiveQuant"] = record.adaptiveQuant;
   r["allEncoderChips"] = record.allEncoderChips;
   r["fps"] = record.fps;

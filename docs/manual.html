@@ -197,6 +197,7 @@
         <li><strong>Larger buffer in memory</strong> holds what a slow drive has not written yet, more than the usual 512&nbsp;MB.</li>
         <li>If the encoder cannot keep up, frames are left out rather than repeated. A notice says so, and the recording indicator shows it while it lasts. A faster preset, a lower resolution or frame rate, or all encoder chips helps.</li>
         <li><strong>Encoder &rarr; All encoder chips:</strong> on cards with more than one NVENC, H.265 and AV1 share each frame between them. An RTX&nbsp;4080 then does AV1 at 1440p and preset p7 at 183 instead of 110 frames a second.</li>
+        <li><strong>Encoder &rarr; Frames ahead:</strong> with look-ahead on, how far NVENC looks ahead, 8 to 32 frames. Fewer save memory, at 1440p about 15&nbsp;MB per frame.</li>
         <li><strong>Audio &rarr; Recording sources</strong> adds to the card audio as many sources as needed: microphones, output devices, the system sound without qBlank. Each has its own gain and goes on the mix, on a track of its own, or both. None of it is played back.</li>
         <li><strong>Rewrap to MP4</strong> turns finished recordings into MP4 without encoding them again.</li>
       </ul>
@@ -205,7 +206,7 @@
         <figcaption>Settings &rarr; Recording: container, resolution, folder and free space, below them the screenshots.</figcaption>
       </figure>
       <figure class="ui">
-        <img src="shots/encoder.png" width="528" height="390" loading="lazy" alt="The Encoder settings section: rate control, bitrate, quality, preset, tuning, multipass, and the box All encoder chips ticked">
+        <img src="shots/encoder.png" width="528" height="430" loading="lazy" alt="The Encoder settings section: rate control, bitrate, quality, preset, tuning, multipass, the box All encoder chips ticked, Look-ahead with Frames ahead at 32">
         <figcaption>Settings &rarr; Encoder: <em>All encoder chips</em> below the encoder settings.</figcaption>
       </figure>
       <figure class="ui">

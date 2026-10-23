@@ -4914,6 +4914,20 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
                "Kostet etwas Verzögerung -- beim Aufnehmen egal, beim Streamen nicht.",
                "The encoder looks a little way ahead and spreads its bits better. Costs some "
                "delay -- which does not matter for recording and does for streaming."));
+  ImGui::BeginDisabled(!nvenc || !rec.lookAhead);
+  const char* depthNames[] = {"8", "16", "24", "32"};
+  int depth = rec.lookAheadFrames / 8 - 1;
+  ImGui::SetNextItemWidth(-260.0f);
+  if (ImGui::Combo(T("Bilder voraus", "Frames ahead"), &depth, depthNames, 4)) {
+    rec.lookAheadFrames = (depth + 1) * 8;
+  }
+  Anchor("lookaheadframes");
+  ImGui::SameLine();
+  HelpMarker(T("Wie weit NVENC vorausschaut. Mehr Bilder verteilen die Bits besser und "
+               "kosten Arbeitsspeicher, bei 1440p rund 15 MB je Bild über 8.",
+               "How far NVENC looks ahead. More frames spread the bits better and cost "
+               "memory, at 1440p about 15 MB per frame over 8."));
+  ImGui::EndDisabled();
   ImGui::Checkbox(T("Adaptive Quantisierung", "Adaptive quantisation"), &rec.adaptiveQuant);
   Anchor("aq");
   ImGui::SameLine();
