@@ -236,6 +236,7 @@ RecordSettings RecordingControl::WantedSettings(const EncoderInfo& encoder) cons
   RecordSettings wanted = config_.record;
   // A lossless encoder brings its own container, and the file is named for it.
   wanted.container = ContainerFor(encoder.id, wanted.container);
+  wanted.fps = config_.record.FpsFor(config_.active().capture.source);
   return wanted;
 }
 
@@ -248,7 +249,8 @@ bool RecordingControl::SameSession(const RecordSettings& wanted) const {
          wanted.preset == s.preset && wanted.tune == s.tune && wanted.multipass == s.multipass &&
          wanted.lookAhead == s.lookAhead && wanted.adaptiveQuant == s.adaptiveQuant &&
          wanted.allEncoderChips == s.allEncoderChips && wanted.fullChroma == s.fullChroma &&
-         wanted.unfiltered == s.unfiltered && wanted.fps == s.fps &&
+         wanted.unfiltered == s.unfiltered &&
+         wanted.FpsFor(config_.active().capture.source) == s.fps &&
          wanted.maxLines == s.maxLines &&
          config_.app.recordHdr == sessionHdrAsked_;
 }
@@ -756,12 +758,11 @@ void RecordingControl::UpdateDiskSpace() {
     width = 1920;
     height = 1080;
   }
-  double fps = config_.record.fps;
-  if (fps <= 0.0) {
-    fps = SourceFps();
-    if (!host_.OnScreen() && config_.active().image.deinterlace != Deinterlace::Off) fps *= 2.0;
-    if (fps <= 1.0) fps = 60.0;
-  }
+  double fps = SourceFps();
+  if (!host_.OnScreen() && config_.active().image.deinterlace != Deinterlace::Off) fps *= 2.0;
+  const double cap = config_.record.FpsFor(config_.active().capture.source);
+  if (cap > 0.0 && (fps <= 1.0 || cap < fps)) fps = cap;
+  if (fps <= 1.0) fps = 60.0;
   // Ohne Filter die Karte, wie sie kommt, wenn der Encoder sie so nimmt.
   double pixelBytes = 3.0;
   const VideoFormatInfo& card = renderer_.sourceFormat();

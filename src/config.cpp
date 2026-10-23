@@ -1102,6 +1102,9 @@ bool Config::Load(std::string* error) {
   record.adaptiveQuant = r["adaptiveQuant"].AsBool(false);
   record.allEncoderChips = r["allEncoderChips"].AsBool(false);
   record.fps = Clamp(r["fps"].AsNumber(0.0), 0.0, 480.0);
+  // Before each source had its own, the one rate was everyone's.
+  record.screenFps = Clamp(r["screenFps"].AsNumber(record.fps), 0.0, 480.0);
+  record.windowFps = Clamp(r["windowFps"].AsNumber(record.fps), 0.0, 480.0);
   record.maxLines = Clamp(r["maxLines"].AsInt(0), 0, 4320);
   record.splitFiles = r["splitFiles"].AsBool(false);
   record.splitSizeMb = Clamp(r["splitSizeMb"].AsInt(4000), 100, 100000);
@@ -1300,6 +1303,8 @@ std::string Config::Serialize() const {
   r["adaptiveQuant"] = record.adaptiveQuant;
   r["allEncoderChips"] = record.allEncoderChips;
   r["fps"] = record.fps;
+  r["screenFps"] = record.screenFps;
+  r["windowFps"] = record.windowFps;
   r["maxLines"] = record.maxLines;
   r["splitFiles"] = record.splitFiles;
   r["splitSizeMb"] = record.splitSizeMb;

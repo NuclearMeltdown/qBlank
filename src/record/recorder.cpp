@@ -1083,8 +1083,12 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   width_ = width & ~1;
   height_ = height & ~1;
   // Without filters at the card's rate: dropping frames would be a filter too.
-  const double fps =
-      settings.fps > 0.0 && !unfiltered_ ? settings.fps : (sourceFps > 1.0 ? sourceFps : 60.0);
+  // Never above the source: the cap stays what was set when a source with
+  // fewer frames comes along, and more would only repeat them.
+  double fps = sourceFps > 1.0 ? sourceFps : 60.0;
+  if (settings.fps > 0.0 && !unfiltered_ && (sourceFps <= 1.0 || settings.fps < sourceFps)) {
+    fps = settings.fps;
+  }
   const AVRational rate = RecordingRate(*av, fps);
   fps_ = av_q2d(rate);
   audioRate_ = main.active() ? main.sampleRate : 0;

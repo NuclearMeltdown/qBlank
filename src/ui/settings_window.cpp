@@ -4069,22 +4069,23 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   // ceiling is the source rate. The number below it is only reached when the
   // rate is not known yet, and it is a slider end rather than a limit -- the
   // unbounded setting is 0, "same as source", which takes whatever arrives.
+  // Each source has its own, and a higher one stays stored: the recorder caps
+  // it at the source, so PAL's 50 does not overwrite 60 for when NTSC returns.
+  double& recFps = rec.FpsFor(cfg().active().capture.source);
   const int maxFps = sourceFps_ > 1.0 ? (int)std::lround(sourceFps_) : 1000;
-  if (rec.fps > (double)maxFps) rec.fps = (double)maxFps;
-  int fps = (int)std::lround(rec.fps);
+  int fps = std::min((int)std::lround(recFps), maxFps);
   ImGui::SetNextItemWidth(-260.0f);
   if (ImGui::SliderInt(T("Bildrate", "Frame rate"), &fps, 0, maxFps,
                        fps == 0 ? T("wie die Quelle", "same as source") : "%d fps")) {
-    rec.fps = (double)fps;
+    recFps = (double)fps;
   }
   Anchor("recfps");
-  ResetOnRightClick(rec.fps, kRecord.fps);
+  ResetOnRightClick(recFps, kRecord.fps);
   ImGui::SameLine();
-  HelpMarker(sourceFps_ > 1.0
-                 ? T("0 = Bildrate der Quelle. Höher als die Quelle ergibt nur doppelte Bilder.",
-                     "0 = source frame rate. Above the source only duplicates frames.")
-                 : T("0 = Bildrate der Quelle. Niedriger verwirft Bilder, Auflösung bleibt.",
-                     "0 = source frame rate. Lower drops frames, resolution unchanged."));
+  HelpMarker(T("0 = Bildrate der Quelle. Niedriger verwirft Bilder, Auflösung bleibt. Karte, "
+               "Bildschirm und Fenster merken sich je ihre eigene.",
+               "0 = source frame rate. Lower drops frames, resolution unchanged. Card, screen "
+               "and window each keep their own."));
 
   // Only ever down: the list holds what is smaller than the picture, and a cap
   // the picture is already under shows as the source. The value stays, for a

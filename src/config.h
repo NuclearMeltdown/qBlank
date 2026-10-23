@@ -698,8 +698,20 @@ struct RecordSettings {
   // deinterlacing, crop, scaling or filters, at the card's own rate. Off: the
   // picture as it is shown.
   bool unfiltered = false;
-  // 0 = whatever the source delivers. Otherwise frames are dropped to hit this.
+  // 0 = whatever the source delivers. Otherwise frames are dropped to hit this,
+  // never more than the source has. Each source keeps its own: a card on the
+  // source's rate and a screen held at 60 stay so across a switch. `fps` is the
+  // card's; in a session's copy (RecordingControl::WantedSettings) it is the
+  // rate of the source being recorded.
   double fps = 0.0;
+  double screenFps = 0.0;
+  double windowFps = 0.0;
+  double& FpsFor(VideoSource source) {
+    return source == VideoSource::Screen ? screenFps
+           : source == VideoSource::Window ? windowFps
+                                           : fps;
+  }
+  double FpsFor(VideoSource source) const { return const_cast<RecordSettings*>(this)->FpsFor(source); }
   // 0 = the picture's own size. Otherwise its short side shrinks to this many
   // lines, in the same shape; nothing is ever enlarged.
   int maxLines = 0;
