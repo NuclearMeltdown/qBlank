@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(qBlank LANGUAGES CXX RC VERSION 7.0.0)
+project(qBlank LANGUAGES CXX RC VERSION 7.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
