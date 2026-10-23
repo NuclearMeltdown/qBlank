@@ -84,6 +84,10 @@ const Entry kEntries[] = {
      "Include the mouse pointer", "Mauszeiger|Cursor|Maus|Mouse|Zeiger|Pointer"},
     {Kind::Control, kTabSource, "screenpreview", "Vorschau", "Preview",
      "Bild anzeigen|Show picture|Kontrolle|Check|schwarz|black|Statuszeile|Status line"},
+    {Kind::Control, kTabSource, "screenhideself", "qBlank auf der Aufnahme verbergen",
+     "Hide qBlank from the capture",
+     "Verstecken|Hide|unsichtbar|invisible|Remote Play|Remotedesktop|Remote Desktop|Steam|"
+     "Bild im Bild|Picture in picture"},
     {Kind::Section, kTabSource, "videodev", "Videogerät", "Video device",
      "Capture Card|Aufnahmekarte|Grabber|Karte|Card|USB"},
     {Kind::Control, kTabSource, "input", "Eingang", "Input",

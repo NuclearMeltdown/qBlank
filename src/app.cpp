@@ -300,8 +300,10 @@ void App::ApplyWindowFlags() {
   settingsHost_.SetTopmost(top);
   // While the screen is the source, qBlank is not part of it. Only then: a card
   // user may well be taking the window into a stream, and a window's picture
-  // has no other window in it.
-  const bool hidden = screenActive_ && screenSource_ == VideoSource::Screen;
+  // has no other window in it. And only if wanted: hidden, it is hidden from
+  // remote play and remote desktop as well.
+  const bool hidden = screenActive_ && screenSource_ == VideoSource::Screen &&
+                      config_.active().capture.screenHideSelf;
   window_.SetHiddenFromCapture(hidden);
   settingsHost_.SetHiddenFromCapture(hidden);
 }
@@ -812,6 +814,7 @@ void App::CaptureAppliedState() {
   applied_.windowApp = p.capture.windowApp;
   applied_.windowTitle = p.capture.windowTitle;
   applied_.screenCursor = p.capture.screenCursor;
+  applied_.screenHideSelf = p.capture.screenHideSelf;
   applied_.video = p.capture.video;
   applied_.format = p.capture.format;
   applied_.crossbarInput = p.capture.crossbarInput;
@@ -841,6 +844,7 @@ void App::SyncConfigChanges() {
     ApplyTheme();
   }
   if (config_.app.alwaysOnTop != applied_.alwaysOnTop ||
+      p.capture.screenHideSelf != applied_.screenHideSelf ||
       devicePages_.busy() != devicePagesWereBusy_) {
     devicePagesWereBusy_ = devicePages_.busy();
     ApplyWindowFlags();

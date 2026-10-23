@@ -596,6 +596,7 @@ json::Value WriteProfile(const Profile& p) {
   cap["windowTitle"] = p.capture.windowTitle;
   cap["screenCursor"] = p.capture.screenCursor;
   cap["screenPreview"] = p.capture.screenPreview;
+  cap["screenHideSelf"] = p.capture.screenHideSelf;
   cap["video"] = WriteDevice(p.capture.video);
   cap["audioSource"] = (int)p.capture.audioSource;
   cap["audio"] = WriteDevice(p.capture.audio);
@@ -708,6 +709,7 @@ Profile ReadProfile(const json::Value& v) {
   p.capture.windowTitle = c["windowTitle"].AsString("");
   p.capture.screenCursor = c["screenCursor"].AsBool(true);
   p.capture.screenPreview = c["screenPreview"].AsBool(true);
+  p.capture.screenHideSelf = c["screenHideSelf"].AsBool(true);
   p.capture.video = ReadDevice(c["video"]);
   p.capture.audioSource = ReadEnum<AudioSource>(c, "audioSource", 3, AudioSource::Embedded);
   p.capture.audio = ReadDevice(c["audio"]);

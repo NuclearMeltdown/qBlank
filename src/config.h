@@ -403,12 +403,15 @@ struct CaptureSettings {
   // for the primary one; the window is WindowInfo's program and title. The
   // pointer and the preview are both's. The preview is the picture in the
   // window: off, the window shows only how the capture is going, and costs
-  // less.
+  // less. Hiding qBlank from the screen's capture hides it from every capture,
+  // remote play and remote desktop included; off, it shows there, and records
+  // itself when it stands on the captured screen.
   std::string screen;
   std::string windowApp;
   std::string windowTitle;
   bool screenCursor = true;
   bool screenPreview = true;
+  bool screenHideSelf = true;
   DeviceRef video;
   AudioSource audioSource = AudioSource::Embedded;
   DeviceRef audio;         // only used when audioSource == Manual

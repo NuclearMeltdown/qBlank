@@ -390,6 +390,7 @@ class App {
     std::string windowApp;
     std::string windowTitle;
     bool screenCursor = true;
+    bool screenHideSelf = true;
     long videoStandard = 0;
     DeviceRef video;
     FormatSel format;

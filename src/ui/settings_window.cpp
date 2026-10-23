@@ -1135,14 +1135,21 @@ void SettingsWindow::DrawScreenSource() {
                "Shows in the window what is being captured: whether it is the right screen "
                "or only black arrives. Off, the window shows just resolution, frame rate and "
                "recording time, and redraws less often."));
+  ImGui::Checkbox(T("qBlank auf der Aufnahme verbergen", "Hide qBlank from the capture"),
+                  &c.screenHideSelf);
+  Anchor("screenhideself");
+  HelpMarker(T("Windows verbirgt qBlank dann vor jeder Bildschirmaufnahme, auch vor Remote Play "
+               "und Remotedesktop. Aus ist es dort zu sehen; steht es auf dem aufgenommenen "
+               "Bildschirm, nimmt es sich dann selbst mit auf.",
+               "Windows then hides qBlank from every screen capture, Remote Play and Remote "
+               "Desktop included. Off, it shows there; standing on the captured screen, it then "
+               "records itself too."));
 
   ImGui::Spacing();
   TextDisabledWrapped(T("Ältere Spiele im exklusiven Vollbild lassen sich nicht aufnehmen; im "
                         "randlosen Fenster geht es.",
                         "Older games in exclusive fullscreen cannot be captured; borderless "
                         "windowed works."));
-  TextDisabledWrapped(T("qBlank selbst ist auf der Aufnahme nicht zu sehen.",
-                        "qBlank itself does not appear in the recording."));
   TextDisabledWrapped(T("Ton: im Reiter Ton „Systemton ohne qBlank“ hinzufügen.",
                         "Sound: add “System sound without qBlank” on the Audio tab."));
 }
