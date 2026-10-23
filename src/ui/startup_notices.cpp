@@ -24,7 +24,7 @@ void StartupNotices::QueueWelcome(bool startMenu, bool desktop) {
   welcomeQueued_ = welcomeStartMenu_ || welcomeDesktop_;
 }
 
-void StartupNotices::OpenReleasePage(const UpdateStatus& status) { OpenUrl(ReleasePageUrl(status)); }
+void StartupNotices::OpenChangelog() { OpenUrl(WebsiteUrl() + T("de/", "") + "changelog.html"); }
 
 void StartupNotices::DrawUpdatePrompt() {
   // The startup check runs on its own thread, so the result turns up a second or
@@ -96,10 +96,10 @@ void StartupNotices::DrawUpdatePrompt() {
   if (ImGui::Button(T("Später", "Later"), ImVec2(buttonWidth, 0))) ImGui::CloseCurrentPopup();
   ImGui::SameLine();
   if (ImGui::Button(T("Was ist neu", "What is new"), ImVec2(buttonWidth, 0))) {
-    // The release page, not the About tab. The tab shows the notes trimmed to
-    // something that fits; the page has the whole of them, the file, and the
-    // history above it.
-    OpenReleasePage(st);
+    // The changelog, not the About tab. The tab shows the notes trimmed to
+    // something that fits; the page has the whole of them, the files, and the
+    // history below them.
+    OpenChangelog();
     ImGui::CloseCurrentPopup();
   }
   ImGui::EndPopup();

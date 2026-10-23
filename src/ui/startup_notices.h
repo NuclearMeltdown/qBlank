@@ -41,10 +41,8 @@ class StartupNotices {
   void DrawWelcome();
 
  private:
-  // Opens the release in the browser, at the address the server gave for it --
-  // which stays right even after the project has been renamed. Falls back to
-  // the built-in one when there is no answer to take an address from.
-  void OpenReleasePage(const UpdateStatus& status);
+  // Opens the changelog on the website, in the language the program speaks.
+  void OpenChangelog();
 
   Updater& updater_;
   FfmpegDownloader& ffmpeg_;
