@@ -52,6 +52,7 @@ enum class PlaneFormat {
   Rg16,   // the matching chroma
   Rgba8,  // four bytes, R first: packed YUV read two pixels at a time
   Bgra8,  // four bytes, B first: RGB32 as the card sends it, RGB24 with alpha added
+  Rgba16F,  // four half floats: an HDR screen, linear
 };
 
 // The pictures the passes keep between them, as far as anything outside needs

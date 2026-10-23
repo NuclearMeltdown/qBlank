@@ -174,7 +174,10 @@ bool VideoRenderer::CreateSourceTextures(std::string* error) {
     case FormatKind::Rgb:
     default:
       // BGRA for both: RGB32 goes in as it is, RGB24 gains its alpha on upload.
-      ok = makePlane(0, w, h, PlaneFormat::Bgra8);
+      // An HDR screen's half floats stay what they are.
+      ok = makePlane(0, w, h,
+                     source_.layout == PixelLayout::Rgba16F ? PlaneFormat::Rgba16F
+                                                            : PlaneFormat::Bgra8);
       planeCount_ = 1;
       break;
   }
@@ -3302,6 +3305,11 @@ void VideoRenderer::Draw(const ImageSettings& image, int fieldIndex, bool toScre
     cb.yOffset = 0.0f;
     cb.yScale = 1.0f;
     cb.cScale = 1.0f;
+  }
+  // scRGB has eighty nits at 1.0; the passes want the desktop's white there.
+  if (source_.layout == PixelLayout::Rgba16F) {
+    cb.yOffset = 0.0f;
+    cb.yScale = 80.0f / std::max(source_.whiteNits, 1.0f);
   }
   ColorMatrix matrix = image.matrix;
   if (matrix == ColorMatrix::Auto) {

@@ -204,9 +204,10 @@ bool Win32SharedImages::Import(HANDLE handle, VkFormat format, VkImageUsageFlags
 
 bool Win32SharedImages::Open(const SharedFrames& frames) {
   read_ = frames.bgra;
-  const VkFormat format = read_                ? VK_FORMAT_B8G8R8A8_UNORM
-                          : frames.sixteenBit ? VK_FORMAT_R16_UINT
-                                              : VK_FORMAT_R8_UINT;
+  const VkFormat format = read_ && frames.halfFloat ? VK_FORMAT_R16G16B16A16_SFLOAT
+                          : read_                  ? VK_FORMAT_B8G8R8A8_UNORM
+                          : frames.sixteenBit     ? VK_FORMAT_R16_UINT
+                                                  : VK_FORMAT_R8_UINT;
   const VkImageUsageFlags usage =
       read_ ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
             : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;

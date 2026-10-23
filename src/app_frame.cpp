@@ -586,6 +586,14 @@ void App::UpdateHdr() {
                   src.color.matrix == ColorInfo::Matrix::BT2020_12;
       break;
   }
+  // A screen's or a window's picture says itself what it is, whatever the
+  // card's setting: an HDR screen's half floats are linear, with the
+  // desktop's white, shown 1:1 on an HDR screen; eight bits are SDR.
+  const bool linear = src.layout == PixelLayout::Rgba16F;
+  if (OnScreen()) {
+    transfer = linear ? VideoRenderer::Transfer::Linear : VideoRenderer::Transfer::Sdr;
+    wideGamut = false;
+  }
   renderer_.SetHdrInput(transfer, wideGamut);
 
   const Display::DisplayCapability display = display_.displayCapability();
@@ -616,11 +624,12 @@ void App::UpdateHdr() {
     }
   }
 
-  renderer_.SetHdrOutput(display_.hdrOutput(), config_.app.paperWhiteNits,
-                         config_.app.sourcePeakNits,
+  renderer_.SetHdrOutput(display_.hdrOutput(), linear ? src.whiteNits : config_.app.paperWhiteNits,
+                         linear && src.peakNits > 0.0f ? src.peakNits : config_.app.sourcePeakNits,
                          display_.hdrOutput() ? display.peakNits : 100.0f);
 
-  settings_.SetHdrState(display.hdr, display_.hdrOutput(), display.peakNits, (int)transfer);
+  settings_.SetHdrState(display.hdr, display_.hdrOutput(), display.peakNits, (int)transfer,
+                        src.whiteNits);
   settings_.SetCarrierPeriod(renderer_.effectiveCarrierPeriod());
 }
 
@@ -671,7 +680,7 @@ void App::WriteScreenshot(bool includeUi, bool toClipboard) {
   job.format = rec.screenshotFormat;
   job.jpegQuality = rec.jpegQuality;
   job.hdrFormat = config_.app.hdrShotFormat;
-  job.paperWhiteNits = config_.app.paperWhiteNits;
+  job.paperWhiteNits = renderer_.paperWhiteNits();
   job.note = std::move(note);
   pendingShots_.push_back({std::move(copy), std::move(job)});
   ++shotsInFlight_;

@@ -23,6 +23,7 @@
 #include <thread>
 #include <vector>
 
+#include "capture/monitor_hdr_win32.h"
 #include "i18n.h"
 #include "inflate.h"
 #include "render/shared_frames.h"
@@ -33,7 +34,7 @@
 #include "shaders_dxbc.h"
 #else
 namespace cap {
-extern const Packed kFullscreenVS, kCursorPS;
+extern const Packed kFullscreenVS, kCursorPS, kCursorHdrPS;
 }
 #endif
 
@@ -175,9 +176,12 @@ class Win32ScreenCapture : public ScreenCapture {
   enum class PointerKind { None, Color, Masked };
 
   bool Duplicate(Said* refused);
+  // Whether the screen went in or out of HDR, or moved its white.
+  bool HdrChanged() const;
   bool CreateTargets();
   bool CreatePipeline();
-  bool CreateShader(const Packed& packed, bool pixel);
+  // Into `ps`, or the vertex shader where it is null.
+  bool CreateShader(const Packed& packed, ComPtr<ID3D11PixelShader>* ps);
   bool MakeTexture(const uint32_t* pixels, int width, int height,
                    ComPtr<ID3D11ShaderResourceView>* srv);
 
@@ -196,6 +200,11 @@ class Win32ScreenCapture : public ScreenCapture {
   bool share_ = false;
   int width_ = 0;
   int height_ = 0;
+  // An HDR screen comes as half floats where the picture stays on the GPU; the
+  // read back keeps eight bits.
+  MonitorHdr hdr_;
+  DXGI_FORMAT format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
+  ULONGLONG whiteChecked_ = 0;
 
   ComPtr<IDXGIOutput1> output_;
   ComPtr<ID3D11Device> dev_;
@@ -214,10 +223,15 @@ class Win32ScreenCapture : public ScreenCapture {
   // The last desktop picture, kept while the pointer is drawn: a frame in which
   // only the pointer moved brings no picture of its own.
   ComPtr<ID3D11Texture2D> desktop_;
+  ComPtr<ID3D11ShaderResourceView> desktopSrv_;  // half floats only
   bool desktopValid_ = false;
 
   ComPtr<ID3D11VertexShader> vs_;
   ComPtr<ID3D11PixelShader> ps_;
+  // Half floats only: the pointer in one draw that reads the desktop, and its
+  // constants.
+  ComPtr<ID3D11PixelShader> hdrPs_;
+  ComPtr<ID3D11Buffer> hdrConst_;
   ComPtr<ID3D11RasterizerState> raster_;
   ComPtr<ID3D11BlendState> blendOver_;
   ComPtr<ID3D11BlendState> blendAnd_;
@@ -279,6 +293,12 @@ bool Win32ScreenCapture::Start(const CaptureTarget& target, bool cursor, uint64_
     return fail(CAP_SAID(T("Die Grafikkarte des Bildschirms lässt sich nicht öffnen.",
                            "The screen's graphics card could not be opened.")));
   }
+  // Shared within one adapter only; across two the picture goes through the
+  // CPU.
+  adapter_ = adapter;
+  share_ = adapter != 0 && LuidOf(outputAdapter.Get()) == adapter;
+  DXGI_OUTPUT_DESC outputDesc = {};
+  if (share_ && SUCCEEDED(output_->GetDesc(&outputDesc))) hdr_ = HdrOf(outputDesc.Monitor);
   Said refused;
   if (!Duplicate(&refused)) return fail(refused);
 
@@ -286,39 +306,41 @@ bool Win32ScreenCapture::Start(const CaptureTarget& target, bool cursor, uint64_
   dupl_->GetDesc(&desc);
   width_ = (int)desc.ModeDesc.Width;
   height_ = (int)desc.ModeDesc.Height;
+  format_ = desc.ModeDesc.Format;
+  const bool half = share_ && format_ == DXGI_FORMAT_R16G16B16A16_FLOAT;
+  if (!half) format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
   if (desc.Rotation != DXGI_MODE_ROTATION_IDENTITY &&
       desc.Rotation != DXGI_MODE_ROTATION_UNSPECIFIED) {
     CAP_WARN("Screen capture: %s is rotated (%d); the picture comes unrotated", screen_.c_str(),
              (int)desc.Rotation);
   }
-  // Shared within one adapter only; across two the picture goes through the
-  // CPU.
-  adapter_ = adapter;
-  share_ = adapter != 0 && LuidOf(outputAdapter.Get()) == adapter;
   if (!CreateTargets() || !CreatePipeline()) {
     return fail(CAP_SAID(T("Die Bildschirmaufnahme lässt sich nicht einrichten.",
                            "The screen capture could not be set up.")));
   }
 
   VideoFormatInfo info;
-  info.layout = PixelLayout::Bgrx32;
-  info.subtypeLabel = "RGB32";
+  info.layout = half ? PixelLayout::Rgba16F : PixelLayout::Bgrx32;
+  info.subtypeLabel = half ? "RGBA16F" : "RGB32";
   info.width = width_;
   info.height = height_;
-  info.stride = width_ * 4;
+  info.stride = width_ * (half ? 8 : 4);
   info.fps = desc.ModeDesc.RefreshRate.Denominator
                  ? (double)desc.ModeDesc.RefreshRate.Numerator / desc.ModeDesc.RefreshRate.Denominator
                  : 60.0;
-  info.imageSize = (size_t)width_ * height_ * 4;
+  info.imageSize = (size_t)info.stride * height_;
   info.color.present = true;
   info.color.range = ColorInfo::Range::Full;
   info.color.matrix = ColorInfo::Matrix::BT709;
   info.color.primaries = ColorInfo::Primaries::BT709;
-  info.color.transfer = ColorInfo::Transfer::SRGB;
+  info.color.transfer = half ? ColorInfo::Transfer::Linear : ColorInfo::Transfer::SRGB;
+  info.whiteNits = hdr_.whiteNits;
+  info.peakNits = hdr_.peakNits;
   frames_.Configure(info, share_);
 
-  CAP_LOG("Screen capture: %s, %dx%d at %.2f Hz, %s", screen_.c_str(), width_, height_, info.fps,
-          share_ ? "on the GPU" : "read back");
+  CAP_LOG("Screen capture: %s, %dx%d at %.2f Hz, %s%s", screen_.c_str(), width_, height_, info.fps,
+          share_ ? "on the GPU" : "read back",
+          half ? Format(", HDR, white at %.0f nits", hdr_.whiteNits).c_str() : "");
   cursor_ = cursor;
   stop_ = false;
   restart_ = false;
@@ -341,6 +363,7 @@ void Win32ScreenCapture::Stop() {
   composeRtv_.Reset();
   staging_.Reset();
   desktop_.Reset();
+  desktopSrv_.Reset();
   desktopValid_ = false;
   pointerKind_ = PointerKind::None;
   pointerA_.Reset();
@@ -348,6 +371,10 @@ void Win32ScreenCapture::Stop() {
   pointerVisible_ = false;
   vs_.Reset();
   ps_.Reset();
+  hdrPs_.Reset();
+  hdrConst_.Reset();
+  hdr_ = MonitorHdr();
+  format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
   raster_.Reset();
   blendOver_.Reset();
   blendAnd_.Reset();
@@ -359,14 +386,16 @@ void Win32ScreenCapture::Stop() {
 }
 
 bool Win32ScreenCapture::Duplicate(Said* refused) {
-  // In the format asked for, which makes Windows bring an HDR desktop down to
-  // eight bits; and in the monitor's own pixels, as qBlank is DPI aware. The
-  // older call where the newer one is missing.
+  // In the format asked for: an HDR screen's half floats where they stay on the
+  // GPU, else eight bits, which makes Windows bring an HDR desktop down to
+  // them. In the monitor's own pixels, as qBlank is DPI aware. The older call
+  // where the newer one is missing.
   ComPtr<IDXGIOutput5> output5;
   HRESULT hr = E_NOINTERFACE;
   if (SUCCEEDED(output_.As(&output5))) {
-    const DXGI_FORMAT formats[] = {DXGI_FORMAT_B8G8R8A8_UNORM};
-    hr = output5->DuplicateOutput1(dev_.Get(), 0, 1, formats, &dupl_);
+    const DXGI_FORMAT formats[] = {DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_B8G8R8A8_UNORM};
+    hr = hdr_.on ? output5->DuplicateOutput1(dev_.Get(), 0, 2, formats, &dupl_)
+                 : output5->DuplicateOutput1(dev_.Get(), 0, 1, formats + 1, &dupl_);
   }
   if (FAILED(hr)) hr = output_->DuplicateOutput(dev_.Get(), &dupl_);
   if (SUCCEEDED(hr)) return true;
@@ -375,13 +404,17 @@ bool Win32ScreenCapture::Duplicate(Said* refused) {
   return false;
 }
 
+bool Win32ScreenCapture::HdrChanged() const {
+  return share_ && HdrMoved(hdr_, DisplayHdr(ToWide(screen_).c_str()));
+}
+
 bool Win32ScreenCapture::CreateTargets() {
   D3D11_TEXTURE2D_DESC td = {};
   td.Width = (UINT)width_;
   td.Height = (UINT)height_;
   td.MipLevels = 1;
   td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  td.Format = format_;
   td.SampleDesc.Count = 1;
   td.Usage = D3D11_USAGE_DEFAULT;
   td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -403,6 +436,7 @@ bool Win32ScreenCapture::CreateTargets() {
   shared_->height = height_;
   shared_->rows = height_;
   shared_->bgra = true;
+  shared_->halfFloat = format_ == DXGI_FORMAT_R16G16B16A16_FLOAT;
   for (int i = 0; i < SharedFrames::kSlots; ++i) {
     ComPtr<IDXGIResource1> resource;
     HANDLE handle = nullptr;
@@ -425,20 +459,30 @@ bool Win32ScreenCapture::CreateTargets() {
   return true;
 }
 
-bool Win32ScreenCapture::CreateShader(const Packed& packed, bool pixel) {
+bool Win32ScreenCapture::CreateShader(const Packed& packed, ComPtr<ID3D11PixelShader>* ps) {
   std::vector<uint8_t> code(packed.unpackedSize);
   if (!Inflate(packed, code.data())) {
     CAP_ERR("Screen capture: a shader is damaged");
     return false;
   }
-  return pixel ? !Failed(dev_->CreatePixelShader(code.data(), code.size(), nullptr, &ps_),
-                         "CreatePixelShader")
-               : !Failed(dev_->CreateVertexShader(code.data(), code.size(), nullptr, &vs_),
-                         "CreateVertexShader");
+  return ps ? !Failed(dev_->CreatePixelShader(code.data(), code.size(), nullptr, ps->GetAddressOf()),
+                      "CreatePixelShader")
+            : !Failed(dev_->CreateVertexShader(code.data(), code.size(), nullptr, &vs_),
+                      "CreateVertexShader");
 }
 
 bool Win32ScreenCapture::CreatePipeline() {
-  if (!CreateShader(kFullscreenVS, false) || !CreateShader(kCursorPS, true)) return false;
+  if (!CreateShader(kFullscreenVS, nullptr) || !CreateShader(kCursorPS, &ps_)) return false;
+  if (format_ == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+    D3D11_BUFFER_DESC bd = {};
+    bd.ByteWidth = 16;
+    bd.Usage = D3D11_USAGE_DEFAULT;
+    bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    if (!CreateShader(kCursorHdrPS, &hdrPs_) ||
+        Failed(dev_->CreateBuffer(&bd, nullptr, &hdrConst_), "CreateBuffer")) {
+      return false;
+    }
+  }
   D3D11_RASTERIZER_DESC rd = {};
   rd.FillMode = D3D11_FILL_SOLID;
   rd.CullMode = D3D11_CULL_NONE;
@@ -507,7 +551,26 @@ void Win32ScreenCapture::Run() {
         Restart(nullptr);
         break;
       }
+      // HDR switched on or off.
+      if (HdrChanged()) {
+        CAP_LOG("Screen capture: %s changed its HDR", screen_.c_str());
+        Restart(nullptr);
+        break;
+      }
       desktopValid_ = false;
+    }
+    // The SDR white of an HDR screen, moved on its slider, costs no mode change:
+    // asked once a second.
+    if (hdr_.on) {
+      const ULONGLONG now = ::GetTickCount64();
+      if (now - whiteChecked_ >= 1000) {
+        whiteChecked_ = now;
+        if (HdrChanged()) {
+          CAP_LOG("Screen capture: %s moved its SDR white", screen_.c_str());
+          Restart(nullptr);
+          break;
+        }
+      }
     }
 
     // Held until the next one is asked for, as the documentation advises:
@@ -555,10 +618,15 @@ void Win32ScreenCapture::Run() {
         D3D11_TEXTURE2D_DESC td = {};
         desktop->GetDesc(&td);
         td.Usage = D3D11_USAGE_DEFAULT;
-        td.BindFlags = 0;
+        td.BindFlags = hdrPs_ ? D3D11_BIND_SHADER_RESOURCE : 0;
         td.CPUAccessFlags = 0;
         td.MiscFlags = 0;
-        if (Failed(dev_->CreateTexture2D(&td, nullptr, &desktop_), "CreateTexture2D")) continue;
+        if (Failed(dev_->CreateTexture2D(&td, nullptr, &desktop_), "CreateTexture2D") ||
+            (hdrPs_ && Failed(dev_->CreateShaderResourceView(desktop_.Get(), nullptr, &desktopSrv_),
+                              "CreateShaderResourceView"))) {
+          desktop_.Reset();
+          continue;
+        }
       }
       dc_->CopyResource(desktop_.Get(), desktop.Get());
       desktopValid_ = true;
@@ -646,6 +714,10 @@ bool Win32ScreenCapture::ReadPointerShape(UINT size) {
   pointerKind_ = kind;
   pointerW_ = w;
   pointerH_ = h;
+  if (hdrConst_) {
+    const float constants[4] = {hdr_.whiteNits / 80.0f, kind == PointerKind::Masked ? 1.0f : 0.0f};
+    dc_->UpdateSubresource(hdrConst_.Get(), 0, nullptr, constants, 0, 0);
+  }
   return true;
 }
 
@@ -667,6 +739,19 @@ void Win32ScreenCapture::DrawPointer(ID3D11RenderTargetView* target) {
   vp.Height = (float)pointerH_;
   vp.MaxDepth = 1.0f;
   dc->RSSetViewports(1, &vp);
+
+  if (hdrPs_) {
+    ID3D11ShaderResourceView* srv[] = {pointerA_.Get(), pointerB_.Get(), desktopSrv_.Get()};
+    dc->PSSetShader(hdrPs_.Get(), nullptr, 0);
+    dc->PSSetConstantBuffers(0, 1, hdrConst_.GetAddressOf());
+    dc->PSSetShaderResources(0, 3, srv);
+    dc->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    dc->Draw(3, 0);
+    srv[0] = srv[1] = srv[2] = nullptr;
+    dc->PSSetShaderResources(0, 3, srv);
+    dc->OMSetRenderTargets(0, nullptr, nullptr);
+    return;
+  }
 
   ID3D11ShaderResourceView* srv[] = {pointerA_.Get()};
   dc->PSSetShaderResources(0, 1, srv);

@@ -30,6 +30,7 @@ enum class PixelLayout {
   Bgr24,   // B G R, three bytes per pixel
   Bgrx32,  // B G R and a byte of padding
   Bgra32,  // B G R A
+  Rgba16F, // R G B A as half floats, linear scRGB: an HDR screen's
 };
 
 // The colour description a device can attach to a stream. Most capture cards
@@ -81,6 +82,11 @@ struct VideoFormatInfo {
   // colour description. HDYC is UYVY that carries BT.709 by definition; nearly
   // every other format leaves this Unknown.
   ColorInfo::Matrix formatMatrix = ColorInfo::Matrix::Unknown;
+
+  // Rgba16F only: the nits the desktop puts its white at, and the brightest
+  // the screen says it shows.
+  float whiteNits = 80.0f;
+  float peakNits = 0.0f;
 
   bool valid() const { return width > 0 && height > 0 && imageSize > 0; }
 };

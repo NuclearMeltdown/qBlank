@@ -231,11 +231,13 @@ class SettingsWindow {
     vulkanBuilt_ = vulkanBuilt;
     vulkanRunning_ = vulkanRunning;
   }
-  void SetHdrState(bool displayCapable, bool outputActive, float displayPeak, int sourceTransfer) {
+  void SetHdrState(bool displayCapable, bool outputActive, float displayPeak, int sourceTransfer,
+                   float sourceWhite) {
     hdrDisplayCapable_ = displayCapable;
     hdrOutputActive_ = outputActive;
     hdrDisplayPeak_ = displayPeak;
     hdrSourceTransfer_ = sourceTransfer;
+    hdrSourceWhite_ = sourceWhite;
   }
 
   // True while the binding editor is waiting for a key press. The app routes
@@ -460,7 +462,8 @@ class SettingsWindow {
   bool hdrDisplayCapable_ = false;
   bool hdrOutputActive_ = false;
   float hdrDisplayPeak_ = 100.0f;
-  int hdrSourceTransfer_ = 0;  // 0 SDR, 1 PQ, 2 HLG
+  int hdrSourceTransfer_ = 0;  // 0 SDR, 1 PQ, 2 HLG, 3 an HDR screen's linear light
+  float hdrSourceWhite_ = 80.0f;  // that screen's SDR white
   double sourceFps_ = 0.0;
   int pictureWidth_ = 0;
   int pictureHeight_ = 0;

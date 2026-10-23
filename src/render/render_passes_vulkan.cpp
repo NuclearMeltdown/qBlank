@@ -69,6 +69,7 @@ VkFormat PlaneVkFormat(PlaneFormat format) {
     case PlaneFormat::R16: return VK_FORMAT_R16_UNORM;
     case PlaneFormat::Rg16: return VK_FORMAT_R16G16_UNORM;
     case PlaneFormat::Bgra8: return VK_FORMAT_B8G8R8A8_UNORM;
+    case PlaneFormat::Rgba16F: return VK_FORMAT_R16G16B16A16_SFLOAT;
     case PlaneFormat::Rgba8:
     default: return VK_FORMAT_R8G8B8A8_UNORM;
   }

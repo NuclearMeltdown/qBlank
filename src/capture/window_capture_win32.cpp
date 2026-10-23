@@ -31,6 +31,7 @@
 #include <thread>
 #include <vector>
 
+#include "capture/monitor_hdr_win32.h"
 #include "i18n.h"
 #include "render/shared_frames.h"
 #include "text_win32.h"
@@ -201,32 +202,10 @@ HWND ExclusiveFullscreenWindow() {
 double RefreshOf(HMONITOR monitor) {
   MONITORINFOEXW mi = {};
   mi.cbSize = sizeof(mi);
-  UINT32 pathCount = 0;
-  UINT32 modeCount = 0;
-  if (!::GetMonitorInfoW(monitor, &mi) ||
-      ::GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) != ERROR_SUCCESS) {
-    return 60.0;
-  }
-  std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
-  std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
-  if (::QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount,
-                           modes.data(), nullptr) != ERROR_SUCCESS) {
-    return 60.0;
-  }
-  for (UINT32 i = 0; i < pathCount; ++i) {
-    DISPLAYCONFIG_SOURCE_DEVICE_NAME source = {};
-    source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
-    source.header.size = sizeof(source);
-    source.header.adapterId = paths[i].sourceInfo.adapterId;
-    source.header.id = paths[i].sourceInfo.id;
-    if (::DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS ||
-        wcscmp(source.viewGdiDeviceName, mi.szDevice) != 0) {
-      continue;
-    }
-    const DISPLAYCONFIG_RATIONAL& rate = paths[i].targetInfo.refreshRate;
-    if (rate.Denominator && rate.Numerator) return (double)rate.Numerator / rate.Denominator;
-  }
-  return 60.0;
+  DISPLAYCONFIG_PATH_INFO path = {};
+  if (!::GetMonitorInfoW(monitor, &mi) || !DisplayPathOf(mi.szDevice, &path)) return 60.0;
+  const DISPLAYCONFIG_RATIONAL& rate = path.targetInfo.refreshRate;
+  return rate.Denominator && rate.Numerator ? (double)rate.Numerator / rate.Denominator : 60.0;
 }
 
 class Win32WindowCapture : public ScreenCapture {
@@ -271,12 +250,18 @@ class Win32WindowCapture : public ScreenCapture {
 
   void Run();
   void Publish(ID3D11Texture2D* from);
+  bool HdrChanged() const;
   void Restart(const Said* why);
 
   HWND hwnd_ = nullptr;
   std::string title_;
   uint64_t adapter_ = 0;
   bool share_ = false;
+  // The HDR of the window's screen, and whether the picture comes in its half
+  // floats.
+  MonitorHdr hdr_;
+  bool half_ = false;
+  ULONGLONG hdrChecked_ = 0;
   // The window's picture as the pool was made for it, and in it the part the
   // program draws in.
   int frameW_ = 0;
@@ -363,6 +348,11 @@ bool Win32WindowCapture::Start(const CaptureTarget& target, bool cursor, uint64_
                            "The graphics card could not be opened for the window capture.")));
   }
   adapter_ = adapter;
+  // HDR where it stays on the GPU; read back, Windows brings it down to eight
+  // bits.
+  const HMONITOR monitor = ::MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
+  if (share_) hdr_ = HdrOf(monitor);
+  half_ = share_ && hdr_.on;
 
   ComPtr<IGraphicsCaptureItemInterop> interop;
   if (Failed(Factory(RuntimeClass_Windows_Graphics_Capture_GraphicsCaptureItem, interop.GetAddressOf()),
@@ -406,22 +396,25 @@ bool Win32WindowCapture::Start(const CaptureTarget& target, bool cursor, uint64_
   }
 
   VideoFormatInfo info;
-  info.layout = PixelLayout::Bgrx32;
-  info.subtypeLabel = "RGB32";
+  info.layout = half_ ? PixelLayout::Rgba16F : PixelLayout::Bgrx32;
+  info.subtypeLabel = half_ ? "RGBA16F" : "RGB32";
   info.width = width_;
   info.height = height_;
-  info.stride = width_ * 4;
-  info.fps = RefreshOf(::MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST));
-  info.imageSize = (size_t)width_ * height_ * 4;
+  info.stride = width_ * (half_ ? 8 : 4);
+  info.fps = RefreshOf(monitor);
+  info.imageSize = (size_t)info.stride * height_;
   info.color.present = true;
   info.color.range = ColorInfo::Range::Full;
   info.color.matrix = ColorInfo::Matrix::BT709;
   info.color.primaries = ColorInfo::Primaries::BT709;
-  info.color.transfer = ColorInfo::Transfer::SRGB;
+  info.color.transfer = half_ ? ColorInfo::Transfer::Linear : ColorInfo::Transfer::SRGB;
+  info.whiteNits = hdr_.whiteNits;
+  info.peakNits = hdr_.peakNits;
   frames_.Configure(info, share_);
 
-  CAP_LOG("Window capture: %dx%d at %d,%d, %.2f Hz, %s", width_, height_, cropX_, cropY_, info.fps,
-          share_ ? "on the GPU" : "read back");
+  CAP_LOG("Window capture: %dx%d at %d,%d, %.2f Hz, %s%s", width_, height_, cropX_, cropY_, info.fps,
+          share_ ? "on the GPU" : "read back",
+          half_ ? Format(", HDR, white at %.0f nits", hdr_.whiteNits).c_str() : "");
   cursor_ = cursor;
   stop_ = false;
   restart_ = false;
@@ -469,7 +462,7 @@ bool Win32WindowCapture::CreateTargets() {
   td.Height = (UINT)height_;
   td.MipLevels = 1;
   td.ArraySize = 1;
-  td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  td.Format = half_ ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
   td.SampleDesc.Count = 1;
   if (!share_) {
     td.Usage = D3D11_USAGE_STAGING;
@@ -485,6 +478,7 @@ bool Win32WindowCapture::CreateTargets() {
   shared_->height = height_;
   shared_->rows = height_;
   shared_->bgra = true;
+  shared_->halfFloat = half_;
   for (int i = 0; i < SharedFrames::kSlots; ++i) {
     ComPtr<IDXGIResource1> resource;
     HANDLE handle = nullptr;
@@ -514,8 +508,9 @@ bool Win32WindowCapture::OpenSession(bool cursor) {
              "Direct3D11CaptureFramePool") ||
       Failed(statics->CreateFreeThreaded(
                  device_.Get(),
-                 ABI::Windows::Graphics::DirectX::DirectXPixelFormat_B8G8R8A8UIntNormalized, 2,
-                 {frameW_, frameH_}, &pool_),
+                 half_ ? ABI::Windows::Graphics::DirectX::DirectXPixelFormat_R16G16B16A16Float
+                       : ABI::Windows::Graphics::DirectX::DirectXPixelFormat_B8G8R8A8UIntNormalized,
+                 2, {frameW_, frameH_}, &pool_),
              "CreateFreeThreaded")) {
     return false;
   }
@@ -570,6 +565,8 @@ void Win32WindowCapture::Stop() {
   dc_.Reset();
   dev_.Reset();
   hwnd_ = nullptr;
+  hdr_ = MonitorHdr();
+  half_ = false;
   restart_ = false;
 }
 
@@ -632,6 +629,21 @@ void Win32WindowCapture::Run() {
       Restart(nullptr);
       break;
     }
+
+    // Unlike the screen's, the window's capture hears nothing of HDR switched,
+    // its white moved or the window gone to another screen: asked once a
+    // second, after a picture.
+    if (share_) {
+      const ULONGLONG now = ::GetTickCount64();
+      if (now - hdrChecked_ >= 1000) {
+        hdrChecked_ = now;
+        if (HdrChanged()) {
+          CAP_LOG("Window capture: the window's screen changed its HDR");
+          Restart(nullptr);
+          break;
+        }
+      }
+    }
   }
   if (task) ::AvRevertMmThreadCharacteristics(task);
   if (SUCCEEDED(ro)) ::RoUninitialize();
@@ -670,6 +682,13 @@ void Win32WindowCapture::Publish(ID3D11Texture2D* from) {
   }
   dc_->Unmap(staging_.Get(), 0);
   frames_.EndWrite(slot, bytes);
+}
+
+bool Win32WindowCapture::HdrChanged() const {
+  MONITORINFOEXW mi = {};
+  mi.cbSize = sizeof(mi);
+  return ::GetMonitorInfoW(::MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &mi) &&
+         HdrMoved(hdr_, DisplayHdr(mi.szDevice));
 }
 
 void Win32WindowCapture::Restart(const Said* why) {

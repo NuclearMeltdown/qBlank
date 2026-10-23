@@ -48,6 +48,7 @@ int main(int argc, char** argv) {
   ok = WriteShader(dir, "yuv_ps", cap::kYuvPS) && ok;
   ok = WriteShader(dir, "yuv_split_ps", cap::kYuvSplitPS) && ok;
   ok = WriteShader(dir, "cursor_ps", cap::kCursorPS) && ok;
+  ok = WriteShader(dir, "cursor_hdr_ps", cap::kCursorHdrPS) && ok;
   ok = WriteShader(dir, "ui_composite_ps", cap::kUiCompositePS) && ok;
   ok = WriteShader(dir, "rem_dec_ps", cap::kRemDecPS) && ok;
   ok = WriteShader(dir, "rem_res_ps", cap::kRemResPS) && ok;

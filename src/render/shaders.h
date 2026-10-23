@@ -2279,6 +2279,49 @@ float4 main(VSOut i) : SV_Target {
 }
 )HLSL";
 
+// The same over an HDR screen's half floats, in one draw and without a blend:
+// the pointer's bytes are sRGB at the desktop's white, and to invert is to
+// invert what an SDR screen would have shown there.
+inline const char* kCursorHdrPS = R"HLSL(
+Texture2D<float4> texCursor : register(t0);   // the colour, or the AND mask
+Texture2D<float4> texXor : register(t1);
+Texture2D<float4> texDesktop : register(t2);  // the picture under it
+
+cbuffer Cursor : register(b0) {
+  float gWhite;   // the desktop's white; 1.0 is eighty nits
+  float gMasked;  // 1: AND and XOR, 0: the colour over
+};
+
+struct VSOut {
+  float4 pos : SV_Position;
+  float2 uv  : TEXCOORD0;
+};
+
+float3 SrgbToLinear(float3 c) {
+  return c <= 0.04045 ? c / 12.92 : pow(max((c + 0.055) / 1.055, 0.0), 2.4);
+}
+
+float3 LinearToSrgb(float3 c) {
+  return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+}
+
+float4 main(VSOut i) : SV_Target {
+  uint w, h;
+  texCursor.GetDimensions(w, h);
+  const int3 at = int3(i.uv * float2(w, h), 0);
+  const float4 d = texDesktop.Load(int3((int2)i.pos.xy, 0));
+  const float4 a = texCursor.Load(at);
+  if (gMasked == 0.0) return float4(lerp(d.rgb, SrgbToLinear(a.rgb) * gWhite, a.a), d.a);
+  // Where the XOR mask is black the screen stays as it is, brighter than white
+  // included.
+  const float3 x = d.rgb * a.rgb;
+  const float3 b = texXor.Load(at).rgb;
+  const float3 e = LinearToSrgb(saturate(x / gWhite));
+  const float3 inverted = SrgbToLinear(b + e * (1.0 - 2.0 * b)) * gWhite;
+  return float4(lerp(x, inverted, step(1e-6, b)), d.a);
+}
+)HLSL";
+
 // Pass four, and only when the swapchain is scRGB: the interface, brought into
 // linear light.
 //
@@ -2890,6 +2933,10 @@ float4 main(VSOut i) : SV_Target {
       // scRGB: linear, BT.709 primaries, 1.0 is eighty nits by definition.
       return float4(rgb * (gPaperWhite / 80.0), 1.0);
     }
+    // A captured HDR desktop has its white at 1.0, and that is the white an
+    // ordinary screen shows; brighter clips, as in Windows' own SDR copy of
+    // the desktop. Tone mapped, the desktop's white would sink to grey.
+    if (gTransfer == 3) return float4(LinearToSrgb(rgb), 1.0);
     return float4(saturate(LinearToSrgb(ToneMapToSdr(rgb))), 1.0);
   }
   if (gOutputHdr != 0) {

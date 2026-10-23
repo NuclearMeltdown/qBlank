@@ -42,6 +42,8 @@ class SharedFrames {
   bool sixteenBit = false;
   // B8G8R8A8_UNORM, `width` x `height`, `rows` == `height`: the screen's.
   bool bgra = false;
+  // With `bgra`: R16G16B16A16_FLOAT instead, an HDR screen's.
+  bool halfFloat = false;
 
   std::atomic<uint8_t> state[kSlots] = {};
   // Written by whoever holds the slot, read by the next one after the state

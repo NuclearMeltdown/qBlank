@@ -149,7 +149,8 @@ class VideoRenderer {
   const VideoFormatInfo& sourceFormat() const { return source_; }
   // What curve the incoming picture is encoded against. Kept apart from the
   // format: a card can send eight bit PQ, and ten bit says nothing about HDR.
-  enum class Transfer { Sdr = 0, Pq = 1, Hlg = 2 };
+  // Linear: already linear light, as an HDR screen's half floats are.
+  enum class Transfer { Sdr = 0, Pq = 1, Hlg = 2, Linear = 3 };
 
   // Told rather than guessed, because a DirectShow media type mostly does not
   // carry this and when it does it is worth believing. `wideGamut` says the
@@ -182,6 +183,7 @@ class VideoRenderer {
     sourcePeakNits_ = sourcePeakNits;
     displayPeakNits_ = displayPeakNits;
   }
+  float paperWhiteNits() const { return paperWhiteNits_; }
 
   // True when the current source is interlaced according to its media type.
   bool sourceInterlaced() const { return source_.interlaced; }

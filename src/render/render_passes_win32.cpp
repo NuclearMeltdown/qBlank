@@ -46,6 +46,7 @@ DXGI_FORMAT PlaneDxgiFormat(PlaneFormat format) {
     case PlaneFormat::R16: return DXGI_FORMAT_R16_UNORM;
     case PlaneFormat::Rg16: return DXGI_FORMAT_R16G16_UNORM;
     case PlaneFormat::Bgra8: return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case PlaneFormat::Rgba16F: return DXGI_FORMAT_R16G16B16A16_FLOAT;
     case PlaneFormat::Rgba8:
     default: return DXGI_FORMAT_R8G8B8A8_UNORM;
   }

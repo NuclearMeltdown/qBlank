@@ -486,7 +486,6 @@ void SettingsWindow::MeasureTabs() {
   for (int i = 0; i < (int)std::size(kTabNames); ++i) {
     const TabName& t = kTabNames[i];
     if (!haveDevice && SettingsTabNeedsDevice(t.tab)) continue;
-    if (screen && !SettingsTabOnScreen(t.tab)) continue;
     const float width = ImGui::CalcTextSize(T(t.de, t.en)).x + style.FramePadding.x * 2.0f;
     shownTabs_[shownTabCount_++] = {i, width};
     row += width + style.ItemInnerSpacing.x;
@@ -882,14 +881,7 @@ void SettingsWindow::PickSearchHit(int entry) {
   // Without a device only General, Source and Updates exist. Pointing at the
   // device list is the useful answer: that is the step between here and there.
   const CaptureSettings& capture = cfg().active().capture;
-  if (capture.source != VideoSource::Card) {
-    if (!SettingsTabOnScreen(tab)) {
-      tab = kTabSource;
-      key = "source";
-      searchNote_ = T("Gilt nur für die Capture-Karte.", "Applies to the capture card only.");
-      searchNoteTime_ = ImGui::GetTime();
-    }
-  } else if (SettingsTabNeedsDevice(tab) && capture.video.empty()) {
+  if (capture.source == VideoSource::Card && SettingsTabNeedsDevice(tab) && capture.video.empty()) {
     tab = kTabSource;
     key = "videodev";
     searchNote_ = T("Erst ein Videogerät wählen.", "Select a video device first.");
@@ -3319,11 +3311,16 @@ void SettingsWindow::DrawHdrBlock() {
 
   // What is actually the case, before any of the choices below. Two independent
   // facts, and most confusion about HDR comes from mixing them up.
-  const char* sourceText =
-      hdrSourceTransfer_ == 1 ? T("Quelle: HDR (PQ)", "Source: HDR (PQ)")
-      : hdrSourceTransfer_ == 2 ? T("Quelle: HDR (HLG)", "Source: HDR (HLG)")
-                                : T("Quelle: SDR", "Source: SDR");
-  ImGui::TextDisabled("%s", sourceText);
+  const bool screen = cfg().active().capture.source != VideoSource::Card;
+  const bool linear = hdrSourceTransfer_ == 3;
+  if (linear) {
+    ImGui::TextDisabled(T("Quelle: HDR, Weiß bei %.0f nits", "Source: HDR, white at %.0f nits"),
+                        hdrSourceWhite_);
+  } else {
+    ImGui::TextDisabled("%s", hdrSourceTransfer_ == 1   ? T("Quelle: HDR (PQ)", "Source: HDR (PQ)")
+                              : hdrSourceTransfer_ == 2 ? T("Quelle: HDR (HLG)", "Source: HDR (HLG)")
+                                                        : T("Quelle: SDR", "Source: SDR"));
+  }
   ImGui::SameLine();
   ImGui::TextDisabled("   |   ");
   ImGui::SameLine();
@@ -3349,7 +3346,15 @@ void SettingsWindow::DrawHdrBlock() {
   // Quelle. Läuft der Desktop im HDR-Modus, muss auch ein SDR-Bild mit einem
   // Weißwert in den HDR-Behälter geschrieben werden, sonst kommt es zu dunkel
   // oder zu hell heraus. Das gilt für ein SNES genauso wie für alles andere.
-  if (!analogueSource_) {
+  //
+  // Bildschirm und Fenster sagen selbst, was sie sind: lineares Licht mit dem
+  // Weiß von Windows, sobald es den Bildschirm in HDR zeigt, sonst SDR.
+  if (screen) {
+    if (!linear) {
+      TextDisabledWrapped(T("HDR kommt, sobald Windows den Bildschirm in HDR zeigt.",
+                            "HDR comes once Windows runs the screen in HDR."));
+    }
+  } else if (!analogueSource_) {
     const char* inputNames[] = {
         T("Automatisch", "Automatic"), T("SDR", "SDR"), T("HDR10 (PQ)", "HDR10 (PQ)"),
         T("HLG", "HLG")};
@@ -3389,37 +3394,42 @@ void SettingsWindow::DrawHdrBlock() {
                "really is HDR. Otherwise the picture is mapped down to the display, which "
                "is exactly right on an ordinary monitor."));
 
-  ImGui::SetNextItemWidth(-260.0f);
-  ImGui::SliderFloat(T("Papierweiß", "Paper white"), &app.paperWhiteNits, 80.0f, 400.0f,
-                     "%.0f nits");
-  Anchor("paperwhite");
-  ResetOnRightClick(app.paperWhiteNits, kApp.paperWhiteNits);
-  ImGui::SameLine();
-  HelpMarker(T("Wie hell gewöhnliches Weiß herauskommt -- ein Blatt Papier im Bild, nicht "
-               "die hellste Stelle. 203 ist der Wert, gegen den HDR-Material üblicherweise "
-               "abgemischt wird.",
-               "How bright ordinary white comes out -- a sheet of paper in the picture, not "
-               "the brightest spot. 203 is what HDR material is usually graded against."));
+  // Weiß und Spitze eines HDR-Bildschirms kennt Windows.
+  if (!linear) {
+    ImGui::SetNextItemWidth(-260.0f);
+    ImGui::SliderFloat(T("Papierweiß", "Paper white"), &app.paperWhiteNits, 80.0f, 400.0f,
+                       "%.0f nits");
+    Anchor("paperwhite");
+    ResetOnRightClick(app.paperWhiteNits, kApp.paperWhiteNits);
+    ImGui::SameLine();
+    HelpMarker(T("Wie hell gewöhnliches Weiß herauskommt -- ein Blatt Papier im Bild, nicht "
+                 "die hellste Stelle. 203 ist der Wert, gegen den HDR-Material üblicherweise "
+                 "abgemischt wird.",
+                 "How bright ordinary white comes out -- a sheet of paper in the picture, not "
+                 "the brightest spot. 203 is what HDR material is usually graded against."));
+  }
 
   // Auch das gehört der Quelle, also weg bei einer analogen: was ein SNES an
   // seiner hellsten Stelle in nits erreicht, ist keine sinnvolle Frage.
   if (analogueSource_) return;
 
-  ImGui::SetNextItemWidth(-260.0f);
-  ImGui::SliderFloat(T("Spitze der Quelle", "Source peak"), &app.sourcePeakNits, 200.0f,
-                     10000.0f, "%.0f nits", ImGuiSliderFlags_Logarithmic);
-  Anchor("sourcepeak");
-  ResetOnRightClick(app.sourcePeakNits, kApp.sourcePeakNits);
-  ImGui::SameLine();
-  HelpMarker(T("Wie hell die Quelle an ihrer hellsten Stelle wird. DirectShow überträgt "
-               "das nirgends, auslesen lässt es sich also nicht -- und es zählt: nimmt man "
-               "10000 an, wo die Quelle nur 1000 erreicht, landet Papierweiß auf einem "
-               "SDR-Monitor bei 63 statt 88 nits, das Bild wird zu dunkel. 1000 passt für "
-               "Konsolen.",
-               "How bright the source gets at its brightest. DirectShow carries this "
-               "nowhere, so it cannot be read -- and it matters: assume 10000 where the "
-               "source only reaches 1000 and paper white lands at 63 nits instead of 88 on "
-               "an SDR monitor, darkening the picture. 1000 suits consoles."));
+  if (!screen) {
+    ImGui::SetNextItemWidth(-260.0f);
+    ImGui::SliderFloat(T("Spitze der Quelle", "Source peak"), &app.sourcePeakNits, 200.0f,
+                       10000.0f, "%.0f nits", ImGuiSliderFlags_Logarithmic);
+    Anchor("sourcepeak");
+    ResetOnRightClick(app.sourcePeakNits, kApp.sourcePeakNits);
+    ImGui::SameLine();
+    HelpMarker(T("Wie hell die Quelle an ihrer hellsten Stelle wird. DirectShow überträgt "
+                 "das nirgends, auslesen lässt es sich also nicht -- und es zählt: nimmt man "
+                 "10000 an, wo die Quelle nur 1000 erreicht, landet Papierweiß auf einem "
+                 "SDR-Monitor bei 63 statt 88 nits, das Bild wird zu dunkel. 1000 passt für "
+                 "Konsolen.",
+                 "How bright the source gets at its brightest. DirectShow carries this "
+                 "nowhere, so it cannot be read -- and it matters: assume 10000 where the "
+                 "source only reaches 1000 and paper white lands at 63 nits instead of 88 on "
+                 "an SDR monitor, darkening the picture. 1000 suits consoles."));
+  }
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Was den Umfang behält", "What keeps the range"));
