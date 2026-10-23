@@ -359,7 +359,9 @@ const Entry kEntries[] = {
      "Replay-Buffer|Replay buffer|Clip speichern|Save clip|Letzte Sekunden|Last seconds"},
     {Kind::Control, kTabReplay, "replaylength", "Länge", "Length",
      "Replay-Länge|Replay length|Dauer|Duration|Sekunden|Seconds|Cliplänge|Clip length"},
-    {Kind::Place, kTabReplay, nullptr, "Arbeitsspeicher", "Memory", nullptr},
+    {Kind::Place, kTabReplay, nullptr, "Ablage", "Storage", nullptr},
+    {Kind::Control, kTabReplay, "replaystore", "Arbeitsspeicher oder Platte", "Memory or disk",
+     "Platte|Disk|SSD|Arbeitsspeicher|Memory|RAM|Festplatte|Hard drive"},
     {Kind::Control, kTabReplay, "replaymemory", "Höchstens (GB)", "At most (GB)",
      "Replay-Speicher|Replay memory|RAM|GB|Arbeitsspeicher|Memory"},
 

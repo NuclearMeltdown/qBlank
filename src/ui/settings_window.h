@@ -204,10 +204,12 @@ class SettingsWindow {
   // Bild waere fuer eine Zahl, die sich langsam aendert, reine Verschwendung.
   // `bytes` 0 bei unbekanntem Ziel. `bytesPerSecond` kommt ebenfalls von dort,
   // weil nur die App weiss, wie viele Tonspuren gerade zusammenkaemen.
-  void SetDiskFree(uint64_t bytes, bool known, double bytesPerSecond) {
+  // `replayHeld`: what the replay on the disk holds there already.
+  void SetDiskFree(uint64_t bytes, bool known, double bytesPerSecond, uint64_t replayHeld) {
     diskFree_ = bytes;
     diskKnown_ = known;
     diskBytesPerSecond_ = bytesPerSecond;
+    replayDiskHeld_ = replayHeld;
   }
 
   // Arbeitsspeicher, aus demselben Grund von der App: alles, und was davon fuer
@@ -416,6 +418,7 @@ class SettingsWindow {
   uint64_t diskFree_ = 0;
   bool diskKnown_ = false;
   double diskBytesPerSecond_ = 0.0;
+  uint64_t replayDiskHeld_ = 0;
   // Siehe SetMemory. 0 solange unbekannt.
   uint64_t memTotal_ = 0;
   uint64_t memFree_ = 0;

@@ -712,6 +712,9 @@ struct RecordSettings {
   bool replay = false;
   int replaySeconds = 60;
   int replayGb = 4;
+  // The pictures on the disk instead, under clips\.replay in outputFolder,
+  // bounded by its free space rather than by replayGb.
+  bool replayOnDisk = false;
 
   // Result of the encoder test, kept so the list is filled on the next start
   // instead of making everyone test again. The signature is the graphics

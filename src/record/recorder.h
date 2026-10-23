@@ -174,16 +174,22 @@ class Recorder {
   void StopFile();
 
   // Keeps the newest `seconds` of what is encoded in memory, at most `bytes`
-  // of it (LimitBuffer may take it lower); 0 seconds lets it go.
-  void SetReplay(double seconds, uint64_t bytes);
+  // of it (LimitBuffer may take it lower); 0 seconds lets it go. With a `disk`
+  // folder the pictures go there instead (ReplayDisk), as much as its free
+  // space allows. Another place starts it over.
+  void SetReplay(double seconds, uint64_t bytes, const std::filesystem::path& disk = {});
   // Writes what the replay holds into `file`, from its first keyframe: at
   // least the length set once it has filled, at most a keyframe interval
   // more. False when there is nothing yet; otherwise TakeFinished reports it,
   // with Finished::clip.
   bool SaveReplay(const std::filesystem::path& file, double* seconds);
   // What the replay holds now, and how many seconds from its first keyframe
-  // to its newest picture. From the thread that starts and stops.
-  uint64_t replayBytes(double* seconds) const;
+  // to its newest picture, and whether that is on the disk. From the thread
+  // that starts and stops.
+  uint64_t replayBytes(double* seconds, bool* onDisk = nullptr) const;
+  // The replay on the disk gave up, its disk failed or fell behind: `why` for
+  // the user, once. The encoders run on; replaying() is false from now.
+  bool TakeReplayFailure(std::string* why);
 
   // A file that has been closed since the last call. `complete` is false when
   // writing it failed somewhere, and it may then not play.

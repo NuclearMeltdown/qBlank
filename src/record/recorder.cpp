@@ -10,6 +10,7 @@
 
 #include "record/gpu_frames.h"
 #include "record/libav.h"
+#include "record/replay_disk.h"
 #include "record/track_plan.h"
 #include "render/shared_frames.h"
 
@@ -59,6 +60,14 @@ int64_t QueueLimit(const RecordSettings& settings, int64_t queued, uint64_t free
 int64_t RingLimit(uint64_t asked, int64_t held, uint64_t freeBytes) {
   const int64_t room = held + (int64_t)freeBytes - (int64_t)kRecordBufferReserveBytes;
   return std::max<int64_t>(256ll << 20, std::min((int64_t)asked, room));
+}
+
+// The same on the disk, by its free space, with room left for a clip of all of
+// it. Anything while that is not known yet.
+int64_t DiskRingLimit(int64_t held, uint64_t freeBytes) {
+  if (freeBytes == UINT64_MAX) return INT64_MAX;
+  const int64_t room = held + (int64_t)freeBytes - (int64_t)kRecordBufferReserveBytes;
+  return std::max<int64_t>(256ll << 20, room / 2);
 }
 
 // The frame rate as a fraction, which is how the encoder and the container
@@ -153,6 +162,11 @@ struct Recorder::Output {
   int64_t lastVideo = INT64_MIN;  // the newest picture queued, before the offset
   bool overflow = false;
 
+  // A clip of the replay on the disk: the files its pictures are in, and the
+  // muxer's way into them, closed first.
+  std::vector<ReplayDisk::Pin> pins;
+  ReplayDisk::Reader reader;
+
   enum class Fate { Drop, Queue, Hold };
 
   ~Output();
@@ -218,6 +232,12 @@ void Recorder::Output::MuxLoop() {
     }
     for (AVPacket* packet : batch) {
       const int size = packet->size;
+      // A picture of the replay on the disk comes without its data.
+      if (!packet->buf && packet->opaque && !writeFailed.load(std::memory_order_relaxed) &&
+          !ReplayDisk::Load(*av, packet, &reader)) {
+        Failed(CAP_SAID(T("Das Replay auf der Platte ließ sich nicht lesen.",
+                          "Could not read the replay from the disk.")));
+      }
       if (!writeFailed.load(std::memory_order_relaxed)) {
         const int stream = packet->stream_index;
         av->av_packet_rescale_ts(packet, from[stream], ctx->streams[stream]->time_base);
@@ -461,6 +481,14 @@ struct Recorder::Session {
     std::deque<uint64_t> keys;  // keyframes, counted from the first ever kept
     uint64_t popped = 0;        // let go from the front so far
     std::deque<AVPacket*> audio;
+    // The pictures on the disk instead, in `folder`; made the first time and
+    // gone with the session, on the closing thread.
+    bool onDisk = false;
+    std::filesystem::path folder;
+    std::unique_ptr<ReplayDisk> disk;
+    // Gave up, and why; under routeMutex. For TakeReplayFailure.
+    std::atomic<bool> failed{false};
+    Said failure;
   } ring;
 
   // What Stop saw, for the closing thread's line in the log.
@@ -488,6 +516,8 @@ struct Recorder::Session {
   void Remember(AVPacket* packet);
   void DropInterval();
   void ClearRing();
+  // Off for good, its disk failed or fell behind.
+  void GiveUpRing(Said why);
 };
 
 Recorder::Session::~Session() {
@@ -721,6 +751,24 @@ void Recorder::Session::Remember(AVPacket* packet) {
     }
     return;
   }
+  if (ring.onDisk) {
+    // Its data goes to the disk's thread. One that falls behind by as much as
+    // a file may queue would only run out of memory.
+    ReplayDisk& disk = *ring.disk;
+    Said why;
+    if (disk.failed(&why) || disk.pending() > liveLimit) {
+      if (why.shown.empty()) {
+        why = CAP_SAID(T("Die Platte kommt mit dem Replay nicht hinterher.",
+                         "The disk cannot keep up with the replay."));
+      }
+      av->av_packet_free(&packet);
+      GiveUpRing(std::move(why));
+      return;
+    }
+    packet = disk.Put(packet);
+    if (!packet) return;
+    ring.limit = DiskRingLimit(ring.bytes, disk.freeBytes());
+  }
   if (packet->flags & AV_PKT_FLAG_KEY) ring.keys.push_back(ring.popped + ring.video.size());
   ring.video.push_back(packet);
   ring.newest = std::max(ring.newest, packet->pts);
@@ -732,6 +780,7 @@ void Recorder::Session::Remember(AVPacket* packet) {
     dropped = true;
   }
   if (!dropped) return;
+  if (ring.onDisk) ring.disk->Trim(ring.video.front());
   // The sound from before the picture that is now the first.
   const int64_t first = ring.video.front()->pts;
   while (!ring.audio.empty()) {
@@ -764,6 +813,16 @@ void Recorder::Session::ClearRing() {
   ring.popped = 0;
   ring.bytes = 0;
   ring.newest = INT64_MIN;
+  if (ring.disk) ring.disk->Clear();
+}
+
+void Recorder::Session::GiveUpRing(Said why) {
+  ring.on = false;
+  ClearRing();
+  ring.disk->Stop();
+  ring.onDisk = false;  // switched on again, it starts afresh
+  ring.failure = std::move(why);
+  ring.failed.store(true, std::memory_order_release);
 }
 
 // -------------------------------------------------------------- the recorder
@@ -1580,7 +1639,7 @@ void Recorder::StopFile() {
   file_.clear();
 }
 
-void Recorder::SetReplay(double seconds, uint64_t bytes) {
+void Recorder::SetReplay(double seconds, uint64_t bytes, const std::filesystem::path& disk) {
   Session* s = session_.get();
   if (!s) return;
   uint64_t freeBytes = 0;
@@ -1590,11 +1649,33 @@ void Recorder::SetReplay(double seconds, uint64_t bytes) {
   if (seconds <= 0.0) {
     ring.on = false;
     s->ClearRing();
+    if (ring.onDisk) ring.disk->Stop();
+    ring.onDisk = false;
     replaying_.store(false, std::memory_order_relaxed);
     return;
   }
+  // Somewhere else now: what it held there goes.
+  const bool onDisk = !disk.empty();
+  if (onDisk != ring.onDisk || (onDisk && disk != ring.folder)) {
+    if (ring.on) {
+      ring.on = false;
+      s->ClearRing();
+    }
+    if (ring.onDisk) ring.disk->Stop();
+    ring.onDisk = onDisk;
+    ring.folder = disk;
+    if (onDisk) {
+      if (!ring.disk) ring.disk = std::make_unique<ReplayDisk>(s->av);
+      // Files of a second or so, whatever the keyframes.
+      ring.disk->Start(disk, std::llround((double)s->rate.num / s->rate.den));
+    }
+  }
   ring.asked = bytes;
-  ring.limit = measured ? RingLimit(bytes, ring.bytes, freeBytes) : (int64_t)bytes;
+  if (onDisk) {
+    ring.limit = DiskRingLimit(ring.bytes, ring.disk->freeBytes());
+  } else {
+    ring.limit = measured ? RingLimit(bytes, ring.bytes, freeBytes) : (int64_t)bytes;
+  }
   ring.keep = std::llround(seconds * s->rate.num / s->rate.den);
   if (!ring.on) {
     // The sound ahead of the next keyframe, as a file begun now gets it.
@@ -1608,8 +1689,13 @@ void Recorder::SetReplay(double seconds, uint64_t bytes) {
     // It begins on a keyframe; on encoders already running for a file, the
     // next one is asked for rather than waited for.
     s->keyWanted.store(true, std::memory_order_relaxed);
-    CAP_LOG("Recording: replay of %.0f s, up to %s", seconds,
-            FormatBytes((uint64_t)ring.limit).c_str());
+    if (onDisk) {
+      CAP_LOG("Recording: replay of %.0f s on the disk, in %s", seconds,
+              PathToUtf8(disk).c_str());
+    } else {
+      CAP_LOG("Recording: replay of %.0f s, up to %s", seconds,
+              FormatBytes((uint64_t)ring.limit).c_str());
+    }
   }
   replaying_.store(true, std::memory_order_relaxed);
 }
@@ -1651,6 +1737,8 @@ bool Recorder::SaveReplay(const std::filesystem::path& file, double* seconds) {
   for (size_t i = 0; i < out->from.size(); ++i) {
     out->offset[i] = av->av_rescale_q(first, vtb, out->from[i]);
   }
+  // Before the first picture reaches its muxer.
+  if (ring.onDisk) out->pins = ring.disk->PinAll();
 
   // Sound and picture in the order of their time, as a container interleaves
   // them best: before each picture the sound up to it.
@@ -1669,7 +1757,8 @@ bool Recorder::SaveReplay(const std::filesystem::path& file, double* seconds) {
                at) {
       out->Queue(sound[next++]);
     }
-    if (AVPacket* kept = av->av_packet_clone(picture)) out->Queue(kept);
+    AVPacket* kept = ring.onDisk ? ReplayDisk::Copy(*av, picture) : av->av_packet_clone(picture);
+    if (kept) out->Queue(kept);
   }
   while (next < sound.size()) out->Queue(sound[next++]);
 
@@ -2317,11 +2406,13 @@ uint64_t Recorder::queuedBytes() const {
   return queued > 0 ? (uint64_t)queued : 0;
 }
 
-uint64_t Recorder::replayBytes(double* seconds) const {
+uint64_t Recorder::replayBytes(double* seconds, bool* onDisk) const {
   if (seconds) *seconds = 0.0;
+  if (onDisk) *onDisk = false;
   if (!session_) return 0;
   Session& s = *session_;
   std::lock_guard<std::mutex> lock(s.routeMutex);
+  if (onDisk) *onDisk = s.ring.onDisk;
   if (seconds && !s.ring.video.empty()) {
     *seconds = (double)(s.ring.newest + 1 - s.ring.video.front()->pts) *
                av_q2d(s.bases[(size_t)s.videoStream]);
@@ -2351,7 +2442,23 @@ void Recorder::LimitBuffer(const RecordSettings& settings, uint64_t freeBytes) {
     s.liveLimit = QueueLimit(s.settings, queued, freeBytes);
     if (s.live) s.live->queueLimit.store(s.liveLimit, std::memory_order_relaxed);
   }
-  if (s.ring.on) s.ring.limit = RingLimit(s.ring.asked, s.ring.bytes, freeBytes);
+  // On the disk, Remember goes by the disk's free space.
+  if (s.ring.on && !s.ring.onDisk) s.ring.limit = RingLimit(s.ring.asked, s.ring.bytes, freeBytes);
+}
+
+bool Recorder::TakeReplayFailure(std::string* why) {
+  Session* s = session_.get();
+  if (!s || !s->ring.failed.load(std::memory_order_acquire)) return false;
+  Said said;
+  {
+    std::lock_guard<std::mutex> lock(s->routeMutex);
+    said = std::move(s->ring.failure);
+    s->ring.failed.store(false, std::memory_order_relaxed);
+  }
+  replaying_.store(false, std::memory_order_relaxed);
+  CAP_WARN("Recording: the replay stopped: %s", said.logged.c_str());
+  *why = std::move(said.shown);
+  return true;
 }
 
 RecordStats Recorder::stats() const {

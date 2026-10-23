@@ -659,11 +659,22 @@ void RecordingControl::EnsureReplay() {
       StopSession();
       return;  // and again from below, the next frame
     }
+    // Another folder only once they are closed: typed into, every letter would
+    // be one.
     if (!recorder_.replaying() || rec.replaySeconds != replaySecondsSet_ ||
-        rec.replayGb != replayGbSet_) {
+        rec.replayGb != replayGbSet_ || rec.replayOnDisk != replayOnDiskSet_ ||
+        (rec.replayOnDisk && !settings_.isOpen() && rec.outputFolder != replayFolderSet_)) {
       replaySecondsSet_ = rec.replaySeconds;
       replayGbSet_ = rec.replayGb;
-      recorder_.SetReplay((double)rec.replaySeconds, (uint64_t)rec.replayGb << 30);
+      replayOnDiskSet_ = rec.replayOnDisk;
+      replayFolderSet_ = rec.outputFolder;
+      // Beside the clips, on the disk meant to have the room.
+      std::filesystem::path disk;
+      if (rec.replayOnDisk) {
+        disk = (rec.outputFolder.empty() ? DefaultRecordFolder() : Utf8ToPath(rec.outputFolder)) /
+               "clips" / ".replay";
+      }
+      recorder_.SetReplay((double)rec.replaySeconds, (uint64_t)rec.replayGb << 30, disk);
     }
     return;
   }
@@ -773,8 +784,10 @@ void RecordingControl::UpdateDiskSpace() {
     uint64_t total = 0, freeBytes = 0;
     if (MemoryBytes(&total, &freeBytes)) {
       recorder_.LimitBuffer(config_.record, freeBytes);
-      settings_.SetMemory(total,
-                          freeBytes + recorder_.queuedBytes() + recorder_.replayBytes(nullptr));
+      bool onDisk = false;
+      const uint64_t replay = recorder_.replayBytes(nullptr, &onDisk);
+      replayDiskBytes_ = onDisk ? replay : 0;
+      settings_.SetMemory(total, freeBytes + recorder_.queuedBytes() + (onDisk ? 0 : replay));
     }
   }
   if (!diskAsked_ && now - lastDiskCheck_ > 1.0) {
@@ -807,7 +820,7 @@ void RecordingControl::UpdateDiskSpace() {
       };
     });
   }
-  settings_.SetDiskFree(diskFreeBytes_, diskFreeKnown_, diskBytesPerSecond_);
+  settings_.SetDiskFree(diskFreeBytes_, diskFreeKnown_, diskBytesPerSecond_, replayDiskBytes_);
 }
 
 void RecordingControl::SyncSources() {
@@ -921,6 +934,13 @@ void RecordingControl::FeedRecorder() {
                : wasRecording       ? T("Aufnahme abgebrochen.", "Recording aborted.")
                                     : T("Replay abgebrochen.", "Replay aborted."));
     return;
+  }
+  // Only the replay on the disk gave up; a file goes on, and EnsureReplay ends
+  // the encoders when there is none.
+  std::string replayTrouble;
+  if (recorder_.TakeReplayFailure(&replayTrouble)) {
+    replaySuspended_ = true;
+    host_.Warn(replayTrouble);
   }
 
   const double now = TicksToSeconds(ClockTicks());

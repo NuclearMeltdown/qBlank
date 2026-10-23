@@ -4235,12 +4235,12 @@ void SettingsWindow::DrawReplayTab(FfmpegInfo* ffmpeg) {
     return text;
   };
   ImGui::TextWrapped(
-      "%s", Format(T("Hält die letzten Sekunden im Arbeitsspeicher, mit dem Encoder aus dem Reiter "
-                     "Encoder. Erst %s schreibt sie auf die Platte, in den Unterordner clips des "
-                     "Aufnahmeordners. Neben einer Aufnahme läuft es mit, ohne zweiten Encoder.",
-                     "Keeps the last seconds in memory, on the encoder from the Encoder tab. Only "
-                     "%s writes them to disk, into the clips subfolder of the recording folder. "
-                     "Beside a recording it runs along, without a second encoder."),
+      "%s", Format(T("Hält die letzten Sekunden bereit, mit dem Encoder aus dem Reiter Encoder. "
+                     "Erst %s macht daraus einen Clip, im Unterordner clips des Aufnahmeordners. "
+                     "Neben einer Aufnahme läuft es mit, ohne zweiten Encoder.",
+                     "Keeps the last seconds at hand, on the encoder from the Encoder tab. Only %s "
+                     "makes a clip of them, in the clips subfolder of the recording folder. Beside "
+                     "a recording it runs along, without a second encoder."),
                    action(HotkeyAction::ReplaySave).c_str())
                 .c_str());
   ImGui::Spacing();
@@ -4260,20 +4260,49 @@ void SettingsWindow::DrawReplayTab(FfmpegInfo* ffmpeg) {
   ResetOnRightClick(rec.replaySeconds, kRecord.replaySeconds);
 
   ImGui::Spacing();
-  ImGui::SeparatorText(T("Arbeitsspeicher", "Memory"));
-  MemorySlider("##replaymemory", &rec.replayGb, kRecord.replayGb,
-               T("Höchstens (GB)", "At most (GB)"),
-               T("%s frei für das Replay,", "%s free for the replay,"));
+  ImGui::SeparatorText(T("Ablage", "Storage"));
+  if (ImGui::RadioButton(T("Arbeitsspeicher", "Memory"), !rec.replayOnDisk)) rec.replayOnDisk = false;
+  Anchor("replaystore");
+  ImGui::SameLine();
+  if (ImGui::RadioButton(T("Platte", "Disk"), rec.replayOnDisk)) rec.replayOnDisk = true;
+  HelpMarker(T("Auf der Platte liegt es im Aufnahmeordner unter clips\\.replay und braucht keinen "
+               "Arbeitsspeicher. Für eine schnelle SSD: der Encoder schreibt ständig mit. Es lässt "
+               "Platz für einen Clip aus allem, was es hält.",
+               "On disk it lives in the recording folder under clips\\.replay and takes no memory. "
+               "For a fast SSD: the encoder writes all the time. It leaves room for a clip of all "
+               "it holds."));
+
   // What the length costs, by the same estimate as the time left on the
-  // recording tab. Should the memory run out first, the replay holds less.
-  if (diskBytesPerSecond_ > 1.0) {
-    const double need = diskBytesPerSecond_ * rec.replaySeconds;
-    const double cap = (double)rec.replayGb * kGb;
-    std::string line = Format(T("%d s brauchen etwa %s", "%d s take about %s"), rec.replaySeconds,
-                              FormatBytes((uint64_t)need).c_str());
-    if (need > cap) {
-      line += Format(T(" — mehr als erlaubt, es bleiben etwa %s", " — more than allowed, about %s fit"),
-                     FormatDuration(cap / diskBytesPerSecond_).c_str());
+  // recording tab. Should the room run out first, the replay holds less.
+  const double rate = diskBytesPerSecond_;
+  const double need = rate * rec.replaySeconds;
+  if (!rec.replayOnDisk) {
+    MemorySlider("##replaymemory", &rec.replayGb, kRecord.replayGb,
+                 T("Höchstens (GB)", "At most (GB)"),
+                 T("%s frei für das Replay,", "%s free for the replay,"));
+    if (rate > 1.0) {
+      const double cap = (double)rec.replayGb * kGb;
+      std::string line = Format(T("%d s brauchen etwa %s", "%d s take about %s"),
+                                rec.replaySeconds, FormatBytes((uint64_t)need).c_str());
+      if (need > cap) {
+        line += Format(T(" — mehr als erlaubt, es bleiben etwa %s",
+                         " — more than allowed, about %s fit"),
+                       FormatDuration(cap / rate).c_str());
+      }
+      ImGui::TextDisabled("%s", line.c_str());
+    }
+  } else if (rate > 1.0) {
+    std::string line = Format(T("%d s brauchen etwa %s auf der Platte", "%d s take about %s of disk"),
+                              rec.replaySeconds, FormatBytes((uint64_t)need).c_str());
+    // The recorder's rule: half of what is free past the reserve, the other
+    // half for the clip.
+    if (diskKnown_) {
+      const double room = ((double)diskFree_ + (double)replayDiskHeld_ -
+                           (double)kRecordBufferReserveBytes) / 2.0;
+      if (need > room) {
+        line += Format(T(" — zu wenig frei, es bleiben etwa %s", " — too little free, about %s fit"),
+                       FormatDuration(std::max(room, 0.0) / rate).c_str());
+      }
     }
     ImGui::TextDisabled("%s", line.c_str());
   }

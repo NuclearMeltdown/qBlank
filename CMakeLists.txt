@@ -117,6 +117,7 @@ add_executable(qBlank WIN32
   src/record/libav.cpp
   src/record/recorder.cpp
   src/record/remuxer.cpp
+  src/record/replay_disk.cpp
   src/record/screenshot.cpp
   src/record/screenshot_win32.cpp
   src/record/screenshot_writer.cpp

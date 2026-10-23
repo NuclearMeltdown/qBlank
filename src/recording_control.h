@@ -218,6 +218,8 @@ class RecordingControl {
   // What SetReplay was last given.
   int replaySecondsSet_ = 0;
   int replayGbSet_ = 0;
+  bool replayOnDiskSet_ = false;
+  std::string replayFolderSet_;  // RecordSettings::outputFolder, then
   // No usable encoder for the replay: one test asked for, not one a frame.
   bool replayProbeAsked_ = false;
   // F9 found no ffmpeg and loading it is still under way; it starts once that
@@ -264,6 +266,8 @@ class RecordingControl {
   bool diskAsked_ = false;
   uint64_t diskFreeBytes_ = 0;
   bool diskFreeKnown_ = false;
+  // What the replay holds on that disk, and would give up.
+  uint64_t replayDiskBytes_ = 0;
   // Was eine Sekunde Aufnahme nach den Einstellungen kostet. Geschaetzt, solange
   // nichts laeuft; waehrend einer Aufnahme gewinnt die gemessene Schreibrate.
   double diskBytesPerSecond_ = 0.0;

@@ -1098,6 +1098,7 @@ bool Config::Load(std::string* error) {
   record.replaySeconds = Clamp(r["replaySeconds"].AsInt(60), kMinReplaySeconds,
                                kMaxReplaySeconds);
   record.replayGb = Clamp(r["replayGb"].AsInt(4), 1, kMaxRecordBufferGb);
+  record.replayOnDisk = r["replayOnDisk"].AsBool(false);
   record.fullChroma = r["fullChroma"].AsBool(false);
   record.unfiltered = r["unfiltered"].AsBool(false);
   record.encoderProbeSignature = r["encoderProbeSignature"].AsString();
@@ -1293,6 +1294,7 @@ std::string Config::Serialize() const {
   r["replay"] = record.replay;
   r["replaySeconds"] = record.replaySeconds;
   r["replayGb"] = record.replayGb;
+  r["replayOnDisk"] = record.replayOnDisk;
   r["fullChroma"] = record.fullChroma;
   r["unfiltered"] = record.unfiltered;
   r["encoderProbeSignature"] = record.encoderProbeSignature;

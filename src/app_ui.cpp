@@ -771,10 +771,12 @@ void App::DrawUi() {
     }
     if (config_.record.replay) {
       double held = 0.0;
-      const uint64_t bytes = recorder_.replayBytes(&held);
+      bool onDisk = false;
+      const uint64_t bytes = recorder_.replayBytes(&held, &onDisk);
       stats.replayInfo = recorder_.replaying()
-                             ? Format("%.0f / %d s, %s", held, config_.record.replaySeconds,
-                                      FormatBytes(bytes).c_str())
+                             ? Format("%.0f / %d s, %s%s", held, config_.record.replaySeconds,
+                                      FormatBytes(bytes).c_str(),
+                                      onDisk ? T(" auf der Platte", " on disk") : "")
                          : recording_.replayWanted() ? T("startet", "starting")
                                                      : T("ausgefallen", "failed");
     }
