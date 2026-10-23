@@ -36,6 +36,9 @@ struct Window::Impl {
   // What Shift holds while the main window is resized; see SetSizingAspect.
   double sizingAspect = 0.0;
   int sizingInset = 0;
+  // WindowSpec::minWidth and minHeight, at 100 %.
+  int minWidth = 0;
+  int minHeight = 0;
   // The main window without its frame. The style stays WS_OVERLAPPEDWINDOW
   // throughout -- that is what keeps the taskbar button, snapping and the
   // minimise animation -- and the frame is taken away in WM_NCCALCSIZE instead.
@@ -192,6 +195,15 @@ RECT FrameOffsets(HWND hwnd) {
   RECT frame = {0, 0, 0, 0};
   ::AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, ::GetDpiForWindow(hwnd));
   return frame;
+}
+
+// A tool window's smallest whole size: its inside at the monitor's scaling, and
+// the frame around it at the same.
+SIZE ToolMinSize(const Window::Impl* w, HWND hwnd) {
+  const UINT dpi = ::GetDpiForWindow(hwnd);
+  RECT rc = {0, 0, ::MulDiv(w->minWidth, (int)dpi, 96), ::MulDiv(w->minHeight, (int)dpi, 96)};
+  ::AdjustWindowRectExForDpi(&rc, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_APPWINDOW, dpi);
+  return {rc.right - rc.left, rc.bottom - rc.top};
 }
 
 // Without a frame there is nothing to grab, so a strip as wide as the frame
@@ -452,14 +464,19 @@ LRESULT HandleMessage(Window::Impl* w, HWND hwnd, UINT msg, WPARAM wparam, LPARA
       }
       return 0;
 
-    case WM_GETMINMAXINFO:
-      if (role != WindowRole::Main) break;
-      {
-        auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+    case WM_GETMINMAXINFO: {
+      auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+      if (role == WindowRole::Main) {
         info->ptMinTrackSize.x = kMainMinWidth;
         info->ptMinTrackSize.y = kMainMinHeight;
+        return 0;
       }
+      if (role != WindowRole::Tool || w->minWidth <= 0) break;
+      const SIZE min = ToolMinSize(w, hwnd);
+      info->ptMinTrackSize.x = min.cx;
+      info->ptMinTrackSize.y = min.cy;
       return 0;
+    }
 
     case WM_SETFOCUS:
     case WM_KILLFOCUS: {
@@ -601,6 +618,8 @@ CreateResult Window::Create(const WindowSpec& spec) {
   Impl& w = *impl_;
   if (w.hwnd) return CreateResult::Ok;
   w.role = spec.role;
+  w.minWidth = spec.minWidth;
+  w.minHeight = spec.minHeight;
   // From the one name in app_identity_win32.h, so a rename does not leave a
   // window class behind that still says what the program used to be called.
   w.className = WindowClassName(ToWide(spec.id).c_str());
@@ -731,6 +750,18 @@ CreateResult Window::Create(const WindowSpec& spec) {
     return CreateResult::WindowFailed;
   }
   if (w.borderless) ApplyBorderlessLook(&w);
+  if (spec.role == WindowRole::Tool && w.minWidth > 0) {
+    // The minimum only binds dragging; a smaller size remembered from before
+    // is brought up to it here.
+    const SIZE min = ToolMinSize(&w, hwnd);
+    RECT rc = {};
+    ::GetWindowRect(hwnd, &rc);
+    if (rc.right - rc.left < min.cx || rc.bottom - rc.top < min.cy) {
+      ::SetWindowPos(hwnd, nullptr, 0, 0, std::max<int>(rc.right - rc.left, min.cx),
+                     std::max<int>(rc.bottom - rc.top, min.cy),
+                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+  }
   if (spec.role == WindowRole::Popup) {
     // Rounded like the system's menus on Windows 11. Earlier versions refuse
     // and keep square corners.

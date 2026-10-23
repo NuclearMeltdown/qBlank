@@ -21,6 +21,12 @@ struct ImGuiContext;
 
 namespace cap {
 
+// The smallest the dialog may be, at 100 % scaling: the inside of its own
+// window, or the panel over the preview. Narrower, the fields beside their
+// labels shrink until their text is cut off.
+constexpr int kSettingsMinWidth = 620;
+constexpr int kSettingsMinHeight = 460;
+
 class SettingsHost {
  public:
   ~SettingsHost();

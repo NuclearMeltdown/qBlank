@@ -109,6 +109,8 @@ bool SettingsHost::Create(float uiScale, bool allowTearing, const Placement& whe
   widenPending_ = where.width <= 200;
   spec.width = widenPending_ ? (int)(720 * uiScale_) : where.width;
   spec.height = where.height > 200 ? where.height : (int)(640 * uiScale_);
+  spec.minWidth = kSettingsMinWidth;
+  spec.minHeight = kSettingsMinHeight;
   spec.hasPosition = where.x != -1 || where.y != -1;
   spec.x = where.x;
   spec.y = where.y;

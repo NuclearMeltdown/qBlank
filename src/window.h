@@ -69,6 +69,10 @@ struct WindowSpec {
   int y = 0;
   // Main only: see Window::SetBorderless.
   bool borderless = false;
+  // Tool only: the smallest the inside may be resized to, at 100 % scaling.
+  // It grows with the monitor's scaling. 0 for no limit.
+  int minWidth = 0;
+  int minHeight = 0;
 };
 
 enum class CreateResult {

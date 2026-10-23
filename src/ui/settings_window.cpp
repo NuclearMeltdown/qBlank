@@ -14,6 +14,7 @@
 #include "i18n.h"
 #include "record/screenshot.h"
 #include "ui/file_dialog.h"
+#include "ui/settings_host.h"
 #include "imgui.h"
 
 namespace cap {
@@ -657,8 +658,8 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
                                ImGuiCond_Always);
     }
     panelScale_ = scale;
-    ImGui::SetNextWindowSizeConstraints(ImVec2(620.0f * scale, 460.0f * scale),
-                                        ImVec2(FLT_MAX, FLT_MAX));
+    ImGui::SetNextWindowSizeConstraints(
+        ImVec2(kSettingsMinWidth * scale, kSettingsMinHeight * scale), ImVec2(FLT_MAX, FLT_MAX));
 
     // Everything after "###" is the id, everything before it is the label.
     // Without this the window is a different window in each language: ImGui keys
