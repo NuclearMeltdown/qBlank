@@ -322,7 +322,12 @@ bool Win32WindowCapture::Start(const CaptureTarget& target, bool cursor, uint64_
 
   // The window asked for, else the program's frontmost one: its title may
   // have moved on since it was picked.
-  if (target.app.empty()) return fail(CAP_SAID(T("Kein Fenster gewählt.", "No window chosen.")));
+  // A window still to be picked is no error: shown, but kept out of the log,
+  // as it is asked again every few seconds.
+  if (target.app.empty()) {
+    if (error) *error = T("Kein Fenster gewählt.", "No window chosen.");
+    return false;
+  }
   const std::vector<Candidate> found = Candidates();
   const Candidate* chosen = nullptr;
   for (const Candidate& c : found) {
