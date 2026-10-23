@@ -73,6 +73,8 @@
         <li><em>Nicht gefunden</em>: Ist die Karte angeschlossen? Dann <em>Aktualisieren</em> unter <strong>Quelle</strong>.</li>
       </ul>
       <p><kbd>F5</kbd> startet die Aufnahme neu, <kbd>Umschalt</kbd>+<kbd>F5</kbd> liest die Karte neu ein.</p>
+      <h3>Ein Spiel bleibt bei Bildschirm oder Fenster schwarz</h3>
+      <p>Das Spiel läuft im exklusiven Vollbild, und Windows gibt dieses Bild nicht frei. qBlank sagt es im Fenster. Im Spiel Fenster oder Randlos einstellen.</p>
       <h3>Keine Farbe oder falsche Farben</h3>
       <p><strong>Quelle &rarr; Videonorm</strong> auf <em>Automatisch</em>, dann <kbd>F7</kbd>. Verwechselt es PAL 60 und NTSC, stell die Region darunter auf dein Land.</p>
       <h3>Schwarz wirkt grau oder säuft ab</h3>
@@ -110,7 +112,7 @@
       <h3>Die Aufnahme startet nicht</h3>
       <p>Zum Aufnehmen braucht qBlank ffmpeg: <strong>Encoder &rarr; ffmpeg herunterladen</strong>. Läuft der gewählte Encoder auf diesem PC nicht, geht qBlank zurück auf <em>Automatisch</em>. <em>Encoder testen</em> zeigt, welche laufen.</p>
       <h3>&bdquo;Encoder kommt nicht hinterher&ldquo;</h3>
-      <p>Wähl eine schnellere <em>Voreinstellung</em> oder eine kleinere Auflösung oder Bildrate. Ein Hardware-Encoder (NVENC, Quick Sync, AMF) nimmt der CPU die Last ab.</p>
+      <p>Wähl eine schnellere <em>Voreinstellung</em>, eine kleinere <em>Auflösung</em> unter <strong>Aufnahme</strong> oder eine kleinere Bildrate. Ein Hardware-Encoder (NVENC, Quick Sync, AMF) nimmt der CPU die Last ab. Hat die Grafikkarte mehr als einen NVENC, teilt <strong>Encoder &rarr; Alle Encoder-Chips</strong> jedes Bild auf sie auf. Bis dahin fallen Bilder weg, statt wiederholt zu werden.</p>
       <h3>Die MP4 lässt sich nicht öffnen</h3>
       <p>Eine MP4, die nicht sauber abgeschlossen wurde, etwa nach einem Absturz, lässt sich nicht öffnen. MKV übersteht das. Nimm als MKV auf und mach danach mit <strong>Aufnahme &rarr; Nach MP4 umpacken</strong> eine MP4 daraus: Sekunden, ohne Qualitätsverlust.</p>
       <h3>Die Aufnahme hat von selbst aufgehört</h3>

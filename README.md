@@ -15,8 +15,9 @@ file, any DirectShow device, and as little delay as the hardware allows.
 Measured on a StarTech PEXHDCAP60L: **1080p60 sustained, around 1 ms from a
 frame arriving to the present that hands it to the compositor.**
 
-Recording (lossless too), screenshots and a virtual camera are included;
-scenes, overlays, compositing and streaming are not. For those, use OBS.
+Recording (lossless too), a replay buffer, screenshots and a virtual camera
+are included, and a screen or a window can stand in for the card; scenes,
+overlays, compositing and streaming are not. For those, use OBS.
 
 > **The [manual](https://qblank.com/manual.html) explains how
 > to use it** (English and German). **The [wiki](../../wiki) is the documentation** —
@@ -41,6 +42,14 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Rate list carries *highest available* and *the signal's rate*.
 - A resolution that does not fit the video standard is corrected, or asked about on the picture.
 - Analogue: video standard, input cable, and the driver's own property pages while the picture runs.
+
+**Screen and window** · [wiki](../../wiki/Screen-and-window)
+- *Source → Screen*: a monitor through Desktop Duplication, copied on the GPU.
+- *Source → Window*: one program's window through Windows.Graphics.Capture — covered is fine, minimised is not; found again when it reopens.
+- Mouse pointer optional; a preview, or a status panel that draws less.
+- qBlank hides itself from the screen capture — optional, so Remote Play can still see it.
+- A notice when a game in exclusive fullscreen keeps the picture away; borderless windowed works.
+- Sound through the recording source *System sound without qBlank*.
 
 **Automatic video standard** · [wiki](../../wiki/Automatic-video-standard)
 - Rechecked for as long as the program runs, not chosen once at startup.
@@ -117,7 +126,7 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Embedded card audio or any Windows recording device, out through WASAPI.
 - Buffer target, optional exclusive mode, A/V offset.
 - Clock drift corrected by nudging the playback rate a fraction of a per cent.
-- Recording sources on top of the card audio: microphones, output devices, the system sound without qBlank — each with its own gain, mixed, separate or both, never played back.
+- Recording sources on top of the card audio, as many as needed: microphones, output devices, the system sound without qBlank — each with its own gain, mixed, separate or both, never played back.
 
 **Recording** · [wiki](../../wiki/Recording)
 - H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265, encoded inside qBlank by ffmpeg's libraries.
@@ -130,7 +139,20 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 - Rate control, preset, tuning, look-ahead, adaptive quantisation and multipass under one set of names.
 - Free space shown as remaining recording time; a recording will not start on a full drive and stops itself before one fills up.
 - An optional larger memory buffer for slow drives, never more than is free.
-- A notice when the encoder cannot keep up.
+- **Resolution**: caps the short side (2160p … 360p); display and screenshots stay full.
+- **All encoder chips**: NVENC H.265 and AV1 split each frame over every NVENC on the card — RTX 4080, AV1 1440p p7: 110 → 183 fps.
+- Frames the encoder cannot take are left out, not repeated; a notice says so.
+- Lossless files go to `raw\`, clips to `clips\`.
+
+**Replay** · [wiki](../../wiki/Recording#replay)
+- The last 5 s to 30 min, held in memory or on disk.
+- **Shift+F9** saves a clip, **Ctrl+F9** switches it on and off.
+- Runs beside a recording on the same encoder, no second one.
+
+**System-wide shortcuts** · [wiki](../../wiki/Shortcuts#system-wide)
+- Any action while a game has the keyboard: record, replay, screenshot, fullscreen, volume …
+- A set of their own under *Settings → Keys*, none bound out of the box.
+- A combination another program holds is shown in red.
 
 **Screenshots** · [wiki](../../wiki/Screenshots)
 - At source resolution, taken **before the interface is drawn** — or the whole window with it, if you ask.
@@ -174,15 +196,16 @@ scenes, overlays, compositing and streaming are not. For those, use OBS.
 
 | Key | Action | | Key | Action |
 |---|---|---|---|---|
-| Enter / Esc | Fullscreen on / off | | F8 | Detect border |
-| Ctrl+Enter | Borderless | | F9 | Start / stop recording |
-| F1 | Statistics | | F10 | Screenshot |
-| F2 | Settings | | Ctrl+F10 | Screenshot to clipboard |
-| F3 | Toolbar | | F11 | Freeze |
-| F5 | Restart capture | | F12 | Compare filters |
-| Shift+F5 | Reinitialise card | | Shift+F12 | All filters off |
-| F6 | Measure colour range | | M | Mute |
-| F7 | Detect video standard | | `+` `-` / wheel | Volume |
+| Enter / Esc | Fullscreen on / off | | F9 | Start / stop recording |
+| Ctrl+Enter | Borderless | | Shift+F9 | Save replay as clip |
+| F1 | Statistics | | Ctrl+F9 | Replay on / off |
+| F2 | Settings | | F10 | Screenshot |
+| F3 | Toolbar | | Ctrl+F10 | Screenshot to clipboard |
+| F5 | Restart capture | | F11 | Freeze |
+| Shift+F5 | Reinitialise card | | F12 | Compare filters |
+| F6 | Measure colour range | | Shift+F12 | All filters off |
+| F7 | Detect video standard | | M | Mute |
+| F8 | Detect border | | `+` `-` / wheel | Volume |
 | | | | Ctrl+1 … Ctrl+9 | Switch profile |
 
 Right click opens the menu, a double click on the picture toggles fullscreen.
@@ -192,7 +215,7 @@ Explorer. All except Esc, the profile digits and Alt+F4 are reassignable under
 
 ## ffmpeg
 
-- Needed for **recording**, **remuxing to MP4** and **HDR screenshots in AVIF**, nothing else.
+- Needed for **recording**, the **replay**, **remuxing to MP4** and **HDR screenshots in AVIF**, nothing else.
 - Preview, filters, deinterlacing, virtual camera and SDR screenshots run without it.
 - Not bundled. *Settings → Encoder* downloads the four libraries of a shared build (57 MB) and verifies its published SHA-256.
 - Loaded into qBlank itself: no second process, no pipe.

@@ -53,6 +53,7 @@
     <div class="secs">
       <a href="#install">Installation</a>
       <a href="#first">Erster Start</a>
+      <a href="#screen">Bildschirm oder Fenster</a>
       <a href="#window">Das Fenster</a>
       <a href="#keys">Tasten</a>
       <a href="#settings">Einstellungen</a>
@@ -80,10 +81,31 @@
         <li><strong>Quelle &rarr; Format:</strong> auf Automatisch lassen, außer du willst eine bestimmte Auflösung oder Bildrate.</li>
       </ul>
       <figure class="ui">
-        <img src="shots/source.png" width="528" height="354" loading="lazy" alt="Der Reiter Quelle der Einstellungen: der Eingang auf Automatisch, die Karte unter Videogerät gewählt und die Knöpfe Karte konfigurieren und Karte neu einlesen">
-        <figcaption>Einstellungen &rarr; Quelle: die Karte unter <em>Videogerät</em> wählen.</figcaption>
+        <img src="shots/source.png" width="528" height="445" loading="lazy" alt="Der Reiter Quelle der Einstellungen: Bildquelle Capture-Karte, Bildschirm oder Fenster, der Eingang auf Automatisch, die Karte unter Videogerät gewählt und die Knöpfe Karte konfigurieren und Karte neu einlesen">
+        <figcaption>Einstellungen &rarr; Quelle: <em>Capture-Karte</em> als Bildquelle, dann die Karte unter <em>Videogerät</em>.</figcaption>
       </figure>
       <p>Eine Karte kann immer nur ein Programm halten. Bleibt das Bild schwarz, schließ OBS oder jedes andere Programm, das die Karte nutzt.</p>
+    </section>
+
+    <section id="screen">
+      <h2>Bildschirm oder Fenster</h2>
+      <p>Statt einer Karte nimmt qBlank auch einen Monitor oder das Fenster eines Programms, mit derselben Aufnahme, demselben Replay und denselben Screenshots. <strong>Quelle &rarr; Bildquelle</strong>:</p>
+      <ul>
+        <li><strong>Bildschirm:</strong> den Monitor wählen. Aufgenommen über Desktop Duplication, kopiert auf der GPU.</li>
+        <li><strong>Fenster:</strong> <em>Fenster wählen</em> listet die offenen Programme. Ein verdecktes Fenster kommt weiter durch, ein minimiertes nicht. Geschlossen und wieder geöffnet, wird es wiedergefunden.</li>
+        <li><em>Mauszeiger mit aufnehmen</em> nimmt den Zeiger mit. <em>Vorschau</em> aus zeigt nur Auflösung, Bildrate und Aufnahmezeit und zeichnet seltener.</li>
+        <li><em>qBlank auf der Aufnahme verbergen</em>, von Haus aus an, hält qBlank aus jeder Bildschirmaufnahme heraus, auch aus Remote Play und Remotedesktop. Aus ist es dort zu sehen.</li>
+        <li>Ältere Spiele im exklusiven Vollbild lassen sich nicht aufnehmen, und qBlank sagt es; im randlosen Fenster geht es.</li>
+        <li>Ton: unter <strong>Ton &rarr; Tonquellen der Aufnahme</strong> <em>Systemton ohne qBlank</em> hinzufügen.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="386" loading="lazy" alt="Der Reiter Quelle mit Bildschirm als Bildquelle: der Hauptmonitor gewählt, Mauszeiger, Vorschau und qBlank auf der Aufnahme verbergen eingeschaltet, dazu die Hinweise zum exklusiven Vollbild und zum Ton">
+        <figcaption>Einstellungen &rarr; Quelle &rarr; Bildschirm: Monitor, Zeiger, Vorschau, qBlank verbergen.</figcaption>
+      </figure>
+      <figure class="ui panel">
+        <img src="shots/panel.png" width="420" height="162" loading="lazy" alt="Die Anzeige von qBlank bei ausgeschalteter Vorschau: Monitor 1, 2560 × 1440, 144 Hz, 5 fps und die Knöpfe Aufnahme starten, Screenshot und Vorschau zeigen">
+        <figcaption>Vorschau aus: die Anzeige statt des Bildes. Die Bildrate zählt die Bilder, die sich geändert haben; ein stiller Desktop zeigt wenige.</figcaption>
+      </figure>
     </section>
 
     <section id="window">
@@ -118,6 +140,8 @@
         <tr><td><kbd>F7</kbd></td><td>Videonorm suchen</td></tr>
         <tr><td><kbd>F8</kbd></td><td>Rand suchen</td></tr>
         <tr><td><kbd>F9</kbd></td><td>Aufnahme starten/stoppen</td></tr>
+        <tr><td><kbd>Umschalt</kbd>+<kbd>F9</kbd></td><td>Replay als Clip speichern</td></tr>
+        <tr><td><kbd>Strg</kbd>+<kbd>F9</kbd></td><td>Replay an/aus</td></tr>
         <tr><td><kbd>F10</kbd></td><td>Screenshot</td></tr>
         <tr><td><kbd>Strg</kbd>+<kbd>F10</kbd></td><td>Screenshot in die Zwischenablage</td></tr>
         <tr><td><kbd>F11</kbd></td><td>Standbild</td></tr>
@@ -128,6 +152,11 @@
       </table>
       <p>Feste Tasten: <kbd>Esc</kbd> verlässt das Vollbild oder schließt die Einstellungen, <kbd>Strg</kbd>+<kbd>1</kbd>&hellip;<kbd>9</kbd> wechselt das Profil, <kbd>Strg</kbd>+<kbd>F</kbd> durchsucht die Einstellungen.</p>
       <p>&bdquo;Aufnahme neu starten&ldquo; meint hier das Einlesen von der Karte, nicht die Videoaufnahme.</p>
+      <p><strong>Systemweit:</strong> Jede Aktion kann in der Spalte <em>Systemweit</em> eine zweite Taste bekommen, die auch wirkt, während ein Spiel die Tastatur hat. Von Haus aus ist keine belegt. Solange qBlank läuft, bekommt kein anderes Programm diese Kombination; eine schon vergebene steht rot da.</p>
+      <figure class="ui">
+        <img src="shots/keys.png" width="528" height="570" loading="lazy" alt="Der Reiter Tasten: jede Aktion mit ihrer Taste und einer Spalte Systemweit, in der Aufnahme starten/stoppen Alt+F9 hat, Replay als Clip speichern Alt+Umschalt+F9 und Screenshot Alt+F10">
+        <figcaption>Einstellungen &rarr; Tasten: links die Tasten im Fenster, daneben die systemweiten.</figcaption>
+      </figure>
     </section>
 
     <section id="settings">
@@ -136,14 +165,15 @@
       <table>
         <tr><th>Reiter</th><th>Was drin ist</th></tr>
         <tr><td><strong>Allgemein</strong></td><td>Sprache, Fenster, Darstellung, Symbol im Infobereich, Verknüpfungen im Startmenü und auf dem Desktop, Protokoll</td></tr>
-        <tr><td><strong>Quelle</strong></td><td>Videogerät, Videonorm, Eingang der Karte, Ton der Quelle, Format</td></tr>
+        <tr><td><strong>Quelle</strong></td><td>Bildquelle (Karte, Bildschirm oder Fenster), Videogerät, Videonorm, Eingang der Karte, Ton der Quelle, Format</td></tr>
         <tr><td><strong>Bild</strong></td><td>Skalierung, Bildregler, Halbbilder (Deinterlacing), Bildrand abschneiden, natives Pixelraster, Composite-Filter oder Rauschen, Bildröhre, Vergleich, Farbe</td></tr>
         <tr><td><strong>HDR</strong></td><td>Hoher Kontrastumfang: Tone Mapping oder Durchreichen, und was den Umfang in Screenshots und Aufnahmen behält</td></tr>
         <tr><td><strong>Ton</strong></td><td>Wiedergabegerät, Verzögerung, Lautstärke, Tonquellen der Aufnahme</td></tr>
         <tr><td><strong>Anzeige</strong></td><td>Grafik (Direct3D 11 oder Vulkan), VSync und Verhalten, Lautstärke-Anzeige, Vollbild</td></tr>
-        <tr><td><strong>Aufnahme</strong></td><td>Ausgabeordner und Format, Screenshots, virtuelle Kamera, nach MP4 umpacken</td></tr>
-        <tr><td><strong>Encoder</strong></td><td>Encoder, ffmpeg, Encoder-Einstellungen</td></tr>
-        <tr><td><strong>Tasten</strong></td><td>Alle Tasten von oben, frei belegbar, mit <em>Alle zurücksetzen</em></td></tr>
+        <tr><td><strong>Aufnahme</strong></td><td>Ausgabeordner und Format, Auflösung, Screenshots, virtuelle Kamera, nach MP4 umpacken</td></tr>
+        <tr><td><strong>Replay</strong></td><td>Replay im Hintergrund, Länge, Arbeitsspeicher oder Platte</td></tr>
+        <tr><td><strong>Encoder</strong></td><td>Encoder, ffmpeg, Encoder-Einstellungen, alle Encoder-Chips</td></tr>
+        <tr><td><strong>Tasten</strong></td><td>Alle Tasten von oben, frei belegbar, eine Spalte <em>Systemweit</em>, <em>Alle zurücksetzen</em></td></tr>
         <tr><td><strong>Profile</strong></td><td>Profile und ihre automatische Wahl</td></tr>
         <tr><td><strong>Über</strong></td><td>Version, Copyright, Lizenz, Links und die Update-Suche</td></tr>
       </table>
@@ -151,30 +181,50 @@
     </section>
 
     <section id="record">
-      <h2>Aufnahme, Screenshots, virtuelle Kamera</h2>
+      <h2>Aufnahme, Replay, Screenshots, virtuelle Kamera</h2>
       <h3>Aufnahme</h3>
       <ul>
         <li>Aufnehmen braucht ffmpeg. <strong>Encoder &rarr; ffmpeg herunterladen</strong> holt es und hält es aktuell.</li>
         <li>Den Encoder im Reiter Encoder wählen: NVENC, Quick Sync, AMF, x264 oder x265, mit H.264, H.265 oder AV1.</li>
         <li><strong>Volle Farbauflösung (4:4:4)</strong> behält die Farbe jedes Pixels, lohnt sich bei HDMI- und RGB-Quellen. Größere Dateien, und VLC oder mpv spielen sie ab, wo Browser und Handys es nicht können. NVENC, x264 und x265 können das.</li>
-        <li>Verlustfrei: <em>H.265 verlustfrei (NVIDIA NVENC)</em> schreibt MKV, <em>UT Video</em> und <em>Unkomprimiert</em> schreiben AVI, ohne 4-GB-Grenze. <strong>Ohne Filter</strong> nimmt die Bilder der Karte so auf, wie sie ankommen: ohne Deinterlacing, Beschnitt, Skalierung und Filter.</li>
+        <li>Verlustfrei: <em>H.265 verlustfrei (NVIDIA NVENC)</em> schreibt MKV, <em>UT Video</em> und <em>Unkomprimiert</em> schreiben AVI, ohne 4-GB-Grenze, nach <code>raw\</code> im Ausgabeordner. <strong>Ohne Filter</strong> nimmt die Bilder der Karte so auf, wie sie ankommen: ohne Deinterlacing, Beschnitt, Skalierung und Filter.</li>
+        <li><strong>Auflösung</strong> begrenzt die kurze Seite, von 2160p bis 360p. Standard ist die Quelle.</li>
         <li><kbd>F9</kbd> startet und stoppt. Ein roter Punkt auf dem Taskleistenknopf zeigt, dass aufgenommen wird.</li>
         <li>Der Reiter Aufnahme zeigt den freien Platz als Aufnahmezeit. Eine Aufnahme stoppt selbst, bevor das Laufwerk voll ist.</li>
         <li><strong>Größerer Puffer im Arbeitsspeicher</strong> hält, was ein langsames Laufwerk noch nicht geschrieben hat, mehr als die üblichen 512&nbsp;MB.</li>
-        <li>Kommt der Encoder nicht hinterher, sagt es ein Hinweis, und die Aufnahmeanzeige zeigt es, solange es anhält. Abhilfe: eine schnellere Voreinstellung, eine kleinere Auflösung oder Bildrate.</li>
-        <li><strong>Ton &rarr; Tonquellen der Aufnahme</strong> ergänzt den Ton der Karte: ein Mikrofon, ein Ausgabegerät oder den Systemton ohne qBlank. Jede Quelle hat eine eigene Verstärkung und kommt in die Mischung, auf eine eigene Spur oder beides. Wiedergegeben wird davon nichts.</li>
+        <li>Kommt der Encoder nicht hinterher, fallen Bilder weg statt wiederholt zu werden. Ein Hinweis sagt es, und die Aufnahmeanzeige zeigt es, solange es anhält. Abhilfe: eine schnellere Voreinstellung, eine kleinere Auflösung oder Bildrate oder alle Encoder-Chips.</li>
+        <li><strong>Encoder &rarr; Alle Encoder-Chips:</strong> Hat die Grafikkarte mehr als einen NVENC, teilen sich bei H.265 und AV1 alle jedes Bild. Eine RTX&nbsp;4080 schafft AV1 in 1440p mit Preset p7 dann 183 statt 110 Bilder pro Sekunde.</li>
+        <li><strong>Ton &rarr; Tonquellen der Aufnahme</strong> ergänzt den Ton der Karte um beliebig viele Quellen: Mikrofone, Ausgabegeräte, den Systemton ohne qBlank. Jede Quelle hat eine eigene Verstärkung und kommt in die Mischung, auf eine eigene Spur oder beides. Wiedergegeben wird davon nichts.</li>
         <li><strong>Nach MP4 umpacken</strong> macht fertige Aufnahmen zu MP4, ohne sie neu zu kodieren.</li>
       </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="718" loading="lazy" alt="Der Reiter Aufnahme: Container MKV, Bildrate und Auflösung wie die Quelle, der Ausgabeordner mit dem freien Platz als Aufnahmezeit, der größere Puffer im Arbeitsspeicher und unter Screenshots das Format PNG und der Screenshot-Ordner">
+        <figcaption>Einstellungen &rarr; Aufnahme: Container, Auflösung, Ordner und freier Platz, darunter die Screenshots.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/encoder.png" width="528" height="390" loading="lazy" alt="Der Abschnitt Encoder-Einstellungen: Ratensteuerung, Bitrate, Qualität, Voreinstellung, Abstimmung, Durchläufe und der Haken bei Alle Encoder-Chips">
+        <figcaption>Einstellungen &rarr; Encoder: <em>Alle Encoder-Chips</em> unter den Encoder-Einstellungen.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="Der Abschnitt Tonquellen der Aufnahme im Reiter Ton: der Ton der Karte, ein Eingang auf Systemstandard und der Systemton, jeder mit Verstärkung, Spuren und Pegel, und der Knopf Hinzufügen">
+        <figcaption>Einstellungen &rarr; Ton &rarr; Tonquellen der Aufnahme: <em>Hinzufügen</em> nimmt beliebig viele.</figcaption>
+      </figure>
+      <h3>Replay</h3>
+      <ul>
+        <li><strong>Replay &rarr; Replay im Hintergrund</strong> hält die letzten Sekunden fest; <kbd>Strg</kbd>+<kbd>F9</kbd> schaltet es auch um. <em>Länge</em> von 5&nbsp;Sekunden bis 30&nbsp;Minuten.</li>
+        <li><em>Ablage:</em> Arbeitsspeicher oder Platte. Der Reiter zeigt, was die Länge braucht und was frei ist.</li>
+        <li><kbd>Umschalt</kbd>+<kbd>F9</kbd> speichert es als Clip nach <code>clips\</code>, auch während einer Aufnahme: beide teilen sich einen Encoder.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="Der Reiter Replay: Replay im Hintergrund an, Länge 60 Sekunden, Ablage im Arbeitsspeicher mit höchstens 4 GB, der freie Speicher und was 60 Sekunden brauchen">
+        <figcaption>Einstellungen &rarr; Replay: Länge, Arbeitsspeicher oder Platte.</figcaption>
+      </figure>
       <h3>Screenshots</h3>
       <ul>
         <li><kbd>F10</kbd> speichert in Quellauflösung, <kbd>Strg</kbd>+<kbd>F10</kbd> kopiert in die Zwischenablage.</li>
         <li>PNG, JPEG und JPEG&nbsp;XR brauchen nichts weiter. AVIF braucht ffmpeg.</li>
         <li><em>Bedienoberfläche mit aufnehmen</em> im Reiter Aufnahme nimmt stattdessen das fertige Fenster auf.</li>
       </ul>
-      <figure class="ui">
-        <img src="shots/recording.png" width="528" height="696" loading="lazy" alt="Der Reiter Aufnahme: Container MKV, Bildrate wie die Quelle, der Ausgabeordner mit dem freien Platz als Aufnahmezeit, der größere Puffer im Arbeitsspeicher und unter Screenshots das Format PNG und der Screenshot-Ordner">
-        <figcaption>Einstellungen &rarr; Aufnahme: Container, Ordner und freier Platz, darunter die Screenshots.</figcaption>
-      </figure>
       <h3>Virtuelle Kamera</h3>
       <p><strong>Aufnahme &rarr; Virtuelle Kamera &rarr; Kamera installieren</strong> fragt einmal nach Administratorrechten. Danach können OBS, Discord oder ein Browser qBlank als Kamera wählen. Deinstalliert wird sie an derselben Stelle.</p>
       <figure class="ui">

@@ -55,6 +55,7 @@
     <div class="secs">
       <a href="#install">Install</a>
       <a href="#first">First start</a>
+      <a href="#screen">Screen or window</a>
       <a href="#window">The window</a>
       <a href="#keys">Keys</a>
       <a href="#settings">Settings</a>
@@ -82,10 +83,31 @@
         <li><strong>Source &rarr; Format:</strong> leave it on automatic unless you want a particular resolution or frame rate.</li>
       </ul>
       <figure class="ui">
-        <img src="shots/source.png" width="528" height="354" loading="lazy" alt="The Source tab of the settings: the input set to Automatic, the card picked under Video device, and the buttons Configure card and Reinitialise card">
-        <figcaption>Settings &rarr; Source: pick the card under <em>Video device</em>.</figcaption>
+        <img src="shots/source.png" width="528" height="445" loading="lazy" alt="The Source tab of the settings: picture source Capture card, Screen or Window, the input set to Automatic, the card picked under Video device, and the buttons Configure card and Reinitialise card">
+        <figcaption>Settings &rarr; Source: <em>Capture card</em> as picture source, then the card under <em>Video device</em>.</figcaption>
       </figure>
       <p>Only one program can hold a card at a time. If the picture stays black, close OBS or any other program that uses the card.</p>
+    </section>
+
+    <section id="screen">
+      <h2>Screen or window</h2>
+      <p>Instead of a card, qBlank can take a monitor or one program's window, with the same recording, replay and screenshots. <strong>Source &rarr; Picture source</strong>:</p>
+      <ul>
+        <li><strong>Screen:</strong> pick the monitor. Captured through Desktop Duplication and copied on the GPU.</li>
+        <li><strong>Window:</strong> <em>Choose a window</em> lists the open programs. A covered window still comes through, a minimised one does not. Closed and opened again, it is found again.</li>
+        <li><em>Include the mouse pointer</em> adds the pointer. <em>Preview</em> off shows only resolution, frame rate and recording time, and redraws less often.</li>
+        <li><em>Hide qBlank from the capture</em>, on by default, keeps qBlank out of every screen capture, Remote Play and Remote Desktop included. Off, they can see it.</li>
+        <li>Older games in exclusive fullscreen cannot be captured, and qBlank says so; borderless windowed works.</li>
+        <li>Sound: add <em>System sound without qBlank</em> under <strong>Audio &rarr; Recording sources</strong>.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="364" loading="lazy" alt="The Source tab with Screen as picture source: the primary monitor picked, mouse pointer, preview and hiding qBlank from the capture switched on, and the notes on exclusive fullscreen and sound">
+        <figcaption>Settings &rarr; Source &rarr; Screen: monitor, pointer, preview, hide qBlank.</figcaption>
+      </figure>
+      <figure class="ui panel">
+        <img src="shots/panel.png" width="420" height="162" loading="lazy" alt="The panel qBlank shows with the preview off: Monitor 1, 2560 × 1440, 144 Hz, 5 fps, and the buttons Start recording, Screenshot and Show preview">
+        <figcaption>Preview off: the panel instead of the picture. The frame rate counts the pictures that changed, so a still desktop shows few.</figcaption>
+      </figure>
     </section>
 
     <section id="window">
@@ -120,6 +142,8 @@
         <tr><td><kbd>F7</kbd></td><td>Detect the video standard</td></tr>
         <tr><td><kbd>F8</kbd></td><td>Detect the border</td></tr>
         <tr><td><kbd>F9</kbd></td><td>Start/stop recording</td></tr>
+        <tr><td><kbd>Shift</kbd>+<kbd>F9</kbd></td><td>Save the replay as a clip</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>F9</kbd></td><td>Replay on/off</td></tr>
         <tr><td><kbd>F10</kbd></td><td>Screenshot</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>F10</kbd></td><td>Screenshot to clipboard</td></tr>
         <tr><td><kbd>F11</kbd></td><td>Freeze</td></tr>
@@ -129,6 +153,11 @@
         <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Volume up / down</td></tr>
       </table>
       <p>Fixed keys: <kbd>Esc</kbd> leaves fullscreen or closes the settings, <kbd>Ctrl</kbd>+<kbd>1</kbd>&hellip;<kbd>9</kbd> switches profile, <kbd>Ctrl</kbd>+<kbd>F</kbd> searches the settings.</p>
+      <p><strong>System-wide:</strong> every action can have a second key in the <em>System-wide</em> column, which works while a game has the keyboard. None is bound by default. While qBlank runs, no other program gets that combination; one already taken shows red.</p>
+      <figure class="ui">
+        <img src="shots/keys.png" width="528" height="548" loading="lazy" alt="The Keys tab: each action with its shortcut and a System-wide column, where Start/stop recording has Alt+F9, Save replay as clip Alt+Shift+F9 and Screenshot Alt+F10">
+        <figcaption>Settings &rarr; Keys: the window's shortcuts on the left, the system-wide ones beside them.</figcaption>
+      </figure>
     </section>
 
     <section id="settings">
@@ -137,14 +166,15 @@
       <table>
         <tr><th>Tab</th><th>What is in it</th></tr>
         <tr><td><strong>General</strong></td><td>Language, window, appearance, notification area icon, Start menu and desktop shortcuts, log file</td></tr>
-        <tr><td><strong>Source</strong></td><td>Video device, video standard, card input, source audio, format</td></tr>
+        <tr><td><strong>Source</strong></td><td>Picture source (card, screen or window), video device, video standard, card input, source audio, format</td></tr>
         <tr><td><strong>Picture</strong></td><td>Scaling, picture controls, fields (deinterlacing), crop, native pixel grid, composite filter or noise, cathode ray tube, compare, colour</td></tr>
         <tr><td><strong>HDR</strong></td><td>High dynamic range: tone mapping or passthrough, and what keeps the range in screenshots and recordings</td></tr>
         <tr><td><strong>Audio</strong></td><td>Playback device, delay, volume, recording sources</td></tr>
         <tr><td><strong>Display</strong></td><td>Graphics (Direct3D 11 or Vulkan), VSync and behaviour, volume readout, fullscreen</td></tr>
-        <tr><td><strong>Recording</strong></td><td>Output folder and format, screenshots, virtual camera, rewrap to MP4</td></tr>
-        <tr><td><strong>Encoder</strong></td><td>Encoder, ffmpeg, encoder settings</td></tr>
-        <tr><td><strong>Keys</strong></td><td>Every key above, rebindable, with <em>Reset all</em></td></tr>
+        <tr><td><strong>Recording</strong></td><td>Output folder and format, resolution, screenshots, virtual camera, rewrap to MP4</td></tr>
+        <tr><td><strong>Replay</strong></td><td>Replay in the background, length, memory or disk</td></tr>
+        <tr><td><strong>Encoder</strong></td><td>Encoder, ffmpeg, encoder settings, all encoder chips</td></tr>
+        <tr><td><strong>Keys</strong></td><td>Every key above, rebindable, a <em>System-wide</em> column, <em>Reset all</em></td></tr>
         <tr><td><strong>Profiles</strong></td><td>Profiles and choosing them automatically</td></tr>
         <tr><td><strong>About</strong></td><td>Version, copyright, licence, links and the update check</td></tr>
       </table>
@@ -152,30 +182,50 @@
     </section>
 
     <section id="record">
-      <h2>Recording, screenshots, virtual camera</h2>
+      <h2>Recording, replay, screenshots, virtual camera</h2>
       <h3>Recording</h3>
       <ul>
         <li>Recording needs ffmpeg. <strong>Encoder &rarr; Download ffmpeg</strong> fetches it and keeps it current.</li>
         <li>Pick the encoder in the Encoder tab: NVENC, Quick Sync, AMF, x264 or x265, with H.264, H.265 or AV1.</li>
         <li><strong>Full colour resolution (4:4:4)</strong> keeps the colour of every pixel, worth it for HDMI and RGB sources. Larger files, and VLC or mpv play them where browsers and phones cannot. NVENC, x264 and x265 can.</li>
-        <li>Lossless: <em>H.265 lossless (NVIDIA NVENC)</em> writes MKV, <em>UT Video</em> and <em>Uncompressed</em> write AVI, with no 4&nbsp;GB limit. <strong>Unfiltered</strong> records the card's frames as they arrive: no deinterlacing, crop, scaling or filters.</li>
+        <li>Lossless: <em>H.265 lossless (NVIDIA NVENC)</em> writes MKV, <em>UT Video</em> and <em>Uncompressed</em> write AVI, with no 4&nbsp;GB limit, into <code>raw\</code> in the output folder. <strong>Unfiltered</strong> records the card's frames as they arrive: no deinterlacing, crop, scaling or filters.</li>
+        <li><strong>Resolution</strong> caps the short side, from 2160p down to 360p. The default is the source.</li>
         <li><kbd>F9</kbd> starts and stops. A red dot on the taskbar button shows that it is recording.</li>
         <li>The Recording tab shows the free space as recording time. A recording stops itself before the drive is full.</li>
         <li><strong>Larger buffer in memory</strong> holds what a slow drive has not written yet, more than the usual 512&nbsp;MB.</li>
-        <li>If the encoder cannot keep up, a notice says so, and the recording indicator shows it while it lasts. A faster preset, or a lower resolution or frame rate, helps.</li>
-        <li><strong>Audio &rarr; Recording sources</strong> adds to the card audio: a microphone, an output device or the system sound without qBlank. Each has its own gain and goes on the mix, on a track of its own, or both. None of it is played back.</li>
+        <li>If the encoder cannot keep up, frames are left out rather than repeated. A notice says so, and the recording indicator shows it while it lasts. A faster preset, a lower resolution or frame rate, or all encoder chips helps.</li>
+        <li><strong>Encoder &rarr; All encoder chips:</strong> on cards with more than one NVENC, H.265 and AV1 share each frame between them. An RTX&nbsp;4080 then does AV1 at 1440p and preset p7 at 183 instead of 110 frames a second.</li>
+        <li><strong>Audio &rarr; Recording sources</strong> adds to the card audio as many sources as needed: microphones, output devices, the system sound without qBlank. Each has its own gain and goes on the mix, on a track of its own, or both. None of it is played back.</li>
         <li><strong>Rewrap to MP4</strong> turns finished recordings into MP4 without encoding them again.</li>
       </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="718" loading="lazy" alt="The Recording tab: container MKV, frame rate and resolution same as source, the output folder with the free space as recording time, the larger buffer in memory, and under Screenshots the format PNG and the screenshot folder">
+        <figcaption>Settings &rarr; Recording: container, resolution, folder and free space, below them the screenshots.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/encoder.png" width="528" height="390" loading="lazy" alt="The Encoder settings section: rate control, bitrate, quality, preset, tuning, multipass, and the box All encoder chips ticked">
+        <figcaption>Settings &rarr; Encoder: <em>All encoder chips</em> below the encoder settings.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="The Recording sources section of the Audio tab: the card audio, an input on the system default and the system sound, each with gain, tracks and level, and the button Add">
+        <figcaption>Settings &rarr; Audio &rarr; Recording sources: <em>Add</em> takes as many as needed.</figcaption>
+      </figure>
+      <h3>Replay</h3>
+      <ul>
+        <li><strong>Replay &rarr; Replay in the background</strong> keeps the last seconds; <kbd>Ctrl</kbd>+<kbd>F9</kbd> switches it too. <em>Length</em> from 5&nbsp;seconds to 30&nbsp;minutes.</li>
+        <li><em>Storage:</em> memory or disk. The tab shows what the length takes and what is free.</li>
+        <li><kbd>Shift</kbd>+<kbd>F9</kbd> saves it as a clip into <code>clips\</code>, also during a recording: both share one encoder.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="The Replay tab: replay in the background on, length 60 seconds, storage in memory with at most 4 GB, the free memory, and what 60 seconds take">
+        <figcaption>Settings &rarr; Replay: length, and memory or disk.</figcaption>
+      </figure>
       <h3>Screenshots</h3>
       <ul>
         <li><kbd>F10</kbd> saves at source resolution, <kbd>Ctrl</kbd>+<kbd>F10</kbd> copies to the clipboard.</li>
         <li>PNG, JPEG and JPEG&nbsp;XR need nothing else. AVIF needs ffmpeg.</li>
         <li><em>Include the interface</em> in the Recording tab grabs the finished window instead.</li>
       </ul>
-      <figure class="ui">
-        <img src="shots/recording.png" width="528" height="696" loading="lazy" alt="The Recording tab: container MKV, frame rate same as source, the output folder with the free space as recording time, the larger buffer in memory, and under Screenshots the format PNG and the screenshot folder">
-        <figcaption>Settings &rarr; Recording: container, folder and free space, below them the screenshots.</figcaption>
-      </figure>
       <h3>Virtual camera</h3>
       <p><strong>Recording &rarr; Virtual camera &rarr; Install camera</strong> asks once for administrator rights. After that, OBS, Discord or a browser can pick qBlank as a camera. Uninstall it there too.</p>
       <figure class="ui">

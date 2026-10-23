@@ -75,6 +75,8 @@
         <li><em>Not found</em>: is the card plugged in? Then <em>Refresh</em> under <strong>Source</strong>.</li>
       </ul>
       <p><kbd>F5</kbd> restarts the capture, <kbd>Shift</kbd>+<kbd>F5</kbd> reinitialises the card.</p>
+      <h3>A game stays black on Screen or Window</h3>
+      <p>The game runs in exclusive fullscreen, and Windows does not share that picture. qBlank says so in the window. Set the game to windowed or borderless.</p>
       <h3>No colour, or the wrong colours</h3>
       <p><strong>Source &rarr; Video standard</strong> on <em>Automatic</em>, then <kbd>F7</kbd>. If it mixes up PAL 60 and NTSC, set the region below it to where you live.</p>
       <h3>Black looks grey, or crushed</h3>
@@ -112,7 +114,7 @@
       <h3>Recording does not start</h3>
       <p>Recording needs ffmpeg: <strong>Encoder &rarr; Download ffmpeg</strong>. If the chosen encoder does not work on this PC, qBlank goes back to <em>Automatic</em>. <em>Test encoders</em> shows which ones work.</p>
       <h3>&ldquo;Encoder overloaded&rdquo;</h3>
-      <p>Pick a faster <em>Preset</em>, or a lower resolution or frame rate. A hardware encoder (NVENC, Quick Sync, AMF) takes the load off the CPU.</p>
+      <p>Pick a faster <em>Preset</em>, or a lower <em>Resolution</em> under <strong>Recording</strong> or frame rate. A hardware encoder (NVENC, Quick Sync, AMF) takes the load off the CPU. On cards with more than one NVENC, <strong>Encoder &rarr; All encoder chips</strong> shares each frame between them. Until then, frames are left out, not repeated.</p>
       <h3>The MP4 will not open</h3>
       <p>An MP4 that was not closed properly, after a crash for example, cannot be opened. MKV survives that. Record to MKV and turn it into MP4 afterwards with <strong>Recording &rarr; Rewrap to MP4</strong>: seconds, and no quality lost.</p>
       <h3>Recording stopped by itself</h3>
