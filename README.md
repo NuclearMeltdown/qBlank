@@ -124,6 +124,7 @@ those, use OBS.
 - P010 and P016 read against PQ (ST 2084) or HLG (BT.2100).
 - BT.2390 tone mapping on an ordinary screen, scRGB on an HDR screen.
 - Recording, screenshots and the camera tone map by default, or keep the range.
+- An HDR desktop or window is captured in HDR.
 
 **Audio** · [wiki](../../wiki/Audio)
 - Embedded card audio or any Windows recording device, out through WASAPI.
@@ -231,7 +232,7 @@ Explorer. All except Esc, the profile digits and Alt+F4 are reassignable under
 - **One process holds a card's capture pin.** If OBS has it, qBlank cannot open it, and the other way round.
 - **The virtual camera is invisible to packaged apps.** Its shared memory is in the session namespace, which an app container cannot see: not the Windows Camera app, not Store builds of Teams. OBS, Discord, browsers, vMix and XSplit find it.
 - **S-Video and component have not been run.** Every analogue measurement was taken on composite, from a PAL SNES and a GameCube.
-- **The HDR display path is untested on HDR hardware.** Tone mapping is verified; scRGB output has never met an HDR monitor.
+- **The HDR display path is untested on HDR hardware.** Tone mapping is verified; scRGB output has never met an HDR monitor, nor has HDR screen capture.
 - **SECAM is approximated.** Two alternating subcarriers against qBlank's single figure; the demodulator does not handle it at all.
 
 ## Building
