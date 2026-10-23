@@ -3183,9 +3183,7 @@ void SettingsWindow::DrawRecordSources(bool screen) {
     ImGui::PushID((int)i);
 
     ImGui::BeginDisabled(sourcesLocked_);
-    ImGui::Checkbox(system                                ? T("Systemton", "System sound")
-                    : source.kind == SourceKind::Output ? T("Ausgabegerät", "Output device")
-                                                        : T("Eingang", "Input"),
+    ImGui::Checkbox(system ? T("Systemton", "System sound") : T("Eingang", "Input"),
                     &source.enabled);
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
@@ -3200,26 +3198,48 @@ void SettingsWindow::DrawRecordSources(bool screen) {
       ImGui::TextDisabled(T("Alles, was Windows abspielt, außer qBlank selbst.",
                             "Everything Windows plays, except qBlank itself."));
     } else {
-      // Capture card audio is no microphone, and the outputs are what is
-      // played: the lists are the system's, either way.
+      // One list for both: a virtual cable is a microphone on one side and an
+      // output on the other, and which side carries the sound is the user's
+      // setup. Capture card audio is no microphone; it heads the list above.
       const bool input = source.kind == SourceKind::Input;
-      const char* preview = source.device.name.empty() ? T("Systemstandard", "System default")
-                                                       : source.device.name.c_str();
+      const char* preview = !source.device.name.empty() ? source.device.name.c_str()
+                            : input ? T("Standard-Aufnahmegerät", "Default recording device")
+                                    : T("Standard-Wiedergabegerät", "Default playback device");
       ImGui::BeginDisabled(sourcesLocked_);
       ImGui::SetNextItemWidth(-1.0f);
       if (ImGui::BeginCombo("##device", preview)) {
-        if (ImGui::Selectable(T("Systemstandard", "System default"), source.device.empty())) {
-          source.device = DeviceRef{};
-        }
-        for (const AudioDeviceInfo& d : input ? audioInputs_ : audioOutputs_) {
-          if (input && d.cardAudio) continue;
-          const bool selected = (d.id == source.device.id);
-          if (ImGui::Selectable(d.name.c_str(), selected)) source.device = d.ToRef();
-          if (selected) ImGui::SetItemDefaultFocus();
-        }
+        auto section = [&](SourceKind kind, const char* title, const char* fallback,
+                           const std::vector<AudioDeviceInfo>& devices) {
+          const bool here = source.kind == kind;
+          ImGui::PushID((int)kind);
+          ImGui::SeparatorText(title);
+          if (ImGui::Selectable(fallback, here && source.device.empty())) {
+            source.kind = kind;
+            source.device = DeviceRef{};
+          }
+          for (const AudioDeviceInfo& d : devices) {
+            if (d.cardAudio) continue;
+            const bool selected = here && d.id == source.device.id;
+            if (ImGui::Selectable(d.name.c_str(), selected)) {
+              source.kind = kind;
+              source.device = d.ToRef();
+            }
+            if (selected) ImGui::SetItemDefaultFocus();
+          }
+          ImGui::PopID();
+        };
+        section(SourceKind::Input, T("Mikrofone und Eingänge", "Microphones and inputs"),
+                T("Standard-Aufnahmegerät", "Default recording device"), audioInputs_);
+        section(SourceKind::Output,
+                T("Ausgabegeräte, aufgenommen wird, was dort läuft",
+                  "Output devices, records what plays there"),
+                T("Standard-Wiedergabegerät", "Default playback device"), audioOutputs_);
         ImGui::EndCombo();
       }
       ImGui::EndDisabled();
+      if (!input) {
+        ImGui::TextDisabled(T("Was dort abgespielt wird.", "What plays there."));
+      }
       // The game is in that file once already, through the card.
       const AudioDeviceInfo* at = input || screen ? nullptr : outputOf(source.device);
       if (!input && !screen && (at ? at == playback : source.device == audio.output)) {
@@ -3277,9 +3297,9 @@ void SettingsWindow::DrawRecordSources(bool screen) {
       source.enabled = true;
       audio.sources.push_back(source);
     };
-    if (ImGui::Selectable(T("Eingang (Mikrofon)", "Input (microphone)"))) add(SourceKind::Input);
-    if (ImGui::Selectable(T("Ausgabegerät (was dort läuft)", "Output device (what plays there)"))) {
-      add(SourceKind::Output);
+    if (ImGui::Selectable(T("Eingang (Mikrofon oder Ausgabegerät)",
+                            "Input (microphone or output device)"))) {
+      add(SourceKind::Input);
     }
     // One is everything already.
     if (ImGui::Selectable(T("Systemton ohne qBlank", "System sound without qBlank"), false,

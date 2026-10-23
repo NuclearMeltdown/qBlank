@@ -266,7 +266,7 @@ const Entry kEntries[] = {
     {Kind::Section, kTabAudio, "sources", "Tonquellen der Aufnahme", "Recording sources",
      "Mic|Mikro|Mikrofon|Microphone|Kommentar|Commentary|Voice|Stimme|Headset|Facecam|"
      "Eingabegerät|Input device|Systemton|System sound|Desktop-Ton|Desktop audio|Discord|"
-     "Loopback|Ausgabegerät|Output device|Tonquelle|Audio source"},
+     "Loopback|Ausgabegerät|Output device|Tonquelle|Audio source|Virtuelles Kabel|Virtual cable"},
     {Kind::Control, kTabAudio, "cardaudio", "Ton der Karte", "Card audio",
      "Kartenaudio|Spielton|Game audio|Eingangspegel|Input level|Pegel|Level"},
     {Kind::Control, kTabAudio, "sourceadd", "Hinzufügen", "Add",
