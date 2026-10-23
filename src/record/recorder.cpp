@@ -1966,8 +1966,12 @@ void Recorder::VideoThread(Session* s) {
     LibavClearError();
     int result = av.av_hwframe_get_buffer(s->gpu->framesContext(), next, 0);
     if (slot >= 0) {
-      const bool converted = result >= 0 && s->gpu->Convert(slot, next, running_);
-      shared_->state[slot].store(SharedFrames::Free, std::memory_order_release);
+      bool converted = false;
+      if (result >= 0) {
+        converted = s->gpu->Convert(slot, next, running_);  // gives the slot back
+      } else {
+        shared_->state[slot].store(SharedFrames::Free, std::memory_order_release);
+      }
       if (!converted) {
         av.av_frame_unref(next);
         if (++slotFailures == 3) {

@@ -33,8 +33,10 @@ class GpuFrames {
 
   // Takes the picture out of `slot`, which the caller holds as Converting, into
   // `out`, a frame of the pool. Waits for the yuv pass to finish drawing it for
-  // as long as `keepWaiting` holds, a second at most. False when it gave up;
-  // either way the slot can go back to Free afterwards.
+  // as long as `keepWaiting` holds, a second at most. False when it gave up.
+  // Either way it gives the slot back to Free itself, maybe later and from
+  // another thread: once the GPU has read it, so that the renderer's next
+  // picture into it does not wait for that.
   virtual bool Convert(int slot, AVFrame* out, const std::atomic<bool>& keepWaiting) = 0;
 };
 

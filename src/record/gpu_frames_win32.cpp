@@ -92,6 +92,10 @@ class SharedGpuFrames : public GpuFrames {
   // hold the recording up for more than a second.
   bool Acquire(int slot, const std::atomic<bool>& keepWaiting);
   void Release(int slot);
+  // To the renderer.
+  void GiveBack(int slot) {
+    shared_->state[slot].store(SharedFrames::Free, std::memory_order_release);
+  }
 
   const Libav& av_;
   ComPtr<IDXGIAdapter1> adapter_;
@@ -193,7 +197,7 @@ void SharedGpuFrames::Release(int slot) {
 class D3D11GpuFrames : public SharedGpuFrames {
  public:
   explicit D3D11GpuFrames(const Libav& av) : SharedGpuFrames(av) {}
-  ~D3D11GpuFrames() override { targets_.clear(); }
+  ~D3D11GpuFrames() override;
 
   bool Create(uint64_t adapter, int width, int height, bool sixteenBit);
   bool Convert(int slot, AVFrame* out, const std::atomic<bool>& keepWaiting) override;
@@ -219,7 +223,60 @@ class D3D11GpuFrames : public SharedGpuFrames {
   ComPtr<ID3D11Buffer> cbChroma_;
   ComPtr<ID3D11RasterizerState> raster_;
   std::vector<Targets> targets_;
+
+  // A slot goes back once its split has run, so that the renderer's next
+  // picture into it does not wait for that on the GPU, and the recorder does
+  // not wait either. Without a fence, or after a second, it goes back at once;
+  // the keyed mutex keeps the order then.
+  struct Pending {
+    D3D11GpuFrames* self;
+    int slot;
+    HANDLE done;
+    PTP_WAIT wait;
+  };
+  static void CALLBACK SplitDone(PTP_CALLBACK_INSTANCE, void* context, PTP_WAIT, TP_WAIT_RESULT);
+  void GiveBackAfterSplit(int slot);
+
+  ComPtr<ID3D11DeviceContext4> dc4_;
+  ComPtr<ID3D11Fence> fence_;
+  uint64_t splits_ = 0;
+  Pending pending_[SharedFrames::kSlots] = {};
 };
+
+D3D11GpuFrames::~D3D11GpuFrames() {
+  for (Pending& p : pending_) {
+    if (p.wait) {
+      SetThreadpoolWait(p.wait, nullptr, nullptr);
+      WaitForThreadpoolWaitCallbacks(p.wait, TRUE);
+      CloseThreadpoolWait(p.wait);
+    }
+    if (p.done) CloseHandle(p.done);
+  }
+  // What still waited goes back now.
+  for (int i = 0; shared_ && i < SharedFrames::kSlots; ++i) {
+    uint8_t converting = SharedFrames::Converting;
+    shared_->state[i].compare_exchange_strong(converting, SharedFrames::Free);
+  }
+  targets_.clear();
+}
+
+void CALLBACK D3D11GpuFrames::SplitDone(PTP_CALLBACK_INSTANCE, void* context, PTP_WAIT,
+                                        TP_WAIT_RESULT) {
+  const Pending* p = (const Pending*)context;
+  p->self->GiveBack(p->slot);
+}
+
+void D3D11GpuFrames::GiveBackAfterSplit(int slot) {
+  Pending& p = pending_[slot];
+  if (p.wait && fence_->GetCompletedValue() < splits_ &&
+      SUCCEEDED(fence_->SetEventOnCompletion(splits_, p.done))) {
+    const int64_t second = -10000000;  // relative, in 100 ns
+    FILETIME timeout = {(DWORD)second, (DWORD)(second >> 32)};
+    SetThreadpoolWait(p.wait, p.done, &timeout);
+    return;
+  }
+  GiveBack(slot);
+}
 
 bool D3D11GpuFrames::CreateShader(const Packed& packed, bool pixel) {
   std::vector<uint8_t> code(packed.unpackedSize);
@@ -291,6 +348,19 @@ bool D3D11GpuFrames::Create(uint64_t adapter, int width, int height, bool sixtee
   rd.DepthClipEnable = TRUE;
   if (Failed(dev_->CreateRasterizerState(&rd, &raster_), "CreateRasterizerState")) return false;
 
+  // The fence the slots go back by.
+  ComPtr<ID3D11Device5> dev5;
+  if (SUCCEEDED(dev_.As(&dev5)) && SUCCEEDED(dc_.As(&dc4_)) &&
+      SUCCEEDED(dev5->CreateFence(0, D3D11_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_)))) {
+    for (int i = 0; i < SharedFrames::kSlots; ++i) {
+      Pending& p = pending_[i];
+      p.self = this;
+      p.slot = i;
+      p.done = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+      if (p.done) p.wait = CreateThreadpoolWait(SplitDone, &p, nullptr);
+    }
+  }
+
   // One frame of the pool and its views, now: drawing into NV12 is up to the
   // hardware, and better found out before the encoder opens than after.
   AVFrame* probe = av_.av_frame_alloc();
@@ -331,7 +401,10 @@ D3D11GpuFrames::Targets* D3D11GpuFrames::TargetsFor(const AVFrame* frame) {
 }
 
 bool D3D11GpuFrames::Convert(int slot, AVFrame* out, const std::atomic<bool>& keepWaiting) {
-  if (!Acquire(slot, keepWaiting)) return false;
+  if (!Acquire(slot, keepWaiting)) {
+    GiveBack(slot);
+    return false;
+  }
 
   const Targets* t = TargetsFor(out);
   if (t) {
@@ -371,11 +444,17 @@ bool D3D11GpuFrames::Convert(int slot, AVFrame* out, const std::atomic<bool>& ke
     dc->OMSetRenderTargets(0, nullptr, nullptr);
     srv[0] = nullptr;
     dc->PSSetShaderResources(0, 1, srv);
+    if (fence_) dc4_->Signal(fence_.Get(), ++splits_);
     dc->Flush();
     hw_->unlock(hw_->lock_ctx);
   }
 
   Release(slot);
+  if (t) {
+    GiveBackAfterSplit(slot);
+  } else {
+    GiveBack(slot);
+  }
   return t != nullptr;
 }
 
@@ -545,9 +624,12 @@ bool CudaGpuFrames::Create(uint64_t adapter, int width, int height, bool sixteen
 }
 
 bool CudaGpuFrames::Convert(int slot, AVFrame* out, const std::atomic<bool>& keepWaiting) {
-  // The copy waits for the yuv pass on the keyed mutex; the renderer can have
-  // the slot back as soon as it is queued.
-  if (!Acquire(slot, keepWaiting)) return false;
+  // The copy waits for the yuv pass on the keyed mutex. The slot goes back
+  // once the map below has waited for the copy.
+  if (!Acquire(slot, keepWaiting)) {
+    GiveBack(slot);
+    return false;
+  }
   dc_->CopyResource(copy_.Get(), tex_[slot].Get());
   Release(slot);
 
@@ -580,6 +662,7 @@ bool CudaGpuFrames::Convert(int slot, AVFrame* out, const std::atomic<bool>& kee
     CUcontext popped = nullptr;
     cu_.cuCtxPopCurrent_v2(&popped);
   }
+  GiveBack(slot);
   return ok;
 }
 
