@@ -327,15 +327,17 @@ function pickProgram(assets) {
   var mb = new Intl.NumberFormat(L('en-GB', 'de-DE'), {minimumFractionDigits: 1, maximumFractionDigits: 1});
   // The program first. Beside qBlank.exe, CapView.exe is the migrator; up to
   // 3.7 it was the program itself.
+  var arrow = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
+              'stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>';
   function files(assets){
     if (!assets || !assets.length) return '';
     var prog = pickProgram(assets);
-    return '<p class="files">' + assets.slice().sort(function(a, b){ return (b === prog) - (a === prog); }).map(function(a){
-      return '<span><a href="' + esc(a.browser_download_url) + '">' + esc(a.name) + '</a>' +
-             '<span class="size">' + mb.format(a.size / 1048576) + ' MB' +
-             (a === prog ? '' : ' · <a href="install.html#capview">' + L('moves CapView over', 'Umzug von CapView') + '</a>') +
-             '</span></span>';
-    }).join('') + '</p>';
+    return '<div class="files">' + assets.slice().sort(function(a, b){ return (b === prog) - (a === prog); }).map(function(a){
+      var dl = '<a class="dl' + (a === prog ? ' dl-main' : '') + '" href="' + esc(a.browser_download_url) + '">' + arrow +
+               esc(a.name) + '<span class="size">' + mb.format(a.size / 1048576) + ' MB</span></a>';
+      return a === prog ? dl : '<span class="aside">' + dl +
+             '<a class="for" href="install.html#capview">' + L('moves CapView over', 'Umzug von CapView') + '</a></span>';
+    }).join('') + '</div>';
   }
   function show(rels){
     var groups = {};

@@ -228,7 +228,7 @@ footer .made{margin-top:18px}
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   .reveal{opacity:1;transform:none;transition:none}
-  .btn:hover,.card:hover,.theme-toggle:hover{transform:none}
+  .btn:hover,.card:hover,.theme-toggle:hover,.dl:hover{transform:none}
 }
 
 /* -------------------------------------------------------------- language */
@@ -277,8 +277,23 @@ footer .made{margin-top:18px}
 .rel h4{font-size:.92rem;margin:16px 0 4px;color:var(--accent-soft)}
 .rel p{margin-top:10px}
 .rel table{display:block;overflow-x:auto}
-.rel .files{display:flex;flex-wrap:wrap;gap:4px 22px;margin-top:6px;font-size:.88rem}
-.rel .files .size{color:var(--dim);margin-left:8px}
+/* Each release's files as buttons: the program filled, the migrator beside it
+   plain, with what it is for. */
+.rel .files{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:12px 0 4px}
+.dl{
+  display:inline-flex;align-items:center;gap:8px;padding:8px 15px;border-radius:10px;
+  border:1px solid var(--line);background:var(--bg-raised);color:var(--text);
+  font-weight:600;font-size:.9rem;line-height:1.3;
+  transition:transform .16s ease,background .16s ease,border-color .16s ease;
+}
+.dl:hover{text-decoration:none;border-color:var(--accent);transform:translateY(-1px)}
+.dl svg{width:16px;height:16px;flex:none}
+.dl .size{font-weight:400;font-size:.82rem;opacity:.75}
+.dl-main{background:var(--accent);border-color:var(--accent);color:#fff}
+.dl-main:hover{background:#7c4ff0;border-color:#7c4ff0}
+.rel .files .aside{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
+.rel .files .for{font-size:.82rem;color:var(--dim)}
+.rel .files .for:hover{color:var(--text)}
 .kind{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin-right:7px}
 .doc section{padding:0 0 52px;scroll-margin-top:84px}
 .doc h2{font-size:clamp(1.4rem,3vw,1.75rem);margin-bottom:14px}
