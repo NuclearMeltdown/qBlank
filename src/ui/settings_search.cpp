@@ -331,14 +331,6 @@ const Entry kEntries[] = {
      "RAM|Arbeitsspeicher|Memory|Puffer|Buffer|Cache|Platte zu langsam|Disk too slow"},
     {Kind::Control, kTabRecord, "buffersize", "Puffergröße", "Buffer size",
      "RAM|GB|Arbeitsspeicher|Memory"},
-    {Kind::Section, kTabRecord, "replaysection", "Replay", "Replay",
-     "Replay-Buffer|Replay buffer|Instant Replay|Clip|Clips|Highlight|Rückblick|Shadowplay"},
-    {Kind::Control, kTabRecord, "replay", "Replay im Hintergrund", "Replay in the background",
-     "Replay-Buffer|Replay buffer|Clip speichern|Save clip|Letzte Sekunden|Last seconds"},
-    {Kind::Control, kTabRecord, "replaylength", "Länge", "Length",
-     "Replay-Länge|Replay length|Dauer|Duration|Sekunden|Seconds|Cliplänge|Clip length"},
-    {Kind::Control, kTabRecord, "replaymemory", "Höchstens (GB)", "At most (GB)",
-     "Replay-Speicher|Replay memory|RAM|GB|Arbeitsspeicher|Memory"},
     {Kind::Section, kTabRecord, "shots", "Screenshots", "Screenshots",
      "Bildschirmfoto|Screenshot|Snapshot|Standbild|Still|Foto|Photo|Bild speichern"},
     {Kind::Control, kTabRecord, "shotui", "Bedienoberfläche mit aufnehmen", "Include the interface",
@@ -359,6 +351,17 @@ const Entry kEntries[] = {
      "Entfernen|Remove|Deregistrieren|Webcam"},
     {Kind::Section, kTabRecord, "remux", "Nach MP4 umpacken", "Rewrap to MP4",
      "Remux|Remuxen|Umwandeln|Convert|Konvertieren|MKV zu MP4|MKV to MP4|Container"},
+
+    // ---- replay
+    {Kind::Tab, kTabReplay, nullptr, "Replay", "Replay",
+     "Replay-Buffer|Replay buffer|Instant Replay|Clip|Clips|Highlight|Rückblick|Shadowplay"},
+    {Kind::Control, kTabReplay, "replay", "Replay im Hintergrund", "Replay in the background",
+     "Replay-Buffer|Replay buffer|Clip speichern|Save clip|Letzte Sekunden|Last seconds"},
+    {Kind::Control, kTabReplay, "replaylength", "Länge", "Length",
+     "Replay-Länge|Replay length|Dauer|Duration|Sekunden|Seconds|Cliplänge|Clip length"},
+    {Kind::Place, kTabReplay, nullptr, "Arbeitsspeicher", "Memory", nullptr},
+    {Kind::Control, kTabReplay, "replaymemory", "Höchstens (GB)", "At most (GB)",
+     "Replay-Speicher|Replay memory|RAM|GB|Arbeitsspeicher|Memory"},
 
     // ---- encoder
     {Kind::Tab, kTabEncoder, nullptr, "Encoder", "Encoder",
@@ -405,11 +408,11 @@ const Entry kEntries[] = {
     {Kind::Tab, kTabKeys, nullptr, "Tasten", "Keys",
      "Hotkey|Hotkeys|Shortcut|Shortcuts|Tastenkürzel|Tastenkombination|Tastatur|Keyboard|"
      "Belegung|Binding|Kürzel"},
+    {Kind::Control, kTabKeys, "globalkeys", "Systemweite Tasten", "System-wide shortcuts",
+     "Systemweit|System-wide|Global|Globale Hotkeys|Global hotkeys|Globale Tasten|Im Spiel|"
+     "In game|Hintergrund|Background|Anderes Programm|Other program"},
     {Kind::Control, kTabKeys, "keysreset", "Alle zurücksetzen", "Reset all",
      "Tasten zurücksetzen|Standardbelegung|Default keys|Hotkeys"},
-    {Kind::Control, kTabKeys, "globalkeys", "Systemweit", "System-wide",
-     "Global|Globale Hotkeys|Global hotkeys|Globale Tasten|Im Spiel|In game|Hintergrund|"
-     "Background|Anderes Programm|Other program"},
 
     // ---- profiles
     {Kind::Tab, kTabProfiles, nullptr, "Profile", "Profiles",

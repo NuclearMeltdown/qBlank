@@ -21,6 +21,7 @@ enum SettingsTab {
   kTabProfiles,
   kTabAbout,    // Updates until 5.4.2; the updates live in About now
   kTabGeneral,  // later than the rest, and first on screen
+  kTabReplay,   // part of Recording until 6.1
   kTabCount,
 };
 

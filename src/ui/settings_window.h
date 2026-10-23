@@ -257,6 +257,10 @@ class SettingsWindow {
   void DrawDisplayTab();
   void DrawHdrBlock();
   void DrawRecordTab(FfmpegInfo* ffmpeg);
+  void DrawReplayTab(FfmpegInfo* ffmpeg);
+  // A slider over all of the memory, for the recording buffer and the replay.
+  void MemorySlider(const char* id, int* gb, int standard, const char* field,
+                    const char* freeFor);
   void DrawFfmpegBlock(FfmpegInfo* ffmpeg);
   void DrawEncoderTab(FfmpegInfo* ffmpeg);
   void DrawHdrTab();

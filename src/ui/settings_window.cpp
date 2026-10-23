@@ -98,6 +98,7 @@ const ImageSettings kImage{};
 const AudioSettings kAudio{};
 const RecordSettings kRecord{};
 const AppSettings kApp{};
+constexpr double kGb = 1024.0 * 1024.0 * 1024.0;
 
 // Combo over an enum whose labels come from a lookup function, so the list
 // follows the selected language without any table to keep in sync.
@@ -460,9 +461,9 @@ constexpr TabName kTabNames[] = {
     {kTabGeneral, "Allgemein", "General"}, {kTabSource, "Quelle", "Source"},
     {kTabPicture, "Bild", "Picture"},      {kTabHdr, "HDR", "HDR"},
     {kTabAudio, "Ton", "Audio"},           {kTabDisplay, "Anzeige", "Display"},
-    {kTabRecord, "Aufnahme", "Recording"}, {kTabEncoder, "Encoder", "Encoder"},
-    {kTabKeys, "Tasten", "Keys"},          {kTabProfiles, "Profile", "Profiles"},
-    {kTabAbout, "Über", "About"},
+    {kTabRecord, "Aufnahme", "Recording"}, {kTabReplay, "Replay", "Replay"},
+    {kTabEncoder, "Encoder", "Encoder"},   {kTabKeys, "Tasten", "Keys"},
+    {kTabProfiles, "Profile", "Profiles"}, {kTabAbout, "Über", "About"},
 };
 static_assert(std::size(kTabNames) == kTabCount, "every tab needs a name");
 
@@ -725,6 +726,7 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
       case kTabAudio: DrawAudioTab(); break;
       case kTabDisplay: DrawDisplayTab(); break;
       case kTabRecord: DrawRecordTab(ffmpeg); break;
+      case kTabReplay: DrawReplayTab(ffmpeg); break;
       case kTabEncoder: DrawEncoderTab(ffmpeg); break;
       case kTabKeys: DrawHotkeysTab(); break;
       case kTabProfiles: DrawProfilesTab(caps); break;
@@ -3943,6 +3945,46 @@ void SettingsWindow::LoadRecordBuffers() {
 // entirely. A subject that reaches across four tabs is a subject, not a section.
 void SettingsWindow::DrawHdrTab() { DrawHdrBlock(); }
 
+// All of the memory as the bar, with what others hold, and the reserve, coming
+// in from the right; it cannot be dragged there.
+void SettingsWindow::MemorySlider(const char* id, int* gb, int standard, const char* field,
+                                  const char* freeFor) {
+  const bool memKnown = memTotal_ > 0;
+  const uint64_t reserve = std::min(kRecordBufferReserveBytes, memTotal_);
+  const uint64_t room = memFree_ > reserve ? memFree_ - reserve : 0;
+  const int maxGb =
+      memKnown ? std::max(2, (int)std::lround((double)memTotal_ / kGb)) : kMaxRecordBufferGb;
+  const int roomGb = memKnown ? Clamp((int)((double)room / kGb), 1, maxGb) : kMaxRecordBufferGb;
+  const ImVec4 usedColor(0.95f, 0.42f, 0.36f, 1.0f);
+  const ImVec4 reserveColor(1.0f, 0.72f, 0.25f, 1.0f);
+  ImGui::SetNextItemWidth(-360.0f);
+  if (ImGui::SliderInt(id, gb, 1, maxGb, "%d GB", ImGuiSliderFlags_AlwaysClamp)) {
+    *gb = std::min(*gb, roomGb);
+  }
+  if (memKnown) {
+    MemoryOverlay(maxGb, (double)room / kGb, (double)reserve / kGb,
+                  ImVec4(usedColor.x, usedColor.y, usedColor.z, 0.40f),
+                  ImVec4(reserveColor.x, reserveColor.y, reserveColor.z, 0.28f));
+  }
+  Anchor(id + 2);  // without the "##"
+  ResetOnRightClick(*gb, standard);
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(Px(96.0f));
+  if (ImGui::InputInt(field, gb, 0, 0, ImGuiInputTextFlags_CharsDecimal)) {
+    *gb = Clamp(*gb, 1, roomGb);
+  }
+
+  // Die Legende zum Balken, in seinen Farben.
+  if (memKnown) {
+    const uint64_t used = memTotal_ > memFree_ ? memTotal_ - memFree_ : 0;
+    ImGui::TextDisabled(freeFor, FormatBytes(room).c_str());
+    ImGui::SameLine();
+    ImGui::TextColored(usedColor, T("%s belegt,", "%s in use,"), FormatBytes(used).c_str());
+    ImGui::SameLine();
+    ImGui::TextColored(reserveColor, T("%s Reserve", "%s reserve"), FormatBytes(reserve).c_str());
+  }
+}
+
 void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   RecordSettings& rec = cfg().record;
 
@@ -4068,93 +4110,10 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
                "only used while the disk lags behind, and never more than is free right now, "
                "less a 2 GB reserve. When it is full the recording stops, and what is in it is "
                "still written."));
-  // Buffer and replay share one slider: all of the memory as the bar, with
-  // what others hold, and the reserve, coming in from the right.
-  constexpr double kGb = 1024.0 * 1024.0 * 1024.0;
-  const bool memKnown = memTotal_ > 0;
-  const uint64_t reserve = std::min(kRecordBufferReserveBytes, memTotal_);
-  const uint64_t room = memFree_ > reserve ? memFree_ - reserve : 0;
-  const int maxGb =
-      memKnown ? std::max(2, (int)std::lround((double)memTotal_ / kGb)) : kMaxRecordBufferGb;
-  const int roomGb = memKnown ? Clamp((int)((double)room / kGb), 1, maxGb) : kMaxRecordBufferGb;
-  const auto memorySlider = [&](const char* id, int* gb, int standard, const char* field,
-                                const char* freeFor) {
-    const ImVec4 usedColor(0.95f, 0.42f, 0.36f, 1.0f);
-    const ImVec4 reserveColor(1.0f, 0.72f, 0.25f, 1.0f);
-    ImGui::SetNextItemWidth(-360.0f);
-    if (ImGui::SliderInt(id, gb, 1, maxGb, "%d GB", ImGuiSliderFlags_AlwaysClamp)) {
-      *gb = std::min(*gb, roomGb);
-    }
-    if (memKnown) {
-      MemoryOverlay(maxGb, (double)room / kGb, (double)reserve / kGb,
-                    ImVec4(usedColor.x, usedColor.y, usedColor.z, 0.40f),
-                    ImVec4(reserveColor.x, reserveColor.y, reserveColor.z, 0.28f));
-    }
-    Anchor(id + 2);  // without the "##"
-    ResetOnRightClick(*gb, standard);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(Px(96.0f));
-    if (ImGui::InputInt(field, gb, 0, 0, ImGuiInputTextFlags_CharsDecimal)) {
-      *gb = Clamp(*gb, 1, roomGb);
-    }
-
-    // Die Legende zum Balken, in seinen Farben.
-    if (memKnown) {
-      const uint64_t used = memTotal_ > memFree_ ? memTotal_ - memFree_ : 0;
-      ImGui::TextDisabled(freeFor, FormatBytes(room).c_str());
-      ImGui::SameLine();
-      ImGui::TextColored(usedColor, T("%s belegt,", "%s in use,"), FormatBytes(used).c_str());
-      ImGui::SameLine();
-      ImGui::TextColored(reserveColor, T("%s Reserve", "%s reserve"),
-                         FormatBytes(reserve).c_str());
-    }
-  };
-
   ImGui::BeginDisabled(!rec.largeBuffer);
-  memorySlider("##buffersize", &rec.bufferGb, kRecord.bufferGb,
+  MemorySlider("##buffersize", &rec.bufferGb, kRecord.bufferGb,
                T("Puffergröße (GB)", "Buffer size (GB)"),
                T("%s frei für den Puffer,", "%s free for the buffer,"));
-  ImGui::EndDisabled();
-
-  // ---- replay ----
-  // Rides on a running recording's encoders, on its own otherwise; nothing
-  // reaches the disk before the key is pressed.
-  ImGui::Spacing();
-  ImGui::SeparatorText("Replay");
-  Anchor("replaysection");
-  ImGui::Checkbox(T("Replay im Hintergrund", "Replay in the background"), &rec.replay);
-  Anchor("replay");
-  ImGui::SameLine();
-  HelpMarker(Format(T("Hält die letzten Sekunden im Arbeitsspeicher, mit dem Encoder der Aufnahme. "
-                      "„Replay speichern“ (%s) schreibt sie als Clip in den Unterordner clips. "
-                      "Neben einer Aufnahme läuft es mit, ohne zweiten Encoder.",
-                      "Keeps the last seconds in memory, on the recording's encoder. \"Save the "
-                      "replay\" (%s) writes them as a clip into the clips subfolder. Beside a "
-                      "recording it runs along, without a second encoder."),
-                    HotkeyText(cfg().hotkeys[HotkeyAction::ReplaySave]).c_str())
-                 .c_str());
-  ImGui::BeginDisabled(!rec.replay);
-  ImGui::SetNextItemWidth(-260.0f);
-  ImGui::SliderInt(T("Länge", "Length"), &rec.replaySeconds, kMinReplaySeconds, kMaxReplaySeconds,
-                   "%d s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-  Anchor("replaylength");
-  ResetOnRightClick(rec.replaySeconds, kRecord.replaySeconds);
-  memorySlider("##replaymemory", &rec.replayGb, kRecord.replayGb,
-               T("Höchstens (GB)", "At most (GB)"),
-               T("%s frei für das Replay,", "%s free for the replay,"));
-  // What the length costs, by the same estimate as the time left above. Should
-  // the memory run out first, the replay holds that much less.
-  if (diskBytesPerSecond_ > 1.0) {
-    const double need = diskBytesPerSecond_ * rec.replaySeconds;
-    const double cap = (double)rec.replayGb * kGb;
-    std::string line = Format(T("%d s brauchen etwa %s", "%d s take about %s"), rec.replaySeconds,
-                              FormatBytes((uint64_t)need).c_str());
-    if (need > cap) {
-      line += Format(T(" — mehr als erlaubt, es bleiben etwa %s", " — more than allowed, about %s fit"),
-                     FormatDuration(cap / diskBytesPerSecond_).c_str());
-    }
-    ImGui::TextDisabled("%s", line.c_str());
-  }
   ImGui::EndDisabled();
 
   ImGui::EndDisabled();
@@ -4252,6 +4211,75 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
       ImGui::TextDisabled("- %s", item.error.c_str());
     }
   }
+}
+
+// The replay rides on a running recording's encoders, on its own otherwise;
+// nothing reaches the disk before the key is pressed.
+void SettingsWindow::DrawReplayTab(FfmpegInfo* ffmpeg) {
+  RecordSettings& rec = cfg().record;
+
+  const bool ready = ffmpeg && ffmpeg->found;
+  if (!ready) {
+    ImGui::Spacing();
+    ImGui::TextWrapped(T("Ohne ffmpeg gibt es kein Replay. Im Reiter Encoder steht, wie es dazu "
+                         "kommt.",
+                         "The replay needs ffmpeg. The Encoder tab says how to get it."));
+  }
+  ImGui::BeginDisabled(!ready);
+
+  // An action by its name in the Keys tab, with its key when it has one.
+  const auto action = [this](HotkeyAction a) {
+    std::string text = Format(T("„%s“", "\"%s\""), HotkeyActionName(a));
+    const std::string key = HotkeyText(cfg().hotkeys[a]);
+    if (!key.empty()) text += " (" + key + ")";
+    return text;
+  };
+  ImGui::TextWrapped(
+      "%s", Format(T("Hält die letzten Sekunden im Arbeitsspeicher, mit dem Encoder aus dem Reiter "
+                     "Encoder. Erst %s schreibt sie auf die Platte, in den Unterordner clips des "
+                     "Aufnahmeordners. Neben einer Aufnahme läuft es mit, ohne zweiten Encoder.",
+                     "Keeps the last seconds in memory, on the encoder from the Encoder tab. Only "
+                     "%s writes them to disk, into the clips subfolder of the recording folder. "
+                     "Beside a recording it runs along, without a second encoder."),
+                   action(HotkeyAction::ReplaySave).c_str())
+                .c_str());
+  ImGui::Spacing();
+
+  ImGui::Checkbox(T("Replay im Hintergrund", "Replay in the background"), &rec.replay);
+  Anchor("replay");
+  ImGui::SameLine();
+  HelpMarker(Format(T("%s schaltet es auch um.", "%s switches it too."),
+                    action(HotkeyAction::ReplayToggle).c_str())
+                 .c_str());
+
+  ImGui::BeginDisabled(!rec.replay);
+  ImGui::SetNextItemWidth(-260.0f);
+  ImGui::SliderInt(T("Länge", "Length"), &rec.replaySeconds, kMinReplaySeconds, kMaxReplaySeconds,
+                   "%d s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+  Anchor("replaylength");
+  ResetOnRightClick(rec.replaySeconds, kRecord.replaySeconds);
+
+  ImGui::Spacing();
+  ImGui::SeparatorText(T("Arbeitsspeicher", "Memory"));
+  MemorySlider("##replaymemory", &rec.replayGb, kRecord.replayGb,
+               T("Höchstens (GB)", "At most (GB)"),
+               T("%s frei für das Replay,", "%s free for the replay,"));
+  // What the length costs, by the same estimate as the time left on the
+  // recording tab. Should the memory run out first, the replay holds less.
+  if (diskBytesPerSecond_ > 1.0) {
+    const double need = diskBytesPerSecond_ * rec.replaySeconds;
+    const double cap = (double)rec.replayGb * kGb;
+    std::string line = Format(T("%d s brauchen etwa %s", "%d s take about %s"), rec.replaySeconds,
+                              FormatBytes((uint64_t)need).c_str());
+    if (need > cap) {
+      line += Format(T(" — mehr als erlaubt, es bleiben etwa %s", " — more than allowed, about %s fit"),
+                     FormatDuration(cap / diskBytesPerSecond_).c_str());
+    }
+    ImGui::TextDisabled("%s", line.c_str());
+  }
+  ImGui::EndDisabled();
+
+  ImGui::EndDisabled();
 }
 
 void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
@@ -4806,65 +4834,84 @@ void SettingsWindow::DrawHotkeysTab() {
   Hotkeys& keys = cfg().hotkeys;
   GlobalHotkeys& global = cfg().globalHotkeys;
 
-  // One table for the window's keys, one for the system-wide ones.
-  const auto table = [this, &keys, &global](bool system) {
-    if (!ImGui::BeginTable(system ? "globalkeys" : "hotkeys", 2,
-                           ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
-                               ImGuiTableFlags_SizingStretchProp)) {
-      return;
-    }
-    ImGui::TableSetupColumn(T("Aktion", "Action"), ImGuiTableColumnFlags_WidthStretch, 0.6f);
-    ImGui::TableSetupColumn(T("Taste", "Shortcut"), ImGuiTableColumnFlags_WidthStretch, 0.4f);
-    ImGui::TableHeadersRow();
-
+  // One button: the window's key for an action, or its system-wide one.
+  const auto keyButton = [this, &keys, &global](int i, bool system) {
     HotkeyBinding* set = system ? global.items : keys.items;
+    const bool capturing = (captureAction_ == i && captureGlobal_ == system);
+    const std::string label = (capturing ? std::string(T("Taste drücken ...", "Press a key ..."))
+                                         : HotkeyText(set[i])) +
+                              (system ? "##ghk" : "##hk") + std::to_string(i);
+
+    // A duplicate is flagged rather than refused: which of the two the user
+    // meant to keep is not something this dialog can know. A system-wide key
+    // also clashes with the window's key for another action: it wins there.
+    bool clash = false;
+    if (set[i].bound()) {
+      for (int j = 0; j < (int)HotkeyAction::Count && !clash; ++j) {
+        if (j != i && (set[j] == set[i] || (system && keys.items[j] == set[i]))) clash = true;
+      }
+    }
+    const bool refused = system && !clash && global.on && set[i].bound() && globalRefused_ &&
+                         globalRefused_[i];
+    if (clash || refused) {
+      ImGui::PushStyleColor(ImGuiCol_Text, refused ? ImVec4(1.0f, 0.42f, 0.38f, 1.0f)
+                                                   : ImVec4(0.95f, 0.6f, 0.35f, 1.0f));
+    }
+    if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
+      captureAction_ = capturing ? -1 : i;
+      captureGlobal_ = system;
+    }
+    if (clash || refused) {
+      ImGui::PopStyleColor();
+      ImGui::SetItemTooltip("%s", clash ? T("Mehrfach belegt.", "Bound more than once.")
+                                        : T("Von einem anderen Programm belegt.",
+                                            "Taken by another program."));
+    }
+  };
+
+  // The system-wide keys sit beside the window's, for the actions that have
+  // them; the rest leave that cell empty.
+  if (ImGui::BeginTable("hotkeys", 3,
+                        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                            ImGuiTableFlags_SizingStretchProp)) {
+    ImGui::TableSetupColumn(T("Aktion", "Action"), ImGuiTableColumnFlags_WidthStretch, 0.5f);
+    ImGui::TableSetupColumn(T("Taste", "Shortcut"), ImGuiTableColumnFlags_WidthStretch, 0.25f);
+    ImGui::TableSetupColumn(T("Systemweit", "System-wide"), ImGuiTableColumnFlags_WidthStretch,
+                            0.25f);
+    ImGui::TableHeadersRow();
     for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
       const HotkeyAction action = (HotkeyAction)i;
-      if (system && !IsGlobalAction(action)) continue;
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
       ImGui::AlignTextToFramePadding();
       ImGui::TextUnformatted(HotkeyActionName(action));
-
       ImGui::TableSetColumnIndex(1);
-      const bool capturing = (captureAction_ == i && captureGlobal_ == system);
-      const std::string label = (capturing ? std::string(T("Taste drücken ...", "Press a key ..."))
-                                           : HotkeyText(set[i])) +
-                                (system ? "##ghk" : "##hk") + std::to_string(i);
-
-      // A duplicate is flagged rather than refused: which of the two the user
-      // meant to keep is not something this dialog can know. A system-wide key
-      // also clashes with the window's key for another action: it wins there.
-      bool clash = false;
-      if (set[i].bound()) {
-        for (int j = 0; j < (int)HotkeyAction::Count && !clash; ++j) {
-          if (j != i && (set[j] == set[i] || (system && keys.items[j] == set[i]))) clash = true;
-        }
-      }
-      const bool refused = system && !clash && global.on && set[i].bound() && globalRefused_ &&
-                           globalRefused_[i];
-      if (clash || refused) {
-        ImGui::PushStyleColor(ImGuiCol_Text, refused ? ImVec4(1.0f, 0.42f, 0.38f, 1.0f)
-                                                     : ImVec4(0.95f, 0.6f, 0.35f, 1.0f));
-      }
-      if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
-        captureAction_ = capturing ? -1 : i;
-        captureGlobal_ = system;
-      }
-      if (clash || refused) {
-        ImGui::PopStyleColor();
-        ImGui::SetItemTooltip("%s", clash ? T("Mehrfach belegt.", "Bound more than once.")
-                                          : T("Von einem anderen Programm belegt.",
-                                              "Taken by another program."));
-      }
+      keyButton(i, false);
+      if (!IsGlobalAction(action)) continue;
+      ImGui::TableSetColumnIndex(2);
+      ImGui::BeginDisabled(!global.on);
+      keyButton(i, true);
+      ImGui::EndDisabled();
     }
     ImGui::EndTable();
-  };
-  table(false);
+  }
 
   ImGui::Spacing();
+  ImGui::Checkbox(T("Systemweite Tasten", "System-wide shortcuts"), &global.on);
+  Anchor("globalkeys");
+  ImGui::SameLine();
+  HelpMarker(T("Die Tasten der Spalte Systemweit wirken überall, auch mitten im Spiel. Solange "
+               "qBlank läuft, gehört die Kombination ihm allein; kein anderes Programm bekommt "
+               "sie. Eine schon vergebene steht rot da.",
+               "The keys in the System-wide column work everywhere, in the middle of a game too. "
+               "While qBlank runs, the combination is its alone; no other program gets it. One "
+               "already taken shows red."));
+
+  // Both columns; whether the system-wide keys are held stays as it is.
   if (ImGui::Button(T("Alle zurücksetzen", "Reset all"))) {
     cfg().hotkeys = Hotkeys();
+    const GlobalHotkeys fresh;
+    std::copy(std::begin(fresh.items), std::end(fresh.items), global.items);
     captureAction_ = -1;
   }
   Anchor("keysreset");
@@ -4874,22 +4921,6 @@ void SettingsWindow::DrawHotkeysTab() {
                         "Strg+1 bis Strg+9 wählen ein Profil, Alt+F4 beendet.",
                         "Fixed: Esc leaves fullscreen and closes dialogs, Ctrl+1 to Ctrl+9 pick "
                         "a profile, Alt+F4 quits."));
-
-  ImGui::Spacing();
-  ImGui::SeparatorText(T("Systemweit", "System-wide"));
-  ImGui::Checkbox(T("Auch wenn ein anderes Programm vorn ist", "Also while another program is in front"),
-                  &global.on);
-  Anchor("globalkeys");
-  ImGui::SameLine();
-  HelpMarker(T("Diese Tasten wirken überall, auch mitten im Spiel. Solange qBlank läuft, gehört "
-               "die Kombination ihm allein; kein anderes Programm bekommt sie. Eine schon "
-               "vergebene steht rot da.",
-               "These keys work everywhere, in the middle of a game too. While qBlank runs, the "
-               "combination is its alone; no other program gets it. One already taken shows "
-               "red."));
-  ImGui::BeginDisabled(!global.on);
-  table(true);
-  ImGui::EndDisabled();
 }
 
 void SettingsWindow::OfferKey(Key key, bool ctrl, bool shift, bool alt) {
