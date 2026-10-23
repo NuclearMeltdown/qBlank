@@ -50,7 +50,9 @@ RecordingControl::RecordingControl(Config& config, Recorder& recorder, VideoRend
 RecordingControl::~RecordingControl() = default;
 
 void RecordingControl::Shutdown() {
-  StopRecording();
+  recordWhenLocated_ = false;
+  CancelStart();
+  StopSession();
   for (Source& source : sources_) source.capture->Stop();
   if (probeThread_.joinable()) probeThread_.join();
 }
@@ -104,7 +106,7 @@ bool RecordingControl::CollectEncoderProbe() {
 
 bool RecordingControl::RelocateFfmpeg() {
   if (probing_.load(std::memory_order_relaxed) || probeDone_.load(std::memory_order_acquire) ||
-      recorder_.recording() || startPending_) {
+      recorder_.active() || startPending_) {
     return false;
   }
   if (probeThread_.joinable()) probeThread_.join();
@@ -169,7 +171,7 @@ void RecordingControl::SaveCachedEncoders() {
 }
 
 void RecordingControl::ToggleRecording() {
-  if (recorder_.recording() || startPending_ || recordWhenLocated_) {
+  if (recorder_.recording() || (startPending_ && pendingWithFile_) || recordWhenLocated_) {
     StopRecording(true);
   } else {
     StartRecording();
@@ -177,7 +179,10 @@ void RecordingControl::ToggleRecording() {
 }
 
 void RecordingControl::StartRecording() {
-  if (recorder_.recording() || startPending_) return;
+  if (recorder_.recording() || (startPending_ && pendingWithFile_)) return;
+  // A replay still on its way is overtaken: it comes along with the file.
+  if (startPending_) CancelStart();
+  replaySuspended_ = false;
 
   // Loading the ffmpeg libraries takes a moment, so it happens on the probe
   // thread, and the recording starts when it comes back with them.
@@ -216,22 +221,77 @@ void RecordingControl::StartRecording() {
     return;
   }
 
-  // The tap has to exist before the recorder pulls from it.
+  // On the encoders the replay already runs, when they suit: the file begins
+  // at their next keyframe, and nothing is encoded twice. When they do not,
+  // they start again for the file, and what the replay held is lost.
+  const bool onSession = recorder_.active() && !recorder_.failed() &&
+                         SameSession(config_.record) && !SourcesChanged();
+  if (recorder_.active() && !onSession) StopSession();
+  BeginStart(WantedSettings(*usable),
+             IsLosslessEncoder(usable->id) ? RecordingKind::Lossless : RecordingKind::Normal,
+             true, onSession);
+}
+
+RecordSettings RecordingControl::WantedSettings(const EncoderInfo& encoder) const {
+  RecordSettings wanted = config_.record;
+  // A lossless encoder brings its own container, and the file is named for it.
+  wanted.container = ContainerFor(encoder.id, wanted.container);
+  return wanted;
+}
+
+bool RecordingControl::SameSession(const RecordSettings& wanted) const {
+  const RecordSettings& s = sessionSettings_;
+  return wanted.encoder == s.encoder &&
+         ContainerFor(wanted.encoder, wanted.container) == s.container &&
+         wanted.speed == s.speed && wanted.bitrateKbps == s.bitrateKbps &&
+         wanted.rateControl == s.rateControl && wanted.qualityLevel == s.qualityLevel &&
+         wanted.preset == s.preset && wanted.tune == s.tune && wanted.multipass == s.multipass &&
+         wanted.lookAhead == s.lookAhead && wanted.adaptiveQuant == s.adaptiveQuant &&
+         wanted.allEncoderChips == s.allEncoderChips && wanted.fullChroma == s.fullChroma &&
+         wanted.unfiltered == s.unfiltered && wanted.fps == s.fps &&
+         config_.app.recordHdr == sessionHdrAsked_;
+}
+
+bool RecordingControl::SourcesChanged() const {
+  // The tap's rate is the main track's; 0 is a session without it.
+  const int tapRate = audio_.running() ? audio_.tapSampleRate() : 0;
+  if (tapRate != sessionTapRate_) return true;
+  // By index, as sources_ goes: an entry put in front moves every capture
+  // behind it onto another device.
+  const std::vector<RecordSource>& list = config_.active().audio.sources;
+  if (list.size() != sessionSources_.size()) return true;
+  for (size_t i = 0; i < list.size(); ++i) {
+    const RecordSource& now = list[i];
+    const RecordSource& then = sessionSources_[i];
+    if (now.enabled != then.enabled) return true;
+    if (now.enabled && (now.kind != then.kind || now.tracks != then.tracks ||
+                        !(now.device == then.device))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void RecordingControl::BeginStart(const RecordSettings& settings, RecordingKind kind,
+                                  bool withFile, bool onSession) {
+  // The tap has to exist before the recorder pulls from it. Encoders that run
+  // have theirs.
   const bool wantAudio = audio_.running() && audio_.tapSampleRate() > 0;
-  if (wantAudio) audio_.SetTapEnabled(true);
+  if (wantAudio && !onSession) audio_.SetTapEnabled(true);
 
   // Every source decides its own rate, and the recorder opens its tracks and
   // resamplers for them. Opening one takes from a few milliseconds to, for a
   // device that does not answer, three seconds; the picture goes on meanwhile,
   // and FeedRecorder launches once they and the disk have answered.
-  pendingSettings_ = config_.record;
-  // A lossless encoder brings its own container, and the file is named for it.
-  pendingSettings_.container = ContainerFor(usable->id, pendingSettings_.container);
+  pendingSettings_ = settings;
   pendingAudio_ = wantAudio;
   pendingFile_.clear();
   startPending_ = true;
+  pendingWithFile_ = withFile;
+  pendingOnSession_ = onSession;
   const uint32_t serial = ++startSerial_;
   SyncSources();
+  if (!withFile) return;
 
   // What the disk has to say, on its own thread: a drive that has gone to
   // sleep takes a second or more to answer.
@@ -239,10 +299,7 @@ void RecordingControl::StartRecording() {
   // The folder is made again if it was deleted, or answered with the default,
   // instead of failing the start.
   disk_.Ask([this, serial, asked = pendingSettings_.outputFolder,
-             container = pendingSettings_.container,
-             kind = IsLosslessEncoder(usable->id) ? RecordingKind::Lossless
-                                                  : RecordingKind::Normal]()
-                -> std::function<void()> {
+             container = pendingSettings_.container, kind]() -> std::function<void()> {
     StartCheck check;
     check.folder = ChooseFolder(asked, DefaultRecordFolder());
     if (!check.folder.folder.empty()) {
@@ -257,9 +314,15 @@ void RecordingControl::StartChecked(uint32_t serial, const std::string& askedFol
                                     const StartCheck& check) {
   if (!startPending_ || serial != startSerial_) return;  // called off meanwhile
 
+  // A split that cannot have its next file ends the recording, as a stop
+  // would: asking again every frame would say so every frame.
+  auto refuse = [this] {
+    CancelStart();
+    if (recorder_.recording()) StopRecording();
+  };
   if (check.folder.fellBack) host_.UseDefaultFolder(&config_.record.outputFolder, askedFolder);
   if (check.folder.folder.empty()) {
-    CancelStart();
+    refuse();
     host_.Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
     return;
   }
@@ -268,7 +331,7 @@ void RecordingControl::StartChecked(uint32_t serial, const std::string& askedFol
   // Aufnahme wuerde ihren Kopf schreiben und abbrechen, und liegen bliebe eine
   // Datei von ein paar Kilobyte, die aussieht wie eine Aufnahme.
   if (check.freeKnown && check.freeBytes < kDiskFloorBytes) {
-    CancelStart();
+    refuse();
     host_.Toast(Format(T("Zu wenig Speicherplatz — nur noch %s frei.",
                          "Not enough disk space — only %s free."),
                        FormatBytes(check.freeBytes).c_str()));
@@ -283,18 +346,28 @@ void RecordingControl::StartChecked(uint32_t serial, const std::string& askedFol
 
 void RecordingControl::CancelStart() {
   startPending_ = false;
-  audio_.SetTapEnabled(false);
+  // Encoders that run keep their tap.
+  if (!recorder_.active()) audio_.SetTapEnabled(false);
 }
 
 void RecordingControl::LaunchRecording() {
+  const bool withFile = pendingWithFile_;
   // The source can have gone in the frames this waited.
   if (!host_.CaptureRunning() || !renderer_.hasFrame()) {
     CancelStart();
-    host_.Toast(T("Kein Bild zum Aufnehmen.", "No picture to record."));
+    if (withFile) host_.Toast(T("Kein Bild zum Aufnehmen.", "No picture to record."));
     return;
   }
   startPending_ = false;
+  // The encoders the file was meant for still run: it goes onto them. If they
+  // ended meanwhile, it gets encoders of its own.
+  if (withFile && pendingOnSession_ && recorder_.active() && !recorder_.failed()) {
+    AttachFile();
+    return;
+  }
   const bool wantAudio = pendingAudio_;
+  // Again: encoders ended meanwhile let go of the tap.
+  if (wantAudio) audio_.SetTapEnabled(true);
 
   std::string error;
   Recorder::AudioSource mainTrack;
@@ -407,8 +480,9 @@ void RecordingControl::LaunchRecording() {
   // Kamera hinter denselben Durchgaengen abgreifen wie die Anzeige. Also fallen
   // sie hier weg, statt die Aufnahme zu verweigern: wer aufnimmt, meint das
   // ganze Bild von jetzt. Erst hier, weil alles davor noch abbrechen kann. Ohne
-  // Filter kommen sie nicht hinein.
-  if (!unfiltered) host_.DropViewAids();
+  // Filter kommen sie nicht hinein. Das Replay allein laesst sie stehen: es
+  // laeuft im Hintergrund, ohne dass jemand gerade aufnehmen wollte.
+  if (!unfiltered && withFile) host_.DropViewAids();
 
   // Die Platzwarnung gilt je Aufnahme. Die Zahl dazu ist die der Pruefung vor
   // dem Start, nicht eine von vor einer Sekunde.
@@ -427,9 +501,20 @@ void RecordingControl::LaunchRecording() {
 
   if (!ok) {
     audio_.SetTapEnabled(false);
+    // Once: the replay would otherwise try again every frame.
+    if (config_.record.replay) replaySuspended_ = true;
     host_.Toast(error);
     return;
   }
+  sessionSettings_ = pendingSettings_;
+  sessionHdrAsked_ = config_.app.recordHdr;
+  sessionSources_ = config_.active().audio.sources;
+  sessionTapRate_ = wantAudio ? mainTrack.sampleRate : 0;
+  ++sessionSerial_;
+  // The replay goes on from EnsureReplay, still in this frame.
+  replaySecondsSet_ = 0;
+  replayGbSet_ = 0;
+  if (!withFile) return;
   if (cardRefused) {
     host_.Toast(T("Aufnahme läuft, mit Filter: dieser Encoder nimmt das Kartenformat nicht roh.",
                   "Recording, filtered: this encoder does not take the card's format raw."));
@@ -456,14 +541,149 @@ void RecordingControl::LaunchRecording() {
 
 void RecordingControl::StopRecording(bool announce) {
   recordWhenLocated_ = false;
-  if (startPending_) {
-    CancelStart();
-    return;
-  }
+  // A file still waiting is called off; one being split goes with it.
+  if (startPending_ && pendingWithFile_) CancelStart();
   if (!recorder_.recording()) return;
   if (announce) announceFile_ = recorder_.stats().file;
+  // The replay keeps its encoders, and only the file ends.
+  if (recorder_.replaying()) {
+    recorder_.StopFile();
+  } else {
+    StopSession();
+  }
+}
+
+void RecordingControl::StopSession() {
   recorder_.Stop();
   audio_.SetTapEnabled(false);
+}
+
+void RecordingControl::AttachFile() {
+  // Freeze, compare and bypass would end up in the file from here on, as in
+  // LaunchRecording.
+  if (!recorder_.unfiltered()) host_.DropViewAids();
+  diskWarned_ = false;
+  encoderWarned_ = false;
+  bufferWarned_ = false;
+  const bool split = recorder_.recording();
+  recordingFile_ = pendingFile_;
+  recordingBytes_ = 0;
+  recorder_.StartFile(pendingFile_);
+  if (!split) host_.Toast(T("Aufnahme läuft", "Recording"));
+}
+
+void RecordingControl::SplitFile() {
+  if (startPending_) return;  // the next file is on its way
+  // Automatic never picks a lossless encoder, so the setting tells.
+  BeginStart(sessionSettings_,
+             IsLosslessEncoder(sessionSettings_.encoder) ? RecordingKind::Lossless
+                                                         : RecordingKind::Normal,
+             true, true);
+}
+
+void RecordingControl::ToggleReplay() {
+  RecordSettings& rec = config_.record;
+  rec.replay = !rec.replay;
+  if (!rec.replay) {
+    EnsureReplay();  // lets it go at once, not a frame later
+    host_.Toast(T("Replay aus", "Replay off"));
+    return;
+  }
+  if (!ffmpeg_.found && !locating_) {
+    host_.Toast(T("Replay an — es fehlt noch ffmpeg, in den Einstellungen unter Aufnahme holen.",
+                  "Replay on — ffmpeg is still missing, fetch it under Recording in the settings."));
+    return;
+  }
+  EnsureReplay();
+  host_.Toast(Format(T("Replay an (%d s)", "Replay on (%d s)"), rec.replaySeconds));
+}
+
+void RecordingControl::SaveReplay() {
+  if (!recorder_.replaying()) {
+    host_.Toast(!config_.record.replay ? T("Das Replay ist aus.", "The replay is off.")
+                : replaySuspended_     ? T("Das Replay ist ausgefallen.", "The replay has failed.")
+                                       : T("Das Replay startet noch.", "The replay is still starting."));
+    return;
+  }
+  // The clip's name comes from the disk, which may have to wake up first; the
+  // encoders the answer is for are counted, so it does not land in the ring
+  // of a restart.
+  disk_.Ask([this, asked = config_.record.outputFolder, container = sessionSettings_.container,
+             serial = sessionSerial_]() -> std::function<void()> {
+    const FolderChoice folder = ChooseFolder(asked, DefaultRecordFolder());
+    std::filesystem::path file;
+    if (!folder.folder.empty()) file = NextRecordingFile(folder.folder, container, RecordingKind::Clip);
+    return [this, asked, folder, file, serial] {
+      if (folder.fellBack) host_.UseDefaultFolder(&config_.record.outputFolder, asked);
+      if (serial != sessionSerial_) {
+        host_.Toast(T("Das Replay hat neu angefangen, der Clip fehlt.",
+                      "The replay started over, there is no clip."));
+        return;
+      }
+      if (file.empty()) {
+        host_.Toast(T("Zielordner nicht verfügbar.", "Folder not available."));
+        return;
+      }
+      double seconds = 0.0;
+      if (!recorder_.SaveReplay(file, &seconds)) {
+        host_.Toast(T("Noch nichts im Replay.", "Nothing in the replay yet."));
+      }
+    };
+  });
+}
+
+void RecordingControl::EnsureReplay() {
+  const RecordSettings& rec = config_.record;
+  // Switched on again, by key or in the settings: a failure is tried again.
+  if (rec.replay != replaySeen_) {
+    replaySeen_ = rec.replay;
+    replaySuspended_ = false;
+    replayProbeAsked_ = false;
+  }
+
+  if (!replayWanted()) {
+    if (startPending_ && !pendingWithFile_) CancelStart();
+    if (recorder_.replaying()) recorder_.SetReplay(0.0, 0);
+    // A file on its way still wants the encoders.
+    if (recorder_.active() && !recorder_.recording() && !startPending_) StopSession();
+    return;
+  }
+
+  if (recorder_.active()) {
+    if (recorder_.failed()) return;  // FeedRecorder says so and ends them
+    // On its own, the replay follows the settings by starting again -- what it
+    // held is lost. Not while they are open: every step of a slider would.
+    if (!recorder_.recording() && !startPending_ &&
+        (SourcesChanged() || (!settings_.isOpen() && !SameSession(rec)))) {
+      CAP_LOG("Recording: the replay's settings changed, starting again");
+      StopSession();
+      return;  // and again from below, the next frame
+    }
+    if (!recorder_.replaying() || rec.replaySeconds != replaySecondsSet_ ||
+        rec.replayGb != replayGbSet_) {
+      replaySecondsSet_ = rec.replaySeconds;
+      replayGbSet_ = rec.replayGb;
+      recorder_.SetReplay((double)rec.replaySeconds, (uint64_t)rec.replayGb << 30);
+    }
+    return;
+  }
+
+  // Started on its own once it can, and quietly: no picture yet, or ffmpeg
+  // still loading, is waiting rather than failing.
+  if (startPending_ || locating_ || !ffmpeg_.found || probing_.load(std::memory_order_relaxed) ||
+      !host_.CaptureRunning() || !renderer_.hasFrame()) {
+    return;
+  }
+  const EncoderInfo* usable = ffmpeg_.Resolve(rec.encoder);
+  if (!usable || !usable->available) {
+    // Nothing tested yet: one test, not one a frame.
+    if (!replayProbeAsked_) {
+      replayProbeAsked_ = true;
+      StartEncoderProbe(true);
+    }
+    return;
+  }
+  BeginStart(WantedSettings(*usable), RecordingKind::Normal, false, false);
 }
 
 void RecordingControl::CollectFinished() {
@@ -472,6 +692,17 @@ void RecordingControl::CollectFinished() {
   // a failed encoder says so itself.
   Recorder::Finished done;
   while (recorder_.TakeFinished(&done)) {
+    // A clip is always one someone asked for. One that came to nothing is
+    // already gone, so there is no file to point at.
+    if (done.clip) {
+      if (done.complete) {
+        host_.Toast(Format(T("Clip gespeichert (%.0f s)", "Clip saved (%.0f s)"), done.seconds),
+                    Utf8ToPath(done.file));
+      } else {
+        host_.Warn(T("Clip konnte nicht gespeichert werden.", "Could not save the clip."));
+      }
+      continue;
+    }
     if (!done.complete) {
       host_.Toast(T("Die Datei wurde nicht sauber abgeschlossen und spielt vielleicht nicht.",
                     "The file was not closed cleanly and may not play."),
@@ -491,7 +722,8 @@ void RecordingControl::UpdateDiskSpace() {
   // Nur wenn jemand hinsieht oder etwas davon abhaengt. Ein Laufwerk im
   // Sekundentakt zu befragen, waehrend niemand die Zahl braucht, weckt eine
   // schlafende Platte fuer nichts.
-  if (!settings_.isOpen() && !recorder_.recording()) return;
+  // The replay depends on the memory.
+  if (!settings_.isOpen() && !recorder_.active()) return;
 
   // Wie viele Tonspuren in der Datei landen wuerden -- jede kostet ihre
   // 192 kbit/s. Dieselbe Rechnung wie im Recorder (TrackPlan).
@@ -535,12 +767,14 @@ void RecordingControl::UpdateDiskSpace() {
   // Der Arbeitsspeicher im selben Takt, aber ohne den Umweg ueber den Job: die
   // Abfrage kostet Mikrosekunden und wartet auf keine Platte. Was der Puffer
   // selbst haelt, zaehlt fuer die Einstellungen als frei -- er gibt es ja her.
+  // Ebenso das Replay.
   if (now - lastMemoryCheck_ > 1.0) {
     lastMemoryCheck_ = now;
     uint64_t total = 0, freeBytes = 0;
     if (MemoryBytes(&total, &freeBytes)) {
-      recorder_.LimitBuffer(freeBytes);
-      settings_.SetMemory(total, freeBytes + recorder_.queuedBytes());
+      recorder_.LimitBuffer(config_.record, freeBytes);
+      settings_.SetMemory(total,
+                          freeBytes + recorder_.queuedBytes() + recorder_.replayBytes(nullptr));
     }
   }
   if (!diskAsked_ && now - lastDiskCheck_ > 1.0) {
@@ -586,9 +820,16 @@ void RecordingControl::SyncSources() {
   // Held open only while actually used: during a recording, and while the
   // settings are open so the level meter means something. Keeping a
   // microphone open the rest of the time would light up the Windows privacy
-  // indicator for no reason and tell the user something untrue.
+  // indicator for no reason and tell the user something untrue. The replay
+  // records all the time it is on, and holds them open as long.
+  //
+  // The replay alone does not lock the list: it starts again with the new one.
+  if (recorder_.active() && !recorder_.recording() && !startPending_ && SourcesChanged()) {
+    CAP_LOG("Recording: the replay's sources changed, starting again");
+    StopSession();
+  }
   const bool recording = recorder_.recording();
-  const bool used = startPending_ || recording || settings_.isOpen();
+  const bool used = startPending_ || recorder_.active() || settings_.isOpen();
   settings_.SetSourcesLocked(recording);
 
   for (size_t i = 0; i < sources_.size(); ++i) {
@@ -660,15 +901,25 @@ bool RecordingControl::leftOutLately() const {
 void RecordingControl::FeedRecorder() {
   CollectFinished();
   disk_.Collect();
-  if (startPending_ && !pendingFile_.empty() && !SourcesOpening()) LaunchRecording();
-  if (!recorder_.recording()) return;
+  // The replay alone has no file to wait for.
+  if (startPending_ && (!pendingWithFile_ || !pendingFile_.empty()) && !SourcesOpening()) {
+    LaunchRecording();
+  }
+  EnsureReplay();
+  if (!recorder_.active()) return;
 
   // The encoder did not open, or encoding or writing failed: stop cleanly.
-  // First, because nothing below means anything for it.
+  // First, because nothing below means anything for it. The replay goes with
+  // them, and stays off until it is switched on again: started again on its
+  // own, it would fail the same way every frame.
   if (recorder_.failed()) {
     const RecordStats stats = recorder_.stats();
-    StopRecording();
-    host_.Warn(stats.error.empty() ? T("Aufnahme abgebrochen.", "Recording aborted.") : stats.error);
+    const bool wasRecording = recorder_.recording();
+    StopSession();
+    if (config_.record.replay) replaySuspended_ = true;
+    host_.Warn(!stats.error.empty() ? stats.error
+               : wasRecording       ? T("Aufnahme abgebrochen.", "Recording aborted.")
+                                    : T("Replay abgebrochen.", "Replay aborted."));
     return;
   }
 
@@ -701,7 +952,9 @@ void RecordingControl::FeedRecorder() {
   // Die Platte faellt zurueck, und was sie nicht nimmt, wartet im Speicher. Bei
   // drei Vierteln einmal sagen, ein zweites Mal erst, wenn sie zwischendurch
   // wieder unter die Haelfte aufgeholt hat. Voll beendet der Recorder selbst.
-  const double fill = recorder_.bufferFill();
+  // Nur fuer die laufende Datei: ein Clip schreibt aus dem Replay und hat
+  // keinen Puffer, der volllaufen koennte.
+  const double fill = recorder_.recording() ? recorder_.bufferFill() : 0.0;
   if (!bufferWarned_ && fill >= 0.75) {
     bufferWarned_ = true;
     host_.Warn(Format(T("Platte kommt nicht hinterher — Puffer zu %.0f %% voll.",
@@ -780,25 +1033,29 @@ void RecordingControl::FeedRecorder() {
       // Der Neustart braucht ein Bild, sonst bricht `StartRecording` ab und die
       // Aufnahme waere nach dem Stop zu Ende statt geteilt. Waehrend ein Graph
       // neu gebaut wird, gibt es keins -- dann wird eben weiter gewartet.
+      // Das Replay faengt mit der neuen Form von vorne an, was es hielt, ist
+      // weg: es passt in keine Datei mit der neuen.
       CAP_LOG("Recording: source now %dx%d @ %.2f fps%s instead of %dx%d @ %.2f%s, new file",
               liveWidth, liveHeight, liveFps, liveWide ? " HDR" : "",
               recorder_.frameWidth(), recorder_.frameHeight(), recordSourceFps_,
               recorder_.hdr() ? " HDR" : "");
-      StopRecording();
-      StartRecording();
+      const bool wasRecording = recorder_.recording();
+      StopSession();
+      if (wasRecording) StartRecording();
       return;
     }
   }
 
-  // Splitting is a restart, not a seamless cut: the encoder and the container
-  // are closed and new ones opened. A fraction of a second is lost at the boundary,
-  // which is why this is off unless someone really is on FAT32.
+  // The rest is about the file.
+  if (!recorder_.recording()) return;
+
+  // Splitting is seamless: the same encoders go on, and the next file begins
+  // at their next keyframe, where the last one ends.
   // The size is the one UpdateDiskSpace last had looked at, once a second.
   if (config_.record.splitFiles &&
       recordingBytes_ >= (uint64_t)config_.record.splitSizeMb * 1024ull * 1024ull) {
-    CAP_LOG("Recording: size limit reached, new file");
-    StopRecording();
-    StartRecording();
+    if (!startPending_) CAP_LOG("Recording: size limit reached, new file");
+    SplitFile();
     return;
   }
 

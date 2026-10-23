@@ -769,6 +769,15 @@ void App::DrawUi() {
       std::string matrix = ColorMatrixName((int)profile.image.matrix);
       stats.colorInfo = range + "  /  " + matrix;
     }
+    if (config_.record.replay) {
+      double held = 0.0;
+      const uint64_t bytes = recorder_.replayBytes(&held);
+      stats.replayInfo = recorder_.replaying()
+                             ? Format("%.0f / %d s, %s", held, config_.record.replaySeconds,
+                                      FormatBytes(bytes).c_str())
+                         : recording_.replayWanted() ? T("startet", "starting")
+                                                     : T("ausgefallen", "failed");
+    }
     DrawStatsPanel(stats);
   }
 
@@ -1237,6 +1246,15 @@ void App::DrawContextMenu() {
                             : T("Aufnahme starten", "Start recording"),
                         sc(HotkeyAction::Record))) {
       recording_.ToggleRecording();
+    }
+    if (ImGui::MenuItem(T("Replay", "Replay"), sc(HotkeyAction::ReplayToggle),
+                        config_.record.replay)) {
+      recording_.ToggleReplay();
+    }
+    if (config_.record.replay &&
+        ImGui::MenuItem(T("Replay als Clip speichern", "Save replay as clip"),
+                        sc(HotkeyAction::ReplaySave))) {
+      recording_.SaveReplay();
     }
   }
   if (ImGui::MenuItem(T("Screenshot", "Screenshot"), sc(HotkeyAction::Screenshot))) RequestScreenshot();

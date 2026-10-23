@@ -22,7 +22,8 @@ int Pick(int index, int count) {
 // an entry added in the middle of TrayItem later does not shift what everyone
 // already chose.
 const char* const kTrayItemKeys[kTrayItemCount] = {
-    "record",     "screenshot",  "screenshotClipboard", "recordFolder", "screenshotFolder",
+    "record",     "replayToggle", "replaySave", "screenshot", "screenshotClipboard",
+    "recordFolder", "screenshotFolder",
     "fullscreen", "alwaysOnTop", "borderless",          "mute",         "freeze",
     "virtualCamera", "profiles", "restartCapture",      "settings"};
 
@@ -370,12 +371,14 @@ const char* RecordSpeedName(int i) {
 
 const char* TrayItemName(int i) {
   static const char* de[kTrayItemCount] = {
-      "Aufnahme starten/stoppen", "Screenshot", "Screenshot in die Zwischenablage",
+      "Aufnahme starten/stoppen", "Replay an/aus", "Replay speichern", "Screenshot",
+      "Screenshot in die Zwischenablage",
       "Aufnahmeordner öffnen", "Screenshot-Ordner öffnen", "Vollbild", "Immer im Vordergrund",
       "Rahmenlos", "Stumm", "Standbild", "Virtuelle Kamera", "Profil wechseln",
       "Aufnahme neu starten", "Einstellungen"};
   static const char* en[kTrayItemCount] = {
-      "Start / stop recording", "Screenshot", "Screenshot to clipboard",
+      "Start / stop recording", "Replay on / off", "Save the replay", "Screenshot",
+      "Screenshot to clipboard",
       "Open the recordings folder", "Open the screenshots folder", "Fullscreen", "Always on top",
       "Borderless", "Mute", "Freeze", "Virtual camera", "Switch profile", "Restart capture",
       "Settings"};
@@ -1091,6 +1094,10 @@ bool Config::Load(std::string* error) {
   record.splitSizeMb = Clamp(r["splitSizeMb"].AsInt(4000), 100, 100000);
   record.largeBuffer = r["largeBuffer"].AsBool(false);
   record.bufferGb = Clamp(r["bufferGb"].AsInt(8), 1, kMaxRecordBufferGb);
+  record.replay = r["replay"].AsBool(false);
+  record.replaySeconds = Clamp(r["replaySeconds"].AsInt(60), kMinReplaySeconds,
+                               kMaxReplaySeconds);
+  record.replayGb = Clamp(r["replayGb"].AsInt(4), 1, kMaxRecordBufferGb);
   record.fullChroma = r["fullChroma"].AsBool(false);
   record.unfiltered = r["unfiltered"].AsBool(false);
   record.encoderProbeSignature = r["encoderProbeSignature"].AsString();
@@ -1116,9 +1123,13 @@ bool Config::Load(std::string* error) {
 
   const json::Value& hk = root["hotkeys"];
   std::string dropped;
+  bool missing[(int)HotkeyAction::Count] = {};
   for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
     const json::Value& entry = hk[HotkeyActionKey((HotkeyAction)i)];
-    if (!entry.IsObject()) continue;  // missing entry keeps the factory default
+    if (!entry.IsObject()) {  // missing entry keeps the factory default
+      missing[i] = true;
+      continue;
+    }
     HotkeyBinding& b = hotkeys.items[i];
     // The key goes by name since 4.5. Older files carry only the number qBlank
     // used to store, and that is still honoured: a user who updates keeps
@@ -1137,6 +1148,19 @@ bool Config::Load(std::string* error) {
     b.ctrl = entry["ctrl"].AsBool(false);
     b.shift = entry["shift"].AsBool(false);
     b.alt = entry["alt"].AsBool(false);
+  }
+  // An action newer than the file comes with its factory key, unless the user
+  // has already put that combination on something else.
+  if (hk.IsObject()) {
+    for (int i = 0; i < (int)HotkeyAction::Count; ++i) {
+      if (!missing[i] || !hotkeys.items[i].bound()) continue;
+      for (int j = 0; j < (int)HotkeyAction::Count; ++j) {
+        if (j != i && !missing[j] && hotkeys.items[j] == hotkeys.items[i]) {
+          hotkeys.items[i] = HotkeyBinding();
+          break;
+        }
+      }
+    }
   }
 
   // By name only: no qBlank that stored numbers knew them.
@@ -1266,6 +1290,9 @@ std::string Config::Serialize() const {
   r["splitSizeMb"] = record.splitSizeMb;
   r["largeBuffer"] = record.largeBuffer;
   r["bufferGb"] = record.bufferGb;
+  r["replay"] = record.replay;
+  r["replaySeconds"] = record.replaySeconds;
+  r["replayGb"] = record.replayGb;
   r["fullChroma"] = record.fullChroma;
   r["unfiltered"] = record.unfiltered;
   r["encoderProbeSignature"] = record.encoderProbeSignature;

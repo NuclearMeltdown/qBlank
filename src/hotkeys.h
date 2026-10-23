@@ -23,6 +23,8 @@ enum class HotkeyAction {
   RestartCapture,
   ReinitCard,
   Record,
+  ReplaySave,
+  ReplayToggle,
   Screenshot,
   ScreenshotClipboard,
   Freeze,

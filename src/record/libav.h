@@ -48,8 +48,8 @@ namespace cap {
   X(av_dict_free) X(av_opt_set_int) X(av_channel_layout_default) X(av_channel_layout_uninit)    \
   X(av_frame_move_ref) X(av_hwdevice_ctx_alloc) X(av_hwdevice_ctx_init) X(av_hwframe_ctx_alloc) \
   X(av_hwframe_ctx_init) X(av_hwframe_get_buffer) X(av_hwframe_transfer_data)                   \
-  X(av_hwdevice_ctx_create)
-#define QB_SWRESAMPLE_FUNCTIONS(X)                                                   \
+  X(av_hwdevice_ctx_create) X(av_opt_find)
+#define QB_SWRESAMPLE_FUNCTIONS(X)                                                 \
   X(swresample_version) X(swr_alloc_set_opts2) X(swr_init) X(swr_convert)            \
   X(swr_set_compensation) X(swr_get_delay) X(swr_get_out_samples) X(swr_free)
 #define QB_AVCODEC_FUNCTIONS(X)                                                                  \
@@ -57,7 +57,8 @@ namespace cap {
   X(avcodec_get_hw_config) X(avcodec_send_frame) X(avcodec_receive_packet)                      \
   X(avcodec_free_context)                                                                       \
   X(avcodec_parameters_from_context) X(avcodec_parameters_copy) X(av_packet_alloc)              \
-  X(av_packet_free) X(av_packet_unref) X(av_packet_rescale_ts)
+  X(av_packet_free) X(av_packet_unref) X(av_packet_rescale_ts) X(av_packet_ref)               \
+  X(av_packet_clone)
 #define QB_AVFORMAT_FUNCTIONS(X)                                                                 \
   X(avformat_version) X(avformat_alloc_context) X(avformat_alloc_output_context2)              \
   X(avformat_new_stream) X(avformat_query_codec) X(avio_open) X(avio_open2) X(avio_closep)      \

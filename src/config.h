@@ -253,6 +253,8 @@ enum class RecordSpeed { UltraFast, VeryFast, Faster, Fast, Medium };
 // always has those two.
 enum class TrayItem {
   Record,
+  ReplayToggle,
+  ReplaySave,
   Screenshot,
   ScreenshotClipboard,
   RecordFolder,
@@ -651,6 +653,9 @@ const int kMaxRecordBufferGb = 256;
 // free beyond this, however much is set. Fixed rather than a share, which
 // would hold back far more than anything needs on a machine with a lot.
 const uint64_t kRecordBufferReserveBytes = 2ull << 30;
+// RecordSettings::replaySeconds, from a moment to half an hour.
+const int kMinReplaySeconds = 5;
+const int kMaxReplaySeconds = 1800;
 
 // Recording is deliberately thin: it writes what the viewer shows, at the
 // source resolution, and the only knobs are the ones that change the result in
@@ -700,6 +705,13 @@ struct RecordSettings {
   // uncompressed onto a disk that is not always fast enough.
   bool largeBuffer = false;
   int bufferGb = 8;
+  // The replay: the last replaySeconds kept in memory, from the same encoder
+  // as a recording, and written out as a clip only when asked. Its memory is
+  // its own, apart from bufferGb, and leaves the same reserve free; when that
+  // runs out first the replay holds fewer seconds than set.
+  bool replay = false;
+  int replaySeconds = 60;
+  int replayGb = 4;
 
   // Result of the encoder test, kept so the list is filled on the next start
   // instead of making everyone test again. The signature is the graphics

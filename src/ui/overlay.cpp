@@ -252,6 +252,8 @@ void DrawStatsPanel(const OverlayStats& s) {
       Row(T("Bildverzögerung", "Video delay"),
           Format(T("%d ms (A/V-Versatz)", "%d ms (A/V offset)"), s.videoDelayMs));
     }
+    // In every detail: a clip saved now is as long as this says.
+    if (!s.replayInfo.empty()) Row("Replay", s.replayInfo);
 
     if (s.audio.running) {
       if (full) {

@@ -133,10 +133,10 @@ int App::Run() {
 
 bool App::FeedsWhileHidden() const {
   // A recording that is starting waits for answers, and those are collected
-  // by a loop that runs.
+  // by a loop that runs. The replay goes on minimised like a recording.
   // A screenshot of the picture alone, asked for by a system-wide key or the
   // tray icon, needs one pass; the window's own waits for the window.
-  return recorder_.recording() || recording_.starting() ||
+  return recorder_.active() || recording_.starting() || recording_.replayWanted() ||
          (virtualCamera_.running() && virtualCamera_.consumed()) ||
          (screenshotPending_ && !config_.record.screenshotIncludeUi);
 }
@@ -460,14 +460,14 @@ void App::RenderFrame() {
 void App::FeedFrameConsumers() {
   // Without filters the recorder takes the card's frame as it was uploaded,
   // and nothing is converted or read back for it.
-  const bool unfiltered = recorder_.recording() && recorder_.unfiltered();
+  const bool unfiltered = recorder_.active() && recorder_.unfiltered();
   if (unfiltered) {
     const FrameView* card = renderer_.uploadedFrame();
     if (card && SameCardFormat(renderer_.sourceFormat(), recorder_.card())) {
       recorder_.PushCardFrame(card->data, card->size);
     }
   }
-  const bool wantRecorder = recorder_.recording() && !unfiltered;
+  const bool wantRecorder = recorder_.active() && !unfiltered;
   // Only while something is actually watching. An idle camera costs a flag.
   const bool wantCamera = virtualCamera_.running() && virtualCamera_.consumed();
 

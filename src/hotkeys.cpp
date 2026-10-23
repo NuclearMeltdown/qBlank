@@ -20,6 +20,12 @@ Hotkeys::Hotkeys() {
   (*this)[HotkeyAction::ReinitCard].key = Key::F5;
   (*this)[HotkeyAction::ReinitCard].shift = true;
   (*this)[HotkeyAction::Record].key = Key::F9;
+  // The replay on the recording's key: Shift+F9 keeps what just happened,
+  // Ctrl+F9 turns the keeping on and off.
+  (*this)[HotkeyAction::ReplaySave].key = Key::F9;
+  (*this)[HotkeyAction::ReplaySave].shift = true;
+  (*this)[HotkeyAction::ReplayToggle].key = Key::F9;
+  (*this)[HotkeyAction::ReplayToggle].ctrl = true;
   (*this)[HotkeyAction::Screenshot].key = Key::F10;
   // Dieselbe Taste mit Strg, wie das Kopieren ueberall sonst: gleiches Bild,
   // anderes Ziel.
@@ -62,7 +68,8 @@ HotkeyAction Hotkeys::Find(Key key, bool ctrl, bool shift, bool alt) const {
 }
 
 bool IsGlobalAction(HotkeyAction action) {
-  return action == HotkeyAction::Record || action == HotkeyAction::Screenshot ||
+  return action == HotkeyAction::Record || action == HotkeyAction::ReplaySave ||
+         action == HotkeyAction::ReplayToggle || action == HotkeyAction::Screenshot ||
          action == HotkeyAction::ScreenshotClipboard;
 }
 
@@ -76,6 +83,8 @@ const char* HotkeyActionName(HotkeyAction action) {
     case HotkeyAction::RestartCapture: return T("Aufnahme neu starten", "Restart capture");
     case HotkeyAction::ReinitCard: return T("Karte neu einlesen", "Reinitialise card");
     case HotkeyAction::Record: return T("Aufnahme starten/stoppen", "Start/stop recording");
+    case HotkeyAction::ReplaySave: return T("Replay als Clip speichern", "Save replay as clip");
+    case HotkeyAction::ReplayToggle: return T("Replay an/aus", "Replay on/off");
     case HotkeyAction::Screenshot: return T("Screenshot", "Screenshot");
     case HotkeyAction::ScreenshotClipboard:
       return T("Screenshot in die Zwischenablage", "Screenshot to clipboard");
@@ -102,6 +111,8 @@ const char* HotkeyActionKey(HotkeyAction action) {
     case HotkeyAction::RestartCapture: return "restartCapture";
     case HotkeyAction::ReinitCard: return "reinitCard";
     case HotkeyAction::Record: return "record";
+    case HotkeyAction::ReplaySave: return "replaySave";
+    case HotkeyAction::ReplayToggle: return "replayToggle";
     case HotkeyAction::Screenshot: return "screenshot";
     case HotkeyAction::ScreenshotClipboard: return "screenshotClipboard";
     case HotkeyAction::Freeze: return "freeze";

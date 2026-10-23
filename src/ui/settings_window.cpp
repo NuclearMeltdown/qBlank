@@ -4042,10 +4042,8 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::Checkbox(T("Bei Größe aufteilen", "Split at size"), &rec.splitFiles);
   Anchor("split");
   ImGui::SameLine();
-  HelpMarker(T("Nur für FAT32 nötig. NTFS und exFAT haben kein 4-GB-Limit. Beim Teilen entsteht "
-               "eine kurze Lücke.",
-               "Only needed on FAT32. NTFS and exFAT have no 4 GB limit. Splitting leaves a "
-               "brief gap."));
+  HelpMarker(T("Nur für FAT32 nötig. NTFS und exFAT haben kein 4-GB-Limit. Geteilt wird nahtlos.",
+               "Only needed on FAT32. NTFS and exFAT have no 4 GB limit. The split is seamless."));
   ImGui::BeginDisabled(!rec.splitFiles);
   ImGui::SetNextItemWidth(-260.0f);
   ImGui::SliderInt(T("Teilgröße", "Split size"), &rec.splitSizeMb, 100, 20000, "%d MB");
@@ -4070,48 +4068,92 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
                "only used while the disk lags behind, and never more than is free right now, "
                "less a 2 GB reserve. When it is full the recording stops, and what is in it is "
                "still written."));
-  ImGui::BeginDisabled(!rec.largeBuffer);
-  {
-    constexpr double kGb = 1024.0 * 1024.0 * 1024.0;
-    const bool known = memTotal_ > 0;
-    const uint64_t reserve = std::min(kRecordBufferReserveBytes, memTotal_);
-    const uint64_t room = memFree_ > reserve ? memFree_ - reserve : 0;
-    const uint64_t used = memTotal_ > memFree_ ? memTotal_ - memFree_ : 0;
-    const int maxGb = known ? std::max(2, (int)std::lround((double)memTotal_ / kGb))
-                            : kMaxRecordBufferGb;
-    const int roomGb = known ? Clamp((int)((double)room / kGb), 1, maxGb) : kMaxRecordBufferGb;
+  // Buffer and replay share one slider: all of the memory as the bar, with
+  // what others hold, and the reserve, coming in from the right.
+  constexpr double kGb = 1024.0 * 1024.0 * 1024.0;
+  const bool memKnown = memTotal_ > 0;
+  const uint64_t reserve = std::min(kRecordBufferReserveBytes, memTotal_);
+  const uint64_t room = memFree_ > reserve ? memFree_ - reserve : 0;
+  const int maxGb =
+      memKnown ? std::max(2, (int)std::lround((double)memTotal_ / kGb)) : kMaxRecordBufferGb;
+  const int roomGb = memKnown ? Clamp((int)((double)room / kGb), 1, maxGb) : kMaxRecordBufferGb;
+  const auto memorySlider = [&](const char* id, int* gb, int standard, const char* field,
+                                const char* freeFor) {
     const ImVec4 usedColor(0.95f, 0.42f, 0.36f, 1.0f);
     const ImVec4 reserveColor(1.0f, 0.72f, 0.25f, 1.0f);
-
     ImGui::SetNextItemWidth(-360.0f);
-    if (ImGui::SliderInt("##buffergb", &rec.bufferGb, 1, maxGb, "%d GB",
-                         ImGuiSliderFlags_AlwaysClamp)) {
-      rec.bufferGb = std::min(rec.bufferGb, roomGb);
+    if (ImGui::SliderInt(id, gb, 1, maxGb, "%d GB", ImGuiSliderFlags_AlwaysClamp)) {
+      *gb = std::min(*gb, roomGb);
     }
-    if (known) {
+    if (memKnown) {
       MemoryOverlay(maxGb, (double)room / kGb, (double)reserve / kGb,
                     ImVec4(usedColor.x, usedColor.y, usedColor.z, 0.40f),
                     ImVec4(reserveColor.x, reserveColor.y, reserveColor.z, 0.28f));
     }
-    Anchor("buffersize");
-    ResetOnRightClick(rec.bufferGb, kRecord.bufferGb);
+    Anchor(id + 2);  // without the "##"
+    ResetOnRightClick(*gb, standard);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(Px(96.0f));
-    if (ImGui::InputInt(T("Puffergröße (GB)", "Buffer size (GB)"), &rec.bufferGb, 0, 0,
-                        ImGuiInputTextFlags_CharsDecimal)) {
-      rec.bufferGb = Clamp(rec.bufferGb, 1, roomGb);
+    if (ImGui::InputInt(field, gb, 0, 0, ImGuiInputTextFlags_CharsDecimal)) {
+      *gb = Clamp(*gb, 1, roomGb);
     }
 
     // Die Legende zum Balken, in seinen Farben.
-    if (known) {
-      ImGui::TextDisabled(T("%s frei für den Puffer,", "%s free for the buffer,"),
-                          FormatBytes(room).c_str());
+    if (memKnown) {
+      const uint64_t used = memTotal_ > memFree_ ? memTotal_ - memFree_ : 0;
+      ImGui::TextDisabled(freeFor, FormatBytes(room).c_str());
       ImGui::SameLine();
       ImGui::TextColored(usedColor, T("%s belegt,", "%s in use,"), FormatBytes(used).c_str());
       ImGui::SameLine();
       ImGui::TextColored(reserveColor, T("%s Reserve", "%s reserve"),
                          FormatBytes(reserve).c_str());
     }
+  };
+
+  ImGui::BeginDisabled(!rec.largeBuffer);
+  memorySlider("##buffersize", &rec.bufferGb, kRecord.bufferGb,
+               T("Puffergröße (GB)", "Buffer size (GB)"),
+               T("%s frei für den Puffer,", "%s free for the buffer,"));
+  ImGui::EndDisabled();
+
+  // ---- replay ----
+  // Rides on a running recording's encoders, on its own otherwise; nothing
+  // reaches the disk before the key is pressed.
+  ImGui::Spacing();
+  ImGui::SeparatorText("Replay");
+  Anchor("replaysection");
+  ImGui::Checkbox(T("Replay im Hintergrund", "Replay in the background"), &rec.replay);
+  Anchor("replay");
+  ImGui::SameLine();
+  HelpMarker(Format(T("Hält die letzten Sekunden im Arbeitsspeicher, mit dem Encoder der Aufnahme. "
+                      "„Replay speichern“ (%s) schreibt sie als Clip in den Unterordner clips. "
+                      "Neben einer Aufnahme läuft es mit, ohne zweiten Encoder.",
+                      "Keeps the last seconds in memory, on the recording's encoder. \"Save the "
+                      "replay\" (%s) writes them as a clip into the clips subfolder. Beside a "
+                      "recording it runs along, without a second encoder."),
+                    HotkeyText(cfg().hotkeys[HotkeyAction::ReplaySave]).c_str())
+                 .c_str());
+  ImGui::BeginDisabled(!rec.replay);
+  ImGui::SetNextItemWidth(-260.0f);
+  ImGui::SliderInt(T("Länge", "Length"), &rec.replaySeconds, kMinReplaySeconds, kMaxReplaySeconds,
+                   "%d s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+  Anchor("replaylength");
+  ResetOnRightClick(rec.replaySeconds, kRecord.replaySeconds);
+  memorySlider("##replaymemory", &rec.replayGb, kRecord.replayGb,
+               T("Höchstens (GB)", "At most (GB)"),
+               T("%s frei für das Replay,", "%s free for the replay,"));
+  // What the length costs, by the same estimate as the time left above. Should
+  // the memory run out first, the replay holds that much less.
+  if (diskBytesPerSecond_ > 1.0) {
+    const double need = diskBytesPerSecond_ * rec.replaySeconds;
+    const double cap = (double)rec.replayGb * kGb;
+    std::string line = Format(T("%d s brauchen etwa %s", "%d s take about %s"), rec.replaySeconds,
+                              FormatBytes((uint64_t)need).c_str());
+    if (need > cap) {
+      line += Format(T(" — mehr als erlaubt, es bleiben etwa %s", " — more than allowed, about %s fit"),
+                     FormatDuration(cap / diskBytesPerSecond_).c_str());
+    }
+    ImGui::TextDisabled("%s", line.c_str());
   }
   ImGui::EndDisabled();
 

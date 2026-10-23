@@ -37,9 +37,14 @@ void App::UpdateTray() {
   if (trayFailed_) return;
 
   // T() answers with one of its two arguments, so the pointer alone says
-  // whether recording or language have changed -- no string to build for that
-  // every frame.
-  const char* state = recorder_.recording() ? T(" – Aufnahme läuft", " – Recording") : "";
+  // whether recording, replay or language have changed -- no string to build
+  // for that every frame.
+  const bool replay = recorder_.replaying();
+  const char* state = recorder_.recording()
+                          ? (replay ? T(" – Aufnahme und Replay laufen", " – Recording, replay on")
+                                    : T(" – Aufnahme läuft", " – Recording"))
+                      : replay ? T(" – Replay läuft", " – Replay on")
+                               : "";
   if (!tray_.shown()) {
     if (!tray_.Show(AppNameUtf8() + state)) {
       // Not retried every frame; switching the setting off and on tries again.
@@ -113,6 +118,8 @@ std::vector<TrayMenuItem> App::BuildTrayMenu() {
   group();
   quick(TrayItem::Record, recorder_.recording() ? T("Aufnahme stoppen", "Stop recording")
                                                 : T("Aufnahme starten", "Start recording"));
+  quick(TrayItem::ReplayToggle, T("Replay", "Replay"), config_.record.replay);
+  quick(TrayItem::ReplaySave, T("Replay speichern", "Save the replay"));
   quick(TrayItem::Screenshot, T("Screenshot", "Screenshot"));
   quick(TrayItem::ScreenshotClipboard,
         T("Screenshot in die Zwischenablage", "Screenshot to clipboard"));
@@ -176,6 +183,12 @@ void App::RunTrayCommand(int id) {
   switch ((TrayItem)(id - kTrayItemBase)) {
     case TrayItem::Record:
       recording_.ToggleRecording();
+      break;
+    case TrayItem::ReplayToggle:
+      recording_.ToggleReplay();
+      break;
+    case TrayItem::ReplaySave:
+      recording_.SaveReplay();
       break;
     case TrayItem::Screenshot:
       RequestScreenshot();

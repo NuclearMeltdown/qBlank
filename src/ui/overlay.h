@@ -93,6 +93,8 @@ struct OverlayStats {
   // What the automatic colour handling settled on; empty when it is still
   // measuring or the user picked the values by hand.
   std::string colorInfo;
+  // How much the replay holds, or why it holds nothing; empty while it is off.
+  std::string replayInfo;
 };
 
 void DrawStatsPanel(const OverlayStats& stats);

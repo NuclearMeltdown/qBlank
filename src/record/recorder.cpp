@@ -6,6 +6,7 @@
 #include <cstring>
 #include <deque>
 #include <system_error>
+#include <utility>
 
 #include "record/gpu_frames.h"
 #include "record/libav.h"
@@ -52,6 +53,14 @@ int64_t QueueLimit(const RecordSettings& settings, int64_t queued, uint64_t free
   return std::max(kSmallQueueBytes, std::min(set, room));
 }
 
+// What the replay may hold while `held` is in it and `freeBytes` of memory are
+// free besides: what was asked, by the same rule as the queue, and never below
+// a quarter gigabyte.
+int64_t RingLimit(uint64_t asked, int64_t held, uint64_t freeBytes) {
+  const int64_t room = held + (int64_t)freeBytes - (int64_t)kRecordBufferReserveBytes;
+  return std::max<int64_t>(256ll << 20, std::min((int64_t)asked, room));
+}
+
 // The frame rate as a fraction, which is how the encoder and the container
 // want it. Measured rates jitter, so what is close to a whole number or to its
 // NTSC sibling becomes exactly that: 59.9401 is 60000/1001, not some fraction
@@ -85,22 +94,297 @@ double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks, 
   return video + audio * (double)std::max(audioTracks, 0);
 }
 
+// ------------------------------------------------------------------- output
+
+// One file on the session's encoders. The packets arrive in their codec's time
+// base and keep it up to the muxer, which rescales them to what its header
+// chose; the window below decides which of them belong to the file.
+struct Recorder::Output {
+  const Libav* av = nullptr;
+  std::filesystem::path file;
+  bool clip = false;
+  AVFormatContext* ctx = nullptr;
+  std::vector<AVRational> from;  // the session's bases, per stream
+  int videoStream = -1;
+  bool flipped = false;  // an AVI's bottom-up RGB (flipped_raw_rgb)
+  // The recorder's count of bytes written while this is the file being
+  // written, null after. Under the session's routeMutex, as is everything
+  // from the window on.
+  std::atomic<uint64_t>* counter = nullptr;
+  // The session's, raised when this fails or overflows. Null for a clip,
+  // which only reports.
+  std::atomic<bool>* trouble = nullptr;
+
+  // The muxer's own thread: the disk may pause, the encoders must not.
+  std::mutex muxMutex;
+  std::condition_variable muxWake;
+  std::deque<AVPacket*> queue;
+  bool closing = false;
+  std::atomic<int64_t> queuedBytes{0};
+  std::atomic<int64_t> queueLimit{kSmallQueueBytes};
+  std::atomic<bool> writeFailed{false};
+  Said error;  // under muxMutex
+  // The muxer thread's until it is joined.
+  bool created = false;
+  bool fileOpen = false;
+  bool headerWritten = false;
+  std::thread muxer;
+
+  // The window, in the picture's pts. A file from the session's start takes
+  // `everything`; one begun later starts at the first keyframe at or after
+  // `startAsked`, and a file ends before the first one at or after
+  // `endAsked`. The same keyframe ends one file and starts the next, so a
+  // split loses nothing and repeats nothing.
+  bool everything = false;
+  bool started = false;
+  int64_t startAsked = 0;
+  int64_t start = 0;
+  int64_t endAsked = INT64_MAX;
+  bool ended = false;
+  int64_t end = 0;
+  int64_t endedTicks = 0;
+  std::vector<int64_t> offset;  // the start in each stream's time base
+  // Sound that may belong to the file once the next keyframe says where it
+  // starts or ends.
+  std::vector<AVPacket*> held;
+  // The sound streams that went past the end. Sound leaves its encoder ahead
+  // of the picture or behind it, and the file waits for the rest.
+  std::vector<char> pastEnd;
+  int64_t lastVideo = INT64_MIN;  // the newest picture queued, before the offset
+  bool overflow = false;
+
+  enum class Fate { Drop, Queue, Hold };
+
+  ~Output();
+  void MuxLoop();
+  void StopMuxer();
+  // Keeps a failure for whoever asks and raises `trouble`. Muxer thread.
+  void Failed(Said said);
+  // Where a packet goes, moving the window on as keyframes pass.
+  Fate Take(const AVPacket* packet);
+  Fate SoundFate(const AVPacket* packet);
+  // Decides on what was held, once the window moved.
+  void Settle();
+  // Carries out `fate` on a packet of its own; null is out of memory.
+  void Keep(AVPacket* packet, Fate fate);
+  // Hands one packet to the muxer, timed from the file's start.
+  void Queue(AVPacket* packet);
+  // Ended, with nothing more to wait for.
+  bool Done(int64_t now) const;
+  double seconds() const;
+  // Ends the muxer and writes the container's index. True when the whole file
+  // made it to the disk.
+  bool Close();
+};
+
+Recorder::Output::~Output() {
+  StopMuxer();
+  for (AVPacket* packet : queue) av->av_packet_free(&packet);
+  for (AVPacket* packet : held) av->av_packet_free(&packet);
+  if (ctx) {
+    if (fileOpen) av->avio_closep(&ctx->pb);
+    av->avformat_free_context(ctx);
+  }
+}
+
+void Recorder::Output::MuxLoop() {
+  // The file is made here, so a slow disk holds up nothing but this thread.
+  LibavClearError();
+  int result = av->avio_open(&ctx->pb, PathToUtf8(file).c_str(), AVIO_FLAG_WRITE);
+  if (result >= 0) {
+    created = fileOpen = true;
+    // Uncompressed RGB comes bottom-up from the GPU, as a bitmap keeps it, and
+    // the header has to say so. Without filters in the card's own row order.
+    AVDictionary* header = nullptr;
+    if (flipped) av->av_dict_set(&header, "flipped_raw_rgb", "1", 0);
+    result = av->avformat_write_header(ctx, &header);
+    av->av_dict_free(&header);
+    headerWritten = result >= 0;
+  }
+  if (result < 0) {
+    const std::string why = LibavError(result);
+    Failed(CAP_SAID(Format(T("Die Datei konnte nicht angelegt werden: %s",
+                             "Could not create the file: %s"),
+                           why.c_str())));
+  }
+
+  std::deque<AVPacket*> batch;
+  for (;;) {
+    {
+      std::unique_lock<std::mutex> lock(muxMutex);
+      muxWake.wait(lock, [this] { return !queue.empty() || closing; });
+      if (queue.empty()) return;
+      batch.swap(queue);
+    }
+    for (AVPacket* packet : batch) {
+      const int size = packet->size;
+      if (!writeFailed.load(std::memory_order_relaxed)) {
+        const int stream = packet->stream_index;
+        av->av_packet_rescale_ts(packet, from[stream], ctx->streams[stream]->time_base);
+        LibavClearError();
+        result = av->av_interleaved_write_frame(ctx, packet);
+        if (result < 0) {
+          const std::string why = LibavError(result);
+          Failed(CAP_SAID(
+              Format(T("Schreiben fehlgeschlagen: %s", "Writing failed: %s"), why.c_str())));
+        }
+      }
+      av->av_packet_free(&packet);
+      queuedBytes.fetch_sub(size, std::memory_order_relaxed);
+    }
+    batch.clear();
+  }
+}
+
+void Recorder::Output::StopMuxer() {
+  if (!muxer.joinable()) return;
+  {
+    std::lock_guard<std::mutex> lock(muxMutex);
+    closing = true;
+  }
+  muxWake.notify_all();
+  muxer.join();
+}
+
+void Recorder::Output::Failed(Said said) {
+  {
+    std::lock_guard<std::mutex> lock(muxMutex);
+    error = std::move(said);
+  }
+  writeFailed.store(true, std::memory_order_release);
+  if (trouble) trouble->store(true, std::memory_order_release);
+}
+
+Recorder::Output::Fate Recorder::Output::Take(const AVPacket* packet) {
+  if (packet->stream_index != videoStream) return SoundFate(packet);
+  const bool key = (packet->flags & AV_PKT_FLAG_KEY) != 0;
+  if (ended) return Fate::Drop;
+  if (!started) {
+    if (!key || packet->pts < startAsked) return Fate::Drop;
+    if (packet->pts >= endAsked) {
+      // Ended before it began: nothing belongs to it.
+      ended = true;
+      endedTicks = ClockTicks();
+      for (AVPacket*& waiting : held) av->av_packet_free(&waiting);
+      held.clear();
+      return Fate::Drop;
+    }
+    started = true;
+    start = packet->pts;
+    for (size_t i = 0; i < from.size(); ++i) {
+      offset[i] = av->av_rescale_q(start, from[videoStream], from[i]);
+    }
+    Settle();
+    return Fate::Queue;
+  }
+  if (key && packet->pts >= endAsked) {
+    ended = true;
+    end = packet->pts;
+    endedTicks = ClockTicks();
+    Settle();
+    return Fate::Drop;
+  }
+  // Behind the start in decode order but before it in time: a picture that
+  // looks back past the keyframe, at one the file does not have.
+  return packet->pts < start ? Fate::Drop : Fate::Queue;
+}
+
+Recorder::Output::Fate Recorder::Output::SoundFate(const AVPacket* packet) {
+  const int stream = packet->stream_index;
+  auto at = [&](int64_t pts) { return av->av_rescale_q(pts, from[videoStream], from[stream]); };
+  if (!started) return !ended && packet->pts >= at(startAsked) ? Fate::Hold : Fate::Drop;
+  if (!everything && packet->pts < offset[stream]) return Fate::Drop;
+  if (ended) {
+    if (packet->pts < at(end)) return Fate::Queue;
+    pastEnd[stream] = 1;
+    return Fate::Drop;
+  }
+  return endAsked == INT64_MAX || packet->pts < at(endAsked) ? Fate::Queue : Fate::Hold;
+}
+
+void Recorder::Output::Settle() {
+  std::vector<AVPacket*> waiting;
+  waiting.swap(held);
+  for (AVPacket* packet : waiting) Keep(packet, SoundFate(packet));
+}
+
+void Recorder::Output::Keep(AVPacket* packet, Fate fate) {
+  if (!packet) return;
+  if (fate == Fate::Queue) {
+    Queue(packet);
+  } else if (fate == Fate::Hold) {
+    held.push_back(packet);
+  } else {
+    av->av_packet_free(&packet);
+  }
+}
+
+void Recorder::Output::Queue(AVPacket* packet) {
+  const int stream = packet->stream_index;
+  if (stream == videoStream) lastVideo = std::max(lastVideo, packet->pts);
+  if (packet->pts != AV_NOPTS_VALUE) packet->pts -= offset[stream];
+  if (packet->dts != AV_NOPTS_VALUE) packet->dts -= offset[stream];
+  const int size = packet->size;
+  if (counter) counter->fetch_add((uint64_t)size, std::memory_order_relaxed);
+  const int64_t queued = queuedBytes.fetch_add(size, std::memory_order_relaxed) + size;
+  {
+    std::lock_guard<std::mutex> lock(muxMutex);
+    queue.push_back(packet);
+  }
+  muxWake.notify_one();
+  // What is in it still goes to the disk, as the file closes.
+  if (trouble && !overflow && queued > queueLimit.load(std::memory_order_relaxed)) {
+    overflow = true;
+    trouble->store(true, std::memory_order_release);
+  }
+}
+
+bool Recorder::Output::Done(int64_t now) const {
+  if (!ended) return false;
+  if (!started) return true;
+  for (size_t i = 0; i < pastEnd.size(); ++i) {
+    if ((int)i != videoStream && !pastEnd[i]) return TicksToSeconds(now - endedTicks) > 5.0;
+  }
+  return true;
+}
+
+double Recorder::Output::seconds() const {
+  if (lastVideo == INT64_MIN) return 0.0;
+  return (double)(lastVideo - start + 1) * av_q2d(from[videoStream]);
+}
+
+bool Recorder::Output::Close() {
+  StopMuxer();
+  bool complete = headerWritten && !writeFailed.load(std::memory_order_acquire);
+  // A file that never got a picture has nothing to index, and goes.
+  if (headerWritten && lastVideo != INT64_MIN) {
+    LibavClearError();
+    const int trailer = av->av_write_trailer(ctx);
+    if (trailer < 0) {
+      CAP_ERR("Recording: could not finish the file: %s", LibavError(trailer).c_str());
+      complete = false;
+    }
+  }
+  if (fileOpen) {
+    fileOpen = false;
+    if (av->avio_closep(&ctx->pb) < 0) complete = false;
+  }
+  return complete;
+}
+
 // ------------------------------------------------------------------ session
 
 struct Recorder::Session {
   const Libav* av = nullptr;
   RecordSettings settings;
   EncoderInfo encoder;
-  std::filesystem::path file;
   AVRational rate = {60, 1};
-  // The recorder's count of bytes written, while the recording runs. Cleared
-  // before closing, so what the encoders still let out then does not count
-  // towards the next file.
-  std::atomic<uint64_t>* counter = nullptr;
 
-  AVFormatContext* output = nullptr;
-  bool fileOpen = false;
-  bool headerWritten = false;
+  // The streams every file copies, itself never written, and the time base
+  // each stream's packets come in.
+  AVFormatContext* proto = nullptr;
+  std::vector<AVRational> bases;
+  bool flipped = false;  // Output::flipped
 
   AVCodecContext* video = nullptr;
   int videoStream = -1;
@@ -143,35 +427,76 @@ struct Recorder::Session {
   };
   std::vector<Feed> feeds;  // in the order of Recorder::extras_
 
-  // The muxer's own thread: the disk may pause, the encoders must not.
-  std::mutex muxMutex;
-  std::condition_variable muxWake;
-  std::deque<AVPacket*> queue;
-  bool closing = false;
-  std::atomic<int64_t> queuedBytes{0};
-  std::atomic<int64_t> queueLimit{kSmallQueueBytes};
-  std::atomic<bool> writeFailed{false};
-  std::string writeError;  // under muxMutex
-  std::thread muxer;
+  // Where the packets go, for the encoders' threads and the control thread
+  // alike: the files, the replay, the last second of sound.
+  std::mutex routeMutex;
+  bool opened = false;  // the encoders are; until then `file` waits here
+  std::filesystem::path file;
+  int64_t liveLimit = kSmallQueueBytes;  // what the file being written may queue
+  std::vector<std::unique_ptr<Output>> outputs;
+  Output* live = nullptr;  // the file being written, among them
+  // Ended ones, for RetireDone to take to the closing thread.
+  std::vector<std::unique_ptr<Output>> done;
+  std::atomic<bool> anyDone{false};
+  // The next picture sent goes out as a keyframe: a file begins or ends.
+  std::atomic<bool> keyWanted{false};
+  std::atomic<bool> trouble{false};  // Output::trouble
+  int64_t latestVideo = INT64_MIN;   // the newest pts out of the encoder
+  // Sound leaves its encoder ahead of the picture. A file begun now still
+  // wants it: the last second, by reference.
+  std::deque<AVPacket*> recentSound;
+  std::vector<Output::Fate> fates;  // Route's, kept for the allocation
+
+  // The replay: whole keyframe intervals, the oldest let go while the next
+  // one still leaves `keep` (in the picture's pts) or the bytes are over
+  // `limit`. The front is always a keyframe.
+  struct Ring {
+    bool on = false;
+    int64_t keep = 0;
+    uint64_t asked = 0;
+    int64_t limit = 0;
+    int64_t bytes = 0;
+    int64_t newest = INT64_MIN;
+    std::deque<AVPacket*> video;
+    std::deque<uint64_t> keys;  // keyframes, counted from the first ever kept
+    uint64_t popped = 0;        // let go from the front so far
+    std::deque<AVPacket*> audio;
+  } ring;
+
+  // What Stop saw, for the closing thread's line in the log.
+  bool wasRunning = false;
+  unsigned long long stoppedFrames = 0;
+  unsigned long long stoppedLeftOut = 0;
 
   ~Session();
-  void MuxLoop();
-  void StopMuxer();
-  // Takes what `codec` has finished and queues it for the muxer.
+  // Takes what `codec` has finished and routes it.
   int Drain(AVCodecContext* codec, int stream, AVPacket** spare);
-  // Hands one packet, timed in `timeBase`, to the muxer.
-  void Queue(AVPacket* packet, int stream, AVRational timeBase);
+  // Hands one packet to every output that takes it, the replay and the last
+  // second of sound; whatever ended moves to `done`.
+  void Route(AVPacket* packet, int stream);
   // Appends interleaved stereo to a track, sending each frame as it fills.
   int Encode(Track& track, const float* interleaved, size_t frames);
-  // Lets the encoders finish and writes the container's index. True when the
-  // whole file made it to the disk.
-  bool Close();
+  // Lets the encoders finish into the outputs. Closing thread.
+  void Flush();
+  // A file with the session's streams and its muxer running; null when out of
+  // memory.
+  std::unique_ptr<Output> NewOutput(const std::filesystem::path& path, bool clip);
+  // The file being written from the next keyframe on, ending the one before
+  // there. Under routeMutex, once opened.
+  bool AddFile(const std::filesystem::path& path, std::atomic<uint64_t>* counter);
+  // The replay's, under routeMutex.
+  void Remember(AVPacket* packet);
+  void DropInterval();
+  void ClearRing();
 };
 
 Recorder::Session::~Session() {
-  StopMuxer();
+  // First: their muxers may still write to `trouble`.
+  outputs.clear();
+  done.clear();
   if (!av) return;
-  for (AVPacket* packet : queue) av->av_packet_free(&packet);
+  ClearRing();
+  for (AVPacket* packet : recentSound) av->av_packet_free(&packet);
   av->av_packet_free(&videoPacket);
   av->av_packet_free(&audioPacket);
   av->avcodec_free_context(&video);
@@ -182,50 +507,7 @@ Recorder::Session::~Session() {
   for (Feed& feed : feeds) av->swr_free(&feed.resampler);
   if (pool) av->av_buffer_pool_uninit(&pool);
   if (repacked) av->av_buffer_pool_uninit(&repacked);
-  if (output) {
-    if (fileOpen) av->avio_closep(&output->pb);
-    av->avformat_free_context(output);
-  }
-}
-
-void Recorder::Session::MuxLoop() {
-  std::deque<AVPacket*> batch;
-  for (;;) {
-    {
-      std::unique_lock<std::mutex> lock(muxMutex);
-      muxWake.wait(lock, [this] { return !queue.empty() || closing; });
-      if (queue.empty()) return;
-      batch.swap(queue);
-    }
-    for (AVPacket* packet : batch) {
-      const int size = packet->size;
-      if (!writeFailed.load(std::memory_order_relaxed)) {
-        LibavClearError();
-        const int result = av->av_interleaved_write_frame(output, packet);
-        if (result < 0) {
-          const std::string why = LibavError(result);
-          {
-            std::lock_guard<std::mutex> lock(muxMutex);
-            writeError = why;
-          }
-          writeFailed.store(true, std::memory_order_release);
-        }
-      }
-      av->av_packet_free(&packet);
-      queuedBytes.fetch_sub(size, std::memory_order_relaxed);
-    }
-    batch.clear();
-  }
-}
-
-void Recorder::Session::StopMuxer() {
-  if (!muxer.joinable()) return;
-  {
-    std::lock_guard<std::mutex> lock(muxMutex);
-    closing = true;
-  }
-  muxWake.notify_all();
-  muxer.join();
+  if (proto) av->avformat_free_context(proto);
 }
 
 int Recorder::Session::Drain(AVCodecContext* codec, int stream, AVPacket** spare) {
@@ -236,20 +518,56 @@ int Recorder::Session::Drain(AVCodecContext* codec, int stream, AVPacket** spare
     if (result < 0) return result;
     AVPacket* packet = *spare;
     *spare = nullptr;
-    Queue(packet, stream, codec->time_base);
+    Route(packet, stream);
   }
 }
 
-void Recorder::Session::Queue(AVPacket* packet, int stream, AVRational timeBase) {
+void Recorder::Session::Route(AVPacket* packet, int stream) {
   packet->stream_index = stream;
-  av->av_packet_rescale_ts(packet, timeBase, output->streams[stream]->time_base);
-  if (counter) counter->fetch_add((uint64_t)packet->size, std::memory_order_relaxed);
-  queuedBytes.fetch_add(packet->size, std::memory_order_relaxed);
-  {
-    std::lock_guard<std::mutex> lock(muxMutex);
-    queue.push_back(packet);
+  const bool isVideo = stream == videoStream;
+  std::lock_guard<std::mutex> lock(routeMutex);
+  if (isVideo) latestVideo = std::max(latestVideo, packet->pts);
+  const bool toRing =
+      ring.on && (!isVideo || !ring.video.empty() || (packet->flags & AV_PKT_FLAG_KEY) != 0);
+  const bool toRecent = !isVideo;
+  size_t takers = (toRing ? 1 : 0) + (toRecent ? 1 : 0);
+  fates.resize(outputs.size());
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    fates[i] = outputs[i]->Take(packet);
+    if (fates[i] != Output::Fate::Drop) ++takers;
   }
-  muxWake.notify_one();
+  if (takers == 0) av->av_packet_free(&packet);
+  // Every taker but the last gets a reference of its own, made before the
+  // packet's times change in an output.
+  auto share = [&]() { return --takers == 0 ? packet : av->av_packet_clone(packet); };
+  bool anyEnded = false;
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    if (fates[i] != Output::Fate::Drop) outputs[i]->Keep(share(), fates[i]);
+    anyEnded |= outputs[i]->ended;
+  }
+  if (toRing) Remember(share());
+  if (toRecent) {
+    const int64_t oldest = packet->pts - av->av_rescale_q(1, AVRational{1, 1}, bases[stream]);
+    while (!recentSound.empty() && recentSound.front()->pts < oldest) {
+      AVPacket* old = recentSound.front();
+      recentSound.pop_front();
+      av->av_packet_free(&old);
+    }
+    if (AVPacket* kept = share()) recentSound.push_back(kept);
+  }
+
+  if (!anyEnded) return;
+  const int64_t now = ClockTicks();
+  for (size_t i = 0; i < outputs.size();) {
+    if (!outputs[i]->Done(now)) {
+      ++i;
+      continue;
+    }
+    if (outputs[i].get() == live) live = nullptr;
+    done.push_back(std::move(outputs[i]));
+    outputs.erase(outputs.begin() + (ptrdiff_t)i);
+    anyDone.store(true, std::memory_order_release);
+  }
 }
 
 int Recorder::Session::Encode(Track& track, const float* in, size_t frames) {
@@ -291,8 +609,12 @@ int Recorder::Session::Encode(Track& track, const float* in, size_t frames) {
   return 0;
 }
 
-bool Recorder::Session::Close() {
-  if (!headerWritten) return false;
+void Recorder::Session::Flush() {
+  {
+    std::lock_guard<std::mutex> lock(routeMutex);
+    ring.on = false;
+    ClearRing();
+  }
   LibavClearError();
   // What the encoders still hold: lookahead and B-frames for the picture, the
   // last part frame for the sound.
@@ -314,21 +636,134 @@ bool Recorder::Session::Close() {
       Drain(track.codec, track.stream, &audioPacket);
     }
   }
-  StopMuxer();
+  // Sound held for an end that never came: the file runs to the last
+  // picture, and the sound to it belongs in it.
+  std::lock_guard<std::mutex> lock(routeMutex);
+  for (const std::unique_ptr<Output>& out : outputs) {
+    std::vector<AVPacket*> waiting;
+    waiting.swap(out->held);
+    for (AVPacket* packet : waiting) {
+      out->Keep(packet, out->started ? Output::Fate::Queue : Output::Fate::Drop);
+    }
+  }
+}
 
-  bool complete = !writeFailed.load(std::memory_order_acquire);
-  if (!complete) CAP_ERR("Recording: writing failed: %s", writeError.c_str());
+std::unique_ptr<Recorder::Output> Recorder::Session::NewOutput(const std::filesystem::path& path,
+                                                               bool clip) {
+  auto out = std::make_unique<Output>();
+  out->av = av;
+  out->file = path;
+  out->clip = clip;
+  out->videoStream = videoStream;
+  out->flipped = flipped;
+  out->trouble = clip ? nullptr : &trouble;
+  out->from = bases;
+  out->offset.assign(bases.size(), 0);
+  out->pastEnd.assign(bases.size(), 0);
+  const std::string name = PathToUtf8(path);
   LibavClearError();
-  const int trailer = av->av_write_trailer(output);
-  if (trailer < 0) {
-    CAP_ERR("Recording: could not finish the file: %s", LibavError(trailer).c_str());
-    complete = false;
+  if (av->avformat_alloc_output_context2(&out->ctx, proto->oformat, nullptr, name.c_str()) < 0 ||
+      !out->ctx) {
+    return nullptr;
   }
-  if (fileOpen) {
-    fileOpen = false;
-    if (av->avio_closep(&output->pb) < 0) complete = false;
+  for (unsigned i = 0; i < proto->nb_streams; ++i) {
+    const AVStream* src = proto->streams[i];
+    AVStream* to = av->avformat_new_stream(out->ctx, nullptr);
+    if (!to || av->avcodec_parameters_copy(to->codecpar, src->codecpar) < 0) return nullptr;
+    to->time_base = src->time_base;
+    to->avg_frame_rate = src->avg_frame_rate;
+    to->disposition = src->disposition;
+    av->av_dict_copy(&to->metadata, src->metadata, 0);
   }
-  return complete;
+  out->muxer = std::thread(&Output::MuxLoop, out.get());
+  return out;
+}
+
+bool Recorder::Session::AddFile(const std::filesystem::path& path,
+                                std::atomic<uint64_t>* counter) {
+  std::unique_ptr<Output> out = NewOutput(path, false);
+  if (!out) return false;
+  if (latestVideo == INT64_MIN) {
+    out->everything = out->started = true;
+  } else {
+    out->startAsked = latestVideo + 1;
+  }
+  if (live) {
+    live->endAsked = out->startAsked;
+    live->counter = nullptr;
+  }
+  out->queueLimit.store(liveLimit, std::memory_order_relaxed);
+  out->counter = counter;
+  for (AVPacket* packet : recentSound) {
+    const Output::Fate fate = out->SoundFate(packet);
+    if (fate != Output::Fate::Drop) out->Keep(av->av_packet_clone(packet), fate);
+  }
+  live = out.get();
+  outputs.push_back(std::move(out));
+  return true;
+}
+
+void Recorder::Session::Remember(AVPacket* packet) {
+  if (!packet) return;
+  ring.bytes += packet->size;
+  if (packet->stream_index != videoStream) {
+    ring.audio.push_back(packet);
+    // Before the first keyframe only the last second, for the one to come.
+    if (ring.video.empty()) {
+      const int64_t oldest =
+          packet->pts - av->av_rescale_q(1, AVRational{1, 1}, bases[packet->stream_index]);
+      while (ring.audio.front()->pts < oldest) {
+        AVPacket* old = ring.audio.front();
+        ring.audio.pop_front();
+        ring.bytes -= old->size;
+        av->av_packet_free(&old);
+      }
+    }
+    return;
+  }
+  if (packet->flags & AV_PKT_FLAG_KEY) ring.keys.push_back(ring.popped + ring.video.size());
+  ring.video.push_back(packet);
+  ring.newest = std::max(ring.newest, packet->pts);
+  bool dropped = false;
+  while (ring.keys.size() >= 2) {
+    const int64_t next = ring.video[(size_t)(ring.keys[1] - ring.popped)]->pts;
+    if (next > ring.newest - ring.keep && ring.bytes <= ring.limit) break;
+    DropInterval();
+    dropped = true;
+  }
+  if (!dropped) return;
+  // The sound from before the picture that is now the first.
+  const int64_t first = ring.video.front()->pts;
+  while (!ring.audio.empty()) {
+    AVPacket* old = ring.audio.front();
+    if (old->pts >= av->av_rescale_q(first, bases[videoStream], bases[old->stream_index])) break;
+    ring.audio.pop_front();
+    ring.bytes -= old->size;
+    av->av_packet_free(&old);
+  }
+}
+
+void Recorder::Session::DropInterval() {
+  const uint64_t until = ring.keys[1];
+  while (ring.popped < until) {
+    AVPacket* old = ring.video.front();
+    ring.video.pop_front();
+    ring.bytes -= old->size;
+    av->av_packet_free(&old);
+    ++ring.popped;
+  }
+  ring.keys.pop_front();
+}
+
+void Recorder::Session::ClearRing() {
+  for (AVPacket* packet : ring.video) av->av_packet_free(&packet);
+  for (AVPacket* packet : ring.audio) av->av_packet_free(&packet);
+  ring.video.clear();
+  ring.audio.clear();
+  ring.keys.clear();
+  ring.popped = 0;
+  ring.bytes = 0;
+  ring.newest = INT64_MIN;
 }
 
 // -------------------------------------------------------------- the recorder
@@ -618,14 +1053,13 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   session->encoder = *encoder;
   session->file = outFile;
   session->rate = rate;
-  session->counter = &bytesWritten_;
   // Nothing is reserved: the queue only grows while the disk is behind.
   if (settings.largeBuffer) {
     uint64_t freeBytes = 0;
     const int64_t limit = MemoryBytes(nullptr, &freeBytes)
                               ? QueueLimit(settings, 0, freeBytes)
                               : (int64_t)settings.bufferGb << 30;
-    session->queueLimit.store(limit, std::memory_order_relaxed);
+    session->liveLimit = limit;
     CAP_LOG("Recording: buffer up to %s of %d GB set, %s of memory free",
             FormatBytes((uint64_t)limit).c_str(), settings.bufferGb, FormatBytes(freeBytes).c_str());
   }
@@ -653,6 +1087,8 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
 
   session_ = std::move(session);
   running_.store(true, std::memory_order_relaxed);
+  recording_.store(!outFile.empty(), std::memory_order_relaxed);
+  replaying_.store(false, std::memory_order_relaxed);
   if (audioRate_ > 0 || !extras_.empty()) {
     audioThread_ = std::thread(&Recorder::AudioThread, this, session_.get());
   }
@@ -660,8 +1096,9 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   // more, and the picture would wait for it.
   videoThread_ = std::thread(&Recorder::VideoThread, this, session_.get());
 
-  CAP_LOG("Recording started: %s, %dx%d @ %.3f fps, %s", PathToUtf8(outFile).c_str(), width_,
-          height_, fps_, encoder->label.c_str());
+  CAP_LOG("Recording started: %s, %dx%d @ %.3f fps, %s",
+          outFile.empty() ? "replay only" : PathToUtf8(outFile).c_str(), width_, height_, fps_,
+          encoder->label.c_str());
   if (unfiltered_) {
     CAP_LOG("Recording: unfiltered, card %s %dx%d as %s%s", card_.format.subtypeLabel.c_str(),
             card_.format.width, card_.format.height, plan_.pixelFormat,
@@ -672,7 +1109,6 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
 
 bool Recorder::Open(Session* s) {
   const Libav& av = *s->av;
-  const std::string file = PathToUtf8(s->file);
   auto failed = [&](const char* de, const char* en, int code) {
     const std::string why = LibavError(code);
     Fail(CAP_SAID(Format(T(de, en), why.c_str())));
@@ -684,13 +1120,13 @@ bool Recorder::Open(Session* s) {
   const bool avi = container == RecordContainer::Avi;
   LibavClearError();
   int result = av.avformat_alloc_output_context2(
-      &s->output, nullptr,
-      container == RecordContainer::Mp4 ? "mp4" : avi ? "avi" : "matroska", file.c_str());
-  if (result < 0 || !s->output) {
+      &s->proto, nullptr,
+      container == RecordContainer::Mp4 ? "mp4" : avi ? "avi" : "matroska", nullptr);
+  if (result < 0 || !s->proto) {
     return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
                   result);
   }
-  const bool globalHeader = (s->output->oformat->flags & AVFMT_GLOBALHEADER) != 0;
+  const bool globalHeader = (s->proto->oformat->flags & AVFMT_GLOBALHEADER) != 0;
 
   // ---- the picture ----
   const AVCodec* codec = av.avcodec_find_encoder_by_name(s->encoder.ffmpegName.c_str());
@@ -796,6 +1232,14 @@ bool Recorder::Open(Session* s) {
       av.av_dict_set(&options, pairs[i].c_str(), pairs[i + 1].c_str(), 0);
       told += Format(" %s=%s", pairs[i].c_str(), pairs[i + 1].c_str());
     }
+    // A file begins on a keyframe asked for (Session::keyWanted), and a player
+    // has to be able to start there: NVENC and AMF make it one that nothing
+    // behind it looks past only when told.
+    for (const char* idr : {"forced-idr", "forced_idr"}) {
+      if (v->priv_data && av.av_opt_find(v->priv_data, idr, nullptr, 0, 0)) {
+        av.av_dict_set(&options, idr, "1", 0);
+      }
+    }
     LibavClearError();
     const int opened = av.avcodec_open2(v, codec, &options);
     // What is left is what the encoder did not know. Not a failure, but worth
@@ -824,7 +1268,7 @@ bool Recorder::Open(Session* s) {
   }
   const AVCodecContext* v = s->video;
 
-  AVStream* stream = av.avformat_new_stream(s->output, nullptr);
+  AVStream* stream = av.avformat_new_stream(s->proto, nullptr);
   if (!stream) return failed("Die Datei konnte nicht angelegt werden: %s",
                              "Could not create the file: %s", AVERROR(ENOMEM));
   stream->time_base = v->time_base;
@@ -869,7 +1313,7 @@ bool Recorder::Open(Session* s) {
              r);
       return -1;
     }
-    AVStream* st = av.avformat_new_stream(s->output, nullptr);
+    AVStream* st = av.avformat_new_stream(s->proto, nullptr);
     track.frame = av.av_frame_alloc();
     if (!st || !track.frame) {
       failed("Der Audio-Encoder ließ sich nicht öffnen: %s", "Could not open the audio encoder: %s",
@@ -927,28 +1371,13 @@ bool Recorder::Open(Session* s) {
   av.av_channel_layout_uninit(&stereo);
   const int trackCount = (int)s->tracks.size();
 
-  // ---- the file ----
-  LibavClearError();
-  result = av.avio_open(&s->output->pb, file.c_str(), AVIO_FLAG_WRITE);
-  if (result < 0) {
-    return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
-                  result);
+  // What each stream's packets are timed in as they leave their encoder.
+  s->bases.assign(s->proto->nb_streams, AVRational{1, 1});
+  s->bases[(size_t)s->videoStream] = v->time_base;
+  for (const Session::Track& track : s->tracks) {
+    s->bases[(size_t)track.stream] = track.codec->time_base;
   }
-  s->fileOpen = true;
-  // Uncompressed RGB comes bottom-up from the GPU, as a bitmap keeps it, and
-  // the header has to say so. Without filters in the card's own row order.
-  AVDictionary* header = nullptr;
-  if (avi && (!unfiltered_ || card_.format.bottomUp)) {
-    av.av_dict_set(&header, "flipped_raw_rgb", "1", 0);
-  }
-  result = av.avformat_write_header(s->output, &header);
-  av.av_dict_free(&header);
-  if (result < 0) {
-    return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
-                  result);
-  }
-  s->headerWritten = true;
-  s->muxer = std::thread(&Session::MuxLoop, s);
+  s->flipped = avi && (!unfiltered_ || card_.format.bottomUp);
 
   // Room for a frame, plus what SIMD may read past the end. A few are touched
   // now, so the first copies on the render thread do not fault their pages in.
@@ -976,6 +1405,20 @@ bool Recorder::Open(Session* s) {
   };
   if (!s->gpu) warm(s->pool, bufferBytes);
   if (s->repacked) warm(s->repacked, repackedBytes);
+
+  // ---- the file ----
+  // Asked for at Start, unless StartFile came in the meantime or StopFile
+  // took it back. It gets everything from the first frame.
+  bool added = true;
+  {
+    std::lock_guard<std::mutex> lock(s->routeMutex);
+    s->opened = true;
+    if (!s->file.empty()) added = s->AddFile(s->file, &bytesWritten_);
+  }
+  if (!added) {
+    return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
+                  AVERROR(ENOMEM));
+  }
 
   CAP_LOG("Recording: %s %dx%d %s%s at %d/%d fps,%s %d audio track%s at %d Hz",
           s->encoder.ffmpegName.c_str(), width_, height_,
@@ -1008,56 +1451,239 @@ void Recorder::Stop() {
   const Libav* av = Av();
   if (stale && av) av->av_buffer_unref(&stale);
 
+  recording_.store(false, std::memory_order_relaxed);
+  replaying_.store(false, std::memory_order_relaxed);
   if (session_) {
     std::unique_ptr<Session> session = std::move(session_);
-    session->counter = nullptr;
+    {
+      // What the encoders still let out from here does not count towards the
+      // next file.
+      std::lock_guard<std::mutex> lock(session->routeMutex);
+      for (const std::unique_ptr<Output>& out : session->outputs) out->counter = nullptr;
+      session->live = nullptr;
+    }
     // Freed once the encoder lets go of the last frame it holds.
     if (session->pool) av->av_buffer_pool_uninit(&session->pool);
     if (session->repacked) av->av_buffer_pool_uninit(&session->repacked);
-
-    Finished done;
-    {
-      std::lock_guard<std::mutex> lock(infoMutex_);
-      done.file = file_;
-    }
-    done.seconds = seconds();
-    const unsigned long long frames = videoFramesWritten_.load(std::memory_order_relaxed);
-    const unsigned long long leftOut = leftOut_.load(std::memory_order_relaxed);
-
-    // The encoders give up what they still hold and the container writes its
-    // index -- an MP4 that never gets that far has no moov atom and does not
-    // play at all.
-    std::thread previous = std::move(closer_);
-    closer_ = std::thread([this, previous = std::move(previous), session = std::move(session),
-                           done = std::move(done), frames, leftOut, wasRunning]() mutable {
-      if (previous.joinable()) previous.join();
-      const bool written = session->headerWritten;
-      const bool created = session->fileOpen;
-      done.complete = session->Close();
-      const std::filesystem::path file = session->file;
-      session.reset();
-      if (!written) {
-        // Opened and never begun: nothing in it worth keeping.
-        if (created) {
-          std::error_code ignored;
-          std::filesystem::remove(file, ignored);
-        }
-        return;
-      }
-      if (wasRunning) {
-        CAP_LOG("Recording stopped, %llu frames, %llu left out%s", frames, leftOut,
-                done.complete ? "" : ", the file was not finished cleanly");
-      }
-      std::lock_guard<std::mutex> lock(finishedMutex_);
-      finished_.push_back(std::move(done));
-      anyFinished_.store(true, std::memory_order_release);
-    });
+    session->wasRunning = wasRunning;
+    session->stoppedFrames = videoFramesWritten_.load(std::memory_order_relaxed);
+    session->stoppedLeftOut = leftOut_.load(std::memory_order_relaxed);
+    CloseLater(std::move(session), {});
   }
   pullAudio_ = nullptr;
   extras_.clear();
 }
 
+void Recorder::CloseLater(std::unique_ptr<Session> session,
+                          std::vector<std::unique_ptr<Output>> outputs) {
+  // The encoders give up what they still hold and the containers write their
+  // index -- an MP4 that never gets that far has no moov atom and does not
+  // play at all.
+  std::thread previous = std::move(closer_);
+  closer_ = std::thread([this, previous = std::move(previous), session = std::move(session),
+                         outputs = std::move(outputs)]() mutable {
+    if (previous.joinable()) previous.join();
+    if (session) {
+      if (session->opened) session->Flush();
+      std::lock_guard<std::mutex> lock(session->routeMutex);
+      for (auto* from : {&session->done, &session->outputs}) {
+        for (std::unique_ptr<Output>& out : *from) outputs.push_back(std::move(out));
+        from->clear();
+      }
+    }
+    for (std::unique_ptr<Output>& out : outputs) {
+      const bool wrote = out->lastVideo != INT64_MIN;
+      Finished done;
+      done.file = PathToUtf8(out->file);
+      done.seconds = out->seconds();
+      done.clip = out->clip;
+      done.complete = out->Close();
+      if (!done.complete) {
+        CAP_WARN("Recording: %s was not finished cleanly%s%s", done.file.c_str(),
+                 out->error.logged.empty() ? "" : ": ", out->error.logged.c_str());
+      }
+      // Opened and never begun: nothing in it worth keeping. A clip says so,
+      // as it was asked for.
+      if (!wrote && out->created) {
+        std::error_code ignored;
+        std::filesystem::remove(out->file, ignored);
+      }
+      out.reset();
+      if (!wrote && !done.clip) continue;
+      if (!wrote) done.complete = false;
+      std::lock_guard<std::mutex> lock(finishedMutex_);
+      finished_.push_back(std::move(done));
+      anyFinished_.store(true, std::memory_order_release);
+    }
+    if (session && session->wasRunning) {
+      CAP_LOG("Recording stopped, %llu frames, %llu left out", session->stoppedFrames,
+              session->stoppedLeftOut);
+    }
+  });
+}
+
+void Recorder::RetireDone() {
+  if (!session_ || !session_->anyDone.load(std::memory_order_acquire)) return;
+  std::vector<std::unique_ptr<Output>> ended;
+  {
+    std::lock_guard<std::mutex> lock(session_->routeMutex);
+    ended.swap(session_->done);
+    session_->anyDone.store(false, std::memory_order_relaxed);
+  }
+  if (!ended.empty()) CloseLater(nullptr, std::move(ended));
+}
+
+void Recorder::StartFile(const std::filesystem::path& file) {
+  Session* s = session_.get();
+  if (!s) return;
+  bool added = true;
+  {
+    std::lock_guard<std::mutex> lock(s->routeMutex);
+    bytesWritten_.store(0, std::memory_order_relaxed);
+    if (s->opened) {
+      added = s->AddFile(file, &bytesWritten_);
+    } else {
+      s->file = file;
+    }
+  }
+  if (!added) {
+    Fail(CAP_SAID(T("Kein Speicher für die Aufnahme.", "Out of memory for the recording.")));
+    return;
+  }
+  s->keyWanted.store(true, std::memory_order_relaxed);
+  startTicks_ = ClockTicks();
+  {
+    std::lock_guard<std::mutex> lock(infoMutex_);
+    file_ = PathToUtf8(file);
+  }
+  recording_.store(true, std::memory_order_relaxed);
+  CAP_LOG("Recording: file %s", PathToUtf8(file).c_str());
+}
+
+void Recorder::StopFile() {
+  Session* s = session_.get();
+  if (!s) return;
+  {
+    std::lock_guard<std::mutex> lock(s->routeMutex);
+    if (!s->opened) s->file.clear();
+    if (Output* live = s->live) {
+      // Up to the newest picture out of the encoder, and what it still holds
+      // up to the keyframe asked for.
+      live->endAsked = s->latestVideo == INT64_MIN ? 0 : s->latestVideo + 1;
+      live->counter = nullptr;
+      s->live = nullptr;
+    }
+  }
+  s->keyWanted.store(true, std::memory_order_relaxed);
+  recording_.store(false, std::memory_order_relaxed);
+  std::lock_guard<std::mutex> lock(infoMutex_);
+  file_.clear();
+}
+
+void Recorder::SetReplay(double seconds, uint64_t bytes) {
+  Session* s = session_.get();
+  if (!s) return;
+  uint64_t freeBytes = 0;
+  const bool measured = MemoryBytes(nullptr, &freeBytes);
+  std::lock_guard<std::mutex> lock(s->routeMutex);
+  Session::Ring& ring = s->ring;
+  if (seconds <= 0.0) {
+    ring.on = false;
+    s->ClearRing();
+    replaying_.store(false, std::memory_order_relaxed);
+    return;
+  }
+  ring.asked = bytes;
+  ring.limit = measured ? RingLimit(bytes, ring.bytes, freeBytes) : (int64_t)bytes;
+  ring.keep = std::llround(seconds * s->rate.num / s->rate.den);
+  if (!ring.on) {
+    // The sound ahead of the next keyframe, as a file begun now gets it.
+    for (AVPacket* packet : s->recentSound) {
+      if (AVPacket* kept = s->av->av_packet_clone(packet)) {
+        ring.bytes += kept->size;
+        ring.audio.push_back(kept);
+      }
+    }
+    ring.on = true;
+    // It begins on a keyframe; on encoders already running for a file, the
+    // next one is asked for rather than waited for.
+    s->keyWanted.store(true, std::memory_order_relaxed);
+    CAP_LOG("Recording: replay of %.0f s, up to %s", seconds,
+            FormatBytes((uint64_t)ring.limit).c_str());
+  }
+  replaying_.store(true, std::memory_order_relaxed);
+}
+
+bool Recorder::SaveReplay(const std::filesystem::path& file, double* seconds) {
+  Session* s = session_.get();
+  if (!s) return false;
+  const Libav* av = s->av;
+  std::lock_guard<std::mutex> lock(s->routeMutex);
+  Session::Ring& ring = s->ring;
+  if (!ring.on || ring.video.empty()) return false;
+  const AVRational vtb = s->bases[(size_t)s->videoStream];
+
+  // The pictures leave the encoder in decode order. The clip ends where every
+  // picture up to the newest one has come: behind it, a B-frame may still be
+  // on its way.
+  const int64_t first = ring.video.front()->pts;
+  size_t cut = 0;
+  int64_t end = first;
+  int64_t top = INT64_MIN;
+  int64_t count = 0;
+  for (size_t i = 0; i < ring.video.size(); ++i) {
+    const int64_t pts = ring.video[i]->pts;
+    if (pts < first) continue;
+    top = std::max(top, pts);
+    if (++count == top - first + 1) {
+      cut = i + 1;
+      end = top + 1;
+    }
+  }
+  if (cut == 0) return false;
+
+  std::unique_ptr<Output> out = s->NewOutput(file, true);
+  if (!out) return false;
+  out->started = out->ended = true;
+  out->start = out->startAsked = first;
+  out->endAsked = out->end = end;
+  out->endedTicks = ClockTicks();
+  for (size_t i = 0; i < out->from.size(); ++i) {
+    out->offset[i] = av->av_rescale_q(first, vtb, out->from[i]);
+  }
+
+  // Sound and picture in the order of their time, as a container interleaves
+  // them best: before each picture the sound up to it.
+  std::vector<AVPacket*> sound;
+  for (AVPacket* packet : ring.audio) {
+    if (out->SoundFate(packet) == Output::Fate::Drop) continue;
+    if (AVPacket* kept = av->av_packet_clone(packet)) sound.push_back(kept);
+  }
+  size_t next = 0;
+  for (size_t i = 0; i < cut; ++i) {
+    const AVPacket* picture = ring.video[i];
+    if (picture->pts < first) continue;
+    const int64_t at = picture->dts != AV_NOPTS_VALUE ? picture->dts : picture->pts;
+    while (next < sound.size() &&
+           av->av_rescale_q(sound[next]->pts, out->from[(size_t)sound[next]->stream_index], vtb) <=
+               at) {
+      out->Queue(sound[next++]);
+    }
+    if (AVPacket* kept = av->av_packet_clone(picture)) out->Queue(kept);
+  }
+  while (next < sound.size()) out->Queue(sound[next++]);
+
+  const double length = (double)(end - first) * av_q2d(vtb);
+  if (seconds) *seconds = length;
+  CAP_LOG("Recording: clip %s, %.1f s", PathToUtf8(file).c_str(), length);
+  // The sound still to come up to its end arrives through Route, which also
+  // lets it go once that is in.
+  s->outputs.push_back(std::move(out));
+  return true;
+}
+
 bool Recorder::TakeFinished(Finished* out) {
+  RetireDone();
   // Asked every frame, and almost always the answer is no.
   if (!anyFinished_.load(std::memory_order_acquire)) return false;
   std::lock_guard<std::mutex> lock(finishedMutex_);
@@ -1299,26 +1925,31 @@ void Recorder::VideoThread(Session* s) {
   bool waited = true;
 
   while (running_.load(std::memory_order_relaxed)) {
-    if (s->writeFailed.load(std::memory_order_acquire)) {
-      std::string why;
+    // Only the file being written stops the encoders. One that already ended
+    // says so when it is closed (Finished::complete), and the replay runs on.
+    if (s->trouble.exchange(false, std::memory_order_acquire)) {
+      Said said;
       {
-        std::lock_guard<std::mutex> lock(s->muxMutex);
-        why = s->writeError;
+        std::lock_guard<std::mutex> lock(s->routeMutex);
+        if (Output* live = s->live) {
+          if (live->writeFailed.load(std::memory_order_acquire)) {
+            std::lock_guard<std::mutex> muxLock(live->muxMutex);
+            said = live->error;
+          } else if (live->overflow) {
+            said = s->settings.largeBuffer
+                       ? CAP_SAID(T("Puffer voll: die Platte kommt mit dem Schreiben nicht hinterher.",
+                                    "Buffer full: the disk cannot keep up with the writing."))
+                       : CAP_SAID(T("Die Platte kommt mit dem Schreiben nicht hinterher. Ein "
+                                    "größerer Puffer lässt sich unter Aufnahme einstellen.",
+                                    "The disk cannot keep up with the writing. A larger buffer "
+                                    "can be set under Recording."));
+          }
+        }
       }
-      Fail(CAP_SAID(Format(T("Schreiben fehlgeschlagen: %s", "Writing failed: %s"), why.c_str())));
-      break;
-    }
-    if (s->queuedBytes.load(std::memory_order_relaxed) >
-        s->queueLimit.load(std::memory_order_relaxed)) {
-      // What is in it still goes to the disk, as the file closes.
-      Fail(s->settings.largeBuffer
-               ? CAP_SAID(T("Puffer voll: die Platte kommt mit dem Schreiben nicht hinterher.",
-                            "Buffer full: the disk cannot keep up with the writing."))
-               : CAP_SAID(T("Die Platte kommt mit dem Schreiben nicht hinterher. Ein größerer "
-                            "Puffer lässt sich unter Aufnahme einstellen.",
-                            "The disk cannot keep up with the writing. A larger buffer can be "
-                            "set under Recording.")));
-      break;
+      if (!said.shown.empty()) {
+        Fail(said);
+        break;
+      }
     }
 
     // Take the newest frame and keep holding it: when the timeline needs more
@@ -1463,12 +2094,17 @@ void Recorder::VideoThread(Session* s) {
         packet->pts = packet->dts = (int64_t)i;
         packet->duration = 1;
         packet->flags = AV_PKT_FLAG_KEY;
-        s->Queue(packet, s->videoStream, v->time_base);
+        s->Route(packet, s->videoStream);
       } else {
         frame->pts = (int64_t)i;
         frame->duration = 1;
+        // A file begins or ends here (StartFile, StopFile).
+        const bool key = s->keyWanted.load(std::memory_order_relaxed) &&
+                         s->keyWanted.exchange(false, std::memory_order_relaxed);
+        frame->pict_type = key ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
         LibavClearError();
         result = av.avcodec_send_frame(s->video, frame);
+        frame->pict_type = AV_PICTURE_TYPE_NONE;
         if (result >= 0) result = s->Drain(s->video, s->videoStream, &s->videoPacket);
         if (result < 0) break;
       }
@@ -1670,20 +2306,52 @@ double Recorder::seconds() const {
 }
 
 uint64_t Recorder::queuedBytes() const {
-  const int64_t queued = session_ ? session_->queuedBytes.load(std::memory_order_relaxed) : 0;
+  if (!session_) return 0;
+  int64_t queued = 0;
+  std::lock_guard<std::mutex> lock(session_->routeMutex);
+  for (auto* list : {&session_->outputs, &session_->done}) {
+    for (const std::unique_ptr<Output>& out : *list) {
+      queued += out->queuedBytes.load(std::memory_order_relaxed);
+    }
+  }
   return queued > 0 ? (uint64_t)queued : 0;
 }
 
-double Recorder::bufferFill() const {
-  return session_ ? (double)queuedBytes() /
-                        (double)session_->queueLimit.load(std::memory_order_relaxed)
-                  : 0.0;
+uint64_t Recorder::replayBytes(double* seconds) const {
+  if (seconds) *seconds = 0.0;
+  if (!session_) return 0;
+  Session& s = *session_;
+  std::lock_guard<std::mutex> lock(s.routeMutex);
+  if (seconds && !s.ring.video.empty()) {
+    *seconds = (double)(s.ring.newest + 1 - s.ring.video.front()->pts) *
+               av_q2d(s.bases[(size_t)s.videoStream]);
+  }
+  return s.ring.bytes > 0 ? (uint64_t)s.ring.bytes : 0;
 }
 
-void Recorder::LimitBuffer(uint64_t freeBytes) {
-  if (!session_ || !session_->settings.largeBuffer) return;
-  session_->queueLimit.store(QueueLimit(session_->settings, (int64_t)queuedBytes(), freeBytes),
-                             std::memory_order_relaxed);
+double Recorder::bufferFill() const {
+  if (!session_) return 0.0;
+  std::lock_guard<std::mutex> lock(session_->routeMutex);
+  const Output* live = session_->live;
+  return live ? (double)live->queuedBytes.load(std::memory_order_relaxed) /
+                    (double)live->queueLimit.load(std::memory_order_relaxed)
+              : 0.0;
+}
+
+void Recorder::LimitBuffer(const RecordSettings& settings, uint64_t freeBytes) {
+  if (!session_) return;
+  Session& s = *session_;
+  std::lock_guard<std::mutex> lock(s.routeMutex);
+  // Both are only read under this lock once the session runs.
+  const bool wasLarge = s.settings.largeBuffer;
+  s.settings.largeBuffer = settings.largeBuffer;
+  s.settings.bufferGb = settings.bufferGb;
+  if (s.settings.largeBuffer || wasLarge) {
+    const int64_t queued = s.live ? s.live->queuedBytes.load(std::memory_order_relaxed) : 0;
+    s.liveLimit = QueueLimit(s.settings, queued, freeBytes);
+    if (s.live) s.live->queueLimit.store(s.liveLimit, std::memory_order_relaxed);
+  }
+  if (s.ring.on) s.ring.limit = RingLimit(s.ring.asked, s.ring.bytes, freeBytes);
 }
 
 RecordStats Recorder::stats() const {

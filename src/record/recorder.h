@@ -150,20 +150,40 @@ class Recorder {
   // asked for and the encoder passed it at that depth, 4:2:0 otherwise.
   static YuvFormat FormatFor(const EncoderInfo& encoder, bool wide, bool fullChroma);
 
-  // `main` is the sound you hear, and its sample count is the master clock; a
-  // rate of 0 there hands the clock to the wall instead. `extras` are brought
-  // onto that clock and laid out by TrackPlan; the inactive ones are left out.
-  // The encoder is opened by the writer thread: one that cannot open shows up
-  // as failed() a moment later, not as false here. `outFile` is from
-  // NextRecordingFile, in a folder that exists.
+  // Starts the encoders. `main` is the sound you hear, and its sample count is
+  // the master clock; a rate of 0 there hands the clock to the wall instead.
+  // `extras` are brought onto that clock and laid out by TrackPlan; the
+  // inactive ones are left out. The encoder is opened by the writer thread:
+  // one that cannot open shows up as failed() a moment later, not as false
+  // here. `outFile` is from NextRecordingFile, in a folder that exists, and
+  // gets everything from the first frame; empty for the replay alone.
   bool Start(const RecordSettings& settings, const std::filesystem::path& outFile,
              const FfmpegInfo& ffmpeg, int width, int height, double sourceFps,
              const AudioSource& main, std::vector<ExtraAudio> extras, std::string* error);
-  // Ends the recording and returns at once. The encoders still hold frames and
-  // the container its index, which can take seconds with a slow preset, and
-  // neither the picture nor the next file of a split waits for that: it
+  // Ends the encoders, and the file with them, and returns at once. They still
+  // hold frames and the container its index, which can take seconds with a
+  // slow preset, and neither the picture nor the next file waits for that: it
   // finishes on a thread of its own, and TakeFinished says when.
   void Stop();
+
+  // A file on the running encoders, from the next keyframe on, which is asked
+  // for at once. One already being written ends at that same keyframe, so a
+  // split loses no frame and repeats none.
+  void StartFile(const std::filesystem::path& file);
+  // Ends the file at the next keyframe; the encoders run on for the replay.
+  void StopFile();
+
+  // Keeps the newest `seconds` of what is encoded in memory, at most `bytes`
+  // of it (LimitBuffer may take it lower); 0 seconds lets it go.
+  void SetReplay(double seconds, uint64_t bytes);
+  // Writes what the replay holds into `file`, from its first keyframe: at
+  // least the length set once it has filled, at most a keyframe interval
+  // more. False when there is nothing yet; otherwise TakeFinished reports it,
+  // with Finished::clip.
+  bool SaveReplay(const std::filesystem::path& file, double* seconds);
+  // What the replay holds now, and how many seconds from its first keyframe
+  // to its newest picture. From the thread that starts and stops.
+  uint64_t replayBytes(double* seconds) const;
 
   // A file that has been closed since the last call. `complete` is false when
   // writing it failed somewhere, and it may then not play.
@@ -171,12 +191,18 @@ class Recorder {
     std::string file;
     double seconds = 0.0;
     bool complete = true;
+    bool clip = false;
   };
   bool TakeFinished(Finished* out);
 
-  bool recording() const { return running_.load(std::memory_order_relaxed); }
+  // The encoders run: for a file, for the replay, or both.
+  bool active() const { return running_.load(std::memory_order_relaxed); }
+  // A file is being written.
+  bool recording() const { return recording_.load(std::memory_order_relaxed); }
+  // The replay keeps what is encoded (SetReplay).
+  bool replaying() const { return replaying_.load(std::memory_order_relaxed); }
   // Set when the encoder could not open or writing failed; the app should stop
-  // and report. recording() stays true until it does.
+  // and report. active() stays true until it does.
   bool failed() const { return failed_.load(std::memory_order_relaxed); }
   // The encoder has not kept up for seconds on end, and the file repeats frames
   // to stay in step with the sound. Clears once it catches up again.
@@ -221,14 +247,26 @@ class Recorder {
   double bufferFill() const;
   // Measures the large buffer against the memory free right now, besides what
   // it holds itself: what other programs took since the start is no longer
-  // its to take. Never below the small buffer. From the same thread.
-  void LimitBuffer(uint64_t freeBytes);
+  // its to take. Never below the small buffer. Its size is taken from
+  // `settings` as they are now: encoders kept running for the replay can be
+  // older than any file on them. From the same thread.
+  void LimitBuffer(const RecordSettings& settings, uint64_t freeBytes);
 
  private:
-  // The encoders, the muxer and what feeds them, for one file. Handed to the
-  // closing thread by Stop, so the next Start gets a fresh one while the old
-  // file is still finishing.
+  // The encoders and what feeds them, the replay, and the files on them. Handed
+  // to the closing thread by Stop, so the next Start gets a fresh one while the
+  // old files are still finishing.
   struct Session;
+  // One file on a session's encoders, with a muxer thread of its own.
+  struct Output;
+
+  // Closes `outputs` on the closing thread, after the ones handed over before,
+  // and reports each as finished. With `session`, flushes its encoders into
+  // them first and lets it go after. Control thread only.
+  void CloseLater(std::unique_ptr<Session> session, std::vector<std::unique_ptr<Output>> outputs);
+  // A file whose window ended (StopFile, a split) leaves the session for the
+  // closing thread.
+  void RetireDone();
 
   // Opens the encoders and the file, then encodes the frames.
   void VideoThread(Session* session);
@@ -255,6 +293,8 @@ class Recorder {
   std::shared_ptr<SharedFrames> shared_;
   std::atomic<bool> sharedRefused_{false};
   std::atomic<bool> running_{false};
+  std::atomic<bool> recording_{false};
+  std::atomic<bool> replaying_{false};
   // The encoder is open and takes frames; until then PushVideo drops them.
   std::atomic<bool> ready_{false};
   std::atomic<bool> failed_{false};
