@@ -1095,6 +1095,7 @@ bool Config::Load(std::string* error) {
       ReadEnum<RecordEncoder>(r, "encoder", kRecordEncoderCount, RecordEncoder::Auto);
   record.speed = ReadEnum<RecordSpeed>(r, "speed", 5, RecordSpeed::VeryFast);
   record.bitrateKbps = Clamp(r["bitrateKbps"].AsInt(20000), 500, 500000);
+  record.audioKbps = Clamp(r["audioKbps"].AsInt(192), 64, 320);
   record.rateControl = ReadEnum<RateControl>(r, "rateControl", kRateControlCount,
                                           RateControl::Cbr);
   record.qualityLevel = Clamp(r["qualityLevel"].AsInt(23), 1, 51);
@@ -1298,6 +1299,7 @@ std::string Config::Serialize() const {
   r["encoder"] = (int)record.encoder;
   r["speed"] = (int)record.speed;
   r["bitrateKbps"] = record.bitrateKbps;
+  r["audioKbps"] = record.audioKbps;
   r["rateControl"] = (int)record.rateControl;
   r["qualityLevel"] = record.qualityLevel;
   r["preset"] = (int)record.preset;

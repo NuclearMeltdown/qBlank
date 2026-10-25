@@ -245,6 +245,7 @@ bool RecordingControl::SameSession(const RecordSettings& wanted) const {
   return wanted.encoder == s.encoder &&
          ContainerFor(wanted.encoder, wanted.container) == s.container &&
          wanted.speed == s.speed && wanted.bitrateKbps == s.bitrateKbps &&
+         wanted.audioKbps == s.audioKbps &&
          wanted.rateControl == s.rateControl && wanted.qualityLevel == s.qualityLevel &&
          wanted.preset == s.preset && wanted.tune == s.tune && wanted.multipass == s.multipass &&
          wanted.lookAhead == s.lookAhead && wanted.lookAheadFrames == s.lookAheadFrames &&

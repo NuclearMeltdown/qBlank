@@ -4070,6 +4070,32 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
                           "MKV survives a crash. An MP4 that was not closed properly will not "
                           "open."));
 
+  // AAC per track. An AVI takes the sound as it is, and the choice waits for
+  // the container to come back.
+  static const int kAudioKbps[] = {96, 128, 160, 192, 256, 320};
+  const bool pcm = ContainerFor(rec.encoder, rec.container) == RecordContainer::Avi;
+  ImGui::BeginDisabled(pcm);
+  ImGui::SetNextItemWidth(-260.0f);
+  if (ImGui::BeginCombo(T("Tonbitrate", "Audio bitrate"),
+                        pcm ? "PCM" : Format("%d kbit/s", rec.audioKbps).c_str())) {
+    for (int kbps : kAudioKbps) {
+      if (ImGui::Selectable(Format("%d kbit/s", kbps).c_str(), rec.audioKbps == kbps)) {
+        rec.audioKbps = kbps;
+      }
+    }
+    ImGui::EndCombo();
+  }
+  Anchor("audiokbps");
+  ResetOnRightClick(rec.audioKbps, kRecord.audioKbps);
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  HelpMarker(pcm ? T("AVI nimmt den Ton unverändert auf (PCM).",
+                     "AVI keeps the sound as it is (PCM).")
+                 : T("AAC, je Tonspur. Neben dem Bild fällt sie bei der Dateigröße kaum ins "
+                     "Gewicht.",
+                     "AAC, per audio track. Next to the picture it barely adds to the file "
+                     "size."));
+
   // Die Bitrate stand frueher hier und steht jetzt im Reiter Encoder, direkt
   // unter der Ratensteuerung. Getrennt waren die beiden nicht zu verstehen: bei
   // "Feste Qualitaet" ignoriert der Encoder die Bitrate vollstaendig, und der

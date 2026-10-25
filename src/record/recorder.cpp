@@ -29,7 +29,6 @@ std::string TimestampedName(RecordContainer container, RecordingKind kind) {
                                                     : "mkv");
 }
 
-constexpr int kAudioBitrate = 192000;
 // What a second of sound costs in an AVI, which takes it as it is: two
 // channels of sixteen bits.
 constexpr int kPcmBytesPerFrame = 4;
@@ -89,7 +88,8 @@ AVRational RecordingRate(const Libav& av, double fps) {
 double EstimatedBytesPerSecond(const RecordSettings& settings, int audioTracks, int width,
                                int height, double fps, double pixelBytes) {
   const bool pcm = ContainerFor(settings.encoder, settings.container) == RecordContainer::Avi;
-  const double audio = pcm ? (double)kClockRate * kPcmBytesPerFrame : kAudioBitrate / 8.0;
+  const double audio =
+      pcm ? (double)kClockRate * kPcmBytesPerFrame : settings.audioKbps * 1000 / 8.0;
   // Container overhead is left out: a few bytes of index per frame against
   // twenty megabit of picture is below the error of the bitrate itself.
   double video = (double)settings.bitrateKbps * 1000.0 / 8.0;
@@ -1426,7 +1426,7 @@ bool Recorder::Open(Session* s) {
     a->sample_fmt = avi ? AV_SAMPLE_FMT_S16 : AV_SAMPLE_FMT_FLTP;
     a->sample_rate = trackRate;
     av.av_channel_layout_default(&a->ch_layout, 2);
-    if (!avi) a->bit_rate = kAudioBitrate;
+    if (!avi) a->bit_rate = (int64_t)s->settings.audioKbps * 1000;
     a->time_base = AVRational{1, trackRate};
     if (globalHeader) a->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     LibavClearError();
@@ -1543,12 +1543,16 @@ bool Recorder::Open(Session* s) {
                   AVERROR(ENOMEM));
   }
 
-  CAP_LOG("Recording: %s %dx%d %s%s at %d/%d fps,%s %d audio track%s at %d Hz",
+  const std::string sound =
+      trackCount == 0 ? std::string()
+      : avi           ? Format(", PCM at %d Hz", trackRate)
+                      : Format(", AAC %d kbit/s at %d Hz", s->settings.audioKbps, trackRate);
+  CAP_LOG("Recording: %s %dx%d %s%s at %d/%d fps,%s %d audio track%s%s",
           s->encoder.ffmpegName.c_str(), width_, height_,
           unfiltered_ ? plan_.pixelFormat : FfmpegPixelFormat(format_),
           s->gpu ? " on the GPU" : "", s->rate.num, s->rate.den,
           told.empty() ? " defaults," : told.c_str(), trackCount, trackCount == 1 ? "" : "s",
-          trackCount > 0 ? trackRate : 0);
+          sound.c_str());
   return true;
 }
 

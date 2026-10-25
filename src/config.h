@@ -669,6 +669,8 @@ struct RecordSettings {
   RecordEncoder encoder = RecordEncoder::Auto;
   RecordSpeed speed = RecordSpeed::VeryFast;  // software encoder only
   int bitrateKbps = 20000;
+  // AAC, per track. An AVI takes the sound as it is and ignores it.
+  int audioKbps = 192;
 
 
   // ---- what the encoder is told ----

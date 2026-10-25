@@ -322,6 +322,8 @@ const Entry kEntries[] = {
     {Kind::Place, kTabRecord, nullptr, "Ausgabe", "Output", nullptr},
     {Kind::Control, kTabRecord, "container", "Container", "Container",
      "MKV|MP4|Matroska|Dateiformat|File format|Dateityp|Format"},
+    {Kind::Control, kTabRecord, "audiokbps", "Tonbitrate", "Audio bitrate",
+     "AAC|kbit|Ton|Audio|Sound|Tonqualität|Audio quality|Bitrate"},
     {Kind::Control, kTabRecord, "recfps", "Bildrate", "Frame rate",
      "FPS|Framerate|30fps|60fps|Aufnahme-Bildrate|Recording frame rate"},
     {Kind::Control, kTabRecord, "recsize", "Auflösung", "Resolution",
