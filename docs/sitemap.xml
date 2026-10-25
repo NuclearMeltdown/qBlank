@@ -51,4 +51,34 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/changelog.html"/>
     <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/changelog.html"/>
   </url>
+  <url>
+    <loc>https://qblank.com/compare.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/compare.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/compare.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/de/compare.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/compare.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/compare.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/vs-obs.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-obs.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-obs.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/de/vs-obs.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-obs.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-obs.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/vs-amarectv.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-amarectv.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-amarectv.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/de/vs-amarectv.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-amarectv.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-amarectv.html"/>
+  </url>
 </urlset>

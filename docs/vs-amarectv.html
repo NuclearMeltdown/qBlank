@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank vs AmaRecTV — capture card, screen and window</title>
+<meta name="description" content="qBlank and AmaRecTV 4 compared in detail: display and sound from a capture card, analogue consoles, desktop and window capture, recording, screenshots, virtual camera, keys, and what users report.">
+<link rel="icon" href="icon.png">
+<link rel="alternate" hreflang="en" href="https://qblank.com/vs-amarectv.html">
+<link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-amarectv.html">
+<link rel="alternate" hreflang="x-default" href="https://qblank.com/vs-amarectv.html">
+<link rel="canonical" href="https://qblank.com/vs-amarectv.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Compare","item":"https://qblank.com/compare.html"},{"@type":"ListItem","position":3,"name":"qBlank vs AmaRecTV","item":"https://qblank.com/vs-amarectv.html"}]}</script>
+<link rel="stylesheet" href="site.css">
+<script>
+// The same as on the front page: theme and language before anything is painted.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
+})();
+</script>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Manual</a>
+      <a href="faq.html">Troubleshooting</a>
+      <a href="compare.html" aria-current="true">Compare</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="de/vs-amarectv.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>qBlank vs AmaRecTV</h1>
+    <p class="tag">Both are small Windows programs to watch and record a capture card, and both can take the desktop. AmaRecTV has stood still since 2017. qBlank is open source and still growing.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#short">In short</a>
+      <a href="#about">The two projects</a>
+      <a href="#display">Capture card: display</a>
+      <a href="#setup">Capture card: setup</a>
+      <a href="#sound">Capture card: sound</a>
+      <a href="#analogue">Analogue consoles</a>
+      <a href="#screen">Screen and window</a>
+      <a href="#record">Recording</a>
+      <a href="#stills">Screenshots and camera</a>
+      <a href="#keys">Keys and presets</a>
+      <a href="#reports">What users report</a>
+      <a href="#amarec">Only in AmaRecTV</a>
+      <a href="#qblank">Only in qBlank</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="short">
+      <h2>In short</h2>
+      <p>Compared with AmaRecTV 4.11 Live and its manual, plus forums and reviews.</p>
+      <table>
+        <tr><th></th><th>qBlank</th><th>AmaRecTV</th></tr>
+        <tr><td>Last version</td><td>2026, still developed</td><td>4.11, October 2017</td></tr>
+        <tr><td>Source code</td><td>Open, GPLv3</td><td>Closed freeware</td></tr>
+        <tr><td>Language</td><td>English and German</td><td>Japanese; in English only up to 2.31, from 2013</td></tr>
+        <tr><td>Video codec</td><td>Built in through ffmpeg, downloaded on request</td><td>Needs AMV4, paid; without a licence it puts a logo in the video</td></tr>
+        <tr><td>Display</td><td>Own renderer, Direct3D 11 or Vulkan</td><td>Overlay (VMR7) or EVR</td></tr>
+        <tr><td>Card format</td><td>Chosen and fitted to the video standard</td><td>Picked from a list or typed by hand</td></tr>
+        <tr><td>Card sound</td><td>Any format, own buffer from 5&nbsp;ms</td><td>16-bit stereo, usually 48&nbsp;kHz, matching the playback device</td></tr>
+        <tr><td>Deinterlacing</td><td>In the picture and in the recording</td><td>In the preview only</td></tr>
+        <tr><td>Video standard</td><td>Found automatically</td><td>Set in the card driver's dialog</td></tr>
+        <tr><td>Composite dot crawl</td><td>Filters built in</td><td>&ndash;</td></tr>
+        <tr><td>Screen and window</td><td>Monitor or window, any game in a window</td><td>Region, window position, or GDI window without DirectX content</td></tr>
+        <tr><td>Recording</td><td>MKV, MP4, AVI; H.264, H.265, AV1, lossless</td><td>AVI with AMV4 or another VfW codec</td></tr>
+        <tr><td>Replay buffer</td><td>Memory or disk, up to 30&nbsp;minutes</td><td>&ndash;</td></tr>
+        <tr><td>HDR</td><td>Display, recording, screenshots, camera</td><td>&ndash;</td></tr>
+        <tr><td>Virtual camera</td><td>64-bit, HDR</td><td>32-bit programs only, needs AmaRecTV 3.10</td></tr>
+        <tr><td>Systems</td><td>Windows 10 and 11, 64-bit</td><td>Windows 8.1 and 10, 64-bit; Windows 7 untested, with gaps</td></tr>
+      </table>
+    </section>
+
+    <section id="about">
+      <h2>The two projects</h2>
+      <h3>AmaRecTV</h3>
+      <ul>
+        <li>Made by one Japanese developer. Version 4.01 came out in February 2016, 4.11 in October 2017. Nothing since.</li>
+        <li>Freeware, closed source. Version 4 has a language setting, but its manual says only Japanese works so far. The manual is Japanese too.</li>
+        <li>The English page is far smaller than the Japanese site, and roughly translated. It offers 2.31 from 2013 in English. Versions 3 and 4 are not on it.</li>
+        <li>The manual says there is no user support.</li>
+        <li>No installer: unzip and run. The manual warns not to put it under <em>Program Files</em>, or settings are not saved.</li>
+        <li>It requires the AMV4 video codec, version 4.10 or later. AMV4 is paid shareware, 2,808&nbsp;yen. Without a licence it puts a logo into the recording.</li>
+        <li>It needs a CPU with SSE4.1. Windows 10 was added in 4.11.</li>
+        <li>Many guides and download sites still offer 3.10. By its own readme, it needs AMV4 too.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Open source under GPLv3. Code, issues and releases are on GitHub.</li>
+        <li>English and German, with a manual in both.</li>
+        <li>One file of about 3&nbsp;MB, from winget, the website or GitHub.</li>
+        <li>Recording needs ffmpeg. qBlank offers to download it, from a fixed source, checked against its hash. No codec to buy, no logo.</li>
+        <li>Updates are checked on start, if you want.</li>
+      </ul>
+    </section>
+
+    <section id="display">
+      <h2>Capture card: display</h2>
+      <h3>AmaRecTV: overlay or EVR</h3>
+      <ul>
+        <li>AmaRecTV draws through a DirectShow video renderer. The manual recommends overlay (VMR7) for a low delay.</li>
+        <li>EVR is the fallback. The manual calls its display delay large and does not recommend it.</li>
+        <li>Overlay serves one program at a time. On Windows 7 it only works with Aero turned off.</li>
+        <li>Overlay video does not show up in screen captures.</li>
+        <li>Under <em>Advanced 2</em>, the preview can be slowed while the mouse is still, to save CPU.</li>
+      </ul>
+      <h3>qBlank: its own renderer</h3>
+      <ul>
+        <li>qBlank draws the picture itself, with Direct3D 11 or Vulkan. <strong>Display &rarr; Graphics API</strong> picks one.</li>
+        <li>Each frame is drawn when it arrives, at the source's rate. A frame not yet drawn is replaced by the next, never queued behind it.</li>
+        <li>One frame of queue in the swap chain, tearing allowed, VSync off by default.</li>
+        <li>Nothing depends on overlay support in the driver. Screen captures, Remote Play and OBS see qBlank's window like any other.</li>
+      </ul>
+      <p><kbd>F1</kbd> shows what qBlank adds itself: <em>Pipeline</em> is the time from a frame's arrival in qBlank until it leaves qBlank. About 1&nbsp;ms at 1080p60. The card and the monitor add their own on top.</p>
+      <figure class="ui own">
+        <img src="shots/stats.png" width="331" height="135" loading="lazy" alt="The F1 statistics on Compact: Source rate 64.95 fps, reported 143.86; Output 64.9 fps, VSync off, tearing allowed; Pipeline 1.3 ms">
+        <figcaption><kbd>F1</kbd> on <em>Compact</em>, here on a window: the source's rate, what reaches the screen, and qBlank's own time.</figcaption>
+      </figure>
+      <div class="note">The two were not measured against each other here. The difference follows from how each is built.</div>
+      <h3>What each shows about the signal</h3>
+      <table>
+        <tr><th></th><th>qBlank (<kbd>F1</kbd>)</th><th>AmaRecTV (status bar)</th></tr>
+        <tr><td>Frame rates</td><td>Source, reported, output</td><td>Capture and display</td></tr>
+        <tr><td>Dropped frames</td><td>Yes</td><td>Yes, plus <em>no frame</em></td></tr>
+        <tr><td>Format</td><td>Size, colour format, standard, fields</td><td>Size, FourCC, progressive or interlaced, field order</td></tr>
+        <tr><td>Own time</td><td><em>Pipeline</em> in ms</td><td>&ndash;</td></tr>
+        <tr><td>While recording</td><td>Encoder, buffer, disk</td><td>Write speed, buffer fill, CPU, ms per frame</td></tr>
+      </table>
+    </section>
+
+    <section id="setup">
+      <h2>Capture card: setup</h2>
+      <h3>AmaRecTV: by hand</h3>
+      <ul>
+        <li>Size, frame rate, colour format and bit depth are picked from a list or typed into a box.</li>
+        <li>The manual gives examples: 720&times;480 at 29.97 for a GV-USB2, 720&times;240 at 59.94 for a SNES over RGB.</li>
+        <li>1080i has to be entered as 30&nbsp;fps. PS2 480i has to be typed in by hand.</li>
+        <li>For a Blackmagic Intensity Pro 4K the settings must match the signal exactly. Otherwise there is no picture and no hint where it differs. The manual says this card is for advanced users only.</li>
+        <li>A Sknet MonsterX3A can take minutes to start without a signal.</li>
+        <li>Colour formats: RGB32, YUY2, UYVY, HDYC. A 10-bit RGB signal is cut to 8-bit.</li>
+      </ul>
+      <h3>qBlank: fitted to the signal</h3>
+      <ul>
+        <li><strong>Source</strong> lists what the card offers: <em>Colour format</em>, <em>Resolution</em> and <em>Frame rate</em>.</li>
+        <li><em>Match the resolution to the video standard</em> is on by default: if the resolution does not fit, say 720&times;480 on PAL, qBlank sets the right one itself.</li>
+        <li><em>The signal's rate</em> takes 50&nbsp;Hz for PAL, 59.94 for NTSC, 60 for PAL&nbsp;60.</li>
+        <li><em>Enter values manually</em> is there for formats a card does not list.</li>
+        <li>NV12 and P010 as well as YUY2, UYVY and RGB. 10-bit stays 10-bit, HDR stays HDR.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/source.png" width="528" height="445" loading="lazy" alt="The Source tab of the settings: picture source Capture card, Screen or Window, the input set to Automatic, the card picked under Video device, and the buttons Configure card and Reinitialise card">
+        <figcaption>Source: card, screen or window as picture source, then the card and its input.</figcaption>
+      </figure>
+      <p>In both, a card serves one program at a time.</p>
+    </section>
+
+    <section id="sound">
+      <h2>Capture card: sound</h2>
+      <h3>AmaRecTV</h3>
+      <ul>
+        <li>Sound comes in as 16-bit stereo. The rate is picked, usually 48&nbsp;kHz.</li>
+        <li>The playback device's default format must match. Otherwise AmaRecTV shows a format error.</li>
+        <li>The manual's fixes: set the same format in Windows; use exclusive mode, which silences other programs but plays any format; or ignore the error, which silences AmaRecTV's preview while recording still works.</li>
+        <li>The audio renderer aims for 40&nbsp;ms by default. Raising it cuts crackling but adds delay.</li>
+        <li>A second playback device can get the sound too, for streaming.</li>
+        <li>Mono can be turned into stereo, in the recording too.</li>
+        <li><em>Audio delay</em> shifts the sound in the recorded file by hand. The manual suggests trying &plusmn;100&nbsp;ms, up to about &plusmn;500.</li>
+        <li>Version 4 has no microphone input; version 3 mixed up to three sources.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Any format the card sends. qBlank converts it to what the device plays.</li>
+        <li><em>Audio buffer</em> from 5 to 200&nbsp;ms, 30 by default.</li>
+        <li><em>Exclusive Mode</em> bypasses the Windows mixer for less delay. As in AmaRecTV, it locks the device against other programs.</li>
+        <li><em>A/V offset</em> moves sound or picture by up to 200&nbsp;ms during playback, for a TV or headset that adds its own delay. It does not touch the recording.</li>
+        <li><kbd>M</kbd> mutes, <kbd>+</kbd> and <kbd>-</kbd> set the volume. Neither touches the recording.</li>
+        <li>Microphones and other inputs go into the recording as separate sources. See <a href="#record">Recording</a>.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/playback.png" width="604" height="268" loading="lazy" alt="The Audio tab: Playback on System default with Exclusive Mode off, and under Delay the Audio buffer at 30 ms and the A/V offset at 0 ms">
+        <figcaption>Audio &rarr; Playback and Delay, as it comes.</figcaption>
+      </figure>
+    </section>
+
+    <section id="analogue">
+      <h2>Analogue consoles</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>AmaRecTV</th></tr>
+        <tr><td>Video standard</td><td>PAL, NTSC or SECAM found automatically, follows a switch between 50 and 60&nbsp;Hz</td><td>Set in the driver's dialog</td></tr>
+        <tr><td>When to deinterlace</td><td>Measured on each picture</td><td>From a table of size and frame rate, or by hand</td></tr>
+        <tr><td>Modes</td><td>Off (weave), Bob, Bob (interpolated), Motion adaptive, Edge directed, YADIF</td><td>Action, RPG, Retro</td></tr>
+        <tr><td>Field order</td><td>Measured, or by hand</td><td>From the table, or top or bottom first by hand</td></tr>
+        <tr><td>Applies to the recording</td><td>Yes</td><td>No, only the crop</td></tr>
+        <tr><td>Aspect ratio in the recording</td><td>Square pixels, 720&times;576 becomes 768&times;576</td><td>&ndash;</td></tr>
+        <tr><td>Composite dot crawl</td><td>Five filters, compared side by side</td><td>&ndash;</td></tr>
+        <tr><td>Crop</td><td>By hand or detected, kept per picture size</td><td>A crop tool; settings kept in a list to switch between</td></tr>
+        <tr><td>Pixel art</td><td>Native pixel grid, Sharp Bilinear, Integer scaling</td><td>Retro mode</td></tr>
+        <tr><td>Scanlines, CRT mask</td><td>Built in, for the display only</td><td>&ndash;</td></tr>
+      </table>
+      <h3>Deinterlacing</h3>
+      <p>AmaRecTV decides from a table: a given size and frame rate counts as interlaced or not. A card often delivers 240p and 480i in the same size and rate, so the table cannot tell them apart. Field order can be set by hand.</p>
+      <p>Its three modes are named for game genres. The manual describes them:</p>
+      <ul>
+        <li><em>Action</em>: for fast games and slow PCs. Good in motion, but still scenes shake up and down and lose detail.</li>
+        <li><em>RPG</em>: quality, for fast PCs. Better in still scenes, some noise in motion. Not for RGB formats.</li>
+        <li><em>Retro</em>: made for Famicom to PS1 signals, the best for old games in load and quality.</li>
+      </ul>
+      <p>qBlank measures each picture. <em>Only apply to interlaced sources</em> lets the deinterlacer stay on: 240p passes untouched, 480i and 576i are deinterlaced. The field order is measured too.</p>
+      <figure class="ui">
+        <img src="shots/fields.png" width="528" height="184" loading="lazy" alt="The Fields section: Only apply to interlaced sources, the reading Measured: progressive, the deinterlacing mode and the field order">
+        <figcaption>Picture &rarr; Fields: what was measured, and the mode.</figcaption>
+      </figure>
+      <h3>The recording</h3>
+      <p>In AmaRecTV, aspect ratio and deinterlacing are for the preview only. The recording keeps the card's raw frames, with the crop applied. A 480i recording shows combing and carries no aspect ratio. The FAQ calls this normal: deinterlace and resize in the player or when re-encoding.</p>
+      <p>qBlank records the picture as you see it: cropped, deinterlaced, with square pixels. The aspect ratio has its own box, <em>Apply to recording, screenshots and camera</em>, on by default. For the card's frames as they arrive, the Encoder tab has <em>Unfiltered</em>, for lossless recordings.</p>
+      <h3>Video standard</h3>
+      <p>A card set to NTSC shows a PAL console in black and white or with rolling colours. In AmaRecTV you change it in the driver's dialog. qBlank tries the standards itself until the colour locks. <kbd>F7</kbd> checks again on the current picture.</p>
+      <figure class="ui">
+        <img src="shots/standard.png" width="528" height="198" loading="lazy" alt="The Video standard section on Automatic, showing PAL 60 in use and the signal locked">
+        <figcaption>Source &rarr; Video standard: what the card is set to, and whether it locked.</figcaption>
+      </figure>
+      <h3>Composite</h3>
+      <p>Composite carries colour inside brightness, which leaves moving dots along edges. qBlank has five filters against it; they only appear for a composite input. <kbd>F12</kbd> splits the picture into off and on, <kbd>F11</kbd> holds it still. AmaRecTV has nothing for this.</p>
+      <figure class="ui">
+        <img src="shots/composite.png" width="528" height="398" loading="lazy" alt="The Composite filter section with everything off: colour shimmer, extended history, average what stands still, follow the movement, clean up what moves and restore bandwidth">
+        <figcaption>Picture &rarr; Composite filter, all off as it comes.</figcaption>
+      </figure>
+      <h3>Pixel art and CRT</h3>
+      <ul>
+        <li><em>Native pixel grid</em>: pick how many pixels the console draws across, 256 for a SNES. Each console pixel then becomes one sharp block.</li>
+        <li>Sharp Bilinear keeps pixels sharp and even at any scale. <em>Integer scaling</em> sits under the aspect ratio.</li>
+        <li>Scanlines, CRT mask and pixel grid apply to the display only. Recordings, screenshots and the camera get the picture without them.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/crt.png" width="528" height="224" loading="lazy" alt="The Cathode ray tube section set to 240 source lines, scanlines 0.35, aperture grille at 0.35">
+        <figcaption>Picture &rarr; Cathode ray tube.</figcaption>
+      </figure>
+    </section>
+
+    <section id="screen">
+      <h2>Screen and window</h2>
+      <h3>How each captures</h3>
+      <table>
+        <tr><th></th><th>qBlank</th><th>AmaRecTV</th></tr>
+        <tr><td>Whole monitor</td><td>Desktop Duplication</td><td>Desktop Duplication, as a region</td></tr>
+        <tr><td>Part of the screen</td><td>&ndash;</td><td>A region you draw, or one that follows a window</td></tr>
+        <tr><td>One window</td><td>Windows.Graphics.Capture</td><td>GDI</td></tr>
+        <tr><td>Games and video in a window</td><td>Yes</td><td>Not with GDI: DirectX content stays out</td></tr>
+        <tr><td>Covered window</td><td>Comes through</td><td>Region: what covers it is recorded; GDI: comes through</td></tr>
+        <tr><td>Window moves or resizes</td><td>Followed, a new size after a moment</td><td>Position followed; a new size only from the next recording</td></tr>
+        <tr><td>Exclusive fullscreen</td><td>Not for older games; borderless windowed works</td><td>Not possible</td></tr>
+        <tr><td>Frame rate</td><td>Every new picture, or capped</td><td>From a list, or the monitor's rate</td></tr>
+        <tr><td>Mouse pointer</td><td>On or off</td><td>On or off</td></tr>
+        <tr><td>HDR desktop</td><td>In HDR</td><td>&ndash;</td></tr>
+        <tr><td>Sound</td><td>System sound without qBlank</td><td>AmaRecTV muted; PC sound only through the AmaSte add-on</td></tr>
+      </table>
+      <h3>AmaRecTV</h3>
+      <ul>
+        <li>A blue frame marks the region. Arrow keys move it by a pixel, a loupe and snapping help.</li>
+        <li>The window-follow mode tracks the window's position. A new window size counts from the next recording.</li>
+        <li>The GDI window mode sees through covering windows. But what DirectX draws stays out, such as games and Aero glass, and the manual warns the result may differ from what is on screen.</li>
+        <li>Without a <em>dummy pixel</em>, a transparent pixel redrawn at the monitor's rate, motion comes out choppy. The manual has it on for that reason.</li>
+        <li><em>Monitor Rate</em> takes the monitor's rate. 30&nbsp;fps on a 59.94&nbsp;Hz monitor becomes 29.97.</li>
+        <li>Four presets, A to D, hold different regions.</li>
+        <li>AmaRecTV is always muted in desktop mode, against feedback. PC sound needs the AmaSte add-on, 16-bit only, in the device's format.</li>
+        <li><kbd>Alt</kbd>+<kbd>D</kbd> shows the frame, <kbd>Shift</kbd>+<kbd>S</kbd> takes a desktop screenshot.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li><em>Screen</em> takes a whole monitor, <em>Window</em> one window, games and video included.</li>
+        <li>A covered window comes through. A minimised one does not.</li>
+        <li>If the title changes or the window is gone, qBlank takes another window of the same program.</li>
+        <li>The border is always cut off.</li>
+        <li>Each new picture is drawn at once. <strong>Recording &rarr; Frame rate</strong> on <em>same as source</em> keeps them all, or caps them.</li>
+        <li><em>System sound without qBlank</em> records everything except qBlank's own playback. qBlank stays audible and nothing echoes.</li>
+        <li><em>Hide qBlank from the capture</em> is on by default for the screen. It keeps qBlank out of every screen capture, Remote Play and Remote Desktop included.</li>
+        <li><em>Preview</em> off shows a small panel with resolution, frame rate and recording time, and redraws less often.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/windowsrc.png" width="604" height="376" loading="lazy" alt="The Source tab with Window as picture source: the window Test window — python.exe, Refresh, the boxes for the mouse pointer and the preview, and four notes on covered windows, a lost title, exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Window: the window, pointer, preview, and what to know.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="364" loading="lazy" alt="The Source tab with Screen as picture source: the primary monitor picked, mouse pointer, preview and hiding qBlank from the capture switched on, and the notes on exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Screen: monitor, pointer, preview, hide qBlank.</figcaption>
+      </figure>
+      <figure class="ui panel">
+        <img src="shots/panel.png" width="420" height="162" loading="lazy" alt="The panel qBlank shows with the preview off: Monitor 1, 2560 × 1440, 144 Hz, 5 fps, and the buttons Start recording, Screenshot and Show preview">
+        <figcaption>Preview off: the panel instead of the picture.</figcaption>
+      </figure>
+    </section>
+
+    <section id="record">
+      <h2>Recording</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>AmaRecTV</th></tr>
+        <tr><td>Containers</td><td>MKV, MP4; AVI for lossless</td><td>AVI 2.0, on NTFS only</td></tr>
+        <tr><td>Video codecs</td><td>H.264 on NVENC, Quick Sync, AMF or x264; H.265 on NVENC or x265; AV1 on NVENC, Intel Arc or AMD</td><td>AMV4, or any installed 64-bit VfW codec</td></tr>
+        <tr><td>Lossless</td><td>H.265 lossless on NVENC, UT Video, uncompressed RGB</td><td>AMV4, or a lossless VfW codec</td></tr>
+        <tr><td>Audio codec</td><td>AAC; PCM in AVI</td><td>PCM; MP3 needs a 64-bit ACM codec, hard to find</td></tr>
+        <tr><td>What is recorded</td><td>The picture as shown; <em>Unfiltered</em> for the card's frames</td><td>The card's frames, cropped</td></tr>
+        <tr><td>Resolution</td><td>The source's, or a set height from 2160p to 360p</td><td>The card's</td></tr>
+        <tr><td>Frame rate</td><td>The source's, or capped</td><td>The source's, or divided</td></tr>
+        <tr><td>10-bit, 4:4:4, HDR</td><td>Yes</td><td>&ndash;</td></tr>
+        <tr><td>Sound sources</td><td>Card, inputs, outputs, system without qBlank; gain up to +12&nbsp;dB</td><td>The card, with a capture volume</td></tr>
+        <tr><td>Tracks</td><td>Mixed, separate, or both</td><td>One</td></tr>
+        <tr><td>Audio delay in the file</td><td>&ndash;</td><td>By hand, up to about &plusmn;500&nbsp;ms</td></tr>
+        <tr><td>Splitting</td><td>At a set size, seamless</td><td>At a set size, 1.5&nbsp;TB by default</td></tr>
+        <tr><td>Write buffer</td><td>512&nbsp;MB, or larger in memory</td><td>32 to 4096&nbsp;MB, 128 by default</td></tr>
+        <tr><td>Disk too slow</td><td>Warning at 75&nbsp;%; full stops the recording, the rest is still written</td><td>Over 50&nbsp;% means too slow; full can stop the recording</td></tr>
+        <tr><td>Free space</td><td>Shown as recording time left</td><td>Shown while recording; checked at the start</td></tr>
+        <tr><td>After a crash</td><td>MKV stays playable</td><td>Repair tool for the AVI</td></tr>
+        <tr><td>Replay buffer</td><td>Memory or disk, 5&nbsp;s to 30&nbsp;min</td><td>&ndash;</td></tr>
+        <tr><td>Markers</td><td>MKV, MP4 and clips</td><td>&ndash;</td></tr>
+        <tr><td>Timer</td><td>&ndash;</td><td>Stop after a time; scheduled start through a separate scheduler</td></tr>
+        <tr><td>Second folder</td><td>&ndash;</td><td>Used when the first fails</td></tr>
+      </table>
+      <h3>AmaRecTV</h3>
+      <ul>
+        <li>The status bar counts frames AmaRecTV adds or drops to keep sound in sync. The manual says this almost always happens and is not a fault.</li>
+        <li>A <em>D</em> there means the ring buffer overflowed and frames were lost.</li>
+        <li>Starting a recording can take about 10&nbsp;s while a hard disk spins up.</li>
+        <li>Short recordings can be moved to a temp folder. A report file logs each recording.</li>
+        <li>4.11 rebuilt the recording engine: it now runs by time instead of by frames.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>The encoder runs inside qBlank, through ffmpeg's libraries. With NVENC and AMF the frame goes from the GPU to the encoder without a copy.</li>
+        <li>A change of size or video standard during a recording starts a new file, seamlessly.</li>
+        <li>The replay buffer and the recording share one encoder. <kbd>Shift</kbd>+<kbd>F9</kbd> saves the last minutes as a clip.</li>
+        <li>Markers: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> sets one, players show them as chapters.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="718" loading="lazy" alt="The Recording tab: container MKV, frame rate and resolution same as source, the output folder with the free space as recording time, the larger buffer in memory, and under Screenshots the format PNG and the screenshot folder">
+        <figcaption>Recording: container, rate, size, folder, splitting and buffer.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="The Recording sources section of the Audio tab: the card audio, an input on the system default and the system sound, each with gain, tracks and level, and the button Add">
+        <figcaption>Audio &rarr; Recording sources: each with gain, tracks and level.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="The Replay tab: replay in the background on, length 60 seconds, storage in memory with at most 4 GB, the free memory, and what 60 seconds take">
+        <figcaption>Replay: length, and memory or disk.</figcaption>
+      </figure>
+    </section>
+
+    <section id="stills">
+      <h2>Screenshots and virtual camera</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>AmaRecTV</th></tr>
+        <tr><td>Screenshot formats</td><td>PNG, JPEG, JPEG&nbsp;XR, AVIF</td><td>BMP, PNG, JPEG</td></tr>
+        <tr><td>HDR screenshots</td><td>JPEG&nbsp;XR or AVIF</td><td>&ndash;</td></tr>
+        <tr><td>With the interface</td><td><em>Include the interface</em></td><td>&ndash;</td></tr>
+        <tr><td>To the clipboard</td><td><kbd>Ctrl</kbd>+<kbd>F10</kbd></td><td>A setting</td></tr>
+        <tr><td>Virtual camera</td><td>Built in, a DirectShow source</td><td><em>AmaRec Live</em>, installed from version 3.10</td></tr>
+        <tr><td>Programs that see it</td><td>64-bit</td><td>32-bit</td></tr>
+        <tr><td>Camera picture</td><td>qBlank's picture, at the source's rate</td><td>No resizing</td></tr>
+        <tr><td>Camera formats</td><td>NV12; P010 with PQ for HDR</td><td>&ndash;</td></tr>
+      </table>
+      <p>AmaRec Live came with 3.10, and 4.x still uses it. Its status shows <em>Rdy</em>, <em>Run</em> or <em>Disable</em>. OBS users report needing the 32-bit OBS for it.</p>
+      <figure class="ui">
+        <img src="shots/camera.png" width="528" height="368" loading="lazy" alt="The Virtual camera section: switched on, with OBS and Discord reading, each in its own format">
+        <figcaption>Recording &rarr; Virtual camera: installed, on, and who is reading it.</figcaption>
+      </figure>
+    </section>
+
+    <section id="keys">
+      <h2>Keys and presets</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>AmaRecTV</th></tr>
+        <tr><td>Change every key</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Keys in other programs</td><td>A second key under <em>System-wide</em>; no other program gets it</td><td><em>Global hook</em>, for all keys</td></tr>
+        <tr><td>Mouse</td><td>Double-click for fullscreen</td><td>Double-click, wheel, and both with the right button, all assignable</td></tr>
+        <tr><td>Record</td><td><kbd>F9</kbd></td><td><kbd>Alt</kbd>+<kbd>Z</kbd>, stop <kbd>Alt</kbd>+<kbd>X</kbd></td></tr>
+        <tr><td>Screenshot</td><td><kbd>F10</kbd></td><td><kbd>Alt</kbd>+<kbd>S</kbd></td></tr>
+        <tr><td>Fullscreen</td><td><kbd>Enter</kbd></td><td><kbd>Alt</kbd>+<kbd>Enter</kbd></td></tr>
+        <tr><td>Borderless</td><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td></tr>
+        <tr><td>Mute</td><td><kbd>M</kbd></td><td><kbd>M</kbd></td></tr>
+        <tr><td>Settings</td><td><kbd>F2</kbd></td><td><kbd>C</kbd></td></tr>
+        <tr><td>Presets</td><td>Profiles with names, chosen by hand or by the detected video standard</td><td>Twelve, on <kbd>F1</kbd> to <kbd>F12</kbd></td></tr>
+      </table>
+      <ul>
+        <li>AmaRecTV's <em>global hook</em> lets its keys work while another program has focus.</li>
+        <li>qBlank's system-wide keys belong to qBlank while it runs: no other program gets that combination. One already taken shows red.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/keys.png" width="528" height="548" loading="lazy" alt="The Keys tab: each action with its shortcut and a System-wide column, where Start/stop recording has Alt+F9, Save replay as clip Alt+Shift+F9 and Screenshot Alt+F10">
+        <figcaption>Keys: one key for the window, a second one system-wide.</figcaption>
+      </figure>
+    </section>
+
+    <section id="reports">
+      <h2>What users report about AmaRecTV</h2>
+      <p>From forums and reviews. Most are several years old, and many are about 3.x.</p>
+      <ul>
+        <li>Overlay gave a black picture on some Windows 10 systems with Nvidia cards.</li>
+        <li>One user of an SC-512N1 card found the delay slightly lower than in OBS's preview.</li>
+        <li>Speedrunners took the sound from AmaRecTV because OBS's monitoring lagged about a tenth of a second.</li>
+        <li>With a GV-USB2 one user lost 30 frames in 35&nbsp;s, where VirtualDub lost none. Other reviews found no drops and the sound in sync.</li>
+        <li>On 2.31 the preview sound sometimes ran fast.</li>
+        <li>Wishes: a level meter, and documentation in English.</li>
+        <li>A capture forum advises against it: buggy, and working with few cards.</li>
+      </ul>
+    </section>
+
+    <section id="amarec">
+      <h2>Only in AmaRecTV</h2>
+      <ul>
+        <li>A region of the desktop, drawn by hand or following a window.</li>
+        <li>A timer, and scheduled recording through a separate scheduler.</li>
+        <li>A second save folder for when the first fails.</li>
+        <li>A repair tool for AVIs broken by a crash.</li>
+        <li>Mouse wheel and double-click actions, assignable.</li>
+        <li>Window size by key: 50, 100 and 200&nbsp;%.</li>
+        <li>Process priority, and a slower preview while the mouse is still.</li>
+        <li>An audio delay for the recorded file.</li>
+        <li>Mono to stereo, and a second sound output.</li>
+        <li>A virtual camera for 32-bit programs.</li>
+        <li>Windows 8.1.</li>
+      </ul>
+    </section>
+
+    <section id="qblank">
+      <h2>Only in qBlank</h2>
+      <ul>
+        <li>Open source, in English and German, still developed.</li>
+        <li>No codec to buy, no logo. Hardware encoders from NVIDIA, Intel and AMD, AV1 included.</li>
+        <li>Video standard, interlacing, field order and colour range measured from the picture.</li>
+        <li>Deinterlacing and aspect ratio in the recording, not just the preview.</li>
+        <li>Composite filters with a side-by-side compare.</li>
+        <li>The console's pixel grid, Sharp Bilinear, scanlines and a CRT mask.</li>
+        <li>Card sound in any format, with an A/V offset for playback.</li>
+        <li>Microphones and system sound in the recording, on their own tracks.</li>
+        <li>Window capture that includes games and video.</li>
+        <li>Replay buffer in memory or on disk, up to 30&nbsp;minutes, and markers.</li>
+        <li>HDR from the card or the desktop, through display, recording, screenshots and camera.</li>
+        <li>A 64-bit virtual camera with qBlank's full picture.</li>
+        <li><kbd>F1</kbd> shows qBlank's own time per frame.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Home</a> · <a href="manual.html">Manual</a> · <a href="install.html">Download</a> · <a href="faq.html">Troubleshooting</a> · <a href="compare.html">Compare</a> · <a href="changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

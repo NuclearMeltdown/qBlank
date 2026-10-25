@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank — Vergleich</title>
+<meta name="description" content="qBlank im Vergleich mit OBS Studio und AmaRecTV: jeder Vergleich im Detail, und alle drei nebeneinander, Funktion für Funktion.">
+<link rel="icon" href="../icon.png">
+<link rel="alternate" hreflang="en" href="https://qblank.com/compare.html">
+<link rel="alternate" hreflang="de" href="https://qblank.com/de/compare.html">
+<link rel="alternate" hreflang="x-default" href="https://qblank.com/compare.html">
+<link rel="canonical" href="https://qblank.com/de/compare.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/de/"},{"@type":"ListItem","position":2,"name":"Vergleich","item":"https://qblank.com/de/compare.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// Vor dem ersten Zeichnen, damit ein gemerktes Design nicht erst als Blitz des
+// anderen erscheint.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Seiten">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Handbuch</a>
+      <a href="faq.html">Fehlersuche</a>
+      <a href="compare.html" aria-current="page">Vergleich</a>
+      <a href="changelog.html">Änderungen</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="../compare.html" hreflang="en" lang="en" title="English">EN</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Vergleich</h1>
+    <p class="tag">qBlank neben anderen Programmen für Capture Card, Bildschirm oder Fenster.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#pages">Vergleiche</a>
+      <a href="#side">Nebeneinander</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="pages">
+      <h2>Vergleiche</h2>
+      <div class="grid">
+        <a class="card" href="vs-obs.html">
+          <h3>qBlank vs OBS Studio</h3>
+          <p>OBS baut Szenen für Streams. qBlank zeigt eine Quelle zum Spielen und nimmt sie auf. Timing, Ton, analoge Konsolen, Bildschirm, Aufnahme, und wie man beides nutzt.</p>
+        </a>
+        <a class="card" href="vs-amarectv.html">
+          <h3>qBlank vs AmaRecTV</h3>
+          <p>Beide sind kleine Programme, um eine Capture Card anzusehen und aufzunehmen. AmaRecTV steht seit 2017 still. Anzeige, Einrichtung, Ton, analoge Konsolen, Bildschirm, Aufnahme, Tasten.</p>
+        </a>
+      </div>
+    </section>
+
+    <section id="side">
+      <h2>Nebeneinander</h2>
+      <p>Verglichen mit OBS Studio 33.0.0 und AmaRecTV 4.11. Die Einzelheiten stehen auf den Vergleichsseiten.</p>
+      <div class="side">
+        <table>
+          <tr><th></th><th>qBlank</th><th>OBS Studio</th><th>AmaRecTV</th></tr>
+          <tr class="grp"><th>Das Programm</th><th colspan="3"></th></tr>
+          <tr><td>Gemacht für</td><td>Auf einer Quelle spielen und sie aufnehmen</td><td>Szenen zum Streamen und Aufnehmen</td><td>Eine Capture Card ansehen und aufnehmen</td></tr>
+          <tr><td>Wird weiterentwickelt</td><td>Ja</td><td>Ja</td><td>Nein, 4.11 von 2017 ist die letzte</td></tr>
+          <tr><td>Quellcode</td><td>Offen, GPLv3</td><td>Offen, GPLv2 oder neuer</td><td>Geschlossene Freeware</td></tr>
+          <tr><td>Kosten</td><td>Kostenlos</td><td>Kostenlos</td><td>Kostenlos, aber der AMV4-Codec kostet; ohne ihn kommt ein Logo ins Video</td></tr>
+          <tr><td>Sprache</td><td>Deutsch, Englisch</td><td>Viele, auch Deutsch</td><td>Japanisch; Englisch nur bis 2.31</td></tr>
+          <tr><td>Systeme</td><td>Windows 10 und 11, 64 Bit</td><td>Windows, macOS, Linux</td><td>Windows 8.1 und 10, 64 Bit</td></tr>
+          <tr><td>Download</td><td>Eine Datei, etwa 3&nbsp;MB</td><td>Installer, 187&nbsp;MB</td><td>Zip, ohne Installer</td></tr>
+          <tr class="grp"><th>Quellen</th><th colspan="3"></th></tr>
+          <tr><td>Quellen</td><td>Karte, Bildschirm oder Fenster, eine zur Zeit</td><td>Beliebig viele, in Szenen geschichtet</td><td>Karte oder Desktop</td></tr>
+          <tr><td>Bildschirm</td><td>Ein ganzer Monitor</td><td>Ein ganzer Monitor</td><td>Ein gezogener Bereich oder der ganze Monitor</td></tr>
+          <tr><td>Spiele im Fenster</td><td>Ja</td><td>Ja</td><td>Als Bereich; der GDI-Fenstermodus lässt DirectX weg</td></tr>
+          <tr><td>Ältere Spiele im exklusiven Vollbild</td><td>&ndash;</td><td>Spielaufnahme</td><td>&ndash;</td></tr>
+          <tr><td>HDR-Desktop</td><td>In HDR</td><td>In HDR, von Hand eingestellt</td><td>&ndash;</td></tr>
+          <tr><td>Ton eines Programms</td><td>&ndash;</td><td>Ja, als Beta</td><td>&ndash;</td></tr>
+          <tr class="grp"><th>Spielen über die Karte</th><th colspan="3"></th></tr>
+          <tr><td>Anzeige</td><td>Eigener Renderer, Direct3D 11 oder Vulkan</td><td>Vorschau und Projektoren, mit VSync gezeichnet</td><td>Overlay (VMR7) oder EVR</td></tr>
+          <tr><td>Wann ein Bild erscheint</td><td>Sobald es ankommt</td><td>Beim nächsten Takt der Leinwand</td><td>Dem DirectShow-Renderer überlassen</td></tr>
+          <tr><td>Bildrate</td><td>Die der Quelle</td><td>Eine Rate für die ganze Leinwand</td><td>Wie für die Karte eingestellt</td></tr>
+          <tr><td>Format der Karte</td><td>An die Videonorm angepasst</td><td>Standard des Geräts, oder von Hand</td><td>Aus einer Liste gewählt oder von Hand eingetippt</td></tr>
+          <tr><td>Ton der Karte</td><td>Jedes Format, eigener Puffer ab 5&nbsp;ms</td><td>Monitoring, ans Video angeglichen</td><td>16 Bit Stereo, passend zum Wiedergabegerät</td></tr>
+          <tr class="grp"><th>Analoge Konsolen</th><th colspan="3"></th></tr>
+          <tr><td>Videonorm</td><td>Automatisch gefunden</td><td>Im Treiberdialog der Karte</td><td>Im Treiberdialog der Karte</td></tr>
+          <tr><td>Wann deinterlact wird</td><td>An jedem Bild gemessen</td><td>Ein Modus pro Quelle, von Hand</td><td>Aus einer Tabelle von Größe und Rate, oder von Hand</td></tr>
+          <tr><td>Aufnahme deinterlact</td><td>Ja</td><td>Ja</td><td>Nein, nur die Vorschau</td></tr>
+          <tr><td>Composite-Dot-Crawl</td><td>Fünf Filter</td><td>&ndash;</td><td>&ndash;</td></tr>
+          <tr><td>Pixelgrafik</td><td>Natives Pixelraster, Sharp Bilinear, Integer-Skalierung</td><td>Point-Skalierung</td><td>Retro-Modus</td></tr>
+          <tr><td>Scanlines, CRT-Maske</td><td>Eingebaut</td><td>Shader-Plugins von anderen</td><td>&ndash;</td></tr>
+          <tr class="grp"><th>Aufnahme</th><th colspan="3"></th></tr>
+          <tr><td>Container</td><td>MKV, MP4; AVI für verlustfrei</td><td>MKV, MP4, MOV, FLV, TS, HLS, hybrides und fragmentiertes MP4 und MOV</td><td>AVI 2.0</td></tr>
+          <tr><td>Video-Codecs</td><td>H.264 und AV1 über NVENC, Quick Sync, AMF; H.265 über NVENC; x264, x265</td><td>H.264, H.265 und AV1 über NVENC, Quick Sync, AMF; x264, SVT-AV1, AOM AV1</td><td>AMV4 oder ein anderer VfW-Codec</td></tr>
+          <tr><td>Verlustfrei</td><td>NVENC, UT Video, unkomprimiert</td><td>NVENC, UT Video</td><td>AMV4 oder ein verlustfreier VfW-Codec</td></tr>
+          <tr><td>10 Bit, 4:4:4, HDR</td><td>Ja</td><td>Ja</td><td>&ndash;</td></tr>
+          <tr><td>Audio-Codec</td><td>AAC; PCM in AVI</td><td>AAC, Opus und mehr</td><td>PCM</td></tr>
+          <tr><td>Tonquellen</td><td>Karte, Eingänge, Ausgänge, System ohne qBlank</td><td>Jede Quelle, mit Filtern</td><td>Die Karte</td></tr>
+          <tr><td>Spuren</td><td>Gemischt, getrennt oder beides</td><td>Bis zu sechs</td><td>Eine</td></tr>
+          <tr><td>Übersteht einen Absturz</td><td>MKV</td><td>MKV, hybrides und fragmentiertes MP4 und MOV, TS</td><td>Ein Reparaturwerkzeug für das AVI</td></tr>
+          <tr><td>Replay-Puffer</td><td>Arbeitsspeicher oder Platte, bis 30&nbsp;Minuten</td><td>Arbeitsspeicher</td><td>&ndash;</td></tr>
+          <tr><td>Marker</td><td>MKV, MP4 und Clips</td><td>Hybrides MP4 und MOV</td><td>&ndash;</td></tr>
+          <tr><td>Streamen</td><td>&ndash;</td><td>Ja</td><td>&ndash;</td></tr>
+          <tr class="grp"><th>Screenshots, Kamera, Tasten</th><th colspan="3"></th></tr>
+          <tr><td>Screenshots</td><td>PNG, JPEG, JPEG&nbsp;XR, AVIF</td><td>PNG; JPEG&nbsp;XR für HDR</td><td>BMP, PNG, JPEG</td></tr>
+          <tr><td>Virtuelle Kamera</td><td>Für 64-Bit-Programme, HDR</td><td>Für 64-Bit-, 32-Bit- und ARM64-Programme</td><td>Für 32-Bit-Programme, ab AmaRecTV 3.10</td></tr>
+          <tr><td>Tasten in anderen Programmen</td><td>Systemweit; das Spiel sieht sie nicht</td><td>Neben dem Spiel gelesen, das sie auch sieht</td><td><em>Global hook</em></td></tr>
+          <tr><td>Plugins und Skripte</td><td>&ndash;</td><td>Ja</td><td>&ndash;</td></tr>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>Lizenz GPLv3 · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Startseite</a> · <a href="manual.html">Handbuch</a> · <a href="install.html">Download</a> · <a href="faq.html">Fehlersuche</a> · <a href="changelog.html">Änderungen</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> (englisch)</div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

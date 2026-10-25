@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank vs OBS Studio — Capture Card, Bildschirm und Fenster</title>
+<meta name="description" content="qBlank und OBS Studio im Detail verglichen: Timing und Ton an der Capture Card, analoge Konsolen, Bildschirm- und Fensteraufnahme, Aufnahme, Replay, Screenshots, virtuelle Kamera und beide zusammen.">
+<link rel="icon" href="../icon.png">
+<link rel="alternate" hreflang="en" href="https://qblank.com/vs-obs.html">
+<link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-obs.html">
+<link rel="alternate" hreflang="x-default" href="https://qblank.com/vs-obs.html">
+<link rel="canonical" href="https://qblank.com/de/vs-obs.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/de/"},{"@type":"ListItem","position":2,"name":"Vergleich","item":"https://qblank.com/de/compare.html"},{"@type":"ListItem","position":3,"name":"qBlank vs OBS Studio","item":"https://qblank.com/de/vs-obs.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// Vor dem ersten Zeichnen, damit ein gemerktes Design nicht erst als Blitz des
+// anderen erscheint.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Seiten">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Handbuch</a>
+      <a href="faq.html">Fehlersuche</a>
+      <a href="compare.html" aria-current="true">Vergleich</a>
+      <a href="changelog.html">Änderungen</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="../vs-obs.html" hreflang="en" lang="en" title="English">EN</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>qBlank vs OBS Studio</h1>
+    <p class="tag">Beide nehmen eine Capture Card, einen Bildschirm oder ein Fenster. OBS baut Szenen für Streams. qBlank zeigt eine Quelle zum Spielen und nimmt sie auf. Viele nutzen beides.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#short">Kurz gesagt</a>
+      <a href="#card">Capture Card: Timing</a>
+      <a href="#sound">Capture Card: Ton</a>
+      <a href="#analogue">Analoge Konsolen</a>
+      <a href="#screen">Bildschirm und Fenster</a>
+      <a href="#record">Aufnahme und Replay</a>
+      <a href="#stills">Screenshots und Kamera</a>
+      <a href="#keys">Tasten</a>
+      <a href="#obs">Nur in OBS</a>
+      <a href="#qblank">Nur in qBlank</a>
+      <a href="#both">Beide zusammen</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="short">
+      <h2>Kurz gesagt</h2>
+      <p>Verglichen mit OBS Studio 33.0.0, seinen Einstellungen und seinem Quellcode.</p>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Gemacht für</td><td>Auf einer Quelle spielen und sie aufnehmen</td><td>Szenen zum Streamen und Aufnehmen</td></tr>
+        <tr><td>Quellen</td><td>Karte, Bildschirm oder Fenster, eine zur Zeit</td><td>Beliebig viele, in Szenen geschichtet</td></tr>
+        <tr><td>Wann ein Bild erscheint</td><td>Sobald es ankommt</td><td>Beim nächsten Takt der Leinwand</td></tr>
+        <tr><td>Bildrate</td><td>Die der Quelle</td><td>Eine Rate für die ganze Leinwand</td></tr>
+        <tr><td>Ton der Karte</td><td>Eigener Puffer, ab Werk 30&nbsp;ms</td><td>Monitoring, ans Video angeglichen</td></tr>
+        <tr><td>Deinterlacing</td><td>Läuft, wenn das Bild als interlaced gemessen wird</td><td>Pro Quelle von Hand gewählt</td></tr>
+        <tr><td>Videonorm</td><td>Automatisch gefunden</td><td>Im Treiberdialog der Karte</td></tr>
+        <tr><td>Composite-Dot-Crawl</td><td>Filter eingebaut</td><td>&ndash;</td></tr>
+        <tr><td>Ältere Spiele im exklusiven Vollbild</td><td>&ndash;</td><td>Spielaufnahme</td></tr>
+        <tr><td>Replay-Puffer</td><td>Arbeitsspeicher oder Platte, bis 30&nbsp;Minuten</td><td>Arbeitsspeicher</td></tr>
+        <tr><td>Streamen</td><td>&ndash;</td><td>Ja</td></tr>
+        <tr><td>Systeme</td><td>Windows 10 und 11, 64 Bit</td><td>Windows, macOS, Linux</td></tr>
+        <tr><td>Download</td><td>Eine Datei, etwa 3&nbsp;MB; ffmpeg zum Aufnehmen bei Bedarf</td><td>Installer, 187&nbsp;MB</td></tr>
+        <tr><td>Lizenz</td><td>GPLv3</td><td>GPLv2 oder neuer</td></tr>
+      </table>
+    </section>
+
+    <section id="card">
+      <h2>Capture Card: Timing</h2>
+      <h3>OBS: eine Leinwand, ein Takt</h3>
+      <ul>
+        <li>In jedem Takt aktualisiert OBS die Quellen, gibt das Bild an die Encoder, zeichnet die Vorschau und schläft dann bis zum nächsten Takt.</li>
+        <li>Ein Bild der Karte wird beim nächsten Takt abgeholt. Kommt es knapp danach, wartet es fast ein ganzes Intervall: bis 16,7&nbsp;ms bei 60&nbsp;fps.</li>
+        <li>Die Rate gilt für die ganze Leinwand, unter <strong>Einstellungen &rarr; Video</strong>. Eine 50-Hz-Konsole auf 60&nbsp;fps zeigt jedes fünfte Bild doppelt. Eine 60-Hz-Konsole auf 50&nbsp;fps verliert jedes sechste.</li>
+        <li>Vorschau und Projektoren laufen mit VSync: jedes Bild wartet auf den Refresh des Monitors.</li>
+        <li><em>Pufferung</em> eines <em>Videoaufnahmegeräts</em> steht auf <em>Automatisch erkennen</em>. OBS' eigener Tooltip nennt <em>Deaktivieren</em> ideal zum Spielen einer Konsole. Dann bleibt nur das neueste Bild.</li>
+        <li>Zum Spielen im Vollbild hat OBS Projektoren: <em>Quellenprojektor öffnen</em> auf einem Monitor oder im Fenster, <em>Fenster an Inhalt anpassen</em> fürs Fenster.</li>
+      </ul>
+      <h3>qBlank: keine Leinwand</h3>
+      <ul>
+        <li>Jedes Bild wird gezeichnet, wenn es ankommt, in der Rate der Quelle. Eine 50-Hz-Konsole läuft mit 50, eine 60-Hz-Konsole mit 60, ohne Umstellen.</li>
+        <li>Die Bildrate der Karte folgt der Videonorm. <em>Rate des Signals</em> nimmt 50&nbsp;Hz bei PAL, 59,94 bei NTSC, 60 bei PAL&nbsp;60.</li>
+        <li>Ein Dreifachpuffer: ein noch nicht gezeichnetes Bild wird vom nächsten ersetzt, nie dahinter eingereiht.</li>
+        <li>Ein Bild Warteschlange in der Swapchain, Tearing erlaubt, VSync ab Werk aus. <strong>Anzeige &rarr; VSync</strong> schaltet es ein.</li>
+        <li>Das Fenster selbst ist der Player: <kbd>Enter</kbd> Vollbild, <kbd>Strg</kbd>+<kbd>Enter</kbd> rahmenlos.</li>
+      </ul>
+      <p><kbd>F1</kbd> zeigt, was qBlank selbst beiträgt: <em>Durchlauf</em> ist die Zeit von der Ankunft eines Bildes in qBlank, bis es qBlank verlässt. Etwa 1&nbsp;ms bei 1080p60. Karte und Monitor kommen noch dazu.</p>
+      <figure class="ui own">
+        <img src="shots/stats.png" width="331" height="135" loading="lazy" alt="Die F1-Statistik auf Kompakt: Quellrate 64,88 fps, gemeldet 143,86; Ausgabe 65,1 fps, VSync aus, Tearing erlaubt; Durchlauf 1,3 ms">
+        <figcaption><kbd>F1</kbd> auf <em>Kompakt</em>, hier an einem Fenster: die Rate der Quelle, was am Schirm ankommt, und qBlanks eigene Zeit.</figcaption>
+      </figure>
+      <div class="note">Gegeneinander gemessen wurden die beiden hier nicht. Der Unterschied folgt aus dem Aufbau.</div>
+    </section>
+
+    <section id="sound">
+      <h2>Capture Card: Ton</h2>
+      <h3>OBS</h3>
+      <ul>
+        <li>Ein <em>Videoaufnahmegerät</em> startet auf <em>Nur Audio aufnehmen</em>. Zu hören ist die Konsole erst, wenn man in den <strong>Erweiterten Audioeigenschaften</strong> das <em>Audiomonitoring</em> einschaltet.</li>
+        <li><em>Monitoring aus</em>, <em>Nur Monitoring an (keine Ausgabe)</em> oder <em>Monitoring aktiviert</em>. Das Monitoring spielt über den gemeinsamen Windows-Mixer und wartet, bis der Ton zu den Zeitstempeln des Videos passt.</li>
+        <li>OBS vergrößert seinen Audiopuffer, wenn Quellen auseinanderlaufen, bis etwa 960&nbsp;ms. <em>Audiopufferung mit niedriger Latenz</em> hält ihn bei 20&nbsp;ms. OBS meint das für Decklink und NDI und warnt vor Aussetzern.</li>
+        <li>Nutzer im OBS-Forum berichten, dass das Monitoring etwa eine Zehntelsekunde hinter dem Bild liegt.</li>
+        <li><em>Desktop-Audio ausgeben (DirectSound)</em> oder <em>(WaveOut)</em> spielt die Karte stattdessen direkt über Windows, am Monitoring vorbei.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Der Ton der Karte spielt von Anfang an, über qBlanks eigenen Puffer: <em>Tonpuffer</em> von 5 bis 200&nbsp;ms, ab Werk 30.</li>
+        <li><em>Exclusive Mode</em> umgeht den Windows-Mixer für weniger Verzögerung. Das Gerät ist dann für andere Programme gesperrt.</li>
+        <li><em>A/V-Versatz</em> verschiebt Ton oder Bild um bis zu 200&nbsp;ms, für einen Fernseher oder ein Headset mit eigener Verzögerung.</li>
+        <li><kbd>M</kbd> schaltet stumm, <kbd>+</kbd> und <kbd>-</kbd> regeln die Lautstärke. Beides lässt die Aufnahme in Ruhe.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/playback.png" width="604" height="268" loading="lazy" alt="Der Reiter Ton: Wiedergabe auf Systemstandard, Exclusive Mode aus, und unter Verzögerung der Tonpuffer auf 30 ms und der A/V-Versatz auf 0 ms">
+        <figcaption>Ton &rarr; Wiedergabe und Verzögerung, wie ab Werk.</figcaption>
+      </figure>
+    </section>
+
+    <section id="analogue">
+      <h2>Analoge Konsolen</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Videonorm</td><td>PAL, NTSC oder SECAM automatisch gefunden, folgt einem Wechsel zwischen 50 und 60&nbsp;Hz</td><td>Im Treiberdialog hinter <em>Video konfigurieren</em></td></tr>
+        <tr><td>Deinterlacing</td><td>Nur bei einem als interlaced gemessenen Bild</td><td>Ein Modus pro Quelle, immer an</td></tr>
+        <tr><td>Modi</td><td>Aus (Weave), Bob, Bob (interpoliert), Bewegungsadaptiv, Kantenorientiert, YADIF</td><td>Verwerfen, Retro, Blend, Blend 2x, Linear, Linear 2x, Yadif, Yadif 2x</td></tr>
+        <tr><td>Halbbildreihenfolge</td><td>Automatisch, oder von Hand</td><td><em>Oberes Feld zuerst</em> oder <em>Unteres Feld zuerst</em></td></tr>
+        <tr><td>Farbbereich</td><td>Aus dem Bild gemessen</td><td>Standard, Begrenzt oder Voll, von Hand</td></tr>
+        <tr><td>Composite-Dot-Crawl</td><td>Fünf Filter, nebeneinander zu vergleichen</td><td>&ndash;</td></tr>
+        <tr><td>Pixelgrafik</td><td>Natives Pixelraster, Sharp Bilinear, Integer-Skalierung</td><td>Point-Skalierung</td></tr>
+        <tr><td>Zeilenlücken, Röhrenmaske</td><td>Eingebaut, nur für die Anzeige</td><td>Shader-Plugins von anderen</td></tr>
+      </table>
+      <h3>Videonorm</h3>
+      <p>Eine Karte auf NTSC zeigt eine PAL-Konsole schwarzweiß oder mit wandernden Farben. In OBS öffnet man den Treiberdialog und stellt um. qBlank probiert die Normen selbst durch, bis die Farbe einrastet. <kbd>F7</kbd> prüft am aktuellen Bild noch einmal.</p>
+      <figure class="ui">
+        <img src="shots/standard.png" width="528" height="198" loading="lazy" alt="Der Abschnitt Videonorm auf Automatisch: eingestellt PAL 60, Signal eingerastet">
+        <figcaption>Quelle &rarr; Videonorm: was auf der Karte steht und ob sie eingerastet ist.</figcaption>
+      </figure>
+      <h3>Deinterlacing</h3>
+      <p>Viele Konsolen schicken 240p und 480i über dasselbe Signal: ein Spiel, oft schon sein Menü, wechselt zwischen beiden. OBS behält seinen Modus, bis man ihn ändert. Ein fester Modus behandelt auch 240p als interlaced und kostet dort Schärfe oder Bewegung.</p>
+      <p>qBlank misst jedes Bild. Mit <em>Nur bei interlaced Quellen anwenden</em> darf der Deinterlacer anbleiben: 240p geht unberührt durch, 480i und 576i werden deinterlaced. Auch die Halbbildreihenfolge wird gemessen.</p>
+      <figure class="ui">
+        <img src="shots/fields.png" width="528" height="184" loading="lazy" alt="Der Abschnitt Halbbilder: Nur bei interlaced Quellen anwenden, die Anzeige Gemessen: progressiv, der Deinterlacing-Modus und die Halbbildreihenfolge">
+        <figcaption>Bild &rarr; Halbbilder: was gemessen wurde, und der Modus.</figcaption>
+      </figure>
+      <h3>Farbbereich</h3>
+      <p>Ein falscher Bereich zeigt sich als graues Schwarz oder abgesoffene Schatten. OBS stellt ihn pro Quelle von Hand ein. qBlank misst ihn aus dem Bild; <kbd>F6</kbd> misst neu.</p>
+      <h3>Composite</h3>
+      <p>Composite trägt die Farbe in der Helligkeit, das hinterlässt wandernde Punkte an Kanten. qBlank hat fünf Filter dagegen; sie erscheinen nur an einem Composite-Eingang. <kbd>F12</kbd> teilt das Bild in aus und an, <kbd>F11</kbd> hält es an. OBS hat dafür nichts eingebaut.</p>
+      <figure class="ui">
+        <img src="shots/composite.png" width="528" height="398" loading="lazy" alt="Der Abschnitt Composite-Filter, alles aus: Farbschimmern, Erweiterte Historie, Stillstehendes mitteln, Bewegung folgen, Bewegtes entstören und Bandbreite zurückholen">
+        <figcaption>Bild &rarr; Composite-Filter, alles aus wie ab Werk.</figcaption>
+      </figure>
+      <h3>Pixelgrafik und Skalierung</h3>
+      <ul>
+        <li>OBS: <em>Skalierungsfilterung</em> mit Point, Bilinear, Bicubic, Lanczos und Area. Point hält Pixel scharf, aber ungleich breit, wenn der Faktor nicht ganzzahlig ist.</li>
+        <li>qBlank: Nearest Neighbor, Bilinear, Bicubic, Lanczos3 und Sharp Bilinear, das Pixel bei jedem Faktor scharf und gleich breit hält. <em>Integer-Skalierung</em> steht beim Seitenverhältnis.</li>
+        <li>qBlank hat außerdem <em>Natives Pixelraster</em>: man wählt, wie viele Pixel die Konsole pro Zeile zeichnet, 256 bei einem SNES. Jedes Konsolenpixel wird dann ein scharfer Block.</li>
+        <li>Zeilenlücken und eine Röhrenmaske sind in qBlank eingebaut und gelten nur für die Anzeige. OBS braucht dafür ein Shader-Plugin von anderen.</li>
+      </ul>
+    </section>
+
+    <section id="screen">
+      <h2>Bildschirm und Fenster</h2>
+      <h3>Wie jedes aufnimmt</h3>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Bildschirm</td><td>Desktop Duplication</td><td><em>Monitoraufnahme</em>: Automatisch, <em>Veraltet (DXGI)</em> oder <em>Modern (WGC)</em></td></tr>
+        <tr><td>Fenster</td><td>Windows.Graphics.Capture</td><td><em>Fensteraufnahme</em>: <em>Veraltet (BitBlt)</em> oder <em>Modern (WGC)</em></td></tr>
+        <tr><td>Ältere Spiele im exklusiven Vollbild</td><td>Nicht möglich, und qBlank sagt es; im randlosen Fenster geht es</td><td><em>Spielaufnahme</em> hängt sich ins Spiel</td></tr>
+        <tr><td>Im Spiel</td><td>Nichts; nur was Windows jedem Programm anbietet</td><td>Die Spielaufnahme lädt einen Hook hinein; ein <em>Anti-Cheat-Kompatibilitäts-Hook</em> ist wählbar</td></tr>
+        <tr><td>Fenster weg</td><td>Ein anderes Fenster desselben Programms</td><td><em>Übereinstimmungspriorität</em>: nur Titel, gleicher Typ oder gleiches Programm</td></tr>
+        <tr><td>Rahmen</td><td>Immer abgeschnitten</td><td>Haken <em>Client-Bereich</em></td></tr>
+        <tr><td>Mauszeiger</td><td>Haken</td><td>Haken</td></tr>
+      </table>
+      <p>Verdeckte Fenster kommen bei beiden durch. Minimierte nicht.</p>
+      <figure class="ui own">
+        <img src="shots/windowsrc.png" width="604" height="376" loading="lazy" alt="Der Reiter Quelle mit Fenster als Bildquelle: das Fenster Test window — python.exe, Aktualisieren, die Haken für Mauszeiger und Vorschau und vier Hinweise zu verdeckten Fenstern, verlorenem Titel, exklusivem Vollbild und Ton">
+        <figcaption>Quelle &rarr; Fenster: das Fenster, Zeiger, Vorschau und was man wissen muss.</figcaption>
+      </figure>
+      <h3>Wann ein neues Bild geholt wird</h3>
+      <ul>
+        <li>OBS holt den Desktop in seinem Takt. Mit DXGI fragt es Windows einmal pro Takt, ohne zu warten. Mit WGC reicht Windows jedes Bild herüber, und OBS zeichnet im Takt das neueste. So oder so kann ein Bild bis zu einem Intervall der Leinwand warten.</li>
+        <li>qBlank nimmt jedes Bild, wenn Windows es übergibt, und zeichnet es sofort.</li>
+        <li>Gemessen von der Ankunft in qBlank, bis es qBlank verlässt: 0,7 bis 1,0&nbsp;ms für ein Fenster, 2,0 bis 2,2&nbsp;ms für den Bildschirm.</li>
+      </ul>
+      <h3>Bildrate</h3>
+      <ul>
+        <li>OBS nimmt in der Rate der Leinwand auf, für jede Quelle dieselbe. Der <em>Ganzzahl-FPS-Wert</em> reicht bis 120. Ein 144-Hz-Monitor braucht den <em>Bruch-FPS-Wert</em>.</li>
+        <li>qBlank zeigt jedes neue Bild. <strong>Aufnahme &rarr; Bildrate</strong> auf <em>wie die Quelle</em> behält alle, oder deckelt sie. Karte, Bildschirm und Fenster merken sich je ihre eigene Einstellung.</li>
+      </ul>
+      <h3>Vorschau und Verbergen</h3>
+      <ul>
+        <li>OBS: <em>Vorschau deaktivieren</em> im Menü der Vorschau spart das Zeichnen. <em>OBS-Fenster vor Bildschirmaufnahmen verbergen</em> unter <strong>Einstellungen &rarr; Allgemein</strong> hält sie aus anderen Aufnahmen heraus; Projektoren bleiben sichtbar.</li>
+        <li>qBlank: <em>Vorschau</em> aus zeigt eine kleine Anzeige mit Auflösung, Bildrate und Aufnahmezeit und zeichnet seltener. <em>qBlank auf der Aufnahme verbergen</em> ist beim Bildschirm ab Werk an. Es hält qBlank aus jeder Bildschirmaufnahme heraus, auch aus Remote Play und Remotedesktop.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="386" loading="lazy" alt="Der Reiter Quelle mit Bildschirm als Bildquelle: der Hauptmonitor gewählt, Mauszeiger, Vorschau und qBlank auf der Aufnahme verbergen eingeschaltet, dazu die Hinweise zum exklusiven Vollbild und zum Ton">
+        <figcaption>Quelle &rarr; Bildschirm: Monitor, Zeiger, Vorschau, qBlank verbergen.</figcaption>
+      </figure>
+      <figure class="ui panel">
+        <img src="shots/panel.png" width="420" height="162" loading="lazy" alt="Die Anzeige von qBlank bei ausgeschalteter Vorschau: Monitor 1, 2560 × 1440, 144 Hz, 5 fps und die Knöpfe Aufnahme starten, Screenshot und Vorschau zeigen">
+        <figcaption>Vorschau aus: die Anzeige statt des Bildes.</figcaption>
+      </figure>
+      <h3>HDR</h3>
+      <p>Beide nehmen einen HDR-Desktop in HDR. OBS braucht dafür unter <strong>Einstellungen &rarr; Erweitert</strong> einen Rec.-2100-Farbraum und ein 10-Bit-Format; <em>SDR erzwingen</em> an einer Fensterquelle schaltet es ab. qBlank folgt dem Monitor von selbst. Auf einem normalen Schirm bleibt das Weiß des Desktops weiß, Helleres wird abgeschnitten.</p>
+      <h3>Ton</h3>
+      <ul>
+        <li>OBS: <em>Audioausgabeaufnahme</em> für das ganze System und <em>Anwendungsaudioaufnahme (Beta)</em> für ein einzelnes Programm.</li>
+        <li>qBlank: <em>Systemton ohne qBlank</em> nimmt alles außer qBlanks eigener Wiedergabe. Ein einzelnes Programm lässt sich nicht wählen.</li>
+      </ul>
+    </section>
+
+    <section id="record">
+      <h2>Aufnahme und Replay</h2>
+      <h3>Beide</h3>
+      <ul>
+        <li>H.264 und AV1 über NVENC, Quick Sync und AMF; x264 in Software.</li>
+        <li>4:4:4, 10 Bit und HDR. Verlustfrei mit NVENC oder UT Video.</li>
+        <li>Mehrere NVENC-Chips an einem H.265- oder AV1-Strom: <em>Alle Encoder-Chips</em> in qBlank, <em>Split Encode</em> in OBS.</li>
+        <li>Ein Replay-Puffer, per Taste als Clip gespeichert.</li>
+      </ul>
+      <h3>Wo sie sich unterscheiden</h3>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Container</td><td>MKV, MP4; AVI für verlustfrei</td><td>MKV, MP4, MOV, FLV, TS, HLS, hybrides und fragmentiertes MP4 und MOV</td></tr>
+        <tr><td>Ab Werk</td><td>MKV</td><td>Hybrides MP4</td></tr>
+        <tr><td>Übersteht einen Absturz</td><td>MKV</td><td>MKV, hybrides und fragmentiertes MP4 und MOV, TS</td></tr>
+        <tr><td>H.265</td><td>NVENC; x265 in Software</td><td>NVENC, Quick Sync, AMF</td></tr>
+        <tr><td>AV1 in Software</td><td>&ndash;</td><td>SVT-AV1, AOM AV1</td></tr>
+        <tr><td>Bildrate</td><td>Die der Quelle, oder gedeckelt, pro Quelle</td><td>Die Rate der Leinwand</td></tr>
+        <tr><td>Auflösung</td><td>Die der Quelle, oder stufenweise kleiner bis 360p, gleiche Form</td><td>Ausgabeauflösung mit Skalierungsfilter</td></tr>
+        <tr><td>Replay</td><td>Arbeitsspeicher oder Platte, 5&nbsp;s bis 30&nbsp;min</td><td>Arbeitsspeicher; ab Werk 20&nbsp;s und 512&nbsp;MB</td></tr>
+        <tr><td>Replay während einer Aufnahme</td><td>Wird gespeichert, beide teilen einen Encoder</td><td>Wird gespeichert; nicht, solange die Aufnahme pausiert</td></tr>
+        <tr><td>Marker</td><td>MKV, MP4 und Clips</td><td>Nur hybrides MP4 und MOV</td></tr>
+        <tr><td>Pausieren</td><td>&ndash;</td><td>Ja</td></tr>
+        <tr><td>Dateien teilen</td><td>Bei einer Größe, nahtlos</td><td>Nach Zeit, Größe oder von Hand</td></tr>
+        <tr><td>Tonquellen</td><td>Karte, Eingänge, Ausgänge, System ohne qBlank; Verstärkung bis +12&nbsp;dB</td><td>Jede Quelle, mit Filtern wie Rauschunterdrückung</td></tr>
+        <tr><td>Spuren</td><td>Gemischt, getrennt oder beides</td><td>Bis zu sechs, pro Quelle gewählt</td></tr>
+        <tr><td>Ton-Codec</td><td>AAC; PCM in AVI</td><td>AAC, Opus und mehr</td></tr>
+      </table>
+      <p>qBlanks Marker: <kbd>Strg</kbd>+<kbd>Umschalt</kbd>+<kbd>F9</kbd> setzt einen, Player zeigen sie als Kapitel.</p>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="Der Reiter Replay: Replay im Hintergrund an, Länge 60 Sekunden, Ablage im Arbeitsspeicher mit höchstens 4 GB, der freie Speicher und was 60 Sekunden brauchen">
+        <figcaption>Replay: Länge, Arbeitsspeicher oder Platte.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="Der Abschnitt Tonquellen der Aufnahme im Reiter Ton: der Ton der Karte, ein Eingang auf Systemstandard und der Systemton, jeder mit Verstärkung, Spuren und Pegel, und der Knopf Hinzufügen">
+        <figcaption>Ton &rarr; Tonquellen der Aufnahme: jede mit Verstärkung, Spuren und Pegel.</figcaption>
+      </figure>
+    </section>
+
+    <section id="stills">
+      <h2>Screenshots und virtuelle Kamera</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Screenshot-Formate</td><td>PNG, JPEG, JPEG&nbsp;XR, AVIF</td><td>PNG; JPEG&nbsp;XR für HDR</td></tr>
+        <tr><td>Screenshot-Größe</td><td>Die der Quelle, oder das fertige Fenster</td><td>Die Leinwand, oder eine Quelle</td></tr>
+        <tr><td>In die Zwischenablage</td><td><kbd>Strg</kbd>+<kbd>F10</kbd></td><td>&ndash;</td></tr>
+        <tr><td>Kamera-Formate</td><td>NV12; P010 mit PQ für HDR</td><td>NV12, I420, YUY2</td></tr>
+        <tr><td>Kamerabild</td><td>qBlanks Bild, in der Rate der Quelle</td><td>Programm, Vorschau, eine Szene oder eine Quelle, in der Rate der Leinwand</td></tr>
+        <tr><td>Programme, die sie sehen</td><td>64 Bit</td><td>64 Bit, 32 Bit, ARM64</td></tr>
+      </table>
+      <figure class="ui">
+        <img src="shots/camera.png" width="528" height="402" loading="lazy" alt="Der Abschnitt Virtuelle Kamera: eingeschaltet, OBS und Discord lesen mit, jedes in seinem eigenen Format">
+        <figcaption>Aufnahme &rarr; Virtuelle Kamera: installiert, eingeschaltet, und wer gerade mitliest.</figcaption>
+      </figure>
+    </section>
+
+    <section id="keys">
+      <h2>Tasten</h2>
+      <ul>
+        <li>OBS: Hotkeys wirken, während ein Spiel die Tastatur hat. OBS liest die Tasten mit, das Spiel sieht sie also auch.</li>
+        <li>qBlank: jede Aktion hat eine Taste fürs qBlank-Fenster und kann unter <em>Systemweit</em> eine zweite haben. Solange qBlank läuft, bekommt kein anderes Programm diese Kombination. Ist sie schon vergeben, steht sie rot da.</li>
+        <li>Bei beiden lässt sich jede Taste ändern.</li>
+      </ul>
+    </section>
+
+    <section id="obs">
+      <h2>Nur in OBS</h2>
+      <ul>
+        <li>Szenen, geschichtete Quellen, Overlays, Text, Übergänge, Studio-Modus.</li>
+        <li>Mehrere Quellen zugleich, etwa eine Kamera über dem Spiel.</li>
+        <li>Streamen zu Twitch, YouTube und anderen.</li>
+        <li>Spielaufnahme für Spiele im exklusiven Vollbild.</li>
+        <li>Ton eines einzelnen Programms.</li>
+        <li>Audio- und Videofilter pro Quelle.</li>
+        <li>Aufnahme pausieren, nach Zeit oder von Hand teilen, mehr Container.</li>
+        <li>H.265 über Quick Sync und AMF, AV1 in Software.</li>
+        <li>Eine virtuelle Kamera auch für 32-Bit- und ARM64-Programme.</li>
+        <li>Plugins und Skripte.</li>
+        <li>macOS und Linux.</li>
+      </ul>
+      <p>Szenen, Streamen und Plugins bekommt qBlank nicht.</p>
+    </section>
+
+    <section id="qblank">
+      <h2>Nur in qBlank</h2>
+      <ul>
+        <li>Jedes Bild gezeichnet, wenn es ankommt, in der Rate der Quelle. <kbd>F1</kbd> zeigt qBlanks eigene Zeit.</li>
+        <li>Ton der Karte mit eigenem kleinem Puffer, Exclusive Mode und A/V-Versatz.</li>
+        <li>Videonorm, Interlacing, Halbbildreihenfolge und Farbbereich aus dem Bild gemessen.</li>
+        <li>Composite-Filter mit Vergleich nebeneinander.</li>
+        <li>Das Pixelraster der Konsole, Sharp Bilinear, Zeilenlücken und eine Röhrenmaske.</li>
+        <li>Replay auf der Platte, bis 30&nbsp;Minuten.</li>
+        <li>Marker in MKV und MP4 und in Clips.</li>
+        <li>x265. Screenshots als JPEG und AVIF oder in die Zwischenablage.</li>
+        <li>Eine virtuelle Kamera mit HDR.</li>
+        <li>Systemweite Tasten, die das Spiel nicht sieht.</li>
+        <li>Eine Datei von etwa 3&nbsp;MB.</li>
+      </ul>
+    </section>
+
+    <section id="both">
+      <h2>Beide zusammen</h2>
+      <p>Eine Karte bedient immer nur ein Programm. Also hält qBlank sie und reicht das Bild an OBS weiter:</p>
+      <ol>
+        <li>In qBlank: <strong>Aufnahme &rarr; Virtuelle Kamera &rarr; Kamera installieren</strong>, dann die Kamera einschalten.</li>
+        <li>In OBS: ein <em>Videoaufnahmegerät</em> hinzufügen und <em>qBlank Virtual Camera</em> wählen.</li>
+      </ol>
+      <p>Gespielt wird mit qBlanks Latenz, und der Stream bekommt qBlanks Bild: deinterlaced, Norm gefunden, Dot Crawl entfernt. Für den Ton in OBS zusätzlich die Karte als Audioquelle oder eine <em>Audioausgabeaufnahme</em> hinzufügen.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>Lizenz GPLv3 · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Startseite</a> · <a href="manual.html">Handbuch</a> · <a href="install.html">Download</a> · <a href="faq.html">Fehlersuche</a> · <a href="compare.html">Vergleich</a> · <a href="changelog.html">Änderungen</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> (englisch)</div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

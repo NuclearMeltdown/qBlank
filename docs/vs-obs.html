@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank vs OBS Studio — capture card, screen and window</title>
+<meta name="description" content="qBlank and OBS Studio compared in detail: timing and sound from a capture card, analogue consoles, screen and window capture, recording, replay, screenshots, virtual camera, and how to use both.">
+<link rel="icon" href="icon.png">
+<link rel="alternate" hreflang="en" href="https://qblank.com/vs-obs.html">
+<link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-obs.html">
+<link rel="alternate" hreflang="x-default" href="https://qblank.com/vs-obs.html">
+<link rel="canonical" href="https://qblank.com/vs-obs.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Compare","item":"https://qblank.com/compare.html"},{"@type":"ListItem","position":3,"name":"qBlank vs OBS Studio","item":"https://qblank.com/vs-obs.html"}]}</script>
+<link rel="stylesheet" href="site.css">
+<script>
+// The same as on the front page: theme and language before anything is painted.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
+})();
+</script>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Manual</a>
+      <a href="faq.html">Troubleshooting</a>
+      <a href="compare.html" aria-current="true">Compare</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="de/vs-obs.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>qBlank vs OBS Studio</h1>
+    <p class="tag">Both take a capture card, a screen or a window. OBS composes scenes for streams. qBlank shows one source to play on and records it. Many use both.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#short">In short</a>
+      <a href="#card">Capture card: timing</a>
+      <a href="#sound">Capture card: sound</a>
+      <a href="#analogue">Analogue consoles</a>
+      <a href="#screen">Screen and window</a>
+      <a href="#record">Recording and replay</a>
+      <a href="#stills">Screenshots and camera</a>
+      <a href="#keys">Keys</a>
+      <a href="#obs">Only in OBS</a>
+      <a href="#qblank">Only in qBlank</a>
+      <a href="#both">Using both</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="short">
+      <h2>In short</h2>
+      <p>Compared with OBS Studio 33.0.0, its settings and its source code.</p>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Made for</td><td>Playing on one source and recording it</td><td>Scenes for streaming and recording</td></tr>
+        <tr><td>Sources</td><td>Card, screen or window, one at a time</td><td>Any number, layered in scenes</td></tr>
+        <tr><td>When a frame is shown</td><td>As soon as it arrives</td><td>At the next tick of the canvas</td></tr>
+        <tr><td>Frame rate</td><td>The source's own</td><td>One canvas rate for everything</td></tr>
+        <tr><td>Card sound</td><td>Own buffer, 30&nbsp;ms by default</td><td>Monitoring, held back to match the video</td></tr>
+        <tr><td>Deinterlacing</td><td>Runs when the picture is measured as interlaced</td><td>Chosen by hand per source</td></tr>
+        <tr><td>Video standard</td><td>Found automatically</td><td>Set in the card driver's dialog</td></tr>
+        <tr><td>Composite dot crawl</td><td>Filters built in</td><td>&ndash;</td></tr>
+        <tr><td>Older games in exclusive fullscreen</td><td>&ndash;</td><td>Game Capture</td></tr>
+        <tr><td>Replay buffer</td><td>Memory or disk, up to 30&nbsp;minutes</td><td>Memory</td></tr>
+        <tr><td>Streaming</td><td>&ndash;</td><td>Yes</td></tr>
+        <tr><td>Systems</td><td>Windows 10 and 11, 64-bit</td><td>Windows, macOS, Linux</td></tr>
+        <tr><td>Download</td><td>One file, about 3&nbsp;MB; ffmpeg for recording on request</td><td>Installer, 187&nbsp;MB</td></tr>
+        <tr><td>Licence</td><td>GPLv3</td><td>GPLv2 or later</td></tr>
+      </table>
+    </section>
+
+    <section id="card">
+      <h2>Capture card: timing</h2>
+      <h3>OBS: one canvas, one clock</h3>
+      <ul>
+        <li>Each tick, OBS updates the sources, hands the frame to the encoders, draws the preview, then sleeps until the next tick.</li>
+        <li>A card frame is picked up at the next tick. One that arrives just after a tick waits almost a whole interval: up to 16.7&nbsp;ms at 60&nbsp;fps.</li>
+        <li>The rate is one number for the whole canvas, under <strong>Settings &rarr; Video</strong>. A 50&nbsp;Hz console on a 60&nbsp;fps canvas shows every fifth frame twice. A 60&nbsp;Hz console on 50&nbsp;fps loses every sixth.</li>
+        <li>Preview and projectors are drawn with VSync: each present waits for the monitor's refresh.</li>
+        <li><em>Buffering</em> of a <em>Video Capture Device</em> is on <em>Auto-Detect</em>. OBS's own tooltip calls <em>Disable</em> ideal for playing a console. Then only the newest frame is kept.</li>
+        <li>To play fullscreen, OBS has projectors: <em>Open Source Projector</em> on a monitor or in a window, <em>Fit window to content</em> for the window.</li>
+      </ul>
+      <h3>qBlank: no canvas</h3>
+      <ul>
+        <li>Each frame is drawn when it arrives, at the source's rate. A 50&nbsp;Hz console runs at 50, a 60&nbsp;Hz one at 60, with nothing to change.</li>
+        <li>The card's frame rate follows the video standard. <em>The signal's rate</em> takes 50&nbsp;Hz for PAL, 59.94 for NTSC, 60 for PAL&nbsp;60.</li>
+        <li>A triple buffer: a frame not yet drawn is replaced by the next, never queued behind it.</li>
+        <li>One frame of queue in the swap chain, tearing allowed, VSync off by default. <strong>Display &rarr; VSync</strong> turns it on.</li>
+        <li>The window itself is the player: <kbd>Enter</kbd> fullscreen, <kbd>Ctrl</kbd>+<kbd>Enter</kbd> borderless.</li>
+      </ul>
+      <p><kbd>F1</kbd> shows what qBlank adds itself: <em>Pipeline</em> is the time from a frame's arrival in qBlank until it leaves qBlank. About 1&nbsp;ms at 1080p60. The card and the monitor add their own on top.</p>
+      <figure class="ui own">
+        <img src="shots/stats.png" width="331" height="135" loading="lazy" alt="The F1 statistics on Compact: Source rate 64.95 fps, reported 143.86; Output 64.9 fps, VSync off, tearing allowed; Pipeline 1.3 ms">
+        <figcaption><kbd>F1</kbd> on <em>Compact</em>, here on a window: the source's rate, what reaches the screen, and qBlank's own time.</figcaption>
+      </figure>
+      <div class="note">The two were not measured against each other here. The difference follows from how each is built.</div>
+    </section>
+
+    <section id="sound">
+      <h2>Capture card: sound</h2>
+      <h3>OBS</h3>
+      <ul>
+        <li>A <em>Video Capture Device</em> starts on <em>Capture audio only</em>. You hear the console only after turning on <em>Audio Monitoring</em> in <strong>Advanced Audio Properties</strong>.</li>
+        <li><em>Monitor Off</em>, <em>Monitor Only (mute output)</em> or <em>Monitor and Output</em>. Monitoring plays through the shared Windows mixer and waits until the sound lines up with the video's timestamps.</li>
+        <li>OBS grows its audio buffer when sources drift, up to about 960&nbsp;ms. <em>Low Latency Audio Buffering Mode</em> fixes it at 20&nbsp;ms. OBS meant it for Decklink and NDI and warns that sound may break up.</li>
+        <li>Users on the OBS forum report monitoring about a tenth of a second behind the picture.</li>
+        <li><em>Output desktop audio (DirectSound)</em> or <em>(WaveOut)</em> plays the card straight through Windows instead, outside the monitoring.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>The card's sound plays from the start, through qBlank's own buffer: <em>Audio buffer</em> from 5 to 200&nbsp;ms, 30 by default.</li>
+        <li><em>Exclusive Mode</em> bypasses the Windows mixer for less delay. The device is then locked against other programs.</li>
+        <li><em>A/V offset</em> moves sound or picture by up to 200&nbsp;ms, for a TV or headset that adds its own delay.</li>
+        <li><kbd>M</kbd> mutes, <kbd>+</kbd> and <kbd>-</kbd> set the volume. Neither touches the recording.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/playback.png" width="604" height="268" loading="lazy" alt="The Audio tab: Playback on System default with Exclusive Mode off, and under Delay the Audio buffer at 30 ms and the A/V offset at 0 ms">
+        <figcaption>Audio &rarr; Playback and Delay, as it comes.</figcaption>
+      </figure>
+    </section>
+
+    <section id="analogue">
+      <h2>Analogue consoles</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Video standard</td><td>PAL, NTSC or SECAM found automatically, follows a switch between 50 and 60&nbsp;Hz</td><td>Set in the driver's dialog behind <em>Configure Video</em></td></tr>
+        <tr><td>Deinterlacing</td><td>Only on a picture measured as interlaced</td><td>One mode per source, always on</td></tr>
+        <tr><td>Modes</td><td>Off (weave), Bob, Bob (interpolated), Motion adaptive, Edge directed, YADIF</td><td>Discard, Retro, Blend, Blend 2x, Linear, Linear 2x, Yadif, Yadif 2x</td></tr>
+        <tr><td>Field order</td><td>Automatic, or by hand</td><td><em>Top Field First</em> or <em>Bottom Field First</em></td></tr>
+        <tr><td>Colour range</td><td>Measured from the picture</td><td>Default, Limited or Full, by hand</td></tr>
+        <tr><td>Composite dot crawl</td><td>Five filters, compared side by side</td><td>&ndash;</td></tr>
+        <tr><td>Pixel art</td><td>Native pixel grid, Sharp Bilinear, Integer scaling</td><td>Point scaling</td></tr>
+        <tr><td>Scanlines, CRT mask</td><td>Built in, for the display only</td><td>Shader plugins from others</td></tr>
+      </table>
+      <h3>Video standard</h3>
+      <p>A card set to NTSC shows a PAL console in black and white or with rolling colours. In OBS you open the driver's dialog and change it. qBlank tries the standards itself until the colour locks. <kbd>F7</kbd> checks again on the current picture.</p>
+      <figure class="ui">
+        <img src="shots/standard.png" width="528" height="198" loading="lazy" alt="The Video standard section on Automatic, showing PAL 60 in use and the signal locked">
+        <figcaption>Source &rarr; Video standard: what the card is set to, and whether it locked.</figcaption>
+      </figure>
+      <h3>Deinterlacing</h3>
+      <p>Many consoles send 240p and 480i on the same signal: one game, or even its menu, switches between them. OBS keeps its mode until you change it. A fixed mode also treats 240p as interlaced and loses sharpness or motion on it.</p>
+      <p>qBlank measures each picture. <em>Only apply to interlaced sources</em> lets the deinterlacer stay on: 240p passes untouched, 480i and 576i are deinterlaced. The field order is measured too.</p>
+      <figure class="ui">
+        <img src="shots/fields.png" width="528" height="184" loading="lazy" alt="The Fields section: Only apply to interlaced sources, the reading Measured: progressive, the deinterlacing mode and the field order">
+        <figcaption>Picture &rarr; Fields: what was measured, and the mode.</figcaption>
+      </figure>
+      <h3>Colour range</h3>
+      <p>Wrong range shows as grey blacks or crushed shadows. OBS sets it by hand per source. qBlank measures it from the picture; <kbd>F6</kbd> measures again.</p>
+      <h3>Composite</h3>
+      <p>Composite carries colour inside brightness, which leaves moving dots along edges. qBlank has five filters against it; they only appear for a composite input. <kbd>F12</kbd> splits the picture into off and on, <kbd>F11</kbd> holds it still. OBS has nothing built in for this.</p>
+      <figure class="ui">
+        <img src="shots/composite.png" width="528" height="398" loading="lazy" alt="The Composite filter section with everything off: colour shimmer, extended history, average what stands still, follow the movement, clean up what moves and restore bandwidth">
+        <figcaption>Picture &rarr; Composite filter, all off as it comes.</figcaption>
+      </figure>
+      <h3>Pixel art and scaling</h3>
+      <ul>
+        <li>OBS: <em>Scale Filtering</em> with Point, Bilinear, Bicubic, Lanczos and Area. Point keeps pixels sharp but uneven when the scale is not whole.</li>
+        <li>qBlank: Nearest Neighbor, Bilinear, Bicubic, Lanczos3 and Sharp Bilinear, which keeps pixels sharp and even at any scale. <em>Integer scaling</em> sits under the aspect ratio.</li>
+        <li>qBlank also has <em>Native pixel grid</em>: pick how many pixels the console draws across, 256 for a SNES. Each console pixel then becomes one sharp block.</li>
+        <li>Scanlines and a CRT mask are built into qBlank and apply to the display only. OBS needs a shader plugin from someone else.</li>
+      </ul>
+    </section>
+
+    <section id="screen">
+      <h2>Screen and window</h2>
+      <h3>How each captures</h3>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Screen</td><td>Desktop Duplication</td><td><em>Display Capture</em>: Automatic, <em>Legacy (DXGI)</em> or <em>Modern (WGC)</em></td></tr>
+        <tr><td>Window</td><td>Windows.Graphics.Capture</td><td><em>Window Capture</em>: <em>Legacy (BitBlt)</em> or <em>Modern (WGC)</em></td></tr>
+        <tr><td>Older games in exclusive fullscreen</td><td>Not possible, and qBlank says so; borderless windowed works</td><td><em>Game Capture</em> hooks into the game</td></tr>
+        <tr><td>Inside the game</td><td>Nothing; only what Windows offers every program</td><td>Game Capture loads a hook into it; an <em>anti-cheat compatibility hook</em> is an option</td></tr>
+        <tr><td>Window lost</td><td>Another window of the same program</td><td><em>Window Match Priority</em>: title only, same type, or same program</td></tr>
+        <tr><td>Border</td><td>Always cut off</td><td><em>Client Area</em> box</td></tr>
+        <tr><td>Mouse pointer</td><td>Box</td><td>Box</td></tr>
+      </table>
+      <p>Covered windows come through in both. Minimised ones do not.</p>
+      <figure class="ui own">
+        <img src="shots/windowsrc.png" width="604" height="376" loading="lazy" alt="The Source tab with Window as picture source: the window Test window — python.exe, Refresh, the boxes for the mouse pointer and the preview, and four notes on covered windows, a lost title, exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Window: the window, pointer, preview, and what to know.</figcaption>
+      </figure>
+      <h3>When a new picture is taken</h3>
+      <ul>
+        <li>OBS takes the desktop at its tick. With DXGI it asks Windows once per tick, without waiting. With WGC Windows hands over each picture, and OBS draws the newest one at its tick. Either way a picture can wait up to one canvas interval.</li>
+        <li>qBlank takes each picture as Windows hands it over and draws it at once.</li>
+        <li>Measured from arrival in qBlank to leaving qBlank: 0.7 to 1.0&nbsp;ms for a window, 2.0 to 2.2&nbsp;ms for the screen.</li>
+      </ul>
+      <h3>Frame rate</h3>
+      <ul>
+        <li>OBS records at the canvas rate, the same for every source. The whole-number box goes up to 120. A 144&nbsp;Hz monitor needs the fraction field.</li>
+        <li>qBlank shows every new picture. <strong>Recording &rarr; Frame rate</strong> on <em>same as source</em> keeps them all, or caps them. Card, screen and window each keep their own setting.</li>
+      </ul>
+      <h3>Preview and hiding</h3>
+      <ul>
+        <li>OBS: <em>Disable Preview</em> in the preview's menu saves the drawing. <em>Hide OBS windows from screen capture</em> under <strong>Settings &rarr; General</strong> keeps them out of other captures; projectors stay visible.</li>
+        <li>qBlank: <em>Preview</em> off shows a small panel with resolution, frame rate and recording time, and redraws less often. <em>Hide qBlank from the capture</em> is on by default for the screen. It keeps qBlank out of every screen capture, Remote Play and Remote Desktop included.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="364" loading="lazy" alt="The Source tab with Screen as picture source: the primary monitor picked, mouse pointer, preview and hiding qBlank from the capture switched on, and the notes on exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Screen: monitor, pointer, preview, hide qBlank.</figcaption>
+      </figure>
+      <figure class="ui panel">
+        <img src="shots/panel.png" width="420" height="162" loading="lazy" alt="The panel qBlank shows with the preview off: Monitor 1, 2560 × 1440, 144 Hz, 5 fps, and the buttons Start recording, Screenshot and Show preview">
+        <figcaption>Preview off: the panel instead of the picture.</figcaption>
+      </figure>
+      <h3>HDR</h3>
+      <p>Both take an HDR desktop in HDR. OBS needs <strong>Settings &rarr; Advanced</strong> set to a Rec.&nbsp;2100 colour space and a 10-bit format; <em>Force SDR</em> on a window source turns it off. qBlank follows the monitor by itself. On an ordinary display the desktop's white stays white and brighter parts clip.</p>
+      <h3>Sound</h3>
+      <ul>
+        <li>OBS: <em>Audio Output Capture</em> for the whole system, and <em>Application Audio Capture (BETA)</em> for a single program.</li>
+        <li>qBlank: <em>System sound without qBlank</em> takes everything except qBlank's own playback. A single program cannot be picked.</li>
+      </ul>
+    </section>
+
+    <section id="record">
+      <h2>Recording and replay</h2>
+      <h3>Both</h3>
+      <ul>
+        <li>H.264 and AV1 through NVENC, Quick Sync and AMF; x264 in software.</li>
+        <li>4:4:4, 10-bit and HDR. Lossless with NVENC or UT Video.</li>
+        <li>Several NVENC chips on one H.265 or AV1 stream: <em>All encoder chips</em> in qBlank, <em>Split Encode</em> in OBS.</li>
+        <li>A replay buffer saved as a clip by a key.</li>
+      </ul>
+      <h3>Where they differ</h3>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Containers</td><td>MKV, MP4; AVI for lossless</td><td>MKV, MP4, MOV, FLV, TS, HLS, hybrid and fragmented MP4 and MOV</td></tr>
+        <tr><td>Default</td><td>MKV</td><td>Hybrid MP4</td></tr>
+        <tr><td>Survives a crash</td><td>MKV</td><td>MKV, hybrid and fragmented MP4 and MOV, TS</td></tr>
+        <tr><td>H.265</td><td>NVENC; x265 in software</td><td>NVENC, Quick Sync, AMF</td></tr>
+        <tr><td>AV1 in software</td><td>&ndash;</td><td>SVT-AV1, AOM AV1</td></tr>
+        <tr><td>Frame rate</td><td>The source's, or capped, per source</td><td>The canvas rate</td></tr>
+        <tr><td>Resolution</td><td>The source's, or smaller in steps down to 360p, same shape</td><td>Output resolution with a scale filter</td></tr>
+        <tr><td>Replay</td><td>Memory or disk, 5&nbsp;s to 30&nbsp;min</td><td>Memory; 20&nbsp;s and 512&nbsp;MB by default</td></tr>
+        <tr><td>Replay during a recording</td><td>Saved, both share one encoder</td><td>Saved; not while the recording is paused</td></tr>
+        <tr><td>Markers</td><td>MKV, MP4 and clips</td><td>Hybrid MP4 and MOV only</td></tr>
+        <tr><td>Pause</td><td>&ndash;</td><td>Yes</td></tr>
+        <tr><td>Split files</td><td>At a set size, seamless</td><td>By time, size or by hand</td></tr>
+        <tr><td>Sound sources</td><td>Card, inputs, outputs, system without qBlank; gain up to +12&nbsp;dB</td><td>Any source, with filters such as noise suppression</td></tr>
+        <tr><td>Tracks</td><td>Mixed, separate, or both</td><td>Up to six, chosen per source</td></tr>
+        <tr><td>Audio codec</td><td>AAC; PCM in AVI</td><td>AAC, Opus and more</td></tr>
+      </table>
+      <p>qBlank's markers: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> sets one, players show them as chapters.</p>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="The Replay tab: replay in the background on, length 60 seconds, storage in memory with at most 4 GB, the free memory, and what 60 seconds take">
+        <figcaption>Replay: length, and memory or disk.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="The Recording sources section of the Audio tab: the card audio, an input on the system default and the system sound, each with gain, tracks and level, and the button Add">
+        <figcaption>Audio &rarr; Recording sources: each with gain, tracks and level.</figcaption>
+      </figure>
+    </section>
+
+    <section id="stills">
+      <h2>Screenshots and virtual camera</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
+        <tr><td>Screenshot formats</td><td>PNG, JPEG, JPEG&nbsp;XR, AVIF</td><td>PNG; JPEG&nbsp;XR for HDR</td></tr>
+        <tr><td>Screenshot size</td><td>The source's, or the finished window</td><td>The canvas, or one source</td></tr>
+        <tr><td>To the clipboard</td><td><kbd>Ctrl</kbd>+<kbd>F10</kbd></td><td>&ndash;</td></tr>
+        <tr><td>Camera formats</td><td>NV12; P010 with PQ for HDR</td><td>NV12, I420, YUY2</td></tr>
+        <tr><td>Camera picture</td><td>qBlank's picture, at the source's rate</td><td>Program, preview, a scene or a source, at the canvas rate</td></tr>
+        <tr><td>Programs that see it</td><td>64-bit</td><td>64-bit, 32-bit, ARM64</td></tr>
+      </table>
+      <figure class="ui">
+        <img src="shots/camera.png" width="528" height="368" loading="lazy" alt="The Virtual camera section: switched on, with OBS and Discord reading, each in its own format">
+        <figcaption>Recording &rarr; Virtual camera: installed, on, and who is reading it.</figcaption>
+      </figure>
+    </section>
+
+    <section id="keys">
+      <h2>Keys</h2>
+      <ul>
+        <li>OBS: hotkeys work while a game has the keyboard. OBS reads the keys alongside it, so the game sees them too.</li>
+        <li>qBlank: every action has a key for the qBlank window and can have a second one under <em>System-wide</em>. While qBlank runs, no other program gets that combination. One already taken shows red.</li>
+        <li>Both let you change every key.</li>
+      </ul>
+    </section>
+
+    <section id="obs">
+      <h2>Only in OBS</h2>
+      <ul>
+        <li>Scenes, layered sources, overlays, text, transitions, Studio Mode.</li>
+        <li>Several sources at once, such as a camera over the game.</li>
+        <li>Streaming to Twitch, YouTube and others.</li>
+        <li>Game Capture for games in exclusive fullscreen.</li>
+        <li>Sound from a single program.</li>
+        <li>Audio and video filters per source.</li>
+        <li>Pausing a recording, splitting by time or by hand, more containers.</li>
+        <li>H.265 on Quick Sync and AMF, AV1 in software.</li>
+        <li>A virtual camera for 32-bit and ARM64 programs.</li>
+        <li>Plugins and scripts.</li>
+        <li>macOS and Linux.</li>
+      </ul>
+      <p>qBlank will not add scenes, streaming or plugins.</p>
+    </section>
+
+    <section id="qblank">
+      <h2>Only in qBlank</h2>
+      <ul>
+        <li>Each frame drawn as it arrives, at the source's own rate. <kbd>F1</kbd> shows qBlank's own time.</li>
+        <li>Card sound with its own small buffer, exclusive mode and an A/V offset.</li>
+        <li>Video standard, interlacing, field order and colour range measured from the picture.</li>
+        <li>Composite filters with a side-by-side compare.</li>
+        <li>The console's pixel grid, Sharp Bilinear, scanlines and a CRT mask.</li>
+        <li>Replay on disk, up to 30&nbsp;minutes.</li>
+        <li>Markers in MKV and MP4 and in clips.</li>
+        <li>x265. Screenshots as JPEG and AVIF, or to the clipboard.</li>
+        <li>An HDR virtual camera.</li>
+        <li>System-wide keys that the game does not see.</li>
+        <li>One file of about 3&nbsp;MB.</li>
+      </ul>
+    </section>
+
+    <section id="both">
+      <h2>Using both</h2>
+      <p>A card serves one program at a time. So let qBlank hold it and hand the picture to OBS:</p>
+      <ol>
+        <li>In qBlank: <strong>Recording &rarr; Virtual camera &rarr; Install camera</strong>, then switch the camera on.</li>
+        <li>In OBS: add a <em>Video Capture Device</em> and pick <em>qBlank Virtual Camera</em>.</li>
+      </ol>
+      <p>You play on qBlank's latency, and the stream gets qBlank's picture: deinterlaced, standard found, dot crawl removed. For the sound, add the card as an audio source in OBS too, or <em>Audio Output Capture</em>.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Home</a> · <a href="manual.html">Manual</a> · <a href="install.html">Download</a> · <a href="faq.html">Troubleshooting</a> · <a href="compare.html">Compare</a> · <a href="changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

@@ -310,6 +310,7 @@ footer .made{margin-top:18px}
 .doc figure.ui img{max-width:528px;margin-left:0}
 .doc figure.win img{max-width:720px}
 .doc figure.panel img{max-width:420px}
+.doc figure.own img{width:auto;max-width:100%}
 .doc figure.ui figcaption{margin-left:0}
 kbd{
   font:600 .8rem/1 ui-monospace,"Cascadia Mono",Consolas,monospace;
@@ -338,4 +339,17 @@ kbd{
   .landing .toc{margin-top:0}
 }
 @media (max-width:520px){.doc td:first-child{white-space:normal}}
+
+/* ---------------------------------------------------------------- compare */
+/* The comparisons as cards that link, and one table with every program side
+   by side. On a narrow screen it scrolls sideways under its first column. */
+a.card{display:block;color:var(--text)}
+a.card:hover{text-decoration:none}
+.doc .card h3{margin-top:0}
+.side{overflow-x:auto;margin:14px 0 4px}
+.side table{min-width:680px;margin:0}
+.side td:first-child{white-space:normal;min-width:150px;color:var(--dim)}
+.side th:first-child,.side td:first-child{position:sticky;left:0;background:var(--bg);box-shadow:inset -1px 0 0 var(--line)}
+.side tr.grp th{color:var(--accent-soft);padding-top:26px}
+@media (max-width:520px){.side td:first-child{min-width:0;width:118px}}
 @media (prefers-reduced-motion:reduce){.lang:hover{transform:none}}
