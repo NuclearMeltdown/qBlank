@@ -677,9 +677,10 @@ struct Recorder::Session {
   // A file with the session's streams and its muxer running; null when out of
   // memory.
   std::unique_ptr<Output> NewOutput(const std::filesystem::path& path, bool clip);
-  // The file being written from the next keyframe on, ending the one before
-  // there. Under routeMutex, once opened.
-  bool AddFile(const std::filesystem::path& path, std::atomic<uint64_t>* counter);
+  // The file being written from the first keyframe at or after `next` on (the
+  // slot the next picture is sent in), ending the one before there. Under
+  // routeMutex, once opened.
+  bool AddFile(const std::filesystem::path& path, std::atomic<uint64_t>* counter, int64_t next);
   // The replay's, under routeMutex.
   void Remember(AVPacket* packet);
   void DropInterval();
@@ -884,14 +885,14 @@ std::unique_ptr<Recorder::Output> Recorder::Session::NewOutput(const std::filesy
 }
 
 bool Recorder::Session::AddFile(const std::filesystem::path& path,
-                                std::atomic<uint64_t>* counter) {
+                                std::atomic<uint64_t>* counter, int64_t next) {
   std::unique_ptr<Output> out = NewOutput(path, false);
   if (!out) return false;
   if (latestVideo == INT64_MIN) {
     out->everything = true;
     out->Begin(0);
   } else {
-    out->startAsked = latestVideo + 1;
+    out->startAsked = next;
   }
   if (live) {
     live->endAsked = out->startAsked;
@@ -1676,7 +1677,7 @@ bool Recorder::Open(Session* s) {
   {
     std::lock_guard<std::mutex> lock(s->routeMutex);
     s->opened = true;
-    if (!s->file.empty()) added = s->AddFile(s->file, &bytesWritten_);
+    if (!s->file.empty()) added = s->AddFile(s->file, &bytesWritten_, 0);
   }
   if (!added) {
     return failed("Die Datei konnte nicht angelegt werden: %s", "Could not create the file: %s",
@@ -1805,11 +1806,13 @@ void Recorder::StartFile(const std::filesystem::path& file) {
   Session* s = session_.get();
   if (!s) return;
   bool added = true;
+  // Read before the keyframe is asked for (PauseFile).
+  const int64_t next = (int64_t)videoFramesWritten_.load(std::memory_order_relaxed);
   {
     std::lock_guard<std::mutex> lock(s->routeMutex);
     bytesWritten_.store(0, std::memory_order_relaxed);
     if (s->opened) {
-      added = s->AddFile(file, &bytesWritten_);
+      added = s->AddFile(file, &bytesWritten_, next);
     } else {
       s->file = file;
     }
@@ -1833,13 +1836,14 @@ void Recorder::StartFile(const std::filesystem::path& file) {
 void Recorder::StopFile() {
   Session* s = session_.get();
   if (!s) return;
+  const int64_t next = (int64_t)videoFramesWritten_.load(std::memory_order_relaxed);
   {
     std::lock_guard<std::mutex> lock(s->routeMutex);
     if (!s->opened) s->file.clear();
     if (Output* live = s->live) {
-      // Up to the newest picture out of the encoder, and what it still holds
-      // up to the keyframe asked for.
-      live->endAsked = s->latestVideo == INT64_MIN ? 0 : s->latestVideo + 1;
+      // Up to the picture on the screen now, with what the encoder still
+      // holds of it, at the keyframe asked for (PauseFile).
+      live->endAsked = next;
       live->counter = nullptr;
       s->live = nullptr;
     }
