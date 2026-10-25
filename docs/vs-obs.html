@@ -242,10 +242,11 @@
       <h2>Recording and replay</h2>
       <h3>Both</h3>
       <ul>
-        <li>H.264 and AV1 through NVENC, Quick Sync and AMF; x264 in software.</li>
+        <li>H.264, H.265 and AV1 through NVENC, Quick Sync and AMF; x264 and SVT-AV1 in software.</li>
         <li>4:4:4, 10-bit and HDR. Lossless with NVENC or UT Video.</li>
         <li>Several NVENC chips on one H.265 or AV1 stream: <em>All encoder chips</em> in qBlank, <em>Split Encode</em> in OBS.</li>
         <li>A replay buffer saved as a clip by a key.</li>
+        <li>Pausing a recording.</li>
       </ul>
       <h3>Where they differ</h3>
       <table>
@@ -253,18 +254,16 @@
         <tr><td>Containers</td><td>MKV, MP4; AVI for lossless</td><td>MKV, MP4, MOV, FLV, TS, HLS, hybrid and fragmented MP4 and MOV</td></tr>
         <tr><td>Default</td><td>MKV</td><td>Hybrid MP4</td></tr>
         <tr><td>Survives a crash</td><td>MKV</td><td>MKV, hybrid and fragmented MP4 and MOV, TS</td></tr>
-        <tr><td>H.265</td><td>NVENC; x265 in software</td><td>NVENC, Quick Sync, AMF</td></tr>
-        <tr><td>AV1 in software</td><td>&ndash;</td><td>SVT-AV1, AOM AV1</td></tr>
+        <tr><td>Other software encoders</td><td>x265</td><td>AOM AV1</td></tr>
         <tr><td>Frame rate</td><td>The source's, or capped, per source</td><td>The canvas rate</td></tr>
         <tr><td>Resolution</td><td>The source's, or smaller in steps down to 360p, same shape</td><td>Output resolution with a scale filter</td></tr>
         <tr><td>Replay</td><td>Memory or disk, 5&nbsp;s to 30&nbsp;min</td><td>Memory; 20&nbsp;s and 512&nbsp;MB by default</td></tr>
-        <tr><td>Replay during a recording</td><td>Saved, both share one encoder</td><td>Saved; not while the recording is paused</td></tr>
+        <tr><td>Replay during a recording</td><td>Saved, also while paused; both share one encoder</td><td>Saved; not while the recording is paused</td></tr>
         <tr><td>Markers</td><td>MKV, MP4 and clips</td><td>Hybrid MP4 and MOV only</td></tr>
-        <tr><td>Pause</td><td>&ndash;</td><td>Yes</td></tr>
         <tr><td>Split files</td><td>At a set size, seamless</td><td>By time, size or by hand</td></tr>
         <tr><td>Sound sources</td><td>Card, inputs, outputs, system without qBlank; gain up to +12&nbsp;dB</td><td>Any source, with filters such as noise suppression</td></tr>
         <tr><td>Tracks</td><td>Mixed, separate, or both</td><td>Up to six, chosen per source</td></tr>
-        <tr><td>Audio codec</td><td>AAC; PCM in AVI</td><td>AAC, Opus and more</td></tr>
+        <tr><td>Audio codec</td><td>AAC at 96 to 320&nbsp;kbit/s; PCM in AVI</td><td>AAC, Opus and more</td></tr>
       </table>
       <p>qBlank's markers: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> sets one, players show them as chapters.</p>
       <figure class="ui">
@@ -312,8 +311,7 @@
         <li>Game Capture for games in exclusive fullscreen.</li>
         <li>Sound from a single program.</li>
         <li>Audio and video filters per source.</li>
-        <li>Pausing a recording, splitting by time or by hand, more containers.</li>
-        <li>H.265 on Quick Sync and AMF, AV1 in software.</li>
+        <li>Splitting by time or by hand, more containers.</li>
         <li>A virtual camera for 32-bit and ARM64 programs.</li>
         <li>Plugins and scripts.</li>
         <li>macOS and Linux.</li>
@@ -329,7 +327,7 @@
         <li>Video standard, interlacing, field order and colour range measured from the picture.</li>
         <li>Composite filters with a side-by-side compare.</li>
         <li>The console's pixel grid, Sharp Bilinear, scanlines and a CRT mask.</li>
-        <li>Replay on disk, up to 30&nbsp;minutes.</li>
+        <li>Replay on disk, up to 30&nbsp;minutes; clips while a recording is paused.</li>
         <li>Markers in MKV and MP4 and in clips.</li>
         <li>x265. Screenshots as JPEG and AVIF, or to the clipboard.</li>
         <li>An HDR virtual camera.</li>

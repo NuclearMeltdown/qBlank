@@ -240,10 +240,11 @@
       <h2>Aufnahme und Replay</h2>
       <h3>Beide</h3>
       <ul>
-        <li>H.264 und AV1 über NVENC, Quick Sync und AMF; x264 in Software.</li>
+        <li>H.264, H.265 und AV1 über NVENC, Quick Sync und AMF; x264 und SVT-AV1 in Software.</li>
         <li>4:4:4, 10 Bit und HDR. Verlustfrei mit NVENC oder UT Video.</li>
         <li>Mehrere NVENC-Chips an einem H.265- oder AV1-Strom: <em>Alle Encoder-Chips</em> in qBlank, <em>Split Encode</em> in OBS.</li>
         <li>Ein Replay-Puffer, per Taste als Clip gespeichert.</li>
+        <li>Aufnahme pausieren.</li>
       </ul>
       <h3>Wo sie sich unterscheiden</h3>
       <table>
@@ -251,18 +252,16 @@
         <tr><td>Container</td><td>MKV, MP4; AVI für verlustfrei</td><td>MKV, MP4, MOV, FLV, TS, HLS, hybrides und fragmentiertes MP4 und MOV</td></tr>
         <tr><td>Ab Werk</td><td>MKV</td><td>Hybrides MP4</td></tr>
         <tr><td>Übersteht einen Absturz</td><td>MKV</td><td>MKV, hybrides und fragmentiertes MP4 und MOV, TS</td></tr>
-        <tr><td>H.265</td><td>NVENC; x265 in Software</td><td>NVENC, Quick Sync, AMF</td></tr>
-        <tr><td>AV1 in Software</td><td>&ndash;</td><td>SVT-AV1, AOM AV1</td></tr>
+        <tr><td>Weitere Software-Encoder</td><td>x265</td><td>AOM AV1</td></tr>
         <tr><td>Bildrate</td><td>Die der Quelle, oder gedeckelt, pro Quelle</td><td>Die Rate der Leinwand</td></tr>
         <tr><td>Auflösung</td><td>Die der Quelle, oder stufenweise kleiner bis 360p, gleiche Form</td><td>Ausgabeauflösung mit Skalierungsfilter</td></tr>
         <tr><td>Replay</td><td>Arbeitsspeicher oder Platte, 5&nbsp;s bis 30&nbsp;min</td><td>Arbeitsspeicher; ab Werk 20&nbsp;s und 512&nbsp;MB</td></tr>
-        <tr><td>Replay während einer Aufnahme</td><td>Wird gespeichert, beide teilen einen Encoder</td><td>Wird gespeichert; nicht, solange die Aufnahme pausiert</td></tr>
+        <tr><td>Replay während einer Aufnahme</td><td>Wird gespeichert, auch in der Pause; beide teilen einen Encoder</td><td>Wird gespeichert; nicht, solange die Aufnahme pausiert</td></tr>
         <tr><td>Marker</td><td>MKV, MP4 und Clips</td><td>Nur hybrides MP4 und MOV</td></tr>
-        <tr><td>Pausieren</td><td>&ndash;</td><td>Ja</td></tr>
         <tr><td>Dateien teilen</td><td>Bei einer Größe, nahtlos</td><td>Nach Zeit, Größe oder von Hand</td></tr>
         <tr><td>Tonquellen</td><td>Karte, Eingänge, Ausgänge, System ohne qBlank; Verstärkung bis +12&nbsp;dB</td><td>Jede Quelle, mit Filtern wie Rauschunterdrückung</td></tr>
         <tr><td>Spuren</td><td>Gemischt, getrennt oder beides</td><td>Bis zu sechs, pro Quelle gewählt</td></tr>
-        <tr><td>Ton-Codec</td><td>AAC; PCM in AVI</td><td>AAC, Opus und mehr</td></tr>
+        <tr><td>Ton-Codec</td><td>AAC mit 96 bis 320&nbsp;kbit/s; PCM in AVI</td><td>AAC, Opus und mehr</td></tr>
       </table>
       <p>qBlanks Marker: <kbd>Strg</kbd>+<kbd>Umschalt</kbd>+<kbd>F9</kbd> setzt einen, Player zeigen sie als Kapitel.</p>
       <figure class="ui">
@@ -310,8 +309,7 @@
         <li>Spielaufnahme für Spiele im exklusiven Vollbild.</li>
         <li>Ton eines einzelnen Programms.</li>
         <li>Audio- und Videofilter pro Quelle.</li>
-        <li>Aufnahme pausieren, nach Zeit oder von Hand teilen, mehr Container.</li>
-        <li>H.265 über Quick Sync und AMF, AV1 in Software.</li>
+        <li>Nach Zeit oder von Hand teilen, mehr Container.</li>
         <li>Eine virtuelle Kamera auch für 32-Bit- und ARM64-Programme.</li>
         <li>Plugins und Skripte.</li>
         <li>macOS und Linux.</li>
@@ -327,7 +325,7 @@
         <li>Videonorm, Interlacing, Halbbildreihenfolge und Farbbereich aus dem Bild gemessen.</li>
         <li>Composite-Filter mit Vergleich nebeneinander.</li>
         <li>Das Pixelraster der Konsole, Sharp Bilinear, Zeilenlücken und eine Röhrenmaske.</li>
-        <li>Replay auf der Platte, bis 30&nbsp;Minuten.</li>
+        <li>Replay auf der Platte, bis 30&nbsp;Minuten; Clips, während die Aufnahme pausiert.</li>
         <li>Marker in MKV und MP4 und in Clips.</li>
         <li>x265. Screenshots als JPEG und AVIF oder in die Zwischenablage.</li>
         <li>Eine virtuelle Kamera mit HDR.</li>

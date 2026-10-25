@@ -148,6 +148,7 @@
         <tr><td><kbd>F7</kbd></td><td>Detect the video standard</td></tr>
         <tr><td><kbd>F8</kbd></td><td>Detect the border</td></tr>
         <tr><td><kbd>F9</kbd></td><td>Start/stop recording</td></tr>
+        <tr><td><kbd>Pause</kbd></td><td>Pause/resume recording</td></tr>
         <tr><td><kbd>Shift</kbd>+<kbd>F9</kbd></td><td>Save the replay as a clip</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>F9</kbd></td><td>Replay on/off</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd></td><td>Set a marker</td></tr>
@@ -193,11 +194,13 @@
       <h3>Recording</h3>
       <ul>
         <li>Recording needs ffmpeg. <strong>Encoder &rarr; Download ffmpeg</strong> fetches it and keeps it current.</li>
-        <li>Pick the encoder in the Encoder tab: NVENC, Quick Sync, AMF, x264 or x265, with H.264, H.265 or AV1.</li>
+        <li>Pick the encoder in the Encoder tab: NVENC, Quick Sync, AMF, x264, x265 or SVT-AV1, with H.264, H.265 or AV1.</li>
         <li><strong>Full colour resolution (4:4:4)</strong> keeps the colour of every pixel, worth it for HDMI and RGB sources. Larger files, and VLC or mpv play them where browsers and phones cannot. NVENC, x264 and x265 can.</li>
         <li>Lossless: <em>H.265 lossless (NVIDIA NVENC)</em> writes MKV, <em>UT Video</em> and <em>Uncompressed</em> write AVI, with no 4&nbsp;GB limit, into <code>raw\</code> in the output folder. <strong>Unfiltered</strong> records the card's frames as they arrive: no deinterlacing, crop, scaling or filters.</li>
         <li><strong>Resolution</strong> caps the short side, from 2160p down to 360p. The default is the source.</li>
+        <li><strong>Audio bitrate:</strong> AAC from 96 to 320&nbsp;kbit/s per track, 192 by default. AVI takes PCM.</li>
         <li><kbd>F9</kbd> starts and stops. A red dot on the taskbar button shows that it is recording.</li>
+        <li><kbd>Pause</kbd> pauses and resumes: one file without a gap. The replay goes on, so clips still work.</li>
         <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> sets a marker: a chapter in the MKV or MP4 and in every clip that holds the moment. AVI has no chapters.</li>
         <li>The Recording tab shows the free space as recording time. A recording stops itself before the drive is full.</li>
         <li><strong>Larger buffer in memory</strong> holds what a slow drive has not written yet, more than the usual 512&nbsp;MB.</li>

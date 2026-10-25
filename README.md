@@ -133,7 +133,8 @@ those, use OBS.
 - Recording sources on top of the card audio, as many as needed: microphones, output devices, the system sound without qBlank — each with its own gain, mixed, separate or both, never played back.
 
 **Recording** · [wiki](../../wiki/Recording)
-- H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264 or x265, encoded inside qBlank by ffmpeg's libraries.
+- H.264, H.265 or AV1 through NVENC, Quick Sync, AMF, x264, x265 or SVT-AV1, encoded inside qBlank by ffmpeg's libraries.
+- AAC at 96 to 320 kbit/s per track; PCM in AVI.
 - 4:2:0 or full colour resolution (4:4:4), converted on the GPU; zero-copy into NVENC and AMF.
 - Lossless: H.265 lossless (NVENC) in MKV, UT Video or uncompressed RGB in AVI, no 4 GB limit.
 - **Unfiltered**: the card's frames as they arrive — no deinterlacing, crop, scaling or filters.
@@ -146,6 +147,7 @@ those, use OBS.
 - **Resolution**: caps the short side (2160p … 360p); display and screenshots stay full.
 - **All encoder chips**: NVENC H.265 and AV1 split each frame over every NVENC on the card — RTX 4080, AV1 1440p p7: 110 → 183 fps.
 - Frames the encoder cannot take are left out, not repeated; a notice says so.
+- **Pause** pauses and resumes in one file, without a gap; the replay goes on.
 - **Ctrl+Shift+F9** sets a marker: a chapter in MKV and MP4, in replay clips too.
 - Lossless files go to `raw\`, clips to `clips\`.
 
@@ -202,15 +204,16 @@ those, use OBS.
 | Key | Action | | Key | Action |
 |---|---|---|---|---|
 | Enter / Esc | Fullscreen on / off | | F9 | Start / stop recording |
-| Ctrl+Enter | Borderless | | Shift+F9 | Save replay as clip |
-| F1 | Statistics | | Ctrl+F9 | Replay on / off |
-| F2 | Settings | | Ctrl+Shift+F9 | Set marker |
-| F3 | Toolbar | | F10 | Screenshot |
-| F5 | Restart capture | | Ctrl+F10 | Screenshot to clipboard |
-| Shift+F5 | Reinitialise card | | F11 | Freeze |
-| F6 | Measure colour range | | F12 | Compare filters |
-| F7 | Detect video standard | | Shift+F12 | All filters off |
-| F8 | Detect border | | M | Mute |
+| Ctrl+Enter | Borderless | | Pause | Pause / resume recording |
+| F1 | Statistics | | Shift+F9 | Save replay as clip |
+| F2 | Settings | | Ctrl+F9 | Replay on / off |
+| F3 | Toolbar | | Ctrl+Shift+F9 | Set marker |
+| F5 | Restart capture | | F10 | Screenshot |
+| Shift+F5 | Reinitialise card | | Ctrl+F10 | Screenshot to clipboard |
+| F6 | Measure colour range | | F11 | Freeze |
+| F7 | Detect video standard | | F12 | Compare filters |
+| F8 | Detect border | | Shift+F12 | All filters off |
+| | | | M | Mute |
 | | | | `+` `-` / wheel | Volume |
 | | | | Ctrl+1 … Ctrl+9 | Switch profile |
 
