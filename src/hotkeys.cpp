@@ -26,6 +26,11 @@ Hotkeys::Hotkeys() {
   (*this)[HotkeyAction::ReplaySave].shift = true;
   (*this)[HotkeyAction::ReplayToggle].key = Key::F9;
   (*this)[HotkeyAction::ReplayToggle].ctrl = true;
+  // The marker there too, with both: Alt+F9 is where NVIDIA's overlay starts
+  // a recording of its own.
+  (*this)[HotkeyAction::Marker].key = Key::F9;
+  (*this)[HotkeyAction::Marker].ctrl = true;
+  (*this)[HotkeyAction::Marker].shift = true;
   (*this)[HotkeyAction::Screenshot].key = Key::F10;
   // Dieselbe Taste mit Strg, wie das Kopieren ueberall sonst: gleiches Bild,
   // anderes Ziel.
@@ -79,6 +84,7 @@ const char* HotkeyActionName(HotkeyAction action) {
     case HotkeyAction::Record: return T("Aufnahme starten/stoppen", "Start/stop recording");
     case HotkeyAction::ReplaySave: return T("Replay als Clip speichern", "Save replay as clip");
     case HotkeyAction::ReplayToggle: return T("Replay an/aus", "Replay on/off");
+    case HotkeyAction::Marker: return T("Marker setzen", "Set marker");
     case HotkeyAction::Screenshot: return T("Screenshot", "Screenshot");
     case HotkeyAction::ScreenshotClipboard:
       return T("Screenshot in die Zwischenablage", "Screenshot to clipboard");
@@ -107,6 +113,7 @@ const char* HotkeyActionKey(HotkeyAction action) {
     case HotkeyAction::Record: return "record";
     case HotkeyAction::ReplaySave: return "replaySave";
     case HotkeyAction::ReplayToggle: return "replayToggle";
+    case HotkeyAction::Marker: return "marker";
     case HotkeyAction::Screenshot: return "screenshot";
     case HotkeyAction::ScreenshotClipboard: return "screenshotClipboard";
     case HotkeyAction::Freeze: return "freeze";

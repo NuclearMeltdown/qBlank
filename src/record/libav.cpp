@@ -158,6 +158,21 @@ std::string LibavError(int code) {
 
 void LibavClearError() { t_firstError.clear(); }
 
+bool LibavMakeChapters(const Libav& av, AVFormatContext* ctx, unsigned count) {
+  if (count == 0) return true;
+  auto list = (AVChapter**)av.av_mallocz(count * sizeof(AVChapter*));
+  if (!list) return false;
+  for (unsigned i = 0; i < count; ++i) {
+    if ((list[i] = (AVChapter*)av.av_mallocz(sizeof(AVChapter)))) continue;
+    for (unsigned j = 0; j < i; ++j) av.av_free(list[j]);
+    av.av_free(list);
+    return false;
+  }
+  ctx->chapters = list;
+  ctx->nb_chapters = count;
+  return true;
+}
+
 LibavQuiet::LibavQuiet() : was_(t_quiet) { t_quiet = true; }
 LibavQuiet::~LibavQuiet() { t_quiet = was_; }
 

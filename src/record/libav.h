@@ -48,7 +48,7 @@ namespace cap {
   X(av_dict_free) X(av_opt_set_int) X(av_channel_layout_default) X(av_channel_layout_uninit)    \
   X(av_frame_move_ref) X(av_hwdevice_ctx_alloc) X(av_hwdevice_ctx_init) X(av_hwframe_ctx_alloc) \
   X(av_hwframe_ctx_init) X(av_hwframe_get_buffer) X(av_hwframe_transfer_data)                   \
-  X(av_hwdevice_ctx_create) X(av_opt_find)
+  X(av_hwdevice_ctx_create) X(av_opt_find) X(av_mallocz) X(av_free)
 #define QB_SWRESAMPLE_FUNCTIONS(X)                                                 \
   X(swresample_version) X(swr_alloc_set_opts2) X(swr_init) X(swr_convert)            \
   X(swr_set_compensation) X(swr_get_delay) X(swr_get_out_samples) X(swr_free)
@@ -101,6 +101,11 @@ const Libav* Av();
 // thread since LibavClearError, or else the text of `code`.
 std::string LibavError(int code);
 void LibavClearError();
+
+// Gives `ctx`, which has no chapters yet, `count` empty ones to fill in, made
+// by ffmpeg's allocator so that avformat_free_context frees them. False when
+// out of memory, with none added.
+bool LibavMakeChapters(const Libav& av, AVFormatContext* ctx, unsigned count);
 
 // Keeps ffmpeg's errors on this thread out of the log for as long as it lives:
 // in the probes a failure is an answer, not a fault. LibavError still has them.

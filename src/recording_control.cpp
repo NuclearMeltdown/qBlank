@@ -637,6 +637,21 @@ void RecordingControl::SaveReplay() {
   });
 }
 
+void RecordingControl::AddMarker() {
+  if (!recorder_.recording() && !recorder_.replaying()) {
+    host_.Toast(T("Kein Marker: Es läuft weder eine Aufnahme noch das Replay.",
+                  "No marker: neither a recording nor the replay is running."));
+    return;
+  }
+  if (sessionSettings_.container == RecordContainer::Avi) {
+    host_.Toast(T("AVI kann keine Marker halten.", "AVI cannot hold markers."));
+    return;
+  }
+  host_.Toast(recorder_.AddMarker()
+                  ? T("Marker gesetzt", "Marker set")
+                  : T("Die Aufnahme startet noch.", "The recording is still starting."));
+}
+
 void RecordingControl::EnsureReplay() {
   const RecordSettings& rec = config_.record;
   // Switched on again, by key or in the settings: a failure is tried again.

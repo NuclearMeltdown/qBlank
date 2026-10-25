@@ -161,6 +161,9 @@ struct Recorder::Output {
   std::vector<char> pastEnd;
   int64_t lastVideo = INT64_MIN;  // the newest picture queued, before the offset
   bool overflow = false;
+  // The markers that may fall inside it (AddMarker), in the picture's pts and
+  // in order. Only those between its first picture and its last count.
+  std::vector<int64_t> marks;
 
   // A clip of the replay on the disk: the files its pictures are in, and the
   // muxer's way into them, closed first.
@@ -186,6 +189,10 @@ struct Recorder::Output {
   // Ended, with nothing more to wait for.
   bool Done(int64_t now) const;
   double seconds() const;
+  // The markers inside the file as chapters after one from the start, each
+  // up to the next, the last up to the end. Before the trailer: both MKV and
+  // MP4 write them there.
+  void AddChapters();
   // Ends the muxer and writes the container's index. True when the whole file
   // made it to the disk.
   bool Close();
@@ -373,11 +380,40 @@ double Recorder::Output::seconds() const {
   return (double)(lastVideo - start + 1) * av_q2d(from[videoStream]);
 }
 
+void Recorder::Output::AddChapters() {
+  // From the first picture on: MP4's chapter track cannot begin later, and
+  // would pull the first marker back to 0.
+  std::vector<int64_t> at = {0};
+  bool marked = false;  // a marker on the first picture names the start
+  for (int64_t mark : marks) {
+    if (mark < start || mark > lastVideo) continue;
+    if (mark == start) {
+      marked = true;
+    } else if (mark - start > at.back()) {
+      at.push_back(mark - start);
+    }
+  }
+  if (at.size() == 1 && !marked) return;
+  if (!LibavMakeChapters(*av, ctx, (unsigned)at.size())) return;
+  const int64_t length = lastVideo - start + 1;
+  for (size_t i = 0; i < at.size(); ++i) {
+    AVChapter* chapter = ctx->chapters[i];
+    chapter->id = (int64_t)i + 1;
+    chapter->time_base = from[videoStream];
+    chapter->start = at[i];
+    chapter->end = i + 1 < at.size() ? at[i + 1] : length;
+    const std::string title =
+        i == 0 && !marked ? std::string("Start") : Format("Marker %zu", marked ? i + 1 : i);
+    av->av_dict_set(&chapter->metadata, "title", title.c_str(), 0);
+  }
+}
+
 bool Recorder::Output::Close() {
   StopMuxer();
   bool complete = headerWritten && !writeFailed.load(std::memory_order_acquire);
   // A file that never got a picture has nothing to index, and goes.
   if (headerWritten && lastVideo != INT64_MIN) {
+    AddChapters();
     LibavClearError();
     const int trailer = av->av_write_trailer(ctx);
     if (trailer < 0) {
@@ -462,6 +498,8 @@ struct Recorder::Session {
   std::atomic<bool> keyWanted{false};
   std::atomic<bool> trouble{false};  // Output::trouble
   int64_t latestVideo = INT64_MIN;   // the newest pts out of the encoder
+  // Every marker set on these encoders, for the clips still to come.
+  std::vector<int64_t> marks;
   // Sound leaves its encoder ahead of the picture. A file begun now still
   // wants it: the last second, by reference.
   std::deque<AVPacket*> recentSound;
@@ -1750,6 +1788,9 @@ bool Recorder::SaveReplay(const std::filesystem::path& file, double* seconds) {
   for (size_t i = 0; i < out->from.size(); ++i) {
     out->offset[i] = av->av_rescale_q(first, vtb, out->from[i]);
   }
+  for (int64_t mark : s->marks) {
+    if (mark >= first && mark < end) out->marks.push_back(mark);
+  }
   // Before the first picture reaches its muxer.
   if (ring.onDisk) out->pins = ring.disk->PinAll();
 
@@ -1781,6 +1822,19 @@ bool Recorder::SaveReplay(const std::filesystem::path& file, double* seconds) {
   // The sound still to come up to its end arrives through Route, which also
   // lets it go once that is in.
   s->outputs.push_back(std::move(out));
+  return true;
+}
+
+bool Recorder::AddMarker() {
+  Session* s = session_.get();
+  if (!s || !running_.load(std::memory_order_relaxed)) return false;
+  // The slot the next picture is sent in: the one on the screen now.
+  const int64_t at = (int64_t)videoFramesWritten_.load(std::memory_order_relaxed);
+  std::lock_guard<std::mutex> lock(s->routeMutex);
+  s->marks.push_back(at);
+  for (const std::unique_ptr<Output>& out : s->outputs) {
+    if (!out->ended) out->marks.push_back(at);
+  }
   return true;
 }
 

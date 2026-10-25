@@ -93,6 +93,9 @@ class RecordingControl {
   // Writes what the replay holds into clips\, on the encoders already
   // running: nothing is encoded twice.
   void SaveReplay();
+  // A chapter at this moment in the file being written, and in any clip
+  // that holds it (Recorder::AddMarker).
+  void AddMarker();
   // The replay is on and has not failed: it needs the pictures, minimised or
   // not, to start and to fill.
   bool replayWanted() const { return config_.record.replay && !replaySuspended_; }

@@ -108,6 +108,19 @@ Said RemuxOne(const Libav& av, const std::filesystem::path& input,
     target->disposition = source->disposition;
     av.av_dict_copy(&target->metadata, source->metadata, 0);
   }
+  // The markers, which MP4 keeps as chapters too.
+  if (!LibavMakeChapters(av, out, in->nb_chapters)) {
+    return finish(CAP_SAID(T("Kein Speicher.", "Out of memory.")));
+  }
+  for (unsigned i = 0; i < in->nb_chapters; ++i) {
+    const AVChapter* source = in->chapters[i];
+    AVChapter* target = out->chapters[i];
+    target->id = source->id;
+    target->time_base = source->time_base;
+    target->start = source->start;
+    target->end = source->end;
+    av.av_dict_copy(&target->metadata, source->metadata, 0);
+  }
 
   if ((result = av.avio_open2(&out->pb, outputName.c_str(), AVIO_FLAG_WRITE,
                               &out->interrupt_callback, nullptr)) < 0) {

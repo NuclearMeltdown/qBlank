@@ -95,6 +95,9 @@ bool App::RunHotkeyAction(HotkeyAction action) {
     case HotkeyAction::ReplayToggle:
       recording_.ToggleReplay();
       return true;
+    case HotkeyAction::Marker:
+      recording_.AddMarker();
+      return true;
     case HotkeyAction::Screenshot:
       RequestScreenshot();
       return true;

@@ -183,6 +183,10 @@ class Recorder {
   // more. False when there is nothing yet; otherwise TakeFinished reports it,
   // with Finished::clip.
   bool SaveReplay(const std::filesystem::path& file, double* seconds);
+  // Marks the picture going in now. The file being written and every clip
+  // that later holds it get a chapter there, as they close. False without
+  // running encoders.
+  bool AddMarker();
   // What the replay holds now, and how many seconds from its first keyframe
   // to its newest picture, and whether that is on the disk. From the thread
   // that starts and stops.

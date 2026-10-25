@@ -418,7 +418,7 @@ const Entry kEntries[] = {
     // ---- keys
     {Kind::Tab, kTabKeys, nullptr, "Tasten", "Keys",
      "Hotkey|Hotkeys|Shortcut|Shortcuts|Tastenkürzel|Tastenkombination|Tastatur|Keyboard|"
-     "Belegung|Binding|Kürzel"},
+     "Belegung|Binding|Kürzel|Marker|Kapitel|Chapter|Lesezeichen|Bookmark"},
     {Kind::Control, kTabKeys, "globalkeys", "Systemweite Tasten", "System-wide shortcuts",
      "Systemweit|System-wide|Global|Globale Hotkeys|Global hotkeys|Globale Tasten|Im Spiel|"
      "In game|Hintergrund|Background|Anderes Programm|Other program"},
