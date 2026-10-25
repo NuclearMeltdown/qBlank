@@ -149,6 +149,7 @@
         <tr><td><kbd>F9</kbd></td><td>Start/stop recording</td></tr>
         <tr><td><kbd>Shift</kbd>+<kbd>F9</kbd></td><td>Save the replay as a clip</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>F9</kbd></td><td>Replay on/off</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd></td><td>Set a marker</td></tr>
         <tr><td><kbd>F10</kbd></td><td>Screenshot</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>F10</kbd></td><td>Screenshot to clipboard</td></tr>
         <tr><td><kbd>F11</kbd></td><td>Freeze</td></tr>
@@ -196,6 +197,7 @@
         <li>Lossless: <em>H.265 lossless (NVIDIA NVENC)</em> writes MKV, <em>UT Video</em> and <em>Uncompressed</em> write AVI, with no 4&nbsp;GB limit, into <code>raw\</code> in the output folder. <strong>Unfiltered</strong> records the card's frames as they arrive: no deinterlacing, crop, scaling or filters.</li>
         <li><strong>Resolution</strong> caps the short side, from 2160p down to 360p. The default is the source.</li>
         <li><kbd>F9</kbd> starts and stops. A red dot on the taskbar button shows that it is recording.</li>
+        <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> sets a marker: a chapter in the MKV or MP4 and in every clip that holds the moment. AVI has no chapters.</li>
         <li>The Recording tab shows the free space as recording time. A recording stops itself before the drive is full.</li>
         <li><strong>Larger buffer in memory</strong> holds what a slow drive has not written yet, more than the usual 512&nbsp;MB.</li>
         <li>If the encoder cannot keep up, frames are left out rather than repeated. A notice says so, and the recording indicator shows it while it lasts. A faster preset, a lower resolution or frame rate, or all encoder chips helps.</li>

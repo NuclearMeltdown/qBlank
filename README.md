@@ -146,6 +146,7 @@ those, use OBS.
 - **Resolution**: caps the short side (2160p … 360p); display and screenshots stay full.
 - **All encoder chips**: NVENC H.265 and AV1 split each frame over every NVENC on the card — RTX 4080, AV1 1440p p7: 110 → 183 fps.
 - Frames the encoder cannot take are left out, not repeated; a notice says so.
+- **Ctrl+Shift+F9** sets a marker: a chapter in MKV and MP4, in replay clips too.
 - Lossless files go to `raw\`, clips to `clips\`.
 
 **Replay** · [wiki](../../wiki/Recording#replay)
@@ -203,13 +204,14 @@ those, use OBS.
 | Enter / Esc | Fullscreen on / off | | F9 | Start / stop recording |
 | Ctrl+Enter | Borderless | | Shift+F9 | Save replay as clip |
 | F1 | Statistics | | Ctrl+F9 | Replay on / off |
-| F2 | Settings | | F10 | Screenshot |
-| F3 | Toolbar | | Ctrl+F10 | Screenshot to clipboard |
-| F5 | Restart capture | | F11 | Freeze |
-| Shift+F5 | Reinitialise card | | F12 | Compare filters |
-| F6 | Measure colour range | | Shift+F12 | All filters off |
-| F7 | Detect video standard | | M | Mute |
-| F8 | Detect border | | `+` `-` / wheel | Volume |
+| F2 | Settings | | Ctrl+Shift+F9 | Set marker |
+| F3 | Toolbar | | F10 | Screenshot |
+| F5 | Restart capture | | Ctrl+F10 | Screenshot to clipboard |
+| Shift+F5 | Reinitialise card | | F11 | Freeze |
+| F6 | Measure colour range | | F12 | Compare filters |
+| F7 | Detect video standard | | Shift+F12 | All filters off |
+| F8 | Detect border | | M | Mute |
+| | | | `+` `-` / wheel | Volume |
 | | | | Ctrl+1 … Ctrl+9 | Switch profile |
 
 Right click opens the menu, a double click on the picture toggles fullscreen.
