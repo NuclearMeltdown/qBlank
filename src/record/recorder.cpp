@@ -907,8 +907,9 @@ YuvFormat Recorder::FormatFor(const EncoderInfo& encoder, bool wide, bool fullCh
   f.msb = !software;
   if (fullChroma && (wide ? encoder.full10 : encoder.full8)) {
     f.layout = YuvLayout::I444;
-  } else if (software && (wide || encoder.ffmpegName == "libx265")) {
-    // x265 takes no NV12 at all, x264 none in ten bits: planar.
+  } else if (software &&
+             (wide || encoder.ffmpegName == "libx265" || encoder.ffmpegName == "libsvtav1")) {
+    // x265 and SVT-AV1 take no NV12 at all, x264 none in ten bits: planar.
     f.layout = YuvLayout::I420;
   } else {
     f.layout = YuvLayout::Nv12;
@@ -1006,11 +1007,25 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
       if (settings.rateControl == RateControl::Quality) {
         pair("crf", std::to_string(settings.qualityLevel));
       }
+      // SVT-AV1 holds a rate constant only in its low-delay structure, which
+      // manages under 60 frames a second at 1080p and stalls on every keyframe.
+      // Constant goes as variable there, and variable without a ceiling, which
+      // it refuses outside crf.
+      if (encoder.id == RecordEncoder::SvtAv1 && settings.rateControl != RateControl::Quality) {
+        pair("maxrate", "0");
+      }
       break;
   }
 
   // ---- speed against quality ----
-  if (const char* preset = PresetName(family, settings.preset)) {
+  if (encoder.id == RecordEncoder::SvtAv1) {
+    // SVT-AV1 numbers its presets, lower is slower. Above 9 it warns of
+    // artefacts outside its real-time mode, so the fastest step is 9; the old
+    // speed setting covers 9 to 5.
+    const int step = settings.preset != EncoderPreset::Auto ? (int)settings.preset - 1
+                                                            : (int)settings.speed;
+    pair("preset", std::to_string(9 - step));
+  } else if (const char* preset = PresetName(family, settings.preset)) {
     pair(family == Family::Amf ? "quality" : "preset", preset);
   } else if (family == Family::Software) {
     // The old speed setting still applies when the new preset is left on
@@ -1032,7 +1047,14 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
     if (family == Family::Nvenc) {
       pair("rc-lookahead", std::to_string(settings.lookAheadFrames));
     } else if (family == Family::Qsv) {
-      pair("look_ahead", "1");
+      // H.264 has a look-ahead mode of its own; H.265 and AV1 look ahead only
+      // through the extended bitrate control.
+      if (encoder.ffmpegName.compare(0, 4, "h264") == 0) {
+        pair("look_ahead", "1");
+      } else {
+        pair("extbrc", "1");
+        pair("look_ahead_depth", std::to_string(settings.lookAheadFrames));
+      }
     } else if (family == Family::Amf) {
       pair("preanalysis", "1");
     }

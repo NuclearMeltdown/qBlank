@@ -28,9 +28,9 @@ const uint64_t kDiskFloorBytes = 256ull * 1024 * 1024;
 // as the hardware: a different build can be missing an encoder the last one
 // had, and would then be judged by a result it never produced. The number at
 // the end goes up when the test itself learns new encoders, as it did the
-// lossless ones.
+// lossless ones and then H.265 on Intel and AMD and SVT-AV1.
 std::string ProbeSignature(const std::string& version) {
-  return GraphicsAdapterSignature() + " | " + version + " | 2";
+  return GraphicsAdapterSignature() + " | " + version + " | 3";
 }
 
 }  // namespace

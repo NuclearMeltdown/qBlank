@@ -4474,6 +4474,12 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
                           RecordEncoderName((int)picked->id));
     }
   }
+  if (tested && rec.encoder == RecordEncoder::SvtAv1) {
+    TextDisabledWrapped(T("Braucht viel Prozessor. Kommt er nicht mit, eine schnellere Stufe "
+                          "wählen; eine Grafikkarte mit AV1 schafft dasselbe ohne die Last.",
+                          "Takes a lot of CPU. If it cannot keep up, pick a faster step; a "
+                          "graphics card with AV1 does the same without the load."));
+  }
 
   if (!tested) {
     ImGui::TextWrapped(
@@ -4529,6 +4535,7 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
   const bool lossless = IsLosslessEncoder(rec.encoder);
   const bool softwareSelected = !lossless && (rec.encoder == RecordEncoder::X264 ||
                                               rec.encoder == RecordEncoder::X265 ||
+                                              rec.encoder == RecordEncoder::SvtAv1 ||
                                               (selected && !selected->hardware));
   ImGui::BeginDisabled(!softwareSelected);
   int speed = (int)rec.speed;
@@ -4783,6 +4790,15 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
                "Variable gives busy moments more and may peak at half again. Constant "
                "quality ignores the data rate entirely: the file comes out as large as the "
                "picture demands."));
+  if (encoder && encoder->id == RecordEncoder::SvtAv1 &&
+      rec.rateControl != RateControl::Quality) {
+    TextDisabledWrapped(T("SVT-AV1 hält die Rate nur in einem Echtzeitmodus konstant, der für "
+                          "60 Bilder zu langsam ist. Konstant läuft hier wie Variabel, Variabel "
+                          "ohne Obergrenze.",
+                          "SVT-AV1 only holds a constant rate in a real-time mode too slow for "
+                          "60 frames. Constant runs as Variable here, Variable without a "
+                          "ceiling."));
+  }
 
   // Bitrate und Qualitaet sind die beiden Zahlen, die an der Ratensteuerung
   // haengen -- je nach Stellung zaehlt genau eine davon. Beide stehen deshalb
@@ -4914,7 +4930,9 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
                "Kostet etwas Verzögerung -- beim Aufnehmen egal, beim Streamen nicht.",
                "The encoder looks a little way ahead and spreads its bits better. Costs some "
                "delay -- which does not matter for recording and does for streaming."));
-  ImGui::BeginDisabled(!nvenc || !rec.lookAhead);
+  // QuickSync takes a depth for H.265 and AV1; its H.264 look-ahead has none.
+  const bool depthKnown = nvenc || (qsv && encoder->ffmpegName.compare(0, 4, "h264") != 0);
+  ImGui::BeginDisabled(!depthKnown || !rec.lookAhead);
   const char* depthNames[] = {"8", "16", "24", "32"};
   int depth = rec.lookAheadFrames / 8 - 1;
   ImGui::SetNextItemWidth(-260.0f);
@@ -4923,10 +4941,10 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   }
   Anchor("lookaheadframes");
   ImGui::SameLine();
-  HelpMarker(T("Wie weit NVENC vorausschaut. Mehr Bilder verteilen die Bits besser und "
-               "kosten Arbeitsspeicher, bei 1440p rund 15 MB je Bild über 8.",
-               "How far NVENC looks ahead. More frames spread the bits better and cost "
-               "memory, at 1440p about 15 MB per frame over 8."));
+  HelpMarker(T("Wie weit der Encoder vorausschaut. Mehr Bilder verteilen die Bits besser und "
+               "kosten Arbeitsspeicher, bei NVENC und 1440p rund 15 MB je Bild über 8.",
+               "How far the encoder looks ahead. More frames spread the bits better and cost "
+               "memory, with NVENC at 1440p about 15 MB per frame over 8."));
   ImGui::EndDisabled();
   ImGui::Checkbox(T("Adaptive Quantisierung", "Adaptive quantisation"), &rec.adaptiveQuant);
   Anchor("aq");

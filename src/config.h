@@ -213,12 +213,12 @@ inline constexpr int kHdrShotFormatCount = 2;
 // marks them unavailable.
 // AutoEfficient is appended rather than inserted: these values are written to
 // the config file as plain numbers, and renumbering them would silently change
-// what an existing configuration means.
+// what an existing configuration means. The same goes for the last three.
 enum class RecordEncoder {
   Auto, X264, Nvenc, QuickSync, Amf, X265, NvencHevc, Av1Nvenc, Av1QuickSync, Av1Amf,
-  AutoEfficient, NvencLossless, UtVideo, Uncompressed
+  AutoEfficient, NvencLossless, UtVideo, Uncompressed, HevcQuickSync, HevcAmf, SvtAv1
 };
-const int kRecordEncoderCount = 14;
+const int kRecordEncoderCount = 17;
 
 // Both automatic modes pick an encoder for you; the difference is what they
 // optimise for. Neither refers to a specific encoder, so anything that looks one

@@ -353,6 +353,9 @@ const char* RecordEncoderName(int i) {
       "",
       "",
       "",
+      "H.265 (Intel QuickSync / Arc)",
+      "H.265 (AMD AMF)",
+      "AV1 (CPU, SVT-AV1)",
   };
   i = Pick(i, kRecordEncoderCount);
   if (i == (int)RecordEncoder::NvencLossless) {

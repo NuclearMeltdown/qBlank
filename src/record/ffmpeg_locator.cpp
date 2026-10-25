@@ -27,11 +27,14 @@ const Candidate kCandidates[] = {
     {RecordEncoder::QuickSync, "h264_qsv", true},
     {RecordEncoder::Amf, "h264_amf", true},
     {RecordEncoder::NvencHevc, "hevc_nvenc", true},
+    {RecordEncoder::HevcQuickSync, "hevc_qsv", true},
+    {RecordEncoder::HevcAmf, "hevc_amf", true},
     {RecordEncoder::Av1Nvenc, "av1_nvenc", true},
     {RecordEncoder::Av1QuickSync, "av1_qsv", true},
     {RecordEncoder::Av1Amf, "av1_amf", true},
     {RecordEncoder::X264, "libx264", false},
     {RecordEncoder::X265, "libx265", false},
+    {RecordEncoder::SvtAv1, "libsvtav1", false},
     {RecordEncoder::NvencLossless, "hevc_nvenc", true},
     {RecordEncoder::UtVideo, "utvideo", false},
     {RecordEncoder::Uncompressed, "rawvideo", false},
@@ -39,10 +42,13 @@ const Candidate kCandidates[] = {
 
 // The other way round: quality per bit first. Nothing here is a judgement about
 // which file is better -- only about which of the two costs you care about.
+// SVT-AV1 is not in it: live at 1080p60 it wants a big CPU, and a machine with
+// one nearly always has a GPU that encodes AV1 itself.
 const RecordEncoder kEfficiencyOrder[] = {
-    RecordEncoder::Av1Nvenc,  RecordEncoder::Av1QuickSync, RecordEncoder::Av1Amf,
-    RecordEncoder::NvencHevc, RecordEncoder::Nvenc,        RecordEncoder::QuickSync,
-    RecordEncoder::Amf,       RecordEncoder::X265,         RecordEncoder::X264,
+    RecordEncoder::Av1Nvenc,  RecordEncoder::Av1QuickSync,  RecordEncoder::Av1Amf,
+    RecordEncoder::NvencHevc, RecordEncoder::HevcQuickSync, RecordEncoder::HevcAmf,
+    RecordEncoder::Nvenc,     RecordEncoder::QuickSync,     RecordEncoder::Amf,
+    RecordEncoder::X265,      RecordEncoder::X264,
 };
 
 // "9.0.1" -> {9, 0, 1}. Stops at the first thing that is not a number.
@@ -278,9 +284,10 @@ bool TestOne(const Libav& av, EncoderInfo* e) {
             logged.empty() ? "" : " - ", logged.c_str());
     return e->available;
   }
-  // What the recorder hands it in 4:2:0: NV12, planar for x265, which takes no
-  // NV12 at all.
-  const char* format = e->ffmpegName == "libx265" ? "yuv420p" : "nv12";
+  // What the recorder hands it in 4:2:0: NV12, planar for x265 and SVT-AV1,
+  // which take no NV12 at all.
+  const char* format =
+      e->ffmpegName == "libx265" || e->ffmpegName == "libsvtav1" ? "yuv420p" : "nv12";
   e->available = TestEncode(av, e->ffmpegName, format, &e->error, &logged);
   e->tested = true;
   CAP_LOG("Encoder %s: %s%s%s", e->ffmpegName.c_str(), e->available ? "ok" : "not available",
