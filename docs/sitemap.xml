@@ -81,4 +81,34 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-amarectv.html"/>
     <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-amarectv.html"/>
   </url>
+  <url>
+    <loc>https://qblank.com/vs-potplayer.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-potplayer.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-potplayer.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/de/vs-potplayer.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-potplayer.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-potplayer.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/vs-nvidia-app.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-nvidia-app.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-nvidia-app.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/de/vs-nvidia-app.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-nvidia-app.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-nvidia-app.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/vs-virtualdub2.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-virtualdub2.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-virtualdub2.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/de/vs-virtualdub2.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-virtualdub2.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-virtualdub2.html"/>
+  </url>
 </urlset>

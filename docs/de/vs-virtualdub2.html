@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank vs VirtualDub2 — Aufnehmen von der Capture Card</title>
+<meta name="description" content="qBlank und VirtualDub2 an der Capture Card verglichen: Anzeige, Einrichtung, Ton, analoge Konsolen, Bildschirm und Fenster, Aufnahme und was Anleitungen und Nutzer berichten.">
+<link rel="icon" href="../icon.png">
+<link rel="alternate" hreflang="en" href="https://qblank.com/vs-virtualdub2.html">
+<link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-virtualdub2.html">
+<link rel="alternate" hreflang="x-default" href="https://qblank.com/vs-virtualdub2.html">
+<link rel="canonical" href="https://qblank.com/de/vs-virtualdub2.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/de/"},{"@type":"ListItem","position":2,"name":"Vergleich","item":"https://qblank.com/de/compare.html"},{"@type":"ListItem","position":3,"name":"qBlank vs VirtualDub2","item":"https://qblank.com/de/vs-virtualdub2.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// Vor dem ersten Zeichnen, damit ein gemerktes Design nicht erst als Blitz des
+// anderen erscheint.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Seiten">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Handbuch</a>
+      <a href="faq.html">Fehlersuche</a>
+      <a href="compare.html" aria-current="true">Vergleich</a>
+      <a href="changelog.html">Änderungen</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="../vs-virtualdub2.html" hreflang="en" lang="en" title="English">EN</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>qBlank vs VirtualDub2</h1>
+    <p class="tag">VirtualDub2 ist ein Videoeditor mit einem Aufnahmemodus, lange für verlustfreie Aufnahmen genutzt. qBlank ist gebaut, um über eine Karte zu spielen und das aufzunehmen, und für Bildschirm und Fenster.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#short">Kurz gesagt</a>
+      <a href="#about">Die beiden Projekte</a>
+      <a href="#display">Capture Card: Anzeige</a>
+      <a href="#setup">Capture Card: Einrichtung</a>
+      <a href="#sound">Capture Card: Ton</a>
+      <a href="#analogue">Analoge Konsolen</a>
+      <a href="#screen">Bildschirm und Fenster</a>
+      <a href="#record">Aufnahme</a>
+      <a href="#reports">Was Nutzer berichten</a>
+      <a href="#vdub">Nur in VirtualDub2</a>
+      <a href="#qblank">Nur in qBlank</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="short">
+      <h2>Kurz gesagt</h2>
+      <p>Verglichen mit VirtualDub2 2.5.7, seinen Menüs und seinem Quellcode, dazu Foren.</p>
+      <table>
+        <tr><th></th><th>qBlank</th><th>VirtualDub2</th></tr>
+        <tr><td>Quellcode</td><td>Offen, GPLv3</td><td>Offen, GPLv2</td></tr>
+        <tr><td>Gemacht für</td><td>Spielen über eine Karte, einen Bildschirm oder ein Fenster, und das Aufnehmen</td><td>Videos schneiden, mit einem Aufnahmemodus</td></tr>
+        <tr><td>Download</td><td>Eine Datei, etwa 3&nbsp;MB</td><td>Ein 7z mit 42&nbsp;MB, portabel</td></tr>
+        <tr><td>Anzeige</td><td>Eigener Renderer, Direct3D 11 oder Vulkan</td><td>Overlay, die Vorschau des Systems, oder eine Anzeige mit den Aufnahmefiltern</td></tr>
+        <tr><td>Format der Karte</td><td>Gewählt und an die Videonorm angepasst</td><td>Der Formatdialog des Treibers, oder ein eigenes Format</td></tr>
+        <tr><td>Videonorm</td><td>Automatisch gefunden</td><td>In den Dialogen des Treibers</td></tr>
+        <tr><td>Deinterlacing</td><td>Gemessen, in Bild und Aufnahme</td><td>Halbbildmodi für die Vorschau</td></tr>
+        <tr><td>Composite-Dot-Crawl</td><td>Filter eingebaut</td><td>&ndash;</td></tr>
+        <tr><td>Bildschirm und Fenster</td><td>Monitor oder Fenster</td><td>GDI, OpenGL oder DXGI; ein Bereich, die Umgebung des Mauszeigers, oder das aktive Fenster</td></tr>
+        <tr><td>Aufnahme</td><td>MKV, MP4, AVI</td><td>AVI, mit VfW-Codecs oder eigenen Encodern</td></tr>
+        <tr><td>Replay-Puffer</td><td>Arbeitsspeicher oder Platte, bis 30&nbsp;Minuten</td><td>&ndash;</td></tr>
+        <tr><td>Virtuelle Kamera</td><td>64 Bit, HDR</td><td>&ndash;</td></tr>
+        <tr><td>Systeme</td><td>Windows 10 und 11, 64 Bit</td><td>Windows 7 und neuer, 64 und 32 Bit</td></tr>
+      </table>
+    </section>
+
+    <section id="about">
+      <h2>Die beiden Projekte</h2>
+      <h3>VirtualDub2</h3>
+      <ul>
+        <li>VirtualDub stammt von Avery Lee. shekh führte es als VirtualDub2 fort, heute pflegt es v0lt.</li>
+        <li>2.5.7 erschien am 17. Oktober 2026. Quelloffen unter GPLv2.</li>
+        <li>Zuerst ein Editor: schneiden, filtern, neu kodieren. Die Aufnahme ist ein eigener Modus.</li>
+        <li>Ein portables 7z mit 42&nbsp;MB. Für Windows 7 und neuer, 64 und 32 Bit.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Quelloffen unter GPLv3. Code, Issues und Releases liegen auf GitHub.</li>
+        <li>Deutsch und Englisch, mit Handbuch in beiden.</li>
+        <li>Eine Datei von etwa 3&nbsp;MB, über winget, die Website oder GitHub.</li>
+        <li>Zum Aufnehmen braucht es ffmpeg. qBlank bietet an, es zu laden, aus einer festen Quelle, gegen seinen Hash geprüft.</li>
+        <li>Updates werden beim Start gesucht, wenn man will.</li>
+      </ul>
+    </section>
+
+    <section id="display">
+      <h2>Capture Card: Anzeige</h2>
+      <h3>VirtualDub2: eine Aufnahmevorschau</h3>
+      <ul>
+        <li>Das Menü <em>Video</em> wählt <em>No display</em>, <em>Overlay</em> (<kbd>O</kbd>), <em>Preview (system)</em> (<kbd>P</kbd>) oder <em>Display with Filters</em>.</li>
+        <li><em>Hide display on capture</em> schaltet das Bild während der Aufnahme ab.</li>
+        <li><em>Stretch to window</em> skaliert es, <em>Full screen</em> liegt auf <kbd>Alt</kbd>+<kbd>Enter</kbd>.</li>
+        <li><em>Histogram</em> (<kbd>H</kbd>) zeigt die Pegel des Bildes.</li>
+      </ul>
+      <h3>qBlank: eigener Renderer</h3>
+      <ul>
+        <li>qBlank zeichnet das Bild selbst, mit Direct3D 11 oder Vulkan. <strong>Anzeige &rarr; Grafikschnittstelle</strong> wählt eins.</li>
+        <li>Jedes Bild wird gezeichnet, wenn es ankommt, in der Rate der Quelle. Ein noch nicht gezeichnetes Bild wird vom nächsten ersetzt, nie dahinter eingereiht.</li>
+        <li>Ein Bild Warteschlange in der Swapchain, Tearing erlaubt, VSync ab Werk aus.</li>
+        <li>Bildschirmaufnahmen, Remote Play und OBS sehen qBlanks Fenster wie jedes andere.</li>
+      </ul>
+      <p><kbd>F1</kbd> zeigt, was qBlank selbst beiträgt: <em>Durchlauf</em> ist die Zeit von der Ankunft eines Bildes in qBlank, bis es qBlank verlässt. Etwa 1&nbsp;ms bei 1080p60. Karte und Monitor kommen noch dazu.</p>
+      <figure class="ui own">
+        <img src="shots/stats.png" width="331" height="135" loading="lazy" alt="Die F1-Statistik auf Kompakt: Quellrate 64,88 fps, gemeldet 143,86; Ausgabe 65,1 fps, VSync aus, Tearing erlaubt; Durchlauf 1,3 ms">
+        <figcaption><kbd>F1</kbd> auf <em>Kompakt</em>, hier an einem Fenster: die Rate der Quelle, was am Schirm ankommt, und qBlanks eigene Zeit.</figcaption>
+      </figure>
+      <div class="note">Gegeneinander gemessen wurden die beiden hier nicht.</div>
+    </section>
+
+    <section id="setup">
+      <h2>Capture Card: Einrichtung</h2>
+      <h3>VirtualDub2: die Dialoge des Treibers</h3>
+      <ul>
+        <li>Das Menü <em>Device</em> wählt die Karte.</li>
+        <li><em>Format&hellip;</em> (<kbd>F</kbd>), <em>Source&hellip;</em> (<kbd>S</kbd>), <em>Capture pin&hellip;</em>, <em>Capture filter&hellip;</em> und <em>Crossbar&hellip;</em> öffnen die eigenen Seiten des Treibers.</li>
+        <li><em>Set custom format</em> (<kbd>Umschalt</kbd>+<kbd>F</kbd>) setzt Größe und Datenformat direkt.</li>
+        <li>Die Bildrate wird unter <em>Capture Settings</em> (<kbd>F9</kbd>) eingetippt.</li>
+        <li><em>Cropping&hellip;</em> schneidet das Bild von Hand zu.</li>
+      </ul>
+      <h3>qBlank: ans Signal angepasst</h3>
+      <ul>
+        <li><strong>Quelle</strong> listet, was die Karte anbietet: <em>Farbformat</em>, <em>Auflösung</em> und <em>Bildrate</em>.</li>
+        <li><em>Auflösung an die Videonorm anpassen</em> ist ab Werk an: passt die Auflösung nicht, etwa 720&times;480 bei PAL, stellt qBlank die richtige selbst ein.</li>
+        <li><em>Rate des Signals</em> nimmt 50&nbsp;Hz bei PAL, 59,94 bei NTSC, 60 bei PAL&nbsp;60.</li>
+        <li><em>Werte von Hand eingeben</em> gibt es für Formate, die eine Karte nicht auflistet.</li>
+        <li>NV12 und P010 ebenso wie YUY2, UYVY und RGB. 10 Bit bleibt 10 Bit, HDR bleibt HDR.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/source.png" width="528" height="445" loading="lazy" alt="Der Reiter Quelle der Einstellungen: Bildquelle Capture-Karte, Bildschirm oder Fenster, der Eingang auf Automatisch, die Karte unter Videogerät gewählt und die Knöpfe Karte konfigurieren und Karte neu einlesen">
+        <figcaption>Quelle: Karte, Bildschirm oder Fenster als Bildquelle, dann die Karte und ihr Eingang.</figcaption>
+      </figure>
+    </section>
+
+    <section id="sound">
+      <h2>Capture Card: Ton</h2>
+      <h3>VirtualDub2</h3>
+      <ul>
+        <li><em>Enable audio capture</em> nimmt den Ton auf, <em>Enable audio playback</em> spielt ihn ab.</li>
+        <li><em>Audio input</em> und <em>Audio source</em> wählen einen Eingang.</li>
+        <li><em>Raw capture format</em> setzt das Format, <em>Compression</em> einen ACM-Codec.</li>
+        <li><em>Volume meter</em> (<kbd>V</kbd>) zeigt den Pegel, ein Oszilloskop oder einen Analysator, mit Lautstärke und Balance.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Jedes Format, das die Karte schickt. qBlank wandelt es in das, was das Gerät spielt.</li>
+        <li><em>Tonpuffer</em> von 5 bis 200&nbsp;ms, ab Werk 30.</li>
+        <li><em>Exclusive Mode</em> umgeht den Windows-Mixer für weniger Verzögerung. Das Gerät ist dann für andere Programme gesperrt.</li>
+        <li><em>A/V-Versatz</em> verschiebt Ton oder Bild bei der Wiedergabe um bis zu 200&nbsp;ms, für einen Fernseher oder ein Headset mit eigener Verzögerung. Die Aufnahme bleibt davon unberührt.</li>
+        <li><kbd>M</kbd> schaltet stumm, <kbd>+</kbd> und <kbd>-</kbd> regeln die Lautstärke. Beides lässt die Aufnahme in Ruhe.</li>
+        <li>Mikrofone und andere Eingänge kommen als eigene Quellen in die Aufnahme. Siehe <a href="#record">Aufnahme</a>.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/playback.png" width="604" height="268" loading="lazy" alt="Der Reiter Ton: Wiedergabe auf Systemstandard, Exclusive Mode aus, und unter Verzögerung der Tonpuffer auf 30 ms und der A/V-Versatz auf 0 ms">
+        <figcaption>Ton &rarr; Wiedergabe und Verzögerung, wie ab Werk.</figcaption>
+      </figure>
+    </section>
+
+    <section id="analogue">
+      <h2>Analoge Konsolen</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>VirtualDub2</th></tr>
+        <tr><td>Videonorm</td><td>PAL, NTSC oder SECAM automatisch gefunden, folgt einem Wechsel zwischen 50 und 60&nbsp;Hz</td><td>Im Dialog des Treibers</td></tr>
+        <tr><td>Deinterlacing</td><td>An jedem Bild gemessen; Aus (Weave), Bob, Bob (interpoliert), Bewegungsadaptiv, Kantenorientiert, YADIF</td><td>Halbbildmodi für die Vorschau: progressiv, ein Halbbild, interlaced, oder jedes Halbbild in Halbbildrate</td></tr>
+        <tr><td>In der Aufnahme</td><td>Deinterlaced wie angezeigt, oder <em>Ohne Filter</em></td><td><em>Swap fields</em>, oder vertikale Reduktion 2:1</td></tr>
+        <tr><td>Farbbereich</td><td>Gemessen</td><td><em>Levels</em> und Schwarz- und Weißpunkt der Helligkeit, von Hand</td></tr>
+        <tr><td>Zuschnitt</td><td>Von Hand oder erkannt, je Bildgröße gemerkt</td><td>Von Hand</td></tr>
+        <tr><td>Composite-Dot-Crawl</td><td>Fünf Filter, nebeneinander zu vergleichen</td><td>&ndash;</td></tr>
+        <tr><td>Pixelgrafik</td><td>Natives Pixelraster, Sharp Bilinear, Integer-Skalierung</td><td>&ndash;</td></tr>
+        <tr><td>Zeilenlücken, Röhrenmaske</td><td>Eingebaut, nur für die Anzeige</td><td>&ndash;</td></tr>
+      </table>
+      <p>VirtualDub2 nimmt die Bilder des Treibers auf, durch seine Aufnahmefilter. Deinterlacing und der Rest bleiben seinem Editor.</p>
+      <h3>Deinterlacing</h3>
+      <p>qBlank misst jedes Bild. Mit <em>Nur bei interlaced Quellen anwenden</em> darf der Deinterlacer anbleiben: 240p geht unberührt durch, 480i und 576i werden deinterlaced. Auch die Halbbildreihenfolge wird gemessen.</p>
+      <figure class="ui">
+        <img src="shots/fields.png" width="528" height="184" loading="lazy" alt="Der Abschnitt Halbbilder: Nur bei interlaced Quellen anwenden, die Anzeige Gemessen: progressiv, der Deinterlacing-Modus und die Halbbildreihenfolge">
+        <figcaption>Bild &rarr; Halbbilder: was gemessen wurde, und der Modus.</figcaption>
+      </figure>
+      <p>qBlank nimmt das Bild so auf, wie man es sieht: zugeschnitten, deinterlaced, mit quadratischen Pixeln. Das Seitenverhältnis hat einen eigenen Haken, <em>Auch für Aufnahme, Screenshot und Kamera</em>, ab Werk an. Für die Bilder der Karte, wie sie ankommen, hat der Reiter Encoder <em>Ohne Filter</em>, für verlustfreie Aufnahmen.</p>
+      <h3>Videonorm</h3>
+      <p>Eine Karte auf NTSC zeigt eine PAL-Konsole schwarzweiß oder mit wandernden Farben. qBlank probiert die Normen selbst durch, bis die Farbe einrastet. <kbd>F7</kbd> prüft am aktuellen Bild noch einmal.</p>
+      <figure class="ui">
+        <img src="shots/standard.png" width="528" height="198" loading="lazy" alt="Der Abschnitt Videonorm auf Automatisch: eingestellt PAL 60, Signal eingerastet">
+        <figcaption>Quelle &rarr; Videonorm: was auf der Karte steht und ob sie eingerastet ist.</figcaption>
+      </figure>
+      <h3>Composite</h3>
+      <p>Composite trägt die Farbe in der Helligkeit, das hinterlässt wandernde Punkte an Kanten. qBlank hat fünf Filter dagegen; sie erscheinen nur an einem Composite-Eingang. <kbd>F12</kbd> teilt das Bild in aus und an, <kbd>F11</kbd> hält es an.</p>
+      <figure class="ui">
+        <img src="shots/composite.png" width="528" height="398" loading="lazy" alt="Der Abschnitt Composite-Filter, alles aus: Farbschimmern, Erweiterte Historie, Stillstehendes mitteln, Bewegung folgen, Bewegtes entstören und Bandbreite zurückholen">
+        <figcaption>Bild &rarr; Composite-Filter, alles aus wie ab Werk.</figcaption>
+      </figure>
+      <h3>Pixelgrafik und Röhre</h3>
+      <ul>
+        <li><em>Natives Pixelraster</em>: man wählt, wie viele Pixel die Konsole pro Zeile zeichnet, 256 bei einem SNES. Jedes Konsolenpixel wird dann ein scharfer Block.</li>
+        <li>Sharp Bilinear hält Pixel bei jedem Faktor scharf und gleich breit. <em>Integer-Skalierung</em> steht beim Seitenverhältnis.</li>
+        <li>Zeilenlücken, Röhrenmaske und Pixelraster gelten nur für die Anzeige. Aufnahmen, Screenshots und die Kamera bekommen das Bild ohne sie.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/crt.png" width="528" height="224" loading="lazy" alt="Der Abschnitt Bildröhre mit 240 Zeilen der Quelle, Zeilenlücken 0,35, Streifenmaske mit 0,35">
+        <figcaption>Bild &rarr; Bildröhre.</figcaption>
+      </figure>
+    </section>
+
+    <section id="screen">
+      <h2>Bildschirm und Fenster</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>VirtualDub2</th></tr>
+        <tr><td>Ganzer Monitor</td><td>Desktop Duplication</td><td>DXGI, oder GDI und OpenGL</td></tr>
+        <tr><td>Teil des Bildschirms</td><td>&ndash;</td><td>Ein Bereich, oder die Umgebung des Mauszeigers</td></tr>
+        <tr><td>Ein Fenster</td><td>Über Windows.Graphics.Capture; ein verdecktes Fenster kommt durch</td><td>Das aktive Fenster</td></tr>
+        <tr><td>Bildrate</td><td>Jedes neue Bild, oder gedeckelt</td><td>Eingetippt</td></tr>
+        <tr><td>Ton</td><td>Systemton ohne qBlank</td><td>Systemton über WASAPI-Loopback</td></tr>
+      </table>
+      <h3>VirtualDub2</h3>
+      <ul>
+        <li>Die Bildschirmaufnahme ist ein eigenes Gerät, neben den Karten.</li>
+        <li>Sie greift über GDI, OpenGL oder DXGI ab. DXGI ist am schnellsten.</li>
+        <li>Der Bereich kann dem Mauszeiger oder dem aktiven Fenster folgen.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li><em>Bildschirm</em> nimmt einen ganzen Monitor, <em>Fenster</em> ein Fenster, Spiele und Videos eingeschlossen.</li>
+        <li>Ein verdecktes Fenster kommt durch. Ein minimiertes nicht.</li>
+        <li>Ändert sich der Titel oder ist das Fenster weg, nimmt qBlank ein anderes Fenster desselben Programms.</li>
+        <li>Der Rahmen wird immer abgeschnitten.</li>
+        <li>Jedes neue Bild wird sofort gezeichnet. <strong>Aufnahme &rarr; Bildrate</strong> auf <em>wie die Quelle</em> behält alle, oder deckelt sie.</li>
+        <li><em>Systemton ohne qBlank</em> nimmt alles außer qBlanks eigener Wiedergabe. qBlank bleibt hörbar, und nichts hallt doppelt.</li>
+        <li><em>qBlank auf der Aufnahme verbergen</em> ist beim Bildschirm ab Werk an. Es hält qBlank aus jeder Bildschirmaufnahme heraus, auch aus Remote Play und Remotedesktop.</li>
+        <li><em>Vorschau</em> aus zeigt eine kleine Anzeige mit Auflösung, Bildrate und Aufnahmezeit und zeichnet seltener.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/windowsrc.png" width="604" height="376" loading="lazy" alt="Der Reiter Quelle mit Fenster als Bildquelle: das Fenster Test window — python.exe, Aktualisieren, die Haken für Mauszeiger und Vorschau und vier Hinweise zu verdeckten Fenstern, verlorenem Titel, exklusivem Vollbild und Ton">
+        <figcaption>Quelle &rarr; Fenster: das Fenster, Zeiger, Vorschau und was man wissen muss.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="386" loading="lazy" alt="Der Reiter Quelle mit Bildschirm als Bildquelle: der Hauptmonitor gewählt, Mauszeiger, Vorschau und qBlank auf der Aufnahme verbergen eingeschaltet, dazu die Hinweise zum exklusiven Vollbild und zum Ton">
+        <figcaption>Quelle &rarr; Bildschirm: Monitor, Zeiger, Vorschau, qBlank verbergen.</figcaption>
+      </figure>
+      <figure class="ui panel">
+        <img src="shots/panel.png" width="420" height="162" loading="lazy" alt="Die Anzeige von qBlank bei ausgeschalteter Vorschau: Monitor 1, 2560 × 1440, 144 Hz, 5 fps und die Knöpfe Aufnahme starten, Screenshot und Vorschau zeigen">
+        <figcaption>Vorschau aus: die Anzeige statt des Bildes.</figcaption>
+      </figure>
+    </section>
+
+    <section id="record">
+      <h2>Aufnahme</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>VirtualDub2</th></tr>
+        <tr><td>Container</td><td>MKV, MP4; AVI für verlustfrei</td><td>AVI (OpenDML), bei Bedarf über mehrere Laufwerke</td></tr>
+        <tr><td>Video-Codecs</td><td>H.264 über NVENC, Quick Sync, AMF oder x264; H.265 über NVENC, Quick Sync, AMF oder x265; AV1 über NVENC, Intel Arc, AMD oder SVT-AV1</td><td>Jeder VfW-Codec, oder eigene über FFmpeg: x264, x265, SVT-AV1, VP9, FFV1, ProRes; H.264, HEVC und AV1 über NVENC, Quick Sync und AMF</td></tr>
+        <tr><td>Verlustfrei</td><td>H.265 verlustfrei über NVENC, UT Video, unkomprimiertes RGB</td><td>Unkomprimiert, FFV1, oder ein verlustfreier VfW-Codec</td></tr>
+        <tr><td>Ton-Codec</td><td>AAC mit 96 bis 320&nbsp;kbit/s; PCM in AVI</td><td>PCM, oder ein ACM-Codec</td></tr>
+        <tr><td>Was aufgenommen wird</td><td>Das Bild wie angezeigt; <em>Ohne Filter</em> für die Bilder der Karte</td><td>Die Bilder des Treibers, durch die Aufnahmefilter</td></tr>
+        <tr><td>Bildrate</td><td>Die der Quelle, oder gedeckelt</td><td>Eingetippt</td></tr>
+        <tr><td>Tonquellen</td><td>Karte, Eingänge, Ausgänge, System ohne qBlank; Verstärkung bis +12&nbsp;dB</td><td>Ein Eingang</td></tr>
+        <tr><td>Spuren</td><td>Gemischt, getrennt oder beides</td><td>Eine</td></tr>
+        <tr><td>Stoppen nach</td><td>&ndash;</td><td>Einer Zeit, einer Größe, freiem Platz, oder einem Anteil verlorener Bilder</td></tr>
+        <tr><td>Platte</td><td>Warnung bei 75&nbsp;%; voll stoppt die Aufnahme, der Rest wird noch geschrieben</td><td>Platz vorab belegt, Striping, mehrere Laufwerke nacheinander</td></tr>
+        <tr><td>Replay-Puffer</td><td>Arbeitsspeicher oder Platte, 5&nbsp;s bis 30&nbsp;min</td><td>&ndash;</td></tr>
+        <tr><td>Marker</td><td>MKV, MP4 und Clips</td><td>&ndash;</td></tr>
+      </table>
+      <h3>VirtualDub2</h3>
+      <ul>
+        <li><kbd>F5</kbd> oder <kbd>F6</kbd> startet, <kbd>Esc</kbd> stoppt. <kbd>F7</kbd> startet eine Testaufnahme.</li>
+        <li>Ein Infofeld, eine große Uhr, ein Timing-Graph, ein Log (<kbd>F8</kbd>) und ein Echtzeit-Profiler zeigen, wie es läuft.</li>
+        <li>Der Dateiname kann nach jeder Aufnahme hochzählen.</li>
+        <li>Sein Editor schneidet, filtert und kodiert die Datei danach neu.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Der Encoder läuft in qBlank, über die Bibliotheken von ffmpeg. Mit NVENC und AMF geht das Bild ohne Kopie von der GPU zum Encoder.</li>
+        <li>Ändern sich Größe oder Videonorm während einer Aufnahme, beginnt nahtlos eine neue Datei.</li>
+        <li>Ein MKV bleibt nach einem Absturz abspielbar.</li>
+        <li>Replay-Puffer und Aufnahme teilen einen Encoder. <kbd>Umschalt</kbd>+<kbd>F9</kbd> speichert die letzten Minuten als Clip.</li>
+        <li>Marker: <kbd>Strg</kbd>+<kbd>Umschalt</kbd>+<kbd>F9</kbd> setzt einen, Player zeigen sie als Kapitel.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="718" loading="lazy" alt="Der Reiter Aufnahme: Container MKV, Bildrate und Auflösung wie die Quelle, der Ausgabeordner mit dem freien Platz als Aufnahmezeit, der größere Puffer im Arbeitsspeicher und unter Screenshots das Format PNG und der Screenshot-Ordner">
+        <figcaption>Aufnahme: Container, Rate, Größe, Ordner, Teilen und Puffer.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="Der Abschnitt Tonquellen der Aufnahme im Reiter Ton: der Ton der Karte, ein Eingang auf Systemstandard und der Systemton, jeder mit Verstärkung, Spuren und Pegel, und der Knopf Hinzufügen">
+        <figcaption>Ton &rarr; Tonquellen der Aufnahme: jede mit Verstärkung, Spuren und Pegel.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="Der Reiter Replay: Replay im Hintergrund an, Länge 60 Sekunden, Ablage im Arbeitsspeicher mit höchstens 4 GB, der freie Speicher und was 60 Sekunden brauchen">
+        <figcaption>Replay: Länge, Arbeitsspeicher oder Platte.</figcaption>
+      </figure>
+    </section>
+
+    <section id="reports">
+      <h2>Was Nutzer über VirtualDub2 berichten</h2>
+      <p>Aus Anleitungen und Foren.</p>
+      <ul>
+        <li>RetroRGB hat eine Anleitung für unkomprimierte Aufnahmen mit VirtualDub2.</li>
+        <li>Mit einem GV-USB2 verlor ein Nutzer in VirtualDub keine Bilder, wo AmaRecTV 30 in 35&nbsp;s verlor. Siehe <a href="vs-amarectv.html#reports">qBlank vs AmaRecTV</a>.</li>
+      </ul>
+    </section>
+
+    <section id="vdub">
+      <h2>Nur in VirtualDub2</h2>
+      <ul>
+        <li>Ein Editor: schneiden, filtern, neu kodieren.</li>
+        <li>Stoppbedingungen: Zeit, Größe, freier Platz, verlorene Bilder.</li>
+        <li>Aufnahme über mehrere Laufwerke, mit vorab belegtem Platz.</li>
+        <li>Testaufnahme, Timing-Graph und Profiler.</li>
+        <li>VfW-Geräte und TV-Tuner.</li>
+        <li>Levels, Rauschminderung und eine Filterkette während der Aufnahme.</li>
+        <li>Ein Bereich des Bildschirms, oder einer, der dem Mauszeiger folgt.</li>
+        <li>Ein Histogramm.</li>
+        <li>FFV1 und ProRes.</li>
+        <li>Windows 7 und 8.1, und 32 Bit.</li>
+      </ul>
+    </section>
+
+    <section id="qblank">
+      <h2>Nur in qBlank</h2>
+      <ul>
+        <li>Zum Spielen gebaut: ein eigener Renderer, und <kbd>F1</kbd> zeigt die eigene Zeit pro Bild.</li>
+        <li>Videonorm, Interlacing, Halbbildreihenfolge und Farbbereich aus dem Bild gemessen.</li>
+        <li>Deinterlacing und Seitenverhältnis in Anzeige und Aufnahme.</li>
+        <li>Composite-Filter mit Vergleich nebeneinander.</li>
+        <li>Das Pixelraster der Konsole, Sharp Bilinear, Zeilenlücken und Röhrenmaske.</li>
+        <li>MKV und MP4, und ein MKV übersteht einen Absturz.</li>
+        <li>Der Ton der Karte mit eigenem Puffer, und ein A/V-Versatz für die Wiedergabe.</li>
+        <li>Mehrere Tonquellen, auf eigenen Spuren.</li>
+        <li>Ein gewähltes Fenster, auch verdeckt.</li>
+        <li>Replay-Puffer im Arbeitsspeicher oder auf der Platte, bis 30&nbsp;Minuten, und Marker.</li>
+        <li>HDR in Anzeige, Aufnahme, Screenshots und Kamera.</li>
+        <li>Eine virtuelle 64-Bit-Kamera mit qBlanks vollem Bild.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>Lizenz GPLv3 · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Startseite</a> · <a href="manual.html">Handbuch</a> · <a href="install.html">Download</a> · <a href="faq.html">Fehlersuche</a> · <a href="compare.html">Vergleich</a> · <a href="changelog.html">Änderungen</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a> (englisch)</div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

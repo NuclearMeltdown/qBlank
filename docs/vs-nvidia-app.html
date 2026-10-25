@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank vs NVIDIA App — recording games and a capture card</title>
+<meta name="description" content="qBlank and the NVIDIA App compared: capture card, what gets recorded, codecs and containers, Instant Replay and the replay buffer, screenshots, virtual camera and keys.">
+<link rel="icon" href="icon.png">
+<link rel="alternate" hreflang="en" href="https://qblank.com/vs-nvidia-app.html">
+<link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-nvidia-app.html">
+<link rel="alternate" hreflang="x-default" href="https://qblank.com/vs-nvidia-app.html">
+<link rel="canonical" href="https://qblank.com/vs-nvidia-app.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Compare","item":"https://qblank.com/compare.html"},{"@type":"ListItem","position":3,"name":"qBlank vs NVIDIA App","item":"https://qblank.com/vs-nvidia-app.html"}]}</script>
+<link rel="stylesheet" href="site.css">
+<script>
+// The same as on the front page: theme and language before anything is painted.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
+})();
+</script>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Manual</a>
+      <a href="faq.html">Troubleshooting</a>
+      <a href="compare.html" aria-current="true">Compare</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="de/vs-nvidia-app.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>qBlank vs NVIDIA App</h1>
+    <p class="tag">The NVIDIA App records games on NVIDIA cards, with Instant Replay and an overlay. qBlank records a capture card, a screen or a window, on any graphics card.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#short">In short</a>
+      <a href="#about">The two projects</a>
+      <a href="#card">Capture card</a>
+      <a href="#screen">What gets recorded</a>
+      <a href="#record">Recording</a>
+      <a href="#replay">Replay</a>
+      <a href="#stills">Screenshots and camera</a>
+      <a href="#keys">Keys</a>
+      <a href="#nvidia">Only in the NVIDIA App</a>
+      <a href="#qblank">Only in qBlank</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="short">
+      <h2>In short</h2>
+      <p>Compared with NVIDIA App 11.0.9, its release notes and NVIDIA's help pages.</p>
+      <table>
+        <tr><th></th><th>qBlank</th><th>NVIDIA App</th></tr>
+        <tr><td>Source code</td><td>Open, GPLv3</td><td>Closed, free</td></tr>
+        <tr><td>Needs</td><td>Windows 10 or 11, 64-bit, any graphics card</td><td>An NVIDIA GeForce or RTX card</td></tr>
+        <tr><td>Capture card</td><td>Yes</td><td>&ndash;</td></tr>
+        <tr><td>What it records</td><td>A card, a monitor or a window</td><td>Detected games, or the desktop with <em>Desktop capture</em> on, off by default</td></tr>
+        <tr><td>Video codecs</td><td>On NVIDIA, Intel, AMD or the CPU</td><td>H.264, HEVC and AV1 on NVENC; AV1 needs an RTX 40 or 50</td></tr>
+        <tr><td>Containers</td><td>MKV, MP4, AVI</td><td>MP4</td></tr>
+        <tr><td>HDR</td><td>Display, recording, screenshots, camera</td><td>Recording with HEVC or AV1</td></tr>
+        <tr><td>Replay</td><td>Memory or disk, up to 30&nbsp;minutes</td><td>Instant Replay, 30&nbsp;s by default, adjustable</td></tr>
+        <tr><td>Automatic clips</td><td>&ndash;</td><td>Highlights, in supported games</td></tr>
+        <tr><td>Sound</td><td>Several sources, mixed or on own tracks</td><td>Game and microphone, separate tracks optional</td></tr>
+        <tr><td>Virtual camera</td><td>64-bit, HDR</td><td>&ndash;</td></tr>
+        <tr><td>Keys in a game</td><td>A system-wide key; the game does not get it</td><td>Its <kbd>Alt</kbd> keys work in the game</td></tr>
+      </table>
+    </section>
+
+    <section id="about">
+      <h2>The two projects</h2>
+      <h3>NVIDIA App</h3>
+      <ul>
+        <li>NVIDIA's app for drivers, game settings and the overlay on <kbd>Alt</kbd>+<kbd>Z</kbd>. It replaced GeForce Experience.</li>
+        <li>Free, closed source. Signing in is optional.</li>
+        <li>Recording runs on NVENC, so it needs an NVIDIA graphics card.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Open source under GPLv3. Code, issues and releases are on GitHub.</li>
+        <li>English and German, with a manual in both.</li>
+        <li>One file of about 3&nbsp;MB, from winget, the website or GitHub.</li>
+        <li>Runs on any graphics card. Encoders from NVIDIA, Intel and AMD, or the CPU.</li>
+        <li>Recording needs ffmpeg. qBlank offers to download it, from a fixed source, checked against its hash.</li>
+        <li>Updates are checked on start, if you want.</li>
+      </ul>
+    </section>
+
+    <section id="card">
+      <h2>Capture card</h2>
+      <ul>
+        <li>The NVIDIA App has no input for a capture card. To record one, another program has to show it on the screen. Without a detected game, that needs <em>Desktop capture</em>.</li>
+        <li>qBlank opens the card itself. It fits the format to the video standard, deinterlaces what is interlaced, and has filters for composite and pixel art. See <a href="vs-amarectv.html#analogue">analogue consoles</a> on the AmaRecTV page.</li>
+        <li>qBlank's window is an ordinary window. Recording it with the NVIDIA App works like with any other program.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/source.png" width="528" height="445" loading="lazy" alt="The Source tab of the settings: picture source Capture card, Screen or Window, the input set to Automatic, the card picked under Video device, and the buttons Configure card and Reinitialise card">
+        <figcaption>Source: card, screen or window as picture source, then the card and its input.</figcaption>
+      </figure>
+    </section>
+
+    <section id="screen">
+      <h2>What gets recorded</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>NVIDIA App</th></tr>
+        <tr><td>What is recorded</td><td>A card, a whole monitor, or one window</td><td>The detected game, or the desktop with <em>Desktop capture</em> on</td></tr>
+        <tr><td>One chosen window</td><td>Through Windows.Graphics.Capture; a covered window comes through</td><td>&ndash;</td></tr>
+        <tr><td>Exclusive fullscreen</td><td>Not for older games; borderless windowed works</td><td>Yes</td></tr>
+        <tr><td>HDR</td><td>HDR desktop and window in HDR</td><td>With HEVC or AV1</td></tr>
+      </table>
+      <h3>NVIDIA App</h3>
+      <ul>
+        <li>It records the game it detects. <em>Desktop capture</em> adds the desktop and is off by default.</li>
+        <li>Protected content blocks recording.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li><em>Screen</em> takes a whole monitor, <em>Window</em> one window, games and video included.</li>
+        <li>A covered window comes through. A minimised one does not.</li>
+        <li>If the title changes or the window is gone, qBlank takes another window of the same program.</li>
+        <li>Each new picture is drawn at once. <strong>Recording &rarr; Frame rate</strong> on <em>same as source</em> keeps them all, or caps them.</li>
+        <li><em>System sound without qBlank</em> records everything except qBlank's own playback. qBlank stays audible and nothing echoes.</li>
+        <li><em>Hide qBlank from the capture</em> is on by default for the screen. It keeps qBlank out of every screen capture, Remote Play and Remote Desktop included.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/windowsrc.png" width="604" height="376" loading="lazy" alt="The Source tab with Window as picture source: the window Test window — python.exe, Refresh, the boxes for the mouse pointer and the preview, and four notes on covered windows, a lost title, exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Window: the window, pointer, preview, and what to know.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="364" loading="lazy" alt="The Source tab with Screen as picture source: the primary monitor picked, mouse pointer, preview and hiding qBlank from the capture switched on, and the notes on exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Screen: monitor, pointer, preview, hide qBlank.</figcaption>
+      </figure>
+    </section>
+
+    <section id="record">
+      <h2>Recording</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>NVIDIA App</th></tr>
+        <tr><td>Containers</td><td>MKV, MP4; AVI for lossless</td><td>MP4</td></tr>
+        <tr><td>Video codecs</td><td>H.264 on NVENC, Quick Sync, AMF or x264; H.265 on NVENC, Quick Sync, AMF or x265; AV1 on NVENC, Intel Arc, AMD or SVT-AV1</td><td>H.264, HEVC and AV1 on NVENC; AV1 needs an RTX 40 or 50</td></tr>
+        <tr><td>Lossless</td><td>H.265 lossless on NVENC, UT Video, uncompressed RGB</td><td>&ndash;</td></tr>
+        <tr><td>Resolution</td><td>The source's, or a set height from 2160p to 360p</td><td>Up to 8K HDR at 30&nbsp;fps, or 4K HDR at 120</td></tr>
+        <tr><td>Frame rate</td><td>The source's, or capped</td><td>Up to 120&nbsp;fps on every codec; 240 on an RTX 40 or 50 since 11.0.8</td></tr>
+        <tr><td>Sound sources</td><td>Card, inputs, outputs, system without qBlank; gain up to +12&nbsp;dB</td><td>Game and microphone</td></tr>
+        <tr><td>Tracks</td><td>Mixed, separate, or both</td><td>One, or separate tracks</td></tr>
+      </table>
+      <h3>NVIDIA App</h3>
+      <ul>
+        <li>Since 11.0.2 the default bitrate follows resolution, frame rate and codec.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>The encoder runs inside qBlank, through ffmpeg's libraries. With NVENC and AMF the frame goes from the GPU to the encoder without a copy.</li>
+        <li>A change of size or video standard during a recording starts a new file, seamlessly.</li>
+        <li>MKV stays playable after a crash.</li>
+        <li>Markers: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> sets one, players show them as chapters.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="718" loading="lazy" alt="The Recording tab: container MKV, frame rate and resolution same as source, the output folder with the free space as recording time, the larger buffer in memory, and under Screenshots the format PNG and the screenshot folder">
+        <figcaption>Recording: container, rate, size, folder, splitting and buffer.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="The Recording sources section of the Audio tab: the card audio, an input on the system default and the system sound, each with gain, tracks and level, and the button Add">
+        <figcaption>Audio &rarr; Recording sources: each with gain, tracks and level.</figcaption>
+      </figure>
+    </section>
+
+    <section id="replay">
+      <h2>Replay</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>NVIDIA App</th></tr>
+        <tr><td>Name</td><td>Replay</td><td>Instant Replay</td></tr>
+        <tr><td>Length</td><td>5&nbsp;s to 30&nbsp;min</td><td>30&nbsp;s by default, adjustable</td></tr>
+        <tr><td>Save</td><td><kbd>Shift</kbd>+<kbd>F9</kbd></td><td><kbd>Alt</kbd>+<kbd>F10</kbd></td></tr>
+        <tr><td>On and off</td><td><kbd>Ctrl</kbd>+<kbd>F9</kbd></td><td><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F10</kbd></td></tr>
+        <tr><td>Automatic clips</td><td>&ndash;</td><td>Highlights, in supported games</td></tr>
+      </table>
+      <ul>
+        <li>qBlank keeps the replay in memory or on disk. The replay buffer and the recording share one encoder.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="The Replay tab: replay in the background on, length 60 seconds, storage in memory with at most 4 GB, the free memory, and what 60 seconds take">
+        <figcaption>Replay: length, and memory or disk.</figcaption>
+      </figure>
+    </section>
+
+    <section id="stills">
+      <h2>Screenshots and virtual camera</h2>
+      <ul>
+        <li>qBlank saves PNG, JPEG, JPEG&nbsp;XR or AVIF, HDR as JPEG&nbsp;XR or AVIF. <kbd>Ctrl</kbd>+<kbd>F10</kbd> copies to the clipboard.</li>
+        <li>The NVIDIA App takes a screenshot with <kbd>Alt</kbd>+<kbd>F1</kbd>. <em>Photo Mode</em>, on <kbd>Alt</kbd>+<kbd>F2</kbd>, works in supported games.</li>
+        <li>qBlank has a virtual camera built in, a DirectShow source for 64-bit programs. The NVIDIA App has none.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/camera.png" width="528" height="368" loading="lazy" alt="The Virtual camera section: switched on, with OBS and Discord reading, each in its own format">
+        <figcaption>Recording &rarr; Virtual camera: installed, on, and who is reading it.</figcaption>
+      </figure>
+    </section>
+
+    <section id="keys">
+      <h2>Keys</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>NVIDIA App</th></tr>
+        <tr><td>Change every key</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Keys in a game</td><td>A second key under <em>System-wide</em>; no other program gets it</td><td>Its keys work in the game</td></tr>
+        <tr><td>Record</td><td><kbd>F9</kbd></td><td><kbd>Alt</kbd>+<kbd>F9</kbd></td></tr>
+        <tr><td>Save replay</td><td><kbd>Shift</kbd>+<kbd>F9</kbd></td><td><kbd>Alt</kbd>+<kbd>F10</kbd></td></tr>
+        <tr><td>Replay on and off</td><td><kbd>Ctrl</kbd>+<kbd>F9</kbd></td><td><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F10</kbd></td></tr>
+        <tr><td>Screenshot</td><td><kbd>F10</kbd></td><td><kbd>Alt</kbd>+<kbd>F1</kbd></td></tr>
+        <tr><td>Photo Mode</td><td>&ndash;</td><td><kbd>Alt</kbd>+<kbd>F2</kbd></td></tr>
+        <tr><td>Statistics</td><td><kbd>F1</kbd></td><td><kbd>Alt</kbd>+<kbd>R</kbd></td></tr>
+        <tr><td>Settings</td><td><kbd>F2</kbd></td><td><kbd>Alt</kbd>+<kbd>Z</kbd>, the overlay</td></tr>
+      </table>
+      <ul>
+        <li>The NVIDIA App uses <kbd>Alt</kbd>+<kbd>F9</kbd> and <kbd>Alt</kbd>+<kbd>F10</kbd> too, the same keys as in the qBlank picture below.</li>
+        <li>qBlank's system-wide keys are unbound out of the box. With both running, give one of them other keys.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/keys.png" width="528" height="548" loading="lazy" alt="The Keys tab: each action with its shortcut and a System-wide column, where Start/stop recording has Alt+F9, Save replay as clip Alt+Shift+F9 and Screenshot Alt+F10">
+        <figcaption>Keys: one key for the window, a second one system-wide.</figcaption>
+      </figure>
+    </section>
+
+    <section id="nvidia">
+      <h2>Only in the NVIDIA App</h2>
+      <ul>
+        <li>Highlights: clips saved by themselves in supported games.</li>
+        <li><em>Photo Mode</em> in supported games.</li>
+        <li>Finds games by itself.</li>
+        <li>Older games in exclusive fullscreen.</li>
+        <li>A performance overlay, latency included.</li>
+        <li>Driver updates and game settings.</li>
+      </ul>
+    </section>
+
+    <section id="qblank">
+      <h2>Only in qBlank</h2>
+      <ul>
+        <li>A capture card, with what consoles need: video standard, deinterlacing, composite filters, pixel grid.</li>
+        <li>Any graphics card. Encoders from NVIDIA, Intel and AMD, or the CPU.</li>
+        <li>One chosen window, even when covered.</li>
+        <li>MKV, which survives a crash, and AVI.</li>
+        <li>Lossless recording.</li>
+        <li>Inputs and outputs as sound sources, each with its own gain.</li>
+        <li>A 64-bit virtual camera with qBlank's full picture, HDR included.</li>
+        <li>qBlank hidden from its own screen capture.</li>
+        <li>Open source.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Home</a> · <a href="manual.html">Manual</a> · <a href="install.html">Download</a> · <a href="faq.html">Troubleshooting</a> · <a href="compare.html">Compare</a> · <a href="changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

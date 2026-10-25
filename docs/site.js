@@ -160,6 +160,26 @@ function L(en, german) { return de ? german : en; }
   });
 })();
 
+// The table of every program on the compare page: a button per program hides
+// or shows its column, so qBlank can stand beside just the one you care about.
+// The table narrows with it; --n is the number of columns shown.
+(function(){
+  var pick = document.getElementById('sidePick');
+  if (!pick) return;
+  var table = pick.nextElementSibling.querySelector('table');
+  var rows = table.rows;
+  pick.hidden = false;
+  pick.addEventListener('click', function(e){
+    var b = e.target.closest('button');
+    if (!b) return;
+    var on = b.getAttribute('aria-pressed') !== 'true';
+    var col = +b.getAttribute('data-col');
+    b.setAttribute('aria-pressed', on);
+    for (var i = 0; i < rows.length; i++) rows[i].cells[col].classList.toggle('off', !on);
+    table.style.setProperty('--n', 1 + pick.querySelectorAll('[aria-pressed="true"]').length);
+  });
+})();
+
 // The note beside the winget command. Until the package is merged into the
 // community repository it says "coming soon"; from then on its folder there
 // lists the versions, and the note names the newest instead. Read from
