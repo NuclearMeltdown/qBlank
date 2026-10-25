@@ -252,6 +252,7 @@ void App::DrawToolbarStrip() {
   ToolbarState state;
   state.recording = recorder_.recording();
   state.recordSeconds = state.recording ? recorder_.seconds() : 0.0;
+  state.recordPaused = recorder_.filePaused();
   state.muted = config_.active().audio.mute;
   state.volume = config_.active().audio.volume;
   state.canRecord = captureState_ == CaptureState::Running && renderer_.hasFrame();
@@ -284,6 +285,7 @@ void App::DrawToolbarStrip() {
 RecordStatus App::RecordingStatus() const {
   RecordStatus s;
   s.seconds = recorder_.seconds();
+  s.paused = recorder_.filePaused();
   s.encoderBehind = recorder_.encoderBehind();
   s.bufferFill = recorder_.bufferFill();
   s.buffered = recorder_.queuedBytes();
@@ -1258,6 +1260,10 @@ void App::DrawContextMenu() {
                             : T("Aufnahme starten", "Start recording"),
                         sc(HotkeyAction::Record))) {
       recording_.ToggleRecording();
+    }
+    if (rec && ImGui::MenuItem(T("Aufnahme pausieren", "Pause recording"),
+                               sc(HotkeyAction::PauseRecording), recorder_.filePaused())) {
+      recording_.TogglePause();
     }
     if (ImGui::MenuItem(T("Replay", "Replay"), sc(HotkeyAction::ReplayToggle),
                         config_.record.replay)) {

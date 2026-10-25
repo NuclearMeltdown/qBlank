@@ -351,6 +351,7 @@ void RecordingControl::StartChecked(uint32_t serial, const std::string& askedFol
 
 void RecordingControl::CancelStart() {
   startPending_ = false;
+  pauseOnStart_ = false;
   // Encoders that run keep their tap.
   if (!recorder_.active()) audio_.SetTapEnabled(false);
 }
@@ -364,6 +365,8 @@ void RecordingControl::LaunchRecording() {
     return;
   }
   startPending_ = false;
+  const bool paused = pauseOnStart_;
+  pauseOnStart_ = false;
   // The encoders the file was meant for still run: it goes onto them. If they
   // ended meanwhile, it gets encoders of its own.
   if (withFile && pendingOnSession_ && recorder_.active() && !recorder_.failed()) {
@@ -521,6 +524,11 @@ void RecordingControl::LaunchRecording() {
   replaySecondsSet_ = 0;
   replayGbSet_ = 0;
   if (!withFile) return;
+  // A new file for a new shape, in a pause: the warnings were there at the start.
+  if (paused && recorder_.PauseFile(true)) {
+    host_.Toast(T("Aufnahme pausiert", "Recording paused"));
+    return;
+  }
   if (cardRefused) {
     host_.Toast(T("Aufnahme läuft, mit Filter: dieser Encoder nimmt das Kartenformat nicht roh.",
                   "Recording, filtered: this encoder does not take the card's format raw."));
@@ -651,6 +659,19 @@ void RecordingControl::AddMarker() {
   host_.Toast(recorder_.AddMarker()
                   ? T("Marker gesetzt", "Marker set")
                   : T("Die Aufnahme startet noch.", "The recording is still starting."));
+}
+
+void RecordingControl::TogglePause() {
+  if (!recorder_.recording()) {
+    host_.Toast(startPending_ && pendingWithFile_
+                    ? T("Die Aufnahme startet noch.", "The recording is still starting.")
+                    : T("Keine Aufnahme zum Pausieren.", "No recording to pause."));
+    return;
+  }
+  const bool pause = !recorder_.filePaused();
+  recorder_.PauseFile(pause);
+  host_.Toast(pause ? T("Aufnahme pausiert", "Recording paused")
+                    : T("Aufnahme läuft weiter", "Recording resumed"));
 }
 
 void RecordingControl::EnsureReplay() {
@@ -1082,8 +1103,12 @@ void RecordingControl::FeedRecorder() {
               recorder_.frameWidth(), recorder_.frameHeight(), recordSourceFps_,
               recorder_.hdr() ? " HDR" : "");
       const bool wasRecording = recorder_.recording();
+      const bool wasPaused = recorder_.filePaused();
       StopSession();
-      if (wasRecording) StartRecording();
+      if (wasRecording) {
+        StartRecording();
+        pauseOnStart_ = wasPaused && startPending_;
+      }
       return;
     }
   }

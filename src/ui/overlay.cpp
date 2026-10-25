@@ -74,22 +74,33 @@ void PositionInCorner(OsdCorner corner, float inset) {
 // Whatever is going wrong: the lines under a recording, and a toast that warns.
 constexpr ImVec4 kWarnColor(1.0f, 0.72f, 0.25f, 1.0f);
 
-// The running recording: a pulsing dot and the time, and below it whatever is
+// The running recording: a pulsing dot, two bars in a pause, and the time; below it whatever is
 // falling behind. In the corner indicator and in the screen's panel.
 void RecordLines(const RecordStatus& r) {
-  // One slow pulse per second, so it reads as "running" without flickering.
-  const float pulse = 0.55f + 0.45f * (float)std::abs(std::sin(ImGui::GetTime() * 3.14159));
   const float radius = ImGui::GetFontSize() * 0.32f;
-  const ImVec2 centre = ImGui::GetCursorScreenPos();
-  ImGui::GetWindowDrawList()->AddCircleFilled(
-      ImVec2(centre.x + radius, centre.y + ImGui::GetFontSize() * 0.5f), radius,
-      ImGui::GetColorU32(ImVec4(0.95f, 0.25f, 0.25f, pulse)));
+  const ImVec2 corner = ImGui::GetCursorScreenPos();
+  const float middle = corner.y + ImGui::GetFontSize() * 0.5f;
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  if (r.paused) {
+    // Two bars that stand still, as on every player.
+    const float bar = radius * 0.7f;
+    const ImU32 color = ImGui::GetColorU32(kWarnColor);
+    draw->AddRectFilled(ImVec2(corner.x, middle - radius), ImVec2(corner.x + bar, middle + radius),
+                        color);
+    draw->AddRectFilled(ImVec2(corner.x + 2.0f * radius - bar, middle - radius),
+                        ImVec2(corner.x + 2.0f * radius, middle + radius), color);
+  } else {
+    // One slow pulse per second, so it reads as "running" without flickering.
+    const float pulse = 0.55f + 0.45f * (float)std::abs(std::sin(ImGui::GetTime() * 3.14159));
+    draw->AddCircleFilled(ImVec2(corner.x + radius, middle), radius,
+                          ImGui::GetColorU32(ImVec4(0.95f, 0.25f, 0.25f, pulse)));
+  }
   ImGui::Dummy(ImVec2(radius * 2.0f + 6.0f, ImGui::GetFontSize()));
   ImGui::SameLine();
 
   const int total = (int)r.seconds;
-  ImGui::Text("%s  %02d:%02d:%02d", T("Aufnahme", "REC"), total / 3600, (total / 60) % 60,
-              total % 60);
+  ImGui::Text("%s  %02d:%02d:%02d", r.paused ? T("Pausiert", "PAUSED") : T("Aufnahme", "REC"),
+              total / 3600, (total / 60) % 60, total % 60);
   if (r.encoderBehind) {
     ImGui::TextColored(kWarnColor, "%s", T("Encoder überlastet", "Encoder overloaded"));
   }

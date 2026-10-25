@@ -96,6 +96,8 @@ class RecordingControl {
   // A chapter at this moment in the file being written, and in any clip
   // that holds it (Recorder::AddMarker).
   void AddMarker();
+  // Pauses the file being written or lets it go on (Recorder::PauseFile).
+  void TogglePause();
   // The replay is on and has not failed: it needs the pictures, minimised or
   // not, to start and to fill.
   bool replayWanted() const { return config_.record.replay && !replaySuspended_; }
@@ -201,6 +203,8 @@ class RecordingControl {
   bool startPending_ = false;
   bool pendingWithFile_ = false;
   bool pendingOnSession_ = false;
+  // The file is to start paused: it was, before the source changed its shape.
+  bool pauseOnStart_ = false;
   RecordSettings pendingSettings_;
   bool pendingAudio_ = false;
   std::filesystem::path pendingFile_;

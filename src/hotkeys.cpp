@@ -31,6 +31,8 @@ Hotkeys::Hotkeys() {
   (*this)[HotkeyAction::Marker].key = Key::F9;
   (*this)[HotkeyAction::Marker].ctrl = true;
   (*this)[HotkeyAction::Marker].shift = true;
+  // The key that says what it does, free everywhere else.
+  (*this)[HotkeyAction::PauseRecording].key = Key::Pause;
   (*this)[HotkeyAction::Screenshot].key = Key::F10;
   // Dieselbe Taste mit Strg, wie das Kopieren ueberall sonst: gleiches Bild,
   // anderes Ziel.
@@ -85,6 +87,8 @@ const char* HotkeyActionName(HotkeyAction action) {
     case HotkeyAction::ReplaySave: return T("Replay als Clip speichern", "Save replay as clip");
     case HotkeyAction::ReplayToggle: return T("Replay an/aus", "Replay on/off");
     case HotkeyAction::Marker: return T("Marker setzen", "Set marker");
+    case HotkeyAction::PauseRecording:
+      return T("Aufnahme pausieren/fortsetzen", "Pause/resume recording");
     case HotkeyAction::Screenshot: return T("Screenshot", "Screenshot");
     case HotkeyAction::ScreenshotClipboard:
       return T("Screenshot in die Zwischenablage", "Screenshot to clipboard");
@@ -114,6 +118,7 @@ const char* HotkeyActionKey(HotkeyAction action) {
     case HotkeyAction::ReplaySave: return "replaySave";
     case HotkeyAction::ReplayToggle: return "replayToggle";
     case HotkeyAction::Marker: return "marker";
+    case HotkeyAction::PauseRecording: return "pauseRecording";
     case HotkeyAction::Screenshot: return "screenshot";
     case HotkeyAction::ScreenshotClipboard: return "screenshotClipboard";
     case HotkeyAction::Freeze: return "freeze";
@@ -152,6 +157,8 @@ const char* SpecialKeyName(Key key) {
     case Key::Delete: return T("Entf", "Delete");
     case Key::Tab: return T("Tab", "Tab");
     case Key::Backspace: return T("Rücktaste", "Backspace");
+    // Its scan code is Num Lock's without the prefix.
+    case Key::Pause: return T("Pause", "Pause");
     default: return nullptr;
   }
 }

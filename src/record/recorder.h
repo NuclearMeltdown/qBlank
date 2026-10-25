@@ -172,6 +172,11 @@ class Recorder {
   void StartFile(const std::filesystem::path& file);
   // Ends the file at the next keyframe; the encoders run on for the replay.
   void StopFile();
+  // Pauses the file at the next keyframe, or goes on at the next one, as if
+  // nothing had been in between. The encoders run on, and so does the replay:
+  // clips work in a pause as well. A file split meanwhile starts paused. False
+  // without a file.
+  bool PauseFile(bool pause);
 
   // Keeps the newest `seconds` of what is encoded in memory, at most `bytes`
   // of it (LimitBuffer may take it lower); 0 seconds lets it go. With a `disk`
@@ -209,6 +214,8 @@ class Recorder {
   bool active() const { return running_.load(std::memory_order_relaxed); }
   // A file is being written.
   bool recording() const { return recording_.load(std::memory_order_relaxed); }
+  // It is paused (PauseFile); seconds() stands still meanwhile.
+  bool filePaused() const { return filePaused_.load(std::memory_order_relaxed); }
   // The replay keeps what is encoded (SetReplay).
   bool replaying() const { return replaying_.load(std::memory_order_relaxed); }
   // Set when the encoder could not open or writing failed; the app should stop
@@ -304,6 +311,7 @@ class Recorder {
   std::atomic<bool> sharedRefused_{false};
   std::atomic<bool> running_{false};
   std::atomic<bool> recording_{false};
+  std::atomic<bool> filePaused_{false};
   std::atomic<bool> replaying_{false};
   // The encoder is open and takes frames; until then PushVideo drops them.
   std::atomic<bool> ready_{false};
@@ -349,6 +357,10 @@ class Recorder {
   std::atomic<uint64_t> dropped_{0};
   std::atomic<uint64_t> bytesWritten_{0};
   int64_t startTicks_ = 0;
+  // The file's pauses, left out of seconds(): since when the current one, and
+  // how long the ones before it.
+  int64_t pausedSince_ = 0;
+  int64_t pausedTicks_ = 0;
 
   // Video thread only. When the encoder had opened: the wall clock timeline
   // starts there, not at Start, or the first frames would all be late.

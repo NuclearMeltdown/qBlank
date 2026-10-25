@@ -22,6 +22,7 @@ namespace cap {
 struct ToolbarState {
   bool recording = false;
   double recordSeconds = 0.0;
+  bool recordPaused = false;
   bool muted = false;
   float volume = 1.0f;   // 0..1
   bool canRecord = true;  // false while ffmpeg is missing or nothing is running

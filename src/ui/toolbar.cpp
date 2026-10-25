@@ -219,7 +219,10 @@ ToolbarResult DrawToolbar(const ToolbarState& state, unsigned accentRgb) {
     // The running time sits next to the button rather than in a corner, so the
     // one thing that is time critical is where the eye already is.
     centreInRow(ImGui::GetTextLineHeight());
-    ImGui::TextColored(ImVec4(0.95f, 0.4f, 0.4f, 1.0f), "%s", Elapsed(state.recordSeconds).c_str());
+    // Amber while paused, as the corner indicator.
+    ImGui::TextColored(state.recordPaused ? ImVec4(1.0f, 0.72f, 0.25f, 1.0f)
+                                          : ImVec4(0.95f, 0.4f, 0.4f, 1.0f),
+                       "%s", Elapsed(state.recordSeconds).c_str());
     ImGui::SameLine();
   }
 

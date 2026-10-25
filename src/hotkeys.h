@@ -26,6 +26,7 @@ enum class HotkeyAction {
   ReplaySave,
   ReplayToggle,
   Marker,
+  PauseRecording,
   Screenshot,
   ScreenshotClipboard,
   Freeze,

@@ -168,6 +168,7 @@ void DrawVolumeOsd(float volume, bool muted, OsdCorner corner, double age, doubl
 // the frames left out so far (Recorder::leftOut).
 struct RecordStatus {
   double seconds = 0.0;
+  bool paused = false;  // the file, while the encoders run on
   bool encoderBehind = false;
   double bufferFill = 0.0;
   uint64_t buffered = 0;

@@ -147,12 +147,28 @@ struct Recorder::Output {
   bool everything = false;
   bool started = false;
   int64_t startAsked = 0;
-  int64_t start = 0;
   int64_t endAsked = INT64_MAX;
   bool ended = false;
-  int64_t end = 0;
   int64_t endedTicks = 0;
-  std::vector<int64_t> offset;  // the start in each stream's time base
+  // A pause the same way: from the first keyframe at or after `pauseAsked` to
+  // the first one at or after `resumeAsked`, and the file goes on from there
+  // as if nothing had been in between.
+  bool paused = false;
+  int64_t pauseAsked = INT64_MAX;
+  int64_t resumeAsked = INT64_MAX;
+  // Where the picture runs in the file: from `begin` up to `end` (INT64_MAX
+  // while open), taken back by `offset` there. One per stretch between pauses.
+  struct Segment {
+    int64_t begin, end, offset;
+  };
+  std::vector<Segment> segments;
+  std::vector<int64_t> offset;  // what each stream is taken back by now
+  // Per sound stream: the segment it is in, and where its last packet ended in
+  // the file. After a pause the sound goes on from there.
+  std::vector<size_t> soundSegment;
+  std::vector<int64_t> soundEnd;
+  int64_t lastDts = INT64_MIN;  // the newest picture's, in the file
+  int64_t length = 0;           // of the picture in the file, in slots
   // Sound that may belong to the file once the next keyframe says where it
   // starts or ends.
   std::vector<AVPacket*> held;
@@ -180,6 +196,16 @@ struct Recorder::Output {
   // Where a packet goes, moving the window on as keyframes pass.
   Fate Take(const AVPacket* packet);
   Fate SoundFate(const AVPacket* packet);
+  // The first picture at `pts`: every stream is timed from there.
+  void Begin(int64_t pts);
+  // The keyframe that ends a pause goes where the last segment ended.
+  void Resume(const AVPacket* key);
+  // The segment a sound packet belongs in, from its stream's current one on.
+  size_t SegmentOf(int stream, int64_t pts) const;
+  // Pauses at the first keyframe from `at` on (the picture's pts), or goes on
+  // there. `recent` is the session's last second of sound: it runs ahead of
+  // the picture, and some of it already belongs after the pause.
+  void Pause(bool pause, int64_t at, const std::deque<AVPacket*>& recent);
   // Decides on what was held, once the window moved.
   void Settle();
   // Carries out `fate` on a packet of its own; null is out of memory.
@@ -296,37 +322,115 @@ Recorder::Output::Fate Recorder::Output::Take(const AVPacket* packet) {
       held.clear();
       return Fate::Drop;
     }
-    started = true;
-    start = packet->pts;
-    for (size_t i = 0; i < from.size(); ++i) {
-      offset[i] = av->av_rescale_q(start, from[videoStream], from[i]);
+    Begin(packet->pts);
+    if (packet->pts < pauseAsked) {
+      Settle();
+      return Fate::Queue;
     }
-    Settle();
-    return Fate::Queue;
-  }
-  if (key && packet->pts >= endAsked) {
+    // Paused before it began: it begins with the pause.
+  } else if (key && packet->pts >= endAsked) {
     ended = true;
-    end = packet->pts;
+    if (!paused) segments.back().end = packet->pts;
     endedTicks = ClockTicks();
     Settle();
     return Fate::Drop;
+  } else if (paused) {
+    if (!key || packet->pts < resumeAsked) return Fate::Drop;
+    Resume(packet);
+    Settle();
+    return Fate::Queue;
+  } else if (!key || packet->pts < pauseAsked) {
+    // Behind the start in decode order but before it in time: a picture that
+    // looks back past the keyframe, at one the file does not have.
+    return packet->pts < segments.back().begin ? Fate::Drop : Fate::Queue;
   }
-  // Behind the start in decode order but before it in time: a picture that
-  // looks back past the keyframe, at one the file does not have.
-  return packet->pts < start ? Fate::Drop : Fate::Queue;
+  paused = true;
+  pauseAsked = INT64_MAX;
+  segments.back().end = packet->pts;
+  Settle();
+  return Fate::Drop;
 }
 
 Recorder::Output::Fate Recorder::Output::SoundFate(const AVPacket* packet) {
   const int stream = packet->stream_index;
   auto at = [&](int64_t pts) { return av->av_rescale_q(pts, from[videoStream], from[stream]); };
   if (!started) return !ended && packet->pts >= at(startAsked) ? Fate::Hold : Fate::Drop;
-  if (!everything && packet->pts < offset[stream]) return Fate::Drop;
+  const size_t now = soundSegment[stream];
+  if (now == 0 && !everything && packet->pts < offset[stream]) return Fate::Drop;
+  const size_t j = SegmentOf(stream, packet->pts);
+  const Segment& segment = segments[j];
+  // The first after a pause is the packet nearest the picture there: the
+  // sound goes on without a gap and is never more than half a packet off.
+  if (j > now && packet->pts + packet->duration / 2 < at(segment.offset) + soundEnd[stream]) {
+    return Fate::Drop;
+  }
+  if (segment.end == INT64_MAX) {
+    const int64_t until = std::min(pauseAsked, endAsked);
+    return until == INT64_MAX || packet->pts < at(until) ? Fate::Queue : Fate::Hold;
+  }
+  if (packet->pts < at(segment.end)) return Fate::Queue;
   if (ended) {
-    if (packet->pts < at(end)) return Fate::Queue;
     pastEnd[stream] = 1;
     return Fate::Drop;
   }
-  return endAsked == INT64_MAX || packet->pts < at(endAsked) ? Fate::Queue : Fate::Hold;
+  // In the pause: it may belong after it, once the keyframe there says.
+  return resumeAsked != INT64_MAX ? Fate::Hold : Fate::Drop;
+}
+
+void Recorder::Output::Begin(int64_t pts) {
+  started = true;
+  for (size_t i = 0; i < from.size(); ++i) {
+    offset[i] = av->av_rescale_q(pts, from[videoStream], from[i]);
+  }
+  segments.assign(1, Segment{pts, INT64_MAX, pts});
+}
+
+void Recorder::Output::Resume(const AVPacket* key) {
+  const int64_t before = offset[videoStream];
+  // On from the slot where the pause began, or later where the decode times
+  // would not rise otherwise.
+  int64_t shift = key->pts - segments.back().end;
+  if (lastDts != INT64_MIN && key->dts != AV_NOPTS_VALUE) {
+    shift = std::min(shift, key->dts - before - lastDts - 1);
+  }
+  offset[videoStream] = before + std::max<int64_t>(shift, 0);
+  segments.push_back(Segment{key->pts, INT64_MAX, offset[videoStream]});
+  paused = false;
+  resumeAsked = INT64_MAX;
+}
+
+size_t Recorder::Output::SegmentOf(int stream, int64_t pts) const {
+  size_t j = soundSegment[stream];
+  while (j + 1 < segments.size() &&
+         pts >= av->av_rescale_q(segments[j].end, from[videoStream], from[stream])) {
+    ++j;
+  }
+  return j;
+}
+
+void Recorder::Output::Pause(bool pause, int64_t at, const std::deque<AVPacket*>& recent) {
+  if (ended) return;
+  if (pause) {
+    if (!paused && pauseAsked == INT64_MAX) {
+      pauseAsked = at;
+    } else if (resumeAsked != INT64_MAX) {
+      // Paused again before it went on: it stays paused.
+      resumeAsked = INT64_MAX;
+      Settle();
+    }
+    return;
+  }
+  if (pauseAsked != INT64_MAX) {
+    // Before the pause began: it never does.
+    pauseAsked = INT64_MAX;
+    Settle();
+    return;
+  }
+  if (!paused || resumeAsked != INT64_MAX) return;
+  resumeAsked = at;
+  for (AVPacket* packet : recent) {
+    if (SoundFate(packet) == Fate::Hold) Keep(av->av_packet_clone(packet), Fate::Hold);
+  }
 }
 
 void Recorder::Output::Settle() {
@@ -348,9 +452,25 @@ void Recorder::Output::Keep(AVPacket* packet, Fate fate) {
 
 void Recorder::Output::Queue(AVPacket* packet) {
   const int stream = packet->stream_index;
-  if (stream == videoStream) lastVideo = std::max(lastVideo, packet->pts);
+  const bool video = stream == videoStream;
+  if (video) {
+    lastVideo = std::max(lastVideo, packet->pts);
+  } else if (packet->pts != AV_NOPTS_VALUE) {
+    // The first sound after a pause goes on where the sound before it ended.
+    const size_t j = SegmentOf(stream, packet->pts);
+    if (j != soundSegment[stream]) {
+      soundSegment[stream] = j;
+      offset[stream] = packet->pts - soundEnd[stream];
+    }
+  }
   if (packet->pts != AV_NOPTS_VALUE) packet->pts -= offset[stream];
   if (packet->dts != AV_NOPTS_VALUE) packet->dts -= offset[stream];
+  if (video) {
+    if (packet->pts != AV_NOPTS_VALUE) length = std::max(length, packet->pts + 1);
+    lastDts = packet->dts != AV_NOPTS_VALUE ? packet->dts : packet->pts;
+  } else if (packet->pts != AV_NOPTS_VALUE) {
+    soundEnd[stream] = std::max(soundEnd[stream], packet->pts + packet->duration);
+  }
   const int size = packet->size;
   if (counter) counter->fetch_add((uint64_t)size, std::memory_order_relaxed);
   const int64_t queued = queuedBytes.fetch_add(size, std::memory_order_relaxed) + size;
@@ -376,26 +496,34 @@ bool Recorder::Output::Done(int64_t now) const {
 }
 
 double Recorder::Output::seconds() const {
-  if (lastVideo == INT64_MIN) return 0.0;
-  return (double)(lastVideo - start + 1) * av_q2d(from[videoStream]);
+  return (double)length * av_q2d(from[videoStream]);
 }
 
 void Recorder::Output::AddChapters() {
+  if (segments.empty()) return;
   // From the first picture on: MP4's chapter track cannot begin later, and
   // would pull the first marker back to 0.
   std::vector<int64_t> at = {0};
   bool marked = false;  // a marker on the first picture names the start
   for (int64_t mark : marks) {
-    if (mark < start || mark > lastVideo) continue;
-    if (mark == start) {
+    if (mark < segments.front().begin) continue;
+    // In the file's time; one set in a pause where the file goes on.
+    int64_t t = -1;
+    for (const Segment& segment : segments) {
+      if (mark < segment.end) {
+        t = std::max(mark, segment.begin) - segment.offset;
+        break;
+      }
+    }
+    if (t < 0 || t >= length) continue;
+    if (t == 0) {
       marked = true;
-    } else if (mark - start > at.back()) {
-      at.push_back(mark - start);
+    } else if (t > at.back()) {
+      at.push_back(t);
     }
   }
   if (at.size() == 1 && !marked) return;
   if (!LibavMakeChapters(*av, ctx, (unsigned)at.size())) return;
-  const int64_t length = lastVideo - start + 1;
   for (size_t i = 0; i < at.size(); ++i) {
     AVChapter* chapter = ctx->chapters[i];
     chapter->id = (int64_t)i + 1;
@@ -491,6 +619,8 @@ struct Recorder::Session {
   int64_t liveLimit = kSmallQueueBytes;  // what the file being written may queue
   std::vector<std::unique_ptr<Output>> outputs;
   Output* live = nullptr;  // the file being written, among them
+  // It is paused, and so begins one that follows it meanwhile.
+  bool paused = false;
   // Ended ones, for RetireDone to take to the closing thread.
   std::vector<std::unique_ptr<Output>> done;
   std::atomic<bool> anyDone{false};
@@ -706,13 +836,17 @@ void Recorder::Session::Flush() {
   }
   // Sound held for an end that never came: the file runs to the last
   // picture, and the sound to it belongs in it.
+  // So does a pause or a resume still waiting for its keyframe.
   std::lock_guard<std::mutex> lock(routeMutex);
   for (const std::unique_ptr<Output>& out : outputs) {
-    std::vector<AVPacket*> waiting;
-    waiting.swap(out->held);
-    for (AVPacket* packet : waiting) {
-      out->Keep(packet, out->started ? Output::Fate::Queue : Output::Fate::Drop);
+    if (!out->started) {
+      for (AVPacket*& packet : out->held) av->av_packet_free(&packet);
+      out->held.clear();
+      continue;
     }
+    out->pauseAsked = out->resumeAsked = INT64_MAX;
+    if (!out->ended) out->endAsked = INT64_MAX;
+    out->Settle();
   }
 }
 
@@ -727,6 +861,8 @@ std::unique_ptr<Recorder::Output> Recorder::Session::NewOutput(const std::filesy
   out->trouble = clip ? nullptr : &trouble;
   out->from = bases;
   out->offset.assign(bases.size(), 0);
+  out->soundSegment.assign(bases.size(), 0);
+  out->soundEnd.assign(bases.size(), 0);
   out->pastEnd.assign(bases.size(), 0);
   const std::string name = PathToUtf8(path);
   LibavClearError();
@@ -752,7 +888,8 @@ bool Recorder::Session::AddFile(const std::filesystem::path& path,
   std::unique_ptr<Output> out = NewOutput(path, false);
   if (!out) return false;
   if (latestVideo == INT64_MIN) {
-    out->everything = out->started = true;
+    out->everything = true;
+    out->Begin(0);
   } else {
     out->startAsked = latestVideo + 1;
   }
@@ -762,6 +899,7 @@ bool Recorder::Session::AddFile(const std::filesystem::path& path,
   }
   out->queueLimit.store(liveLimit, std::memory_order_relaxed);
   out->counter = counter;
+  if (paused) out->Pause(true, out->startAsked, recentSound);
   for (AVPacket* packet : recentSound) {
     const Output::Fate fate = out->SoundFate(packet);
     if (fate != Output::Fate::Drop) out->Keep(av->av_packet_clone(packet), fate);
@@ -1194,6 +1332,8 @@ bool Recorder::Start(const RecordSettings& settings, const std::filesystem::path
   dropped_.store(0, std::memory_order_relaxed);
   bytesWritten_.store(0, std::memory_order_relaxed);
   startTicks_ = ClockTicks();
+  pausedSince_ = pausedTicks_ = 0;
+  filePaused_.store(false, std::memory_order_relaxed);
   lastAudioSeen_ = 0;
   lastAudioProgressTicks_ = 0;
   audioStallLogged_ = false;
@@ -1579,6 +1719,7 @@ void Recorder::Stop() {
   if (stale && av) av->av_buffer_unref(&stale);
 
   recording_.store(false, std::memory_order_relaxed);
+  filePaused_.store(false, std::memory_order_relaxed);
   replaying_.store(false, std::memory_order_relaxed);
   if (session_) {
     std::unique_ptr<Session> session = std::move(session_);
@@ -1679,6 +1820,8 @@ void Recorder::StartFile(const std::filesystem::path& file) {
   }
   s->keyWanted.store(true, std::memory_order_relaxed);
   startTicks_ = ClockTicks();
+  pausedTicks_ = 0;
+  pausedSince_ = startTicks_;  // a split in a pause starts at 0 and stays there
   {
     std::lock_guard<std::mutex> lock(infoMutex_);
     file_ = PathToUtf8(file);
@@ -1700,11 +1843,39 @@ void Recorder::StopFile() {
       live->counter = nullptr;
       s->live = nullptr;
     }
+    s->paused = false;
   }
   s->keyWanted.store(true, std::memory_order_relaxed);
   recording_.store(false, std::memory_order_relaxed);
+  filePaused_.store(false, std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(infoMutex_);
   file_.clear();
+}
+
+bool Recorder::PauseFile(bool pause) {
+  Session* s = session_.get();
+  if (!s || !recording()) return false;
+  if (pause == filePaused()) return true;
+  // The slot the next picture is sent in, as for a marker. Not the newest out
+  // of the encoder: its lookahead holds half a second back, and a keyframe of
+  // its own in there would pause or go on that much early.
+  const int64_t at = (int64_t)videoFramesWritten_.load(std::memory_order_relaxed);
+  {
+    std::lock_guard<std::mutex> lock(s->routeMutex);
+    s->paused = pause;
+    if (Output* live = s->live) live->Pause(pause, at, s->recentSound);
+  }
+  // The file stops and goes on at a keyframe, asked for after `at` was read.
+  s->keyWanted.store(true, std::memory_order_relaxed);
+  const int64_t now = ClockTicks();
+  if (pause) {
+    pausedSince_ = now;
+  } else {
+    pausedTicks_ += now - pausedSince_;
+  }
+  filePaused_.store(pause, std::memory_order_relaxed);
+  CAP_LOG("Recording: %s", pause ? "paused" : "resumed");
+  return true;
 }
 
 void Recorder::SetReplay(double seconds, uint64_t bytes, const std::filesystem::path& disk) {
@@ -1807,13 +1978,11 @@ bool Recorder::SaveReplay(const std::filesystem::path& file, double* seconds) {
 
   std::unique_ptr<Output> out = s->NewOutput(file, true);
   if (!out) return false;
-  out->started = out->ended = true;
-  out->start = out->startAsked = first;
-  out->endAsked = out->end = end;
+  out->Begin(first);
+  out->ended = true;
+  out->startAsked = first;
+  out->endAsked = out->segments.back().end = end;
   out->endedTicks = ClockTicks();
-  for (size_t i = 0; i < out->from.size(); ++i) {
-    out->offset[i] = av->av_rescale_q(first, vtb, out->from[i]);
-  }
   for (int64_t mark : s->marks) {
     if (mark >= first && mark < end) out->marks.push_back(mark);
   }
@@ -2488,7 +2657,9 @@ void Recorder::AudioThread(Session* s) {
 }
 
 double Recorder::seconds() const {
-  return startTicks_ ? TicksToSeconds(ClockTicks() - startTicks_) : 0.0;
+  if (!startTicks_) return 0.0;
+  const int64_t now = filePaused() ? pausedSince_ : ClockTicks();
+  return TicksToSeconds(now - startTicks_ - pausedTicks_);
 }
 
 uint64_t Recorder::queuedBytes() const {

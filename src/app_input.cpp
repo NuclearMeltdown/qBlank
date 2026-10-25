@@ -98,6 +98,9 @@ bool App::RunHotkeyAction(HotkeyAction action) {
     case HotkeyAction::Marker:
       recording_.AddMarker();
       return true;
+    case HotkeyAction::PauseRecording:
+      recording_.TogglePause();
+      return true;
     case HotkeyAction::Screenshot:
       RequestScreenshot();
       return true;
