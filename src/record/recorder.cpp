@@ -1715,17 +1715,26 @@ bool Recorder::SaveReplay(const std::filesystem::path& file, double* seconds) {
 
   // The pictures leave the encoder in decode order. The clip ends where every
   // picture up to the newest one has come: behind it, a B-frame may still be
-  // on its way.
+  // on its way. Not by counting them -- a slot the encoder was too busy for
+  // has none, and the clip used to end there.
   const int64_t first = ring.video.front()->pts;
+  // Every picture still to come shows after the newest one decodes.
+  const AVPacket* newest = ring.video.back();
+  const int64_t settled = newest->dts != AV_NOPTS_VALUE ? newest->dts : newest->pts;
+  // The earliest picture from each place on.
+  std::vector<int64_t> later(ring.video.size() + 1, INT64_MAX);
+  for (size_t i = ring.video.size(); i-- > 0;) {
+    const int64_t pts = ring.video[i]->pts;
+    later[i] = pts < first ? later[i + 1] : std::min(later[i + 1], pts);
+  }
   size_t cut = 0;
   int64_t end = first;
   int64_t top = INT64_MIN;
-  int64_t count = 0;
   for (size_t i = 0; i < ring.video.size(); ++i) {
     const int64_t pts = ring.video[i]->pts;
     if (pts < first) continue;
     top = std::max(top, pts);
-    if (++count == top - first + 1) {
+    if (top <= settled && later[i + 1] > top) {
       cut = i + 1;
       end = top + 1;
     }
