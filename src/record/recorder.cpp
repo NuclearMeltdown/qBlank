@@ -1146,12 +1146,11 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
       if (settings.rateControl == RateControl::Quality) {
         pair("crf", std::to_string(settings.qualityLevel));
       }
-      // SVT-AV1 holds a rate constant only in its low-delay structure, which
-      // manages under 60 frames a second at 1080p and stalls on every keyframe.
-      // Constant goes as variable there, and variable without a ceiling, which
-      // it refuses outside crf.
-      if (encoder.id == RecordEncoder::SvtAv1 && settings.rateControl != RateControl::Quality) {
-        pair("maxrate", "0");
+      // SVT-AV1 holds a rate constant only in its real-time mode, and takes
+      // variable only without a ceiling, which it refuses outside crf.
+      if (encoder.id == RecordEncoder::SvtAv1) {
+        if (settings.rateControl == RateControl::Cbr) pair("svtav1-params", "rtc=1");
+        if (settings.rateControl == RateControl::Vbr) pair("maxrate", "0");
       }
       break;
   }
@@ -1160,10 +1159,13 @@ std::vector<std::string> Recorder::EncoderOptions(const RecordSettings& settings
   if (encoder.id == RecordEncoder::SvtAv1) {
     // SVT-AV1 numbers its presets, lower is slower. Above 9 it warns of
     // artefacts outside its real-time mode, so the fastest step is 9; the old
-    // speed setting covers 9 to 5.
+    // speed setting covers 9 to 5. The real-time mode is made for 10 to 12 and
+    // below 10 falls under 60 frames at 1080p, so there the seven steps fold
+    // onto 12 to 9.
     const int step = settings.preset != EncoderPreset::Auto ? (int)settings.preset - 1
                                                             : (int)settings.speed;
-    pair("preset", std::to_string(9 - step));
+    pair("preset", std::to_string(settings.rateControl == RateControl::Cbr ? 12 - step / 2
+                                                                            : 9 - step));
   } else if (const char* preset = PresetName(family, settings.preset)) {
     pair(family == Family::Amf ? "quality" : "preset", preset);
   } else if (family == Family::Software) {

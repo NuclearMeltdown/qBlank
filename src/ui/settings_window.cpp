@@ -4818,12 +4818,13 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
                "picture demands."));
   if (encoder && encoder->id == RecordEncoder::SvtAv1 &&
       rec.rateControl != RateControl::Quality) {
-    TextDisabledWrapped(T("SVT-AV1 hält die Rate nur in einem Echtzeitmodus konstant, der für "
-                          "60 Bilder zu langsam ist. Konstant läuft hier wie Variabel, Variabel "
-                          "ohne Obergrenze.",
-                          "SVT-AV1 only holds a constant rate in a real-time mode too slow for "
-                          "60 frames. Constant runs as Variable here, Variable without a "
-                          "ceiling."));
+    TextDisabledWrapped(rec.rateControl == RateControl::Cbr
+                            ? T("SVT-AV1 hält die Rate nur in seinem Echtzeitmodus konstant. "
+                                "Der kostet bei gleicher Datenrate etwas Qualität.",
+                                "SVT-AV1 holds a constant rate only in its real-time mode, "
+                                "which costs a little quality at the same data rate.")
+                            : T("SVT-AV1 nimmt Variabel nur ohne Obergrenze.",
+                                "SVT-AV1 takes Variable only without a ceiling."));
   }
 
   // Bitrate und Qualitaet sind die beiden Zahlen, die an der Ratensteuerung
