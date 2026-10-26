@@ -402,6 +402,7 @@ function pickProgram(assets) {
       show(rels);
     })
     .catch(function(){
+      box.innerHTML = '';
       var note = document.getElementById('relNote');
       if (note) note.innerHTML = L('GitHub did not answer. The notes are on the ', 'GitHub hat nicht geantwortet. Die Notizen stehen auf der ') +
         '<a href="https://github.com/NuclearMeltdown/qBlank/releases">' + L('releases page', 'Release-Seite') + '</a>.';

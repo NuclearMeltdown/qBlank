@@ -271,6 +271,10 @@ footer .made{margin-top:18px}
 .landing .toc{margin-top:76px}
 .doc .cta{justify-content:flex-start;margin-top:18px}
 #releases{margin-top:30px}
+.fetching{display:flex;align-items:center;gap:10px;color:var(--dim);font-size:.9rem}
+.fetching::before{content:"";flex:none;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.fetching::before{animation:none}}
 .rel{margin-top:26px}
 .rel h3{margin-top:0}
 .rel h3 .when{color:var(--dim);font-weight:400;font-size:.85rem;margin-left:10px}
