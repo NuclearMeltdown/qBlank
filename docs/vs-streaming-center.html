@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank vs AVerMedia Streaming Center — capture card and recording</title>
+<meta name="description" content="qBlank and AVerMedia Streaming Center compared: devices, display, setup, sound, analogue consoles, screen and window, recording, screenshots and keys.">
+<link rel="icon" href="icon.png">
+<link rel="alternate" hreflang="en" href="https://qblank.com/vs-streaming-center.html">
+<link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-streaming-center.html">
+<link rel="alternate" hreflang="x-default" href="https://qblank.com/vs-streaming-center.html">
+<link rel="canonical" href="https://qblank.com/vs-streaming-center.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Compare","item":"https://qblank.com/compare.html"},{"@type":"ListItem","position":3,"name":"qBlank vs Streaming Center","item":"https://qblank.com/vs-streaming-center.html"}]}</script>
+<link rel="stylesheet" href="site.css">
+<script>
+// The same as on the front page: theme and language before anything is painted.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
+})();
+</script>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Manual</a>
+      <a href="faq.html">Troubleshooting</a>
+      <a href="compare.html" aria-current="true">Compare</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="de/vs-streaming-center.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>qBlank vs Streaming Center</h1>
+    <p class="tag">Streaming Center is AVerMedia's app for streams and recordings with its own devices. qBlank plays and records any card, a screen or a window.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#short">In short</a>
+      <a href="#about">The two projects</a>
+      <a href="#display">Capture card: display</a>
+      <a href="#setup">Capture card: setup</a>
+      <a href="#sound">Capture card: sound</a>
+      <a href="#analogue">Analogue consoles</a>
+      <a href="#screen">Screen and window</a>
+      <a href="#record">Recording</a>
+      <a href="#stills">Screenshots and camera</a>
+      <a href="#keys">Keys</a>
+      <a href="#avermedia">Only in Streaming Center</a>
+      <a href="#qblank">Only in qBlank</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="short">
+      <h2>In short</h2>
+      <p>Compared with Streaming Center 1.8.22.2, its release notes, AVerMedia's product page and its Japanese manual.</p>
+      <table>
+        <tr><th></th><th>qBlank</th><th>Streaming Center</th></tr>
+        <tr><td>Source code</td><td>Open, GPLv3</td><td>Closed, free</td></tr>
+        <tr><td>Made for</td><td>Playing on a card, screen or window, and recording it</td><td>Streams and recordings with AVerMedia devices</td></tr>
+        <tr><td>Devices</td><td>Any capture card</td><td>AVerMedia cards, cameras and microphones only</td></tr>
+        <tr><td>Systems</td><td>Windows 10 and 11, 64-bit</td><td>Windows 10 and 11, 64-bit</td></tr>
+        <tr><td>Download</td><td>One file, about 3&nbsp;MB</td><td>Installer, 335&nbsp;MB</td></tr>
+        <tr><td>Display</td><td>Own renderer, Direct3D 11 or Vulkan</td><td>The scene, in the main window, a preview window or full screen</td></tr>
+        <tr><td>Analogue consoles</td><td>Video standard, deinterlacing, composite filters</td><td>Video standard and deinterlacing not stated</td></tr>
+        <tr><td>Screen and window</td><td>Monitor or window</td><td>Monitor or window, as sources in a scene</td></tr>
+        <tr><td>Recording</td><td>MKV, MP4, AVI; H.264, H.265, AV1, lossless</td><td>H.264, H.265, AV1; container not stated</td></tr>
+        <tr><td>Streaming</td><td>&ndash;</td><td>To several platforms at once</td></tr>
+        <tr><td>Replay buffer</td><td>Memory or disk, up to 30&nbsp;minutes</td><td>&ndash;</td></tr>
+        <tr><td>Virtual camera</td><td>64-bit, HDR</td><td>Yes</td></tr>
+      </table>
+    </section>
+
+    <section id="about">
+      <h2>The two projects</h2>
+      <h3>Streaming Center</h3>
+      <ul>
+        <li>AVerMedia's app for streams and recordings. It brings RECentral, CamEngine and VibeEngine together.</li>
+        <li>RECentral&nbsp;4 got security updates until 31 August 2026.</li>
+        <li>Free, closed source. For Windows 10 and 11, 64-bit.</li>
+        <li>1.8.22.2 came out on 27 May 2026, as an installer of 335&nbsp;MB. A beta, 1.9.4.5, followed on 10 September 2026.</li>
+        <li>The devices' own settings are in a second program, AssistCentral Pro.</li>
+        <li>AVerMedia's FAQ: the older StreamEngine clashes with Windows 11 24H2 and can upset Streaming Center and OBS.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Open source under GPLv3. Code, issues and releases are on GitHub.</li>
+        <li>English and German, with a manual in both.</li>
+        <li>One file of about 3&nbsp;MB, from winget, the website or GitHub.</li>
+        <li>Recording needs ffmpeg. qBlank offers to download it, from a fixed source, checked against its hash.</li>
+        <li>Updates are checked on start, if you want.</li>
+      </ul>
+    </section>
+
+    <section id="display">
+      <h2>Capture card: display</h2>
+      <h3>Streaming Center: a scene</h3>
+      <ul>
+        <li>The card is a source in a scene, on a canvas with its own resolution and frame rate.</li>
+        <li>The main window shows the scene. A preview window shows it on its own, even with Streaming Center minimised. Full screen too.</li>
+        <li>The general settings have a switch for VSync.</li>
+        <li>RTX Video Super Resolution sharpens low-resolution sources on an NVIDIA RTX card.</li>
+      </ul>
+      <h3>qBlank: its own renderer</h3>
+      <ul>
+        <li>qBlank draws the picture itself, with Direct3D 11 or Vulkan. <strong>Display &rarr; Graphics API</strong> picks one.</li>
+        <li>Each frame is drawn when it arrives, at the source's rate. A frame not yet drawn is replaced by the next, never queued behind it.</li>
+        <li>One frame of queue in the swap chain, tearing allowed, VSync off by default.</li>
+      </ul>
+      <p><kbd>F1</kbd> shows what qBlank adds itself: <em>Pipeline</em> is the time from a frame's arrival in qBlank until it leaves qBlank. About 1&nbsp;ms at 1080p60. The card and the monitor add their own on top.</p>
+      <figure class="ui own">
+        <img src="shots/stats.png" width="331" height="135" loading="lazy" alt="The F1 statistics on Compact: Source rate 64.95 fps, reported 143.86; Output 64.9 fps, VSync off, tearing allowed; Pipeline 1.3 ms">
+        <figcaption><kbd>F1</kbd> on <em>Compact</em>, here on a window: the source's rate, what reaches the screen, and qBlank's own time.</figcaption>
+      </figure>
+      <div class="note">The two were not measured against each other here.</div>
+    </section>
+
+    <section id="setup">
+      <h2>Capture card: setup</h2>
+      <h3>Streaming Center</h3>
+      <ul>
+        <li>It opens AVerMedia devices only, and only with their driver installed.</li>
+        <li>A source's settings set resolution, frame rate and format, as far as the device offers them.</li>
+        <li>VRR recording mode, on the GC553G2, GC553Pro and GC575, is meant to reduce flicker and stutter.</li>
+        <li>HDR recording for cards that send P010, with HDR tone mapping and brightness.</li>
+      </ul>
+      <h3>qBlank: fitted to the signal</h3>
+      <ul>
+        <li><strong>Source</strong> lists what the card offers: <em>Colour format</em>, <em>Resolution</em> and <em>Frame rate</em>.</li>
+        <li><em>Match the resolution to the video standard</em> is on by default: if the resolution does not fit, say 720&times;480 on PAL, qBlank sets the right one itself.</li>
+        <li><em>Enter values manually</em> is there for formats a card does not list.</li>
+        <li>NV12 and P010 as well as YUY2, UYVY and RGB. 10-bit stays 10-bit, HDR stays HDR.</li>
+        <li>The colour range is measured from the picture.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/source.png" width="528" height="445" loading="lazy" alt="The Source tab of the settings: picture source Capture card, Screen or Window, the input set to Automatic, the card picked under Video device, and the buttons Configure card and Reinitialise card">
+        <figcaption>Source: card, screen or window as picture source, then the card and its input.</figcaption>
+      </figure>
+    </section>
+
+    <section id="sound">
+      <h2>Capture card: sound</h2>
+      <h3>Streaming Center: a mixer</h3>
+      <ul>
+        <li>The audio mixer takes input devices, and the PC's own sound.</li>
+        <li>Microphones get noise suppression, by AVerMedia's AI or NVIDIA's, and echo cancellation. Also a noise gate, de-esser, reverb, EQ and compressor.</li>
+        <li>Audio monitoring plays a source back. AVerMedia advises muting <em>Default Audio Output</em> then, or the game sound may be doubled in the recording.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Any format the card sends. qBlank converts it to what the device plays.</li>
+        <li><em>Audio buffer</em> from 5 to 200&nbsp;ms, 30 by default.</li>
+        <li><em>Exclusive Mode</em> bypasses the Windows mixer for less delay. It locks the device against other programs.</li>
+        <li><em>A/V offset</em> moves sound or picture by up to 200&nbsp;ms during playback, for a TV or headset that adds its own delay. It does not touch the recording.</li>
+        <li><kbd>M</kbd> mutes, <kbd>+</kbd> and <kbd>-</kbd> set the volume. Neither touches the recording.</li>
+        <li>Microphones and other inputs go into the recording as separate sources. See <a href="#record">Recording</a>.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/playback.png" width="604" height="268" loading="lazy" alt="The Audio tab: Playback on System default with Exclusive Mode off, and under Delay the Audio buffer at 30 ms and the A/V offset at 0 ms">
+        <figcaption>Audio &rarr; Playback and Delay, as it comes.</figcaption>
+      </figure>
+    </section>
+
+    <section id="analogue">
+      <h2>Analogue consoles</h2>
+      <ul>
+        <li>Streaming Center's manual says nothing about the video standard or deinterlacing. It has no filters for composite or pixel art.</li>
+        <li>qBlank finds the video standard, deinterlaces what is interlaced, and has filters for composite and pixel art. See <a href="vs-amarectv.html#analogue">analogue consoles</a> on the AmaRecTV page.</li>
+      </ul>
+    </section>
+
+    <section id="screen">
+      <h2>Screen and window</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>Streaming Center</th></tr>
+        <tr><td>What it takes</td><td>A whole monitor, or one window</td><td>A monitor, or a window from a list</td></tr>
+        <tr><td>Mouse pointer</td><td>Switchable</td><td>Switchable on the monitor</td></tr>
+        <tr><td>How</td><td>As the picture source</td><td>As a source in a scene, next to others</td></tr>
+      </table>
+      <h3>qBlank</h3>
+      <ul>
+        <li><em>Screen</em> takes a whole monitor, <em>Window</em> one window, games and video included.</li>
+        <li>A covered window comes through. A minimised one does not.</li>
+        <li>If the title changes or the window is gone, qBlank takes another window of the same program.</li>
+        <li><em>System sound without qBlank</em> records everything except qBlank's own playback. qBlank stays audible and nothing echoes.</li>
+        <li><em>Hide qBlank from the capture</em> is on by default for the screen. It keeps qBlank out of every screen capture, Remote Play and Remote Desktop included.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/windowsrc.png" width="604" height="376" loading="lazy" alt="The Source tab with Window as picture source: the window Test window — python.exe, Refresh, the boxes for the mouse pointer and the preview, and four notes on covered windows, a lost title, exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Window: the window, pointer, preview, and what to know.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="364" loading="lazy" alt="The Source tab with Screen as picture source: the primary monitor picked, mouse pointer, preview and hiding qBlank from the capture switched on, and the notes on exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Screen: monitor, pointer, preview, hide qBlank.</figcaption>
+      </figure>
+      <figure class="ui panel">
+        <img src="shots/panel.png" width="420" height="162" loading="lazy" alt="The panel qBlank shows with the preview off: Monitor 1, 2560 × 1440, 144 Hz, 5 fps, and the buttons Start recording, Screenshot and Show preview">
+        <figcaption>Preview off: the panel instead of the picture.</figcaption>
+      </figure>
+    </section>
+
+    <section id="record">
+      <h2>Recording</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>Streaming Center</th></tr>
+        <tr><td>Containers</td><td>MKV, MP4; AVI for lossless</td><td>Not stated</td></tr>
+        <tr><td>Video codecs</td><td>H.264 on NVENC, Quick Sync, AMF or x264; H.265 on NVENC, Quick Sync, AMF or x265; AV1 on NVENC, Intel Arc, AMD or SVT-AV1</td><td>H.264, H.265, AV1; AV1 with the GC553G2, GC553Pro, GC551G2, GC575 or GC573, from an RTX 40 or RX 7000</td></tr>
+        <tr><td>Lossless</td><td>H.265 lossless on NVENC, UT Video, uncompressed RGB</td><td>Not stated</td></tr>
+        <tr><td>HDR</td><td>From card, screen or window</td><td>From cards that send P010</td></tr>
+        <tr><td>Sound sources</td><td>Card, inputs, outputs, system without qBlank; gain up to +12&nbsp;dB</td><td>The mixer: devices and the PC's sound, with filters</td></tr>
+        <tr><td>Tracks</td><td>Mixed, separate, or both</td><td>Not stated; <em>Voice Mode</em> adds the voice as an MP3</td></tr>
+        <tr><td>Pause</td><td>Its own key, one file without a gap</td><td>A button</td></tr>
+        <tr><td>Replay buffer</td><td>Memory or disk, 5&nbsp;s to 30&nbsp;min</td><td>&ndash;</td></tr>
+      </table>
+      <h3>Streaming Center</h3>
+      <ul>
+        <li>The recording is set in the settings, on the Output tab. A <em>+</em> opens more details.</li>
+        <li>Profiles switch between a landscape and a portrait layout, the latter for viewers on phones.</li>
+        <li>It streams too, to several platforms at once.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>The encoder runs inside qBlank, through ffmpeg's libraries. With NVENC and AMF the frame goes from the GPU to the encoder without a copy.</li>
+        <li>A change of size or video standard during a recording starts a new file, seamlessly.</li>
+        <li>MKV stays playable after a crash.</li>
+        <li>The replay buffer and the recording share one encoder. <kbd>Shift</kbd>+<kbd>F9</kbd> saves the last minutes as a clip.</li>
+        <li>Markers: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> sets one, players show them as chapters.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="718" loading="lazy" alt="The Recording tab: container MKV, frame rate and resolution same as source, the output folder with the free space as recording time, the larger buffer in memory, and under Screenshots the format PNG and the screenshot folder">
+        <figcaption>Recording: container, rate, size, folder, splitting and buffer.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="The Recording sources section of the Audio tab: the card audio, an input on the system default and the system sound, each with gain, tracks and level, and the button Add">
+        <figcaption>Audio &rarr; Recording sources: each with gain, tracks and level.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="The Replay tab: replay in the background on, length 60 seconds, storage in memory with at most 4 GB, the free memory, and what 60 seconds take">
+        <figcaption>Replay: length, and memory or disk.</figcaption>
+      </figure>
+    </section>
+
+    <section id="stills">
+      <h2>Screenshots and virtual camera</h2>
+      <ul>
+        <li>Streaming Center takes a still with a snapshot. The format is not stated.</li>
+        <li>qBlank saves PNG, JPEG, JPEG&nbsp;XR or AVIF, HDR as JPEG&nbsp;XR or AVIF. <kbd>Ctrl</kbd>+<kbd>F10</kbd> copies to the clipboard.</li>
+        <li>Both have a virtual camera. qBlank's is a DirectShow source for 64-bit programs, HDR included. How Streaming Center's works is not stated.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/camera.png" width="528" height="368" loading="lazy" alt="The Virtual camera section: switched on, with OBS and Discord reading, each in its own format">
+        <figcaption>Recording &rarr; Virtual camera: installed, on, and who is reading it.</figcaption>
+      </figure>
+    </section>
+
+    <section id="keys">
+      <h2>Keys</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>Streaming Center</th></tr>
+        <tr><td>Keys to set</td><td>Every action</td><td>Five</td></tr>
+        <tr><td>Keys in a game</td><td>A second key under <em>System-wide</em>; no other program gets it</td><td>Not stated</td></tr>
+        <tr><td>Record</td><td><kbd>F9</kbd></td><td>One key for recording or streaming, one for recording on the source or SD card</td></tr>
+        <tr><td>Stream</td><td>&ndash;</td><td>A key</td></tr>
+        <tr><td>Screenshot</td><td><kbd>F10</kbd></td><td>A key</td></tr>
+        <tr><td>VRR recording mode</td><td>&ndash;</td><td>A key</td></tr>
+        <tr><td>Pause</td><td><kbd>Pause</kbd></td><td>&ndash;</td></tr>
+        <tr><td>Save replay</td><td><kbd>Shift</kbd>+<kbd>F9</kbd></td><td>&ndash;</td></tr>
+      </table>
+      <ul>
+        <li>A reset button restores Streaming Center's default keys. The manual does not name them.</li>
+        <li>qBlank's system-wide keys are unbound out of the box.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/keys.png" width="528" height="548" loading="lazy" alt="The Keys tab: each action with its shortcut and a System-wide column, where Start/stop recording has Alt+F9, Save replay as clip Alt+Shift+F9 and Screenshot Alt+F10">
+        <figcaption>Keys: one key for the window, a second one system-wide.</figcaption>
+      </figure>
+    </section>
+
+    <section id="avermedia">
+      <h2>Only in Streaming Center</h2>
+      <ul>
+        <li>Scenes with layers and picture-in-picture: cameras, images, text.</li>
+        <li>Streaming, to several platforms at once.</li>
+        <li>AVerMedia cameras and microphones, with their settings.</li>
+        <li>Filters for the microphone: noise, echo, gate, EQ, compressor and more.</li>
+        <li>RTX Video Super Resolution.</li>
+        <li>VRR recording mode, on three cards.</li>
+        <li>A portrait layout for viewers on phones.</li>
+        <li>The voice as an extra MP3.</li>
+      </ul>
+    </section>
+
+    <section id="qblank">
+      <h2>Only in qBlank</h2>
+      <ul>
+        <li>Any capture card, not only AVerMedia's.</li>
+        <li>Composite filters and the console's native pixel grid.</li>
+        <li>Replay buffer in memory or on disk, up to 30&nbsp;minutes, and markers.</li>
+        <li>Open source.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Home</a> · <a href="manual.html">Manual</a> · <a href="install.html">Download</a> · <a href="faq.html">Troubleshooting</a> · <a href="compare.html">Compare</a> · <a href="changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

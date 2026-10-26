@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>qBlank — Compare</title>
-<meta name="description" content="qBlank compared with OBS Studio, AmaRecTV, PotPlayer, the NVIDIA App and VirtualDub2: each in detail, and all of them side by side.">
+<meta name="description" content="qBlank compared with OBS Studio, AmaRecTV, PotPlayer, the NVIDIA App, VirtualDub2, Elgato Studio and AVerMedia Streaming Center: each in detail, and all of them side by side.">
 <link rel="icon" href="icon.png">
 <link rel="alternate" hreflang="en" href="https://qblank.com/compare.html">
 <link rel="alternate" hreflang="de" href="https://qblank.com/de/compare.html">
@@ -79,47 +79,55 @@
           <h3>qBlank vs VirtualDub2</h3>
           <p>A video editor with a capture mode, long used for lossless captures. Display, setup, sound, analogue consoles, screen, recording.</p>
         </a>
+        <a class="card" href="vs-elgato-studio.html">
+          <h3>qBlank vs Elgato Studio</h3>
+          <p>Elgato's app for its own cards, after the 4K Capture Utility. Display, setup, sound, analogue consoles, screen, recording.</p>
+        </a>
+        <a class="card" href="vs-streaming-center.html">
+          <h3>qBlank vs Streaming Center</h3>
+          <p>AVerMedia's app for streams and recordings with its own devices, after RECentral. Display, setup, sound, analogue consoles, screen, recording, keys.</p>
+        </a>
       </div>
     </section>
 
     <section id="side">
       <h2>Side by side</h2>
-      <p>Compared with OBS Studio 33.0.0, AmaRecTV 4.11, PotPlayer 1.7.23164, NVIDIA App 11.0.9 and VirtualDub2 2.5.7. The details are on each comparison page.</p>
-      <div class="pick" id="sidePick" hidden><span>Show</span><button type="button" aria-pressed="true" data-col="2">OBS Studio</button><button type="button" aria-pressed="true" data-col="3">AmaRecTV</button><button type="button" aria-pressed="true" data-col="4">PotPlayer</button><button type="button" aria-pressed="true" data-col="5">NVIDIA App</button><button type="button" aria-pressed="true" data-col="6">VirtualDub2</button></div>
+      <p>Compared with OBS Studio 33.0.0, AmaRecTV 4.11, PotPlayer 1.7.23164, NVIDIA App 11.0.9, VirtualDub2 2.5.7, Elgato Studio 1.1 and Streaming Center 1.8.22.2. The details are on each comparison page.</p>
+      <div class="pick" id="sidePick" hidden><span>Show</span><button type="button" aria-pressed="true" data-col="2">OBS Studio</button><button type="button" aria-pressed="true" data-col="3">AmaRecTV</button><button type="button" aria-pressed="true" data-col="4">PotPlayer</button><button type="button" aria-pressed="true" data-col="5">NVIDIA App</button><button type="button" aria-pressed="true" data-col="6">VirtualDub2</button><button type="button" aria-pressed="true" data-col="7">Elgato Studio</button><button type="button" aria-pressed="true" data-col="8">Streaming Center</button></div>
       <div class="side">
         <table>
-          <tr><th></th><th>qBlank</th><th><a href="vs-obs.html">OBS Studio</a></th><th><a href="vs-amarectv.html">AmaRecTV</a></th><th><a href="vs-potplayer.html">PotPlayer</a></th><th><a href="vs-nvidia-app.html">NVIDIA App</a></th><th><a href="vs-virtualdub2.html">VirtualDub2</a></th></tr>
-          <tr class="grp"><th>The program</th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
-          <tr><td>Made for</td><td>Playing on one source and recording it</td><td>Scenes for streams and recordings</td><td>Watching and recording a card</td><td>Playing video files</td><td>Recording games on NVIDIA cards</td><td>Editing video</td></tr>
-          <tr><td>Still developed</td><td>Yes</td><td>Yes</td><td>No, last in 2017</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
-          <tr><td>Source code</td><td>Open, GPLv3</td><td>Open, GPLv2+</td><td>Closed</td><td>Closed</td><td>Closed</td><td>Open, GPLv2</td></tr>
-          <tr><td>Cost</td><td>Free</td><td>Free</td><td>Free; the AMV4 codec is paid</td><td>Free</td><td>Free</td><td>Free</td></tr>
-          <tr><td>Systems</td><td>Windows 10, 11, 64-bit</td><td>Windows, macOS, Linux</td><td>Windows 8.1, 10</td><td>Windows, 64-bit, ARM64</td><td>Windows, an NVIDIA card</td><td>Windows 7 and later, 32/64-bit</td></tr>
-          <tr><td>Download</td><td>One file, 3&nbsp;MB</td><td>Installer, 187&nbsp;MB</td><td>Zip</td><td>Installer or portable, 50&nbsp;MB</td><td>Installer</td><td>Portable 7z, 42&nbsp;MB</td></tr>
-          <tr class="grp"><th>Sources</th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
-          <tr><td>Capture card</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td class="no">&ndash;</td><td>Yes</td></tr>
-          <tr><td>Screen</td><td>A monitor</td><td>A monitor</td><td>A region or monitor</td><td>An area</td><td>The desktop, off by default</td><td>A region or monitor</td></tr>
-          <tr><td>One window</td><td>Yes, even covered</td><td>Yes</td><td>As a region</td><td>Yes</td><td class="no">&ndash;</td><td>The active one</td></tr>
-          <tr><td>Older games in exclusive fullscreen</td><td class="no">&ndash;</td><td>Game Capture</td><td class="no">&ndash;</td><td>Game capture</td><td>Yes</td><td class="no">&ndash;</td></tr>
-          <tr class="grp"><th>Playing on a card</th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
-          <tr><td>Display</td><td>Own renderer, D3D 11 or Vulkan</td><td>Preview, projectors</td><td>Overlay or EVR</td><td>A renderer of choice</td><td class="no">&ndash;</td><td>Overlay or preview</td></tr>
-          <tr><td>Card format</td><td>Fitted to the video standard</td><td>Default, or by hand</td><td>From a list, or by hand</td><td>From a list, or <em>Default</em></td><td class="no">&ndash;</td><td>Driver dialog, or custom</td></tr>
-          <tr><td>Card sound</td><td>Own buffer from 5&nbsp;ms</td><td>Held back to match the video</td><td>16-bit stereo</td><td>Played through WASAPI</td><td class="no">&ndash;</td><td>Played if switched on</td></tr>
-          <tr class="grp"><th>Analogue consoles</th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
-          <tr><td>Video standard</td><td>Found automatically</td><td>In the driver</td><td>In the driver</td><td>Not detected</td><td class="no">&ndash;</td><td>In the driver</td></tr>
-          <tr><td>Deinterlacing</td><td>Measured; also recorded</td><td>By hand; also recorded</td><td>Preview only</td><td>Motion adaptive, or the GPU's</td><td class="no">&ndash;</td><td>Preview modes; half height when recording</td></tr>
-          <tr><td>Composite dot crawl</td><td>Five filters</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td></tr>
-          <tr><td>Native pixel grid</td><td>Yes</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td></tr>
-          <tr class="grp"><th>Recording</th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
-          <tr><td>Containers</td><td>MKV, MP4, AVI</td><td>MKV, MP4, MOV, FLV, TS and more</td><td>AVI</td><td>MKV, MP4, AVI, WMV, WebM and more</td><td>MP4</td><td>AVI</td></tr>
-          <tr><td>Video codecs</td><td>H.264, H.265, AV1</td><td>H.264, H.265, AV1</td><td>AMV4 or VfW</td><td>H.264 and others</td><td>H.264, H.265, AV1</td><td>VfW; H.264, H.265, AV1, VP9, ProRes</td></tr>
-          <tr><td>Encoders</td><td>NVIDIA, Intel, AMD, CPU</td><td>NVIDIA, Intel, AMD, CPU</td><td>CPU</td><td>NVIDIA, Intel, AMD, CPU</td><td>NVIDIA</td><td>NVIDIA, Intel, AMD, CPU</td></tr>
-          <tr><td>Lossless</td><td>NVENC, UT Video, uncompressed</td><td>NVENC, UT Video</td><td>AMV4, VfW</td><td>Huffyuv, uncompressed</td><td class="no">&ndash;</td><td>FFV1, uncompressed, VfW</td></tr>
-          <tr><td>Sound sources</td><td>Card, inputs, outputs, system</td><td>Any, with filters</td><td>The card</td><td>The playing source</td><td>Game and microphone</td><td>One input</td></tr>
-          <tr><td>Tracks</td><td>Mixed, separate, or both</td><td>Up to six</td><td>One</td><td>One</td><td>One, or separate</td><td>One</td></tr>
-          <tr><td>Replay buffer</td><td>Memory or disk, up to 30&nbsp;min</td><td>Memory</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td>Instant Replay</td><td class="no">&ndash;</td></tr>
-          <tr class="grp"><th>Camera</th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
-          <tr><td>Virtual camera</td><td>64-bit, HDR</td><td>64-bit, 32-bit, ARM64</td><td>32-bit</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td></tr>
+          <tr><th></th><th>qBlank</th><th><a href="vs-obs.html">OBS Studio</a></th><th><a href="vs-amarectv.html">AmaRecTV</a></th><th><a href="vs-potplayer.html">PotPlayer</a></th><th><a href="vs-nvidia-app.html">NVIDIA App</a></th><th><a href="vs-virtualdub2.html">VirtualDub2</a></th><th><a href="vs-elgato-studio.html">Elgato Studio</a></th><th><a href="vs-streaming-center.html">Streaming Center</a></th></tr>
+          <tr class="grp"><th>The program</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
+          <tr><td>Made for</td><td>Playing on one source and recording it</td><td>Scenes for streams and recordings</td><td>Watching and recording a card</td><td>Playing video files</td><td>Recording games on NVIDIA cards</td><td>Editing video</td><td>Playing and recording on Elgato cards</td><td>Streams and recordings with AVerMedia devices</td></tr>
+          <tr><td>Still developed</td><td>Yes</td><td>Yes</td><td>No, last in 2017</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+          <tr><td>Source code</td><td>Open, GPLv3</td><td>Open, GPLv2+</td><td>Closed</td><td>Closed</td><td>Closed</td><td>Open, GPLv2</td><td>Closed</td><td>Closed</td></tr>
+          <tr><td>Cost</td><td>Free</td><td>Free</td><td>Free; the AMV4 codec is paid</td><td>Free</td><td>Free</td><td>Free</td><td>Free</td><td>Free</td></tr>
+          <tr><td>Systems</td><td>Windows 10, 11, 64-bit</td><td>Windows, macOS, Linux</td><td>Windows 8.1, 10</td><td>Windows, 64-bit, ARM64</td><td>Windows, an NVIDIA card</td><td>Windows 7 and later, 32/64-bit</td><td>Windows 11, 64-bit, ARM64; macOS</td><td>Windows 10, 11, 64-bit</td></tr>
+          <tr><td>Download</td><td>One file, 3&nbsp;MB</td><td>Installer, 187&nbsp;MB</td><td>Zip</td><td>Installer or portable, 50&nbsp;MB</td><td>Installer</td><td>Portable 7z, 42&nbsp;MB</td><td>MSIX installer, 95&nbsp;MB</td><td>Installer, 335&nbsp;MB</td></tr>
+          <tr class="grp"><th>Sources</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
+          <tr><td>Capture card</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td class="no">&ndash;</td><td>Yes</td><td>Elgato cards only</td><td>AVerMedia cards only</td></tr>
+          <tr><td>Screen</td><td>A monitor</td><td>A monitor</td><td>A region or monitor</td><td>An area</td><td>The desktop, off by default</td><td>A region or monitor</td><td class="no">&ndash;</td><td>A monitor</td></tr>
+          <tr><td>One window</td><td>Yes, even covered</td><td>Yes</td><td>As a region</td><td>Yes</td><td class="no">&ndash;</td><td>The active one</td><td class="no">&ndash;</td><td>Yes</td></tr>
+          <tr><td>Older games in exclusive fullscreen</td><td class="no">&ndash;</td><td>Game Capture</td><td class="no">&ndash;</td><td>Game capture</td><td>Yes</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td>Not stated</td></tr>
+          <tr class="grp"><th>Playing on a card</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
+          <tr><td>Display</td><td>Own renderer, D3D 11 or Vulkan</td><td>Preview, projectors</td><td>Overlay or EVR</td><td>A renderer of choice</td><td class="no">&ndash;</td><td>Overlay or preview</td><td>Preview and full screen</td><td>Preview, full screen, preview window</td></tr>
+          <tr><td>Card format</td><td>Fitted to the video standard</td><td>Default, or by hand</td><td>From a list, or by hand</td><td>From a list, or <em>Default</em></td><td class="no">&ndash;</td><td>Driver dialog, or custom</td><td>EDID and colour range</td><td>Resolution, rate and format</td></tr>
+          <tr><td>Card sound</td><td>Own buffer from 5&nbsp;ms</td><td>Held back to match the video</td><td>16-bit stereo</td><td>Played through WASAPI</td><td class="no">&ndash;</td><td>Played if switched on</td><td>HDMI or analogue input</td><td>Mixer with noise and echo filters</td></tr>
+          <tr class="grp"><th>Analogue consoles</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
+          <tr><td>Video standard</td><td>Found automatically</td><td>In the driver</td><td>In the driver</td><td>Not detected</td><td class="no">&ndash;</td><td>In the driver</td><td>HDMI cards only</td><td>Not stated</td></tr>
+          <tr><td>Deinterlacing</td><td>Measured; also recorded</td><td>By hand; also recorded</td><td>Preview only</td><td>Motion adaptive, or the GPU's</td><td class="no">&ndash;</td><td>Preview modes; half height when recording</td><td>HDMI cards only</td><td>Not stated</td></tr>
+          <tr><td>Composite dot crawl</td><td>Five filters</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td></tr>
+          <tr><td>Native pixel grid</td><td>Yes</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td></tr>
+          <tr class="grp"><th>Recording</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
+          <tr><td>Containers</td><td>MKV, MP4, AVI</td><td>MKV, MP4, MOV, FLV, TS and more</td><td>AVI</td><td>MKV, MP4, AVI, WMV, WebM and more</td><td>MP4</td><td>AVI</td><td>MP4</td><td>Not stated</td></tr>
+          <tr><td>Video codecs</td><td>H.264, H.265, AV1</td><td>H.264, H.265, AV1</td><td>AMV4 or VfW</td><td>H.264 and others</td><td>H.264, H.265, AV1</td><td>VfW; H.264, H.265, AV1, VP9, ProRes</td><td>H.264, H.265, AV1</td><td>H.264, H.265, AV1</td></tr>
+          <tr><td>Encoders</td><td>NVIDIA, Intel, AMD, CPU</td><td>NVIDIA, Intel, AMD, CPU</td><td>CPU</td><td>NVIDIA, Intel, AMD, CPU</td><td>NVIDIA</td><td>NVIDIA, Intel, AMD, CPU</td><td>H.265 and AV1 on the GPU</td><td>Not stated</td></tr>
+          <tr><td>Lossless</td><td>NVENC, UT Video, uncompressed</td><td>NVENC, UT Video</td><td>AMV4, VfW</td><td>Huffyuv, uncompressed</td><td class="no">&ndash;</td><td>FFV1, uncompressed, VfW</td><td class="no">&ndash;</td><td>Not stated</td></tr>
+          <tr><td>Sound sources</td><td>Card, inputs, outputs, system</td><td>Any, with filters</td><td>The card</td><td>The playing source</td><td>Game and microphone</td><td>One input</td><td>The card</td><td>Devices and PC sound, with filters</td></tr>
+          <tr><td>Tracks</td><td>Mixed, separate, or both</td><td>Up to six</td><td>One</td><td>One</td><td>One, or separate</td><td>One</td><td>Not stated</td><td>Not stated; voice also as MP3</td></tr>
+          <tr><td>Replay buffer</td><td>Memory or disk, up to 30&nbsp;min</td><td>Memory</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td>Instant Replay</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td></tr>
+          <tr class="grp"><th>Camera</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
+          <tr><td>Virtual camera</td><td>64-bit, HDR</td><td>64-bit, 32-bit, ARM64</td><td>32-bit</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td class="no">&ndash;</td><td>Yes</td></tr>
         </table>
       </div>
     </section>

@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank vs Elgato Studio — playing on a capture card</title>
+<meta name="description" content="qBlank and Elgato Studio compared: which cards, display, setup, sound, analogue consoles, screen and window, recording, HDR and screenshots.">
+<link rel="icon" href="icon.png">
+<link rel="alternate" hreflang="en" href="https://qblank.com/vs-elgato-studio.html">
+<link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-elgato-studio.html">
+<link rel="alternate" hreflang="x-default" href="https://qblank.com/vs-elgato-studio.html">
+<link rel="canonical" href="https://qblank.com/vs-elgato-studio.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Compare","item":"https://qblank.com/compare.html"},{"@type":"ListItem","position":3,"name":"qBlank vs Elgato Studio","item":"https://qblank.com/vs-elgato-studio.html"}]}</script>
+<link rel="stylesheet" href="site.css">
+<script>
+// The same as on the front page: theme and language before anything is painted.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  var l = null;
+  try { l = localStorage.getItem('qblank-lang'); } catch (e) {}
+  if (l === 'de') location.replace('de/' + location.pathname.split('/').pop() + location.hash);
+})();
+</script>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="./"><img src="icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="install.html">Download</a>
+      <a href="manual.html">Manual</a>
+      <a href="faq.html">Troubleshooting</a>
+      <a href="compare.html" aria-current="true">Compare</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <a class="lang" id="langSwitch" href="de/vs-elgato-studio.html" hreflang="de" lang="de" title="Deutsch">DE</a>
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>qBlank vs Elgato Studio</h1>
+    <p class="tag">Elgato Studio is Elgato's app to play on its own cards and record them. qBlank does that with any card, and with a screen or a window.</p>
+  </div>
+</div>
+
+<div class="wrap doc">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#short">In short</a>
+      <a href="#about">The two projects</a>
+      <a href="#display">Capture card: display</a>
+      <a href="#setup">Capture card: setup</a>
+      <a href="#sound">Capture card: sound</a>
+      <a href="#analogue">Analogue consoles</a>
+      <a href="#screen">Screen and window</a>
+      <a href="#record">Recording</a>
+      <a href="#stills">Screenshots and camera</a>
+      <a href="#elgato">Only in Elgato Studio</a>
+      <a href="#qblank">Only in qBlank</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="short">
+      <h2>In short</h2>
+      <p>Compared with Elgato Studio 1.1, its release notes and Elgato's help pages.</p>
+      <table>
+        <tr><th></th><th>qBlank</th><th>Elgato Studio</th></tr>
+        <tr><td>Source code</td><td>Open, GPLv3</td><td>Closed, free</td></tr>
+        <tr><td>Cards</td><td>Any capture card</td><td>Elgato cards only</td></tr>
+        <tr><td>Systems</td><td>Windows 10 and 11, 64-bit</td><td>Windows 11, 64-bit or ARM64; macOS 14.2 and later</td></tr>
+        <tr><td>Download</td><td>One file, about 3&nbsp;MB</td><td>MSIX installer, 95&nbsp;MB</td></tr>
+        <tr><td>Display</td><td>Own renderer, Direct3D 11 or Vulkan</td><td>Preview and full screen</td></tr>
+        <tr><td>Analogue consoles</td><td>Video standard, deinterlacing, composite filters</td><td>&ndash;; its cards are HDMI</td></tr>
+        <tr><td>Screen and window</td><td>Monitor or window</td><td>&ndash;</td></tr>
+        <tr><td>Containers</td><td>MKV, MP4, AVI</td><td>MP4</td></tr>
+        <tr><td>Video codecs</td><td>H.264, H.265, AV1 on NVIDIA, Intel, AMD or the CPU</td><td>H.264, HEVC, AV1; HEVC and AV1 need the GPU</td></tr>
+        <tr><td>HDR</td><td>Display, recording, screenshots, camera</td><td>Recording with HEVC or AV1, on Windows</td></tr>
+        <tr><td>Replay buffer</td><td>Memory or disk, up to 30&nbsp;minutes</td><td>&ndash;</td></tr>
+        <tr><td>Virtual camera</td><td>64-bit, HDR</td><td>&ndash;</td></tr>
+      </table>
+    </section>
+
+    <section id="about">
+      <h2>The two projects</h2>
+      <h3>Elgato Studio</h3>
+      <ul>
+        <li>Elgato's app for its capture cards. 1.0 came out on 2 July 2025, 1.1 on 18 May 2026.</li>
+        <li>It follows the 4K Capture Utility. Elgato lists that one as legacy, no longer in active development.</li>
+        <li>Free, closed source. Ten languages, German included.</li>
+        <li>For Windows 11, 64-bit or ARM64, as an MSIX package of 95&nbsp;MB. For macOS 14.2 and later.</li>
+        <li>Updates itself, on a Stable or a Beta channel.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Open source under GPLv3. Code, issues and releases are on GitHub.</li>
+        <li>English and German, with a manual in both.</li>
+        <li>One file of about 3&nbsp;MB, from winget, the website or GitHub.</li>
+        <li>Recording needs ffmpeg. qBlank offers to download it, from a fixed source, checked against its hash.</li>
+        <li>Updates are checked on start, if you want.</li>
+      </ul>
+    </section>
+
+    <section id="display">
+      <h2>Capture card: display</h2>
+      <h3>Elgato Studio</h3>
+      <ul>
+        <li>The live preview is meant for playing in the app. Elgato says it has almost no delay.</li>
+        <li>A button switches to full screen.</li>
+        <li><em>Video Flow</em> shows the resolution and the capture settings at a glance.</li>
+        <li>How it draws the picture is not stated.</li>
+      </ul>
+      <h3>qBlank: its own renderer</h3>
+      <ul>
+        <li>qBlank draws the picture itself, with Direct3D 11 or Vulkan. <strong>Display &rarr; Graphics API</strong> picks one.</li>
+        <li>Each frame is drawn when it arrives, at the source's rate. A frame not yet drawn is replaced by the next, never queued behind it.</li>
+        <li>One frame of queue in the swap chain, tearing allowed, VSync off by default.</li>
+      </ul>
+      <p><kbd>F1</kbd> shows what qBlank adds itself: <em>Pipeline</em> is the time from a frame's arrival in qBlank until it leaves qBlank. About 1&nbsp;ms at 1080p60. The card and the monitor add their own on top.</p>
+      <figure class="ui own">
+        <img src="shots/stats.png" width="331" height="135" loading="lazy" alt="The F1 statistics on Compact: Source rate 64.95 fps, reported 143.86; Output 64.9 fps, VSync off, tearing allowed; Pipeline 1.3 ms">
+        <figcaption><kbd>F1</kbd> on <em>Compact</em>, here on a window: the source's rate, what reaches the screen, and qBlank's own time.</figcaption>
+      </figure>
+      <div class="note">The two were not measured against each other here.</div>
+    </section>
+
+    <section id="setup">
+      <h2>Capture card: setup</h2>
+      <h3>Elgato Studio: the card's settings built in</h3>
+      <ul>
+        <li>It opens Elgato cards only: 4K X, 4K Pro, 4K S, Game Capture Neo, 4K60 Pro MK.2, HD60 S+ and HD60 X. All of them are HDMI.</li>
+        <li>The card's settings are in the app: HDMI colour range (<em>Auto</em>, <em>Expand</em>, <em>Shrink</em>) and the EDID mode (<em>Merged</em>, <em>Display</em>, <em>Internal</em>).</li>
+        <li>An own EDID, as a preset or a .bin file.</li>
+        <li>HDR tone mapping for other programs that open the card.</li>
+        <li>Firmware for the cards comes with the app.</li>
+      </ul>
+      <h3>qBlank: fitted to the signal</h3>
+      <ul>
+        <li><strong>Source</strong> lists what the card offers: <em>Colour format</em>, <em>Resolution</em> and <em>Frame rate</em>.</li>
+        <li><em>Match the resolution to the video standard</em> is on by default: if the resolution does not fit, say 720&times;480 on PAL, qBlank sets the right one itself.</li>
+        <li><em>Enter values manually</em> is there for formats a card does not list.</li>
+        <li>NV12 and P010 as well as YUY2, UYVY and RGB. 10-bit stays 10-bit, HDR stays HDR.</li>
+        <li>The colour range is measured from the picture.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/source.png" width="528" height="445" loading="lazy" alt="The Source tab of the settings: picture source Capture card, Screen or Window, the input set to Automatic, the card picked under Video device, and the buttons Configure card and Reinitialise card">
+        <figcaption>Source: card, screen or window as picture source, then the card and its input.</figcaption>
+      </figure>
+    </section>
+
+    <section id="sound">
+      <h2>Capture card: sound</h2>
+      <h3>Elgato Studio</h3>
+      <ul>
+        <li>Sound comes from HDMI, or from the card's analogue input.</li>
+        <li>A slider sets the volume. Since 1.0.3 the preview's volume is also in the Windows mixer.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>Any format the card sends. qBlank converts it to what the device plays.</li>
+        <li><em>Audio buffer</em> from 5 to 200&nbsp;ms, 30 by default.</li>
+        <li><em>Exclusive Mode</em> bypasses the Windows mixer for less delay. It locks the device against other programs.</li>
+        <li><em>A/V offset</em> moves sound or picture by up to 200&nbsp;ms during playback, for a TV or headset that adds its own delay. It does not touch the recording.</li>
+        <li><kbd>M</kbd> mutes, <kbd>+</kbd> and <kbd>-</kbd> set the volume. Neither touches the recording.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/playback.png" width="604" height="268" loading="lazy" alt="The Audio tab: Playback on System default with Exclusive Mode off, and under Delay the Audio buffer at 30 ms and the A/V offset at 0 ms">
+        <figcaption>Audio &rarr; Playback and Delay, as it comes.</figcaption>
+      </figure>
+    </section>
+
+    <section id="analogue">
+      <h2>Analogue consoles</h2>
+      <ul>
+        <li>The cards Elgato Studio opens are all HDMI. An analogue console reaches them only through a converter.</li>
+        <li>qBlank opens analogue cards too. It finds the video standard, deinterlaces what is interlaced, and has filters for composite and pixel art. See <a href="vs-amarectv.html#analogue">analogue consoles</a> on the AmaRecTV page.</li>
+      </ul>
+    </section>
+
+    <section id="screen">
+      <h2>Screen and window</h2>
+      <ul>
+        <li>Elgato Studio takes its cards only. Its manual has no screen or window capture.</li>
+        <li>In qBlank, <em>Screen</em> takes a whole monitor, <em>Window</em> one window, games and video included.</li>
+        <li>A covered window comes through. A minimised one does not.</li>
+        <li><em>System sound without qBlank</em> records everything except qBlank's own playback.</li>
+        <li><em>Hide qBlank from the capture</em> is on by default for the screen. It keeps qBlank out of every screen capture, Remote Play and Remote Desktop included.</li>
+      </ul>
+      <figure class="ui own">
+        <img src="shots/windowsrc.png" width="604" height="376" loading="lazy" alt="The Source tab with Window as picture source: the window Test window — python.exe, Refresh, the boxes for the mouse pointer and the preview, and four notes on covered windows, a lost title, exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Window: the window, pointer, preview, and what to know.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/screen.png" width="528" height="364" loading="lazy" alt="The Source tab with Screen as picture source: the primary monitor picked, mouse pointer, preview and hiding qBlank from the capture switched on, and the notes on exclusive fullscreen and sound">
+        <figcaption>Source &rarr; Screen: monitor, pointer, preview, hide qBlank.</figcaption>
+      </figure>
+    </section>
+
+    <section id="record">
+      <h2>Recording</h2>
+      <table>
+        <tr><th></th><th>qBlank</th><th>Elgato Studio</th></tr>
+        <tr><td>Containers</td><td>MKV, MP4; AVI for lossless</td><td>MP4</td></tr>
+        <tr><td>Video codecs</td><td>H.264 on NVENC, Quick Sync, AMF or x264; H.265 on NVENC, Quick Sync, AMF or x265; AV1 on NVENC, Intel Arc, AMD or SVT-AV1</td><td>H.264 by default; HEVC and AV1 need the GPU; AV1 only on Windows, from an RTX 40, RX 7000 or Intel Arc</td></tr>
+        <tr><td>Lossless</td><td>H.265 lossless on NVENC, UT Video, uncompressed RGB</td><td>&ndash;</td></tr>
+        <tr><td>Size and rate</td><td>The source's, or a set height and a cap</td><td><em>Max resolution</em> and <em>Max framerate</em> as caps</td></tr>
+        <tr><td>HDR</td><td>From card, screen or window</td><td>10-bit with HEVC or AV1, on Windows, since 1.1</td></tr>
+        <tr><td>Sound sources</td><td>Card, inputs, outputs, system without qBlank; gain up to +12&nbsp;dB</td><td>The card: HDMI or its analogue input</td></tr>
+        <tr><td>Tracks</td><td>Mixed, separate, or both</td><td>Not stated</td></tr>
+        <tr><td>Replay buffer</td><td>Memory or disk, 5&nbsp;s to 30&nbsp;min</td><td>&ndash;</td></tr>
+      </table>
+      <h3>Elgato Studio</h3>
+      <ul>
+        <li><em>Quality</em> has four steps: <em>Low</em>, <em>Standard</em>, <em>High</em>, <em>Maximum</em>.</li>
+        <li>On Windows a recording restarts after 3&nbsp;hours. Longer ones are not supported, per the 1.0.2 notes.</li>
+        <li>The <em>Library</em> lists recent recordings and opens their folder.</li>
+        <li>File names start with a prefix, then the date and time or a number.</li>
+      </ul>
+      <h3>qBlank</h3>
+      <ul>
+        <li>The encoder runs inside qBlank, through ffmpeg's libraries. With NVENC and AMF the frame goes from the GPU to the encoder without a copy.</li>
+        <li>A change of size or video standard during a recording starts a new file, seamlessly.</li>
+        <li>MKV stays playable after a crash.</li>
+        <li>The replay buffer and the recording share one encoder. <kbd>Shift</kbd>+<kbd>F9</kbd> saves the last minutes as a clip.</li>
+        <li>Markers: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> sets one, players show them as chapters.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/recording.png" width="528" height="718" loading="lazy" alt="The Recording tab: container MKV, frame rate and resolution same as source, the output folder with the free space as recording time, the larger buffer in memory, and under Screenshots the format PNG and the screenshot folder">
+        <figcaption>Recording: container, rate, size, folder, splitting and buffer.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/audio.png" width="528" height="524" loading="lazy" alt="The Recording sources section of the Audio tab: the card audio, an input on the system default and the system sound, each with gain, tracks and level, and the button Add">
+        <figcaption>Audio &rarr; Recording sources: each with gain, tracks and level.</figcaption>
+      </figure>
+      <figure class="ui">
+        <img src="shots/replay.png" width="528" height="330" loading="lazy" alt="The Replay tab: replay in the background on, length 60 seconds, storage in memory with at most 4 GB, the free memory, and what 60 seconds take">
+        <figcaption>Replay: length, and memory or disk.</figcaption>
+      </figure>
+    </section>
+
+    <section id="stills">
+      <h2>Screenshots and virtual camera</h2>
+      <ul>
+        <li>Elgato Studio's <em>Snapshot</em> takes a screenshot of the preview. The format is not stated.</li>
+        <li>qBlank saves PNG, JPEG, JPEG&nbsp;XR or AVIF, HDR as JPEG&nbsp;XR or AVIF. <kbd>Ctrl</kbd>+<kbd>F10</kbd> copies to the clipboard.</li>
+        <li>qBlank has a virtual camera built in, a DirectShow source for 64-bit programs. Elgato Studio has none; other programs open the card directly.</li>
+      </ul>
+      <figure class="ui">
+        <img src="shots/camera.png" width="528" height="368" loading="lazy" alt="The Virtual camera section: switched on, with OBS and Discord reading, each in its own format">
+        <figcaption>Recording &rarr; Virtual camera: installed, on, and who is reading it.</figcaption>
+      </figure>
+    </section>
+
+    <section id="elgato">
+      <h2>Only in Elgato Studio</h2>
+      <ul>
+        <li>The card's own settings: EDID, colour range, firmware.</li>
+        <li>HDR tone mapping for other programs that open the card.</li>
+        <li>macOS and ARM64.</li>
+        <li>A Stream Deck plugin.</li>
+        <li>Tips on screen for the first setup.</li>
+      </ul>
+    </section>
+
+    <section id="qblank">
+      <h2>Only in qBlank</h2>
+      <ul>
+        <li>Any capture card, analogue ones included.</li>
+        <li>Video standard, interlacing and field order measured from the picture.</li>
+        <li>Composite filters and the console's native pixel grid.</li>
+        <li>A screen or one window as source.</li>
+        <li>MKV, which survives a crash, and AVI. Lossless recording.</li>
+        <li>Microphones and system sound in the recording, on their own tracks.</li>
+        <li>Replay buffer in memory or on disk, up to 30&nbsp;minutes, and markers.</li>
+        <li>A 64-bit virtual camera with qBlank's full picture, HDR included.</li>
+        <li>Open source.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="./">Home</a> · <a href="manual.html">Manual</a> · <a href="install.html">Download</a> · <a href="faq.html">Troubleshooting</a> · <a href="compare.html">Compare</a> · <a href="changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="https://github.com/NuclearMeltdown/qBlank/wiki">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

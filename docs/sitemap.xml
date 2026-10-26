@@ -111,4 +111,24 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-virtualdub2.html"/>
     <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-virtualdub2.html"/>
   </url>
+  <url>
+    <loc>https://qblank.com/vs-elgato-studio.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-elgato-studio.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-elgato-studio.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/de/vs-elgato-studio.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-elgato-studio.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-elgato-studio.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/vs-streaming-center.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-streaming-center.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-streaming-center.html"/>
+  </url>
+  <url>
+    <loc>https://qblank.com/de/vs-streaming-center.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://qblank.com/vs-streaming-center.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://qblank.com/de/vs-streaming-center.html"/>
+  </url>
 </urlset>
