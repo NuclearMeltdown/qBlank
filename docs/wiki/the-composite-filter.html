@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The composite filter — qBlank wiki</title>
+<meta name="description" content="Dot crawl, rainbow shimmer, noise and the rolled-off top end, and the five filters that address them.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/the-composite-filter.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"The composite filter","item":"https://qblank.com/wiki/the-composite-filter.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>The composite filter</h1>
+    <p class="tag">Dot crawl, rainbow shimmer, noise and the rolled-off top end, and the five filters that address them.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#why-this-pass-runs-first">Why this pass runs first</a>
+      <a href="#rainbow-shimmer-softenchroma">Rainbow shimmer: SoftenChroma()</a>
+      <a href="#colour-edges-restorechroma">Colour edges: RestoreChroma()</a>
+      <a href="#dot-crawl-two-controls">Dot crawl: two controls</a>
+      <a href="#the-temporal-half-averaging-one-crawl-cycle">The temporal half: averaging one crawl cycle</a>
+      <a href="#the-spatial-half-synchronous-demodulation">The spatial half: synchronous demodulation</a>
+      <a href="#the-two-halves-have-to-be-told-about-each-other">The two halves have to be told about each other</a>
+      <a href="#follow-the-movement-motioncompdelta">Follow the movement: MotionCompDelta()</a>
+      <a href="#restore-bandwidth-bandwidthrestore">Restore bandwidth: BandwidthRestore()</a>
+      <a href="#only-where-needed-carrierenergy">Only where needed: CarrierEnergy()</a>
+      <a href="#one-number-every-standard">One number, every standard</a>
+      <a href="#secam">SECAM</a>
+      <a href="#where-this-sits-against-the-state-of-the-art">Where this sits against the state of the art</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/render/shaders.h</code>, pass 1 (<code>kCleanPS</code>)</p>
+      <figure class="ui own"><img src="../settings-composite.png" alt="The composite filter settings" width="436" height="347" loading="lazy"></figure>
+      <figure><img src="../composite-before-after.png" alt="The same GameCube frame over composite, filter off and filter on" width="1468" height="442" loading="lazy">
+<figcaption>A GameCube over composite at 576i. Left, the filter off: dot crawl beads along
+every letter edge and crawls across the colour bars. Right, the average of what
+stands still. The crop is not chosen by eye — it is where the measured difference
+between the two frames is largest across the parts of the picture that stand
+still.</figcaption></figure>
+      <p>A composite signal carries colour and brightness on one wire, and the two leak
+into each other. That crosstalk shows up as two different artefacts, and they
+need two different treatments because they live in two different places. The wire
+adds two more defects that are not crosstalk at all:</p>
+      <div class="tbl"><table>
+<tr><th>Artefact</th><th>What it is</th><th>Where it lives</th><th>Control</th></tr>
+<tr><td><strong>Rainbow shimmer</strong></td><td>dense brightness detail the decoder mistook for colour</td><td>the chroma</td><td>Colour shimmer, Only where needed</td></tr>
+<tr><td><strong>Dot crawl</strong></td><td>the colour subcarrier leaking into brightness</td><td>the luma</td><td>Average what stands still, Dot crawl</td></tr>
+<tr><td><strong>Noise</strong></td><td>everything an analogue chain picks up</td><td>both</td><td>Follow the movement</td></tr>
+<tr><td><strong>Rolled-off top end</strong></td><td>the band the encoder and decoder taper towards the subcarrier</td><td>the luma</td><td>Restore bandwidth</td></tr>
+</table></div>
+      <p>Blurring the chroma removes the first and does nothing at all for the second.</p>
+      <p>Three of these four controls appear only when the Source tab says the cable is
+composite. Rainbow shimmer, dot crawl and the rolled-off top end are all
+consequences of the one shared wire; S-Video and component do not have it, so on
+those inputs the three are hidden and their stored values cleared rather than
+offered as a trade of sharpness for nothing. Noise is the exception — every
+analogue chain picks it up — so the average and Follow the movement
+stay wherever the source is analogue, under the heading <em>Noise</em> and with the
+carrier half of their explanation dropped. Which cable is in use cannot be read
+off most cards and is therefore asked; see
+<a href="source-and-signal.html#which-cable-is-in-use">Source and signal</a>.</p>
+    </section>
+
+    <section id="why-this-pass-runs-first">
+      <h2>Why this pass runs first</h2>
+      <p>Everything on this page happens <strong>before any deinterlacer has touched the
+picture</strong>. That is the entire reason pass 1 exists as a separate pass.</p>
+      <p>A cleanup that runs afterwards has to work out which source line the pixel in
+front of it came from, and for a mode that interpolates there is no single
+answer. It ends up subtracting a pattern that pixel never carried, which is not
+a cleanup but a new artefact. Doing it first removes the question — and it is
+also why <code>TemporalDelta()</code> and <code>DotDemodDelta()</code> are written as <em>deltas</em>
+computed on the woven pixels, kept apart from the decision of where to apply
+them.</p>
+      <p>This was found the hard way: the filter worked with deinterlacing off and fell
+apart with it on.</p>
+    </section>
+
+    <section id="rainbow-shimmer-softenchroma">
+      <h2>Rainbow shimmer: <code>SoftenChroma()</code></h2>
+      <p>Composite carries colour at roughly a quarter of the bandwidth it carries
+brightness, so a picture decoded from it has no fine colour detail in it to begin
+with. Averaging the colour sideways therefore costs nothing real, and it takes
+the shimmer with it.</p>
+      <figure><img src="../composite-colour-shimmer.png" alt="The same frame with colour shimmer off and at 8, only where needed" width="1468" height="496" loading="lazy">
+<figcaption>Colour shimmer at 8 with "Only where needed" on, everything else off. The
+speckle across the gold digits and the green banner is invented colour; the
+digits themselves are as sharp on the right as on the left, because nothing was
+done to the brightness.</figcaption></figure>
+      <h3 id="the-grey-ring-and-what-it-was-not">The grey ring, and what it was not</h3>
+      <p>Reported symptom: with colour shimmer turned up, anything gold on a blue
+background — the stopwatch on Mario Kart's mode select — gained a grey fringe.</p>
+      <p>The first diagnosis was wrong and is worth recording, because the wrong answer
+is the tempting one. The old code read:</p>
+      <pre><code>float3 soft = sum / n;                       // box average in RGB
+return soft + (Luma(rgb) - Luma(soft));      // brightness put back</code></pre>
+      <p>That <em>looks</em> like it mishandles luma, and the obvious correction is "convert to
+YCbCr, average only Cb and Cr, recombine with the original Y". Checked against a
+real captured frame, the two agree to <strong>0.000000 levels</strong>: adding
+<code>Luma(rgb) − Luma(soft)</code> to all three channels is algebraically identical to
+averaging chroma and keeping the centre's luma. Luma of a chroma vector is zero
+by construction, so the scalar add lands exactly where the matrix round-trip
+would.</p>
+      <p>The real cause is simpler and harder: <strong>gold and blue are close to
+complementary, so the mean of their chroma genuinely is grey.</strong> No unweighted
+average across that edge can return anything else. The fix had to change <em>which</em>
+neighbours are averaged, not what is averaged.</p>
+      <h3 id="weighted-by-colour-distance">Weighted by colour distance</h3>
+      <pre><code>const float centreLuma = Luma(rgb);
+const float3 centreChroma = rgb - centreLuma;
+for (int dx = -gChromaSoft; dx &lt;= gChromaSoft; ++dx) {
+  float3 s  = FetchRgbAt(int2(x + dx, row));
+  float3 sc = s - Luma(s);
+  float3 d  = sc - centreChroma;
+  float  w  = exp(-dot(d, d) * kChromaKeepEdge);
+  sum += sc * w;
+  n   += w;
+}
+return centreLuma + sum / max(n, 1e-4);</code></pre>
+      <p>In a flat area every weight is near one and this is the box average it always
+was. Across a colour edge the far side falls away and the colour survives.</p>
+      <p>Measured against the gold-on-blue edge from the capture above:</p>
+      <div class="tbl"><table>
+<tr><th><code>kChromaKeepEdge</code></th><th>Saturation lost at the edge</th><th>Smoothing inside a flat area</th></tr>
+<tr><td>0 (the old box average)</td><td>0.42</td><td>2.05</td></tr>
+<tr><td>4</td><td>0.19</td><td>2.05</td></tr>
+<tr><td><strong>8</strong> (chosen)</td><td>0.09</td><td>2.05</td></tr>
+<tr><td>20</td><td>0.05</td><td>2.05</td></tr>
+</table></div>
+      <p>The second column not moving is the point: the weighting costs <strong>nothing</strong> on
+the half of the job that matters, because inside a flat area there is no colour
+distance to discount. Unfiltered, that same area measures 2.54.</p>
+      <p>Eight rather than twenty because the returns past it are small and the risk is
+not — a gentle chroma gradient, a sky or a fade, is made of exactly the small
+differences a high weight would start discarding.</p>
+      <p>The loop is <strong>deliberately not unrolled</strong>. Every <code>FetchRgbAt</code> expands into a
+pixel-format branch and a four-way choice of which frame to read, so seventeen
+unrolled copies cost the shader compiler seconds — which the user waits through
+at every start. A real loop over the actual radius costs nothing at runtime and
+compiles in a fraction of the time.</p>
+    </section>
+
+    <section id="colour-edges-restorechroma">
+      <h2>Colour edges: <code>RestoreChroma()</code></h2>
+      <p>Since 5.7.0, on every analogue source, always on. The colour is not only soft,
+it is soft in a way that can be measured: fitted to edges from the card, one
+colour sample every second pixel, each a Gaussian of 1.6 samples. That is about
+two SNES pixels of colour resolution, which is why a one pixel black outline
+round cyan letters used to come out blue.</p>
+      <p>Undoing a blur outright multiplies noise, so this asks a better posed question:
+which colour, sampled the way the card samples, gives back what the card
+delivered, while staying smooth wherever the brightness is smooth? Brightness
+came through at full bandwidth, so it says where the edges really are.</p>
+      <pre><code>minimise |A c - o|^2 + 3 * sum w_j (c_j+1 - c_j)^2 + 0.01 * |c - captured|^2
+w_j = exp(-(dY_j / 30)^2)</code></pre>
+      <p>Over 13 pixels, keeping the middle; a tridiagonal chain plus a 5 by 5 system
+(Woodbury), so it costs no latency. The colour shimmer softening runs in the same
+window, after the rebuild, and compares brightness as well as colour so it does
+not average the rebuilt outline away again.</p>
+      <p>Not the colour edge alignment taken out in 5.6.0: that moved the colour
+sideways by a measured delay, this gives back bandwidth.</p>
+    </section>
+
+    <section id="dot-crawl-two-controls">
+      <h2>Dot crawl: two controls</h2>
+      <p>The Picture tab has a checkbox and a slider, and they hand over to each other.</p>
+      <p>They are two different bargains, which is why they are two controls:</p>
+      <ul>
+<li><strong>Averaging costs nothing</strong> and only helps where the picture is standing still.</li>
+<li><strong>Demodulation is the only thing that helps where something is moving</strong>, and it
+costs sharpness.</li>
+</ul>
+      <p>Behind the single slider they used to share, the first was switched on by the
+very first step above zero and the whole rest of the travel was the second
+getting gradually softer — which was exactly what it felt like to use, and left
+no way to have the free half on its own.</p>
+      <p>The averaging <strong>locks on</strong> whenever demodulation is asked for (the checkbox ticks
+itself and greys out when the slider leaves zero). Without it the demodulator
+works over the still parts of the picture as well, paying sharpness there for
+something that is free.</p>
+    </section>
+
+    <section id="the-temporal-half-averaging-one-crawl-cycle">
+      <h2>The temporal half: averaging one crawl cycle</h2>
+      <pre><code>float3 TemporalDelta(int x, int row) {
+  float3 f0 = FetchRgbFrame(int2(x, row), 0);
+  float3 sum = f0 + FetchRgbFrame(int2(x, row), 1);
+  if (gCrawlCycle &gt;= 3) sum += FetchRgbFrame(int2(x, row), 2);
+  if (gCrawlCycle &gt;= 4) sum += FetchRgbFrame(int2(x, row), 3);
+  return sum / (float)gCrawlCycle - f0;
+}</code></pre>
+      <p>The checkbox is called <strong>Average what stands still</strong>.</p>
+      <h3 id="extended-history">Extended history</h3>
+      <p>A second checkbox above it, off by default, composite only. It keeps twelve
+decoded frames and fits the crawl against windows of five to twelve of them,
+plus a spatial fallback. Each fit carries its own error estimate; the frame
+gets the crawl of the fits that hold, weighted by that error, taken out before
+the averaging above reads it. So the crawl also goes where something moves or fades: around text, in
+transparencies.</p>
+      <ul>
+<li>Runs only where the crawl cycle was measured as 2 or 4 frames: PAL, PAL 60,
+PAL M, PAL N, NTSC. Anywhere else it stays off by itself.</li>
+<li>No frame of delay; the cost is GPU time, three passes over the source.</li>
+<li>The shaders are generated by <code>tools/crawl_remover/gen_qb.py</code> from the
+prototype; <code>src/render/shaders_remover.h</code> is not edited by hand.</li>
+</ul>
+      <p>Since 5.4.0 the averaging gate also checks that a change repeats one crawl
+cycle later, capped by the local luma range, and the history is seven frames
+deep for it.</p>
+      <p>Since 5.4.1 both the gate and Extended history let go of a faint texture that
+moves, such as a road running towards the camera. Its sums barely change, so it
+passed for still and was averaged into streaks. The check: luma over three
+samples, this frame against one crawl cycle back, 7 × 3 spots of the same field.
+Where the spread exceeds 0.75 levels and the picture itself is faint, the gate
+lets go and Extended history falls back to its spatial estimate. Standing
+pictures keep their correction; the cost is GPU time only.</p>
+      <p>Since 5.5.0 the gate asks the same of sharp detail. The gaps between the letters
+of a pulsing menu caption are narrower than the seven-sample sums and slide
+inside them as the text grows, so the average filled them. The fade is fitted
+out first (brightness and contrast of the picture itself), and the allowance
+grows with the contrast, so standing edges keep their correction: 98 to 100 %
+on menus and title screens. Since 5.5.1 Extended history asks the same of its
+own history, over the same spots, and falls back to its spatial estimate there.</p>
+      <h3 id="why-the-cycle-and-not-a-fixed-number">Why the cycle and not a fixed number</h3>
+      <p>The number came off the card, not out of a textbook. Measured on a PAL-60
+console, the mean frame-to-frame difference of a still picture:</p>
+      <div class="tbl"><table>
+<tr><th>Lag</th><th>1 frame</th><th>2 frames</th><th>3 frames</th><th>4 frames</th></tr>
+<tr><td>Mean difference</td><td>1.91</td><td>2.62</td><td>1.90</td><td><strong>0.78</strong></td></tr>
+</table></div>
+      <p>That is a clean four-frame cycle. Averaging two frames cancels little, because it
+picks two points of that cycle. Averaging four covers it exactly, and what is left
+is the picture.</p>
+      <p>This half costs no sharpness at all. Analogue noise, being uncorrelated between
+frames, goes the same way for free.</p>
+      <p>Up to 5.1 the filter averaged four frames for every source. That covers PAL
+(270° per frame), PAL-M (90°) and textbook NTSC (180°, back after two). It
+does not cover a console that picks its own clock and lands on a cycle of three:</p>
+      <div class="tbl"><table>
+<tr><th>Cycle of the source</th><th>Left over 2 frames</th><th>over 3</th><th>over 4</th></tr>
+<tr><td>2</td><td><strong>0.00</strong></td><td>0.33</td><td><strong>0.00</strong></td></tr>
+<tr><td>3</td><td>0.50</td><td><strong>0.00</strong></td><td>0.25</td></tr>
+<tr><td>4</td><td>0.71</td><td>0.33</td><td><strong>0.00</strong></td></tr>
+</table></div>
+      <p>Since 5.2 the renderer measures the cycle of whatever is plugged in, and the
+shader averages over exactly that. Until a cycle is measured, it averages four.</p>
+      <h3 id="measuring-the-cycle">Measuring the cycle</h3>
+      <p><code>VideoRenderer::SampleCrawl</code>, <code>AnalyzeCrawl</code>, <code>JudgeCrawl</code>.</p>
+      <ul>
+<li><p><strong>Sites.</strong> A grid of 40 × 32 sites inside the picture. At each one the luma row
+is folded against cosine and sine of the carrier over a Hann window of about
+two carrier periods. The result is a phasor: its length says how much carrier
+is there, its angle in which phase.</p></li>
+<li><p><strong>Distances.</strong> The phasors of the last thirteen frames are kept. The measure is
+the squared distance of the current phasor from the one 1, 2, 3 and 4 frames
+back. It uses distances, not angles: in PAL, U and V rotate against each other
+and a site holds a mix of both, but both move by the same amount.</p></li>
+<li><p><strong>Profiles.</strong> Each cycle has its own shape over lags 1 to 4:</p>
+<ul>
+<li>two is (1, 0, 1, 0);</li>
+<li>three is (1, 1, 0, 1);</li>
+<li>four is (.5, 1, .5, 0).</li>
+</ul>
+<p>Noise adds the same floor to all four lags. The PAL measurement above fits the
+third profile at 0.001.</p></li>
+<li><p><strong>Only still sites count.</strong></p>
+<ul>
+<li>The window mean may move by at most 5 levels over five frames.</li>
+<li>A fine pattern that scrolls turns the phasor just like the crawl does. A
+picture scrolling 2 px per frame looked like a cycle of three. Two, three and
+four all divide twelve, so after twelve frames the crawl is back exactly
+where it was. A site whose phasor is elsewhere after twelve frames has moved,
+and is dropped. The lag-12 distance also goes into the fit.</li>
+</ul></li>
+<li><p><strong>Verdict.</strong> A window is 100 frames, about two seconds. It needs 4000 still
+samples, a spread of 1.3 between the largest and smallest distance, and a fit
+error below 0.1. Whole-picture scrolls that happened to look like a cycle
+fitted at 0.07 to 0.24.</p></li>
+<li><p><strong>Adoption.</strong> A cycle is taken over when two windows with a verdict agree in a
+row. A window without a verdict does not count against it: a picture that was
+all moving says nothing about the carrier.</p></li>
+<li><p><strong>Log.</strong> Each measured cycle is logged, for example:</p>
+<p class="src"><code>Crawl cycle measured: 4 frames (differences 3.56 4.90 3.57 0.84 0.71 at 1..4 and 12 frames apart, fit 0.001, …)</code></p></li>
+</ul>
+      <p>The work is split around the present, like every analysis in the renderer. The
+sample copies about 22 KB while the frame is still in the cache, which takes
+about 5 µs. The fit runs after the present, so it shows up neither in the
+picture's delay nor in the frame age.</p>
+      <p>A cycle of four frames spans 160 ms at 50 Hz and 133 ms at 60 Hz. At two or
+three frames, the "nothing is moving here" judgement has less to hold.</p>
+      <h3 id="the-gate-telling-shimmer-from-movement">The gate: telling shimmer from movement</h3>
+      <p><code>TemporalGate()</code> decides how much of the correction to trust at each pixel.</p>
+      <p>This is the part that took two attempts. Dot crawl <strong>crawls</strong>: it is not still,
+so any detector that simply asks "did this pixel change" calls it movement and
+switches the filter off exactly where the artefact is. Measured that way, the
+filter took 48 % off the mild half of the picture and 15 % off the worst one per
+cent — the wrong way round, and therefore invisible.</p>
+      <p>What separates them is not amount but <strong>scale</strong>. The shimmer is a fine pattern a
+few pixels across; a picture that is really moving moves in broad shapes.</p>
+      <pre><code>for (int dx = -3; dx &lt;= 3; ++dx) { s0 += LumaFrameAt(…, 0); … }   // seven samples
+float mhi = max(max(s0, s1), max(s2, s3)) * 0.142857;
+float mlo = min(min(s0, s1), min(s2, s3)) * 0.142857;
+return 1.0 - saturate((mhi - mlo - gMotionSlack) * gMotionSlope);</code></pre>
+      <p>Seven horizontal samples is a little over two cycles of the colour subcarrier, so
+the shimmer averages itself away before it is ever asked about, and real movement
+comes through untouched. Then a slack, and a flank.</p>
+      <h3 id="avoid-ghosting">Avoid ghosting</h3>
+      <p>Where the gate lets go is the whole trade, so it is a checkbox — <strong>Avoid
+ghosting</strong>, next to the averaging that it governs.</p>
+      <p>The filter can only average, and averaging across movement is smearing. That
+cannot be computed away, only moved, which is why this is a setting rather than
+a better default.</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Slack</th><th>Fully closed at</th><th>What you get</th></tr>
+<tr><td><strong>off</strong> — crawl first</td><td>5 levels</td><td>26 levels</td><td>slow, low-contrast movement is averaged with three older copies of itself: a trail</td></tr>
+<tr><td><strong>on</strong> — ghosting first</td><td>5 levels</td><td>9 levels</td><td>moving edges stay clean; slow areas keep some crawl, where the demodulator picks the work back up</td></tr>
+</table></div>
+      <p><strong>The slack does not move, deliberately.</strong> Five levels out of 255 is not a
+sensitivity setting — it is the card's noise floor. Setting it to zero was tried
+and is wrong: it makes the filter switch on and off on a still picture, which
+gains nothing and looks worse than either operating point.</p>
+      <p>Only the flank moves. Between 9 and 26 levels lies exactly the band of slow,
+low-contrast movement where the trail becomes visible.</p>
+    </section>
+
+    <section id="the-spatial-half-synchronous-demodulation">
+      <h2>The spatial half: synchronous demodulation</h2>
+      <p><code>DotDemodDelta()</code>. This is the slider.</p>
+      <h3 id="why-a-notch-filter-is-not-enough">Why a notch filter is not enough</h3>
+      <p>Dot crawl is the subcarrier <strong>amplitude modulated</strong> by however much colour is at
+that point in the picture — which is why it only appears at colour edges.
+Measured on this card, isolating the pattern through its own four-frame cycle and
+looking at its spectrum, <strong>a band of thirty-two bins around the peak holds under
+half its energy</strong>. The modulation smears it far too wide for any narrow filter to
+catch, and a wide one takes the picture with it.</p>
+      <h3 id="what-it-does-instead">What it does instead</h3>
+      <p>Synchronous detection does not care about the smearing. Multiplying the line by
+the carrier and by the same carrier a quarter cycle over moves the pattern down
+to zero frequency, where a short average recovers exactly how much of it is
+there; multiplying back up reconstructs it, and it is subtracted.</p>
+      <pre><code>float w = kTwoPi / gCarrierPeriod;
+…
+acc  += hann * l * cos(w * (x + k));    // in phase
+accQ += hann * l * sin(w * (x + k));    // quadrature
+…
+float pattern = 2.0 * (acc * cos(ph0) + accQ * sin(ph0)) / norm;
+return -pattern;                        // subtracted from all three channels</code></pre>
+      <p>Picture detail is not tied to the carrier's phase and survives, apart from
+whatever happened to sit right on the frequency. Subtracting the same amount from
+all three channels moves brightness and leaves colour alone, which is the half of
+the picture this belongs to.</p>
+      <p>Against this card's own frames, at a window of nine samples this removes <strong>81 %
+of the pattern for 17 % of the horizontal sharpness</strong>, where the three-tap notch
+it replaced managed 67 % for 18 %.</p>
+      <h3 id="the-mean-pass-is-not-optional">The mean pass is not optional</h3>
+      <p>There are two passes over the window. The first exists only to find the local
+average:</p>
+      <pre><code>float mean = 0.0, norm = 0.0;
+for (…) { mean += hann * Luma(FetchRgbAt(…)); norm += hann; }
+mean /= norm;</code></pre>
+      <p>The carrier does not sum to zero over a window of a few samples, so a flat area
+of picture correlates with it and gets a pattern invented on top of itself.
+Measured on a constant field of 128, leaving this out produced swings of <strong>ninety
+levels</strong>. That was the "picture goes oddly bright" bug.</p>
+      <p>A raised cosine (Hann) weighting is applied over the window in both passes, so
+the ends do not ring.</p>
+      <h3 id="the-slider-is-the-window-width">The slider is the window width</h3>
+      <pre><code>float cycles = 8.2 - gDotNotch * 5.9;   // a little over eight, down to just over two
+int r = (int)floor(cycles * gCarrierPeriod * 0.5 + 0.5);
+r = clamp(r, 2, 12);</code></pre>
+      <div class="tbl"><table>
+<tr><th>Window (samples)</th><th>25</th><th>15</th><th>11</th><th>9</th><th>7</th><th>5</th></tr>
+<tr><td>Pattern removed</td><td>42 %</td><td>61 %</td><td>74 %</td><td>81 %</td><td>90 %</td><td>99 %</td></tr>
+<tr><td>Horizontal sharpness</td><td>−7 %</td><td>−11 %</td><td>−14 %</td><td>−17 %</td><td>−25 %</td><td>−39 %</td></tr>
+</table></div>
+      <p>In practice a value of 0.1 on the slider is already enough for most material.</p>
+      <h3 id="the-slider-snaps-to-its-steps">The slider snaps to its steps</h3>
+      <p>The window is an integer count of samples, clamped to 2–12, so a continuous
+slider has a great many positions that compute the same window and change
+nothing. <code>BuildDotCrawlSteps()</code> walks the slider's range, collects the distinct
+windows it produces, and the control snaps to those — nine steps on PAL, plus
+off.</p>
+      <p>A slider that moves without changing anything is claiming something untrue. The
+label reads <code>step 4 of 9</code> rather than a number with no meaning, and the line
+underneath says what that step costs.</p>
+      <h3 id="counted-in-cycles-not-in-pixels">Counted in cycles, not in pixels</h3>
+      <p>The window is measured in <strong>cycles of the carrier</strong>, and that matters because the
+two are not the same thing across standards: NTSC's carrier occupies 3.77 samples
+of a 720 pixel line where PAL's occupies 3.04. A window fixed at a pixel count
+therefore hands NTSC a fifth fewer cycles to detect with.</p>
+      <p>Simulated against an amplitude modulated pattern — which is what dot crawl
+actually is — that cost NTSC <strong>61 % removal at the far end of the slider where
+PAL got 69 %, and it invented a quarter more pattern of its own doing it</strong>.
+Counted in cycles the two land at 67 % and 72 %.</p>
+      <p>The same scaling covers capture widths other than 720, which is why
+<code>gCarrierPeriod</code> arrives already multiplied by <code>srcW / 720</code>
+(<code>VideoRenderer::effectiveCarrierPeriod()</code>).</p>
+      <h3 id="the-standard-has-to-be-right">The standard has to be right</h3>
+      <p><code>gCarrierPeriod</code> comes from <code>VideoStandardSubcarrierSamples()</code> — see
+<a href="source-and-signal.html">Source and signal</a>. Nothing is detected from the picture.</p>
+      <p>With the carrier assumed wrong — PAL's filter against an NTSC signal or the
+reverse — <strong>removal falls from about 70 % to 34 %</strong> at the middle of the slider.
+That is the reason to care about the Source tab beyond getting a picture at all.</p>
+      <h3 id="why-it-stays-one-dimensional">Why it stays one-dimensional</h3>
+      <p><code>DotDemodDelta()</code> reads along the line and never off it. The obvious next step is
+a vertical comb, and the arithmetic for one is inviting. PAL's subcarrier fits
+<strong>281.78 cycles into a line</strong> of 858 samples, so the fractional part turns the
+pattern <strong>−78.8° from one line to the next</strong> and <strong>−157.6° across a field line
+pair</strong>, while real picture detail at the same frequency does not turn at all.
+Taps of <code>(−e^−iθ, 2, −e^+iθ)/4</code> on the demodulated phasor answer a component
+turning ψ per step with <code>(1 − cos(ψ + θ))/2</code>, so <strong>θ = 0</strong> rejects the picture
+and keeps the crawl — 96 % of it across a field line pair, none of the detail.</p>
+      <p>That is the case on paper. It does not survive being measured.</p>
+      <p><strong>Isolating the artefact.</strong> Every attempt to compare the two filters inside a
+single frame failed, and the reason is physical: within one frame crawl and real
+detail are both narrowband structure sitting on edges, so no region of the
+picture is a valid control for any other. The time axis separates them cleanly
+where space cannot. Twenty-six frames of a parked kart, every composite control
+off and the deinterlacer on weave: <strong>the mean over the stack is the picture with
+the crawl averaged out of it, and each frame minus that mean is the crawl with
+the picture subtracted out of it.</strong> No control group is needed — the scene
+subtracts itself.</p>
+      <p>What comes out is the subcarrier and nothing else. It walks <strong>+107° per frame</strong>
+against the predicted +90°, its horizontal spectrum peaks at <strong>0.312–0.344
+cycles/sample</strong> against the carrier's 0.328, and it sits where the colour is:
+<strong>0.90 levels rms on grey</strong>, which is the sensor noise floor, against <strong>2.95 on
+coloured pixels</strong> and <strong>5.96</strong> on the fifth of them where it is strongest.
+Because both estimators are linear, <code>est(picture + crawl) = est(picture) + est(crawl)</code> exactly, so each can be run on the two separately: what it produces
+on the crawl-free mean is damage by definition, what it takes off the isolated
+crawl is benefit by definition.</p>
+      <p><strong>The vertical structure is already gone.</strong> The crawl's line-to-line coherence
+is only <strong>0.44</strong> at <code>row ± 1</code> and <strong>0.175</strong> at <code>row ± 2</code> — the support theory
+preferred is the one where the pattern has almost no coherent phase left to
+comb. The picture's carrier band, by contrast, holds <strong>0.785 at +3.4°</strong>: detail
+really does refuse to turn, exactly as assumed. The separation the comb needs
+exists; the crawl has simply been scrambled out of reach of it, presumably by
+the card's own comb filter, which leaves the temporal walk intact and the
+vertical relationship not.</p>
+      <p>Damage in levels rms on the crawl-free picture, all four estimators scaled to
+remove the same 20 % of the isolated crawl:</p>
+      <div class="tbl"><table>
+<tr><th>estimator</th><th>most it can take</th><th>damage at 20 % taken</th><th>fields 1 px out</th><th>2 px</th></tr>
+<tr><td>horizontal only, as shipped</td><td>48.1 %</td><td>0.558</td><td>0.556</td><td>0.555</td></tr>
+<tr><td>vertical comb, same field, <code>row ± 2</code></td><td>30.3 %</td><td>0.536</td><td>0.540</td><td>0.537</td></tr>
+<tr><td>vertical comb, other field, <code>row ± 1</code></td><td>33.4 %</td><td><strong>0.372</strong></td><td>0.760</td><td>0.834</td></tr>
+<tr><td>five tap, both supports</td><td>39.4 %</td><td>0.389</td><td>0.541</td><td>0.569</td></tr>
+</table></div>
+      <p><strong>The whole benefit sits on one tap, and it is the tap that cannot be paid for.</strong>
+The same-field comb comes out at 0.536 against the shipped filter's 0.558 —
+a 4 % difference, and it gives up a third of the removal ceiling to get it. Only
+<code>row ± 1</code> is genuinely better, by a third. But this pass runs in source geometry,
+<a href="#why-this-pass-runs-first">before the deinterlacer</a>, so <code>row ± 1</code> is the <em>other
+field</em>, a fiftieth of a second away. Every figure above was measured on a parked
+kart, where that costs nothing. Put the two fields out of step the way motion
+does — shift the odd lines of the crawl-free picture and re-measure, which leaves
+the same-field and horizontal filters untouched by construction — and the
+cross-field comb goes from the best of the four to <strong>worse than the filter it was
+meant to replace</strong>, 0.760 at one pixel and 0.834 at two.</p>
+      <p>Which closes it, because of where the demodulator sits in the pipeline. On
+content that stands still the <a href="#the-temporal-half-averaging-one-crawl-cycle">average over one crawl cycle</a>
+has the crawl already and reports as much through <code>handled</code>; the demodulator only
+matters on content that moves. <strong>The vertical comb helps only where it is not
+needed and inverts exactly where it is.</strong> The five-tap compromise lands back on
+the shipped filter's number under motion, which is the same statement with the
+arithmetic averaged out.</p>
+      <h3 id="four-controls-that-had-to-be-thrown-away">Four controls that had to be thrown away</h3>
+      <p>Recorded because each was convincing before it broke, and the same traps are
+waiting for anyone who tries this again on a single frame.</p>
+      <p><strong>Static HUD against moving scenery.</strong> Meant to compare filtered and unfiltered
+content in one picture. HUD text is synthetic-sharp, so it carries more carrier
+band energy than scenery whatever any filter does to it — it measures content
+sharpness, not filter effectiveness.</p>
+      <p><strong>Colour regions against the grey road.</strong> The road has no chroma and therefore no
+crawl, so the energy the filter removes from colour and does not remove from road
+looked like a clean benefit figure. Scanning the assumed carrier period from 2.75
+to 3.35 samples gave a <strong>monotonic 4.12 down to 3.77 with no peak at the real
+3.045</strong> — a carrier-specific measurement must peak at the carrier. It was
+measuring that grass has more texture than tarmac.</p>
+      <p><strong>Spectral shape, colour tiles over road tiles.</strong> Normalising each spectrum by its
+own total was supposed to remove that. But the road holds <strong>0.03 % of its energy
+at fx = 0.344 against 1.22 % at 0.156</strong>, so dividing by it inflates every ratio in
+the top half of the band to somewhere between 3 and 19, uniformly and
+meaninglessly.</p>
+      <p><strong>The line-to-line angle.</strong> The last one standing, and the best of them: an angle
+does not care how much energy there is, and grey came out near 0° against colour
+at +90°, stable across every region of the picture. It reproduces at a
+<strong>deliberately wrong carrier period of 2.40</strong> — grey +8.0°, colour +109.4°. Both
+figures are the same fixed 0.75 sample per line in pixel terms, which is the
+diagonal of the kerb and the treeline, not the subcarrier.</p>
+      <p>A fifth trap belongs with them, in the method that finally worked. The movement
+mask that decides which pixels are static must be built on the residual <strong>blurred
+with its sign</strong>, not on the blurred absolute value: dense crawl raises a blurred
+magnitude enough to be read as movement, so the mask throws out precisely the
+coloured edges the crawl lives on. That version reported the crawl at 0.937
+levels rms with a featureless spectrum, which is the noise floor of the quiet
+regions that survived it.</p>
+    </section>
+
+    <section id="the-two-halves-have-to-be-told-about-each-other">
+      <h2>The two halves have to be told about each other</h2>
+      <pre><code>float handled = 0.0;
+if (gTemporal &gt; 0.0 &amp;&amp; gHistCount &gt;= 3) {
+  handled = TemporalGate(p.x, p.y) * gTemporal;
+  rgb += TemporalDelta(p.x, p.y) * handled;
+}
+if (gDotNotch &gt; 0.0) rgb += DotDemodDelta(p.x, p.y, handled);</code></pre>
+      <p>Both work out how much pattern is present from the <strong>captured</strong> pixels. Where the
+average has already taken it away, the demodulator would go and
+subtract it a second time — putting an inverted copy back. That is why turning
+both up used to make the picture worse than either one alone.</p>
+      <p>So the temporal half reports how much of the job it did, and the demodulator
+handles only the rest:</p>
+      <ul>
+<li><strong>Still picture</strong> — the average does it all, at no cost in sharpness.</li>
+<li><strong>Moving picture</strong> — the average steps back and the demodulator takes over.</li>
+</ul>
+      <p>Since 5.7.0 the demodulator does not scale its result by <code>(1 - handled)</code>
+any more. It measures the line as the average left it (<code>CleanTapAt()</code>) and
+takes out whatever crawl is still there. Where the crawl cycles, a still
+picture comes out of the average clean and the demodulator finds nothing. Where
+it does not -- a PAL SNES lands on the same carrier phase every frame -- the
+average keeps all of it, and scaling by the gate left exactly those pictures
+with their full crawl.</p>
+      <p><code>(1 - handled)</code> is then the share of the picture that is moving, and everything
+added in 3.3 is scaled by it or gated on it. The three filters below are
+complements of the two above by construction, not by tuning.</p>
+    </section>
+
+    <section id="follow-the-movement-motioncompdelta">
+      <h2>Follow the movement: <code>MotionCompDelta()</code></h2>
+      <p>The average only runs where the picture stands still, so in a running
+game most of the screen gets no temporal filtering at all and keeps every bit of
+the noise the analogue chain put on it. Averaging <strong>along</strong> the movement instead
+of across it fixes that.</p>
+      <h3 id="what-it-cannot-do-and-why-that-is-a-result">What it cannot do, and why that is a result</h3>
+      <p>It cannot remove dot crawl. This is worth writing out because it looks like it
+should, and because "motion-compensated dot crawl removal" is the obvious thing
+to try next.</p>
+      <p>The crawl is fixed to the <strong>raster</strong>, not to the picture. At sample <code>x</code> it
+carries phase <code>w*x + phi_f</code>, where <code>phi_f</code> walks the four-frame sequence, and the
+four terms sum to zero — that is the whole mechanism the co-located average runs
+on. Fetch frame <code>f</code> from <code>x - d_f</code> instead and the phase becomes
+<code>w*x - w*d_f + phi_f</code>, so the sum turns into</p>
+      <pre><code>sum over f of exp(i * (phi_f - w * d_f))</code></pre>
+      <p>With a constant velocity <code>d_f = f*v</code> that is a geometric series with ratio
+<code>exp(i * (pi/2 - w*v))</code>. Four terms of a geometric series vanish only when the
+ratio is a fourth root of unity other than one, which here means <code>v</code> must be a
+multiple of a quarter of the carrier period: about <strong>0.76 samples per frame on
+PAL, 0.94 on NTSC</strong>. At every other speed motion compensation destroys the
+cancellation the average exists for, and at exactly a quarter period it lines all
+four frames up in phase and removes nothing at all.</p>
+      <p>So the two jobs are kept apart rather than merged. The co-located average keeps
+the crawl exactly as before; this filter is band-limited to stay out of its way,
+and what it removes is noise — which is the same defect in every colour system,
+and the reason this one control needs no per-standard thought at all.</p>
+      <p>It pays a second time, indirectly. The demodulator works out how much pattern is
+present from the pixels in front of it, and noise is what makes that estimate
+wrong. A cleaner line means a better estimate means less of the picture taken
+away along with the pattern.</p>
+      <h3 id="staying-out-of-the-crawls-way">Staying out of the crawl's way</h3>
+      <p>Every window in this filter — the match patches and the correction — is a box of
+exactly <code>gCarrierPeriod</code> samples, weighting the edge taps by the fraction of them
+the window covers. A box of exactly one carrier period puts its first null
+precisely on the carrier, for every standard, without a table. Rounding the width
+to an integer would put the null at a third of the sampling rate: right on PAL,
+where the period is 3.04 samples, and wrong on NTSC, where it is 3.77.</p>
+      <h3 id="the-search">The search</h3>
+      <p>Along the line first, by a three-step logarithmic search over ±7 samples, on
+three box-filtered luma points spaced four apart. Only the nearest frame is
+searched; the two behind it are taken as the same velocity carried on.</p>
+      <p><strong>Up and down only where that found no match at all</strong> (cost above
+<code>kMatchPoor = 0.012</code>). Up to 5.1 the search was horizontal only. A picture
+moving vertically has no shift along the line that fits it. Over fine detail,
+though, one of the seven candidates fits a little better than standing still by
+accident. The filter then averaged the wrong lines together, and a vertical
+scroll over texture came out noisier than it went in.</p>
+      <ul>
+<li>The vertical search starts where the horizontal one ended, so it also finds a
+diagonal.</li>
+<li>It steps 4, 2, 1 lines of one field. On an interlaced source that is two rows
+of the woven frame, because the row in between is the other field and another
+moment.</li>
+<li>A vertical answer is followed only when it is good (<code>kMatchGood = 0.007</code>).
+Otherwise the movement counts as one the search cannot follow, and nothing is
+corrected. That includes the accidental sideways shift that made such a scroll
+noisier before.</li>
+<li>The trigger sits well above <code>kMatchGood</code> on purpose. Pixels are shaded in
+groups that run the loop together, and a group pays for one pixel searching
+further as if all of them did. With the trigger at <code>kMatchGood</code>, nearly every
+group on a still picture paid for the vertical search.</li>
+</ul>
+      <p>Measured on a model of the filter, noise with motion comp on against off, fine
+texture, noise 2/255:</p>
+      <div class="tbl"><table>
+<tr><th>Movement per frame</th><th>Before</th><th>After</th></tr>
+<tr><td>still</td><td>100.5 %</td><td>100.5 %</td></tr>
+<tr><td>3 right</td><td>100.3 %</td><td>100.3 %</td></tr>
+<tr><td>1 down</td><td>112.3 %</td><td><strong>107.5 %</strong></td></tr>
+<tr><td>3 right, 2 down</td><td>114.5 %</td><td><strong>107.6 %</strong></td></tr>
+<tr><td>3 up</td><td>112.8 %</td><td><strong>107.5 %</strong></td></tr>
+</table></div>
+      <p>Both candidates of a step are measured against the same starting point rather
+than against each other. Taking the first improvement and stepping off it turns
+the search into a greedy walk that can wander away from the minimum it was
+closing in on.</p>
+      <h3 id="three-checks-and-why-each-one-is-there">Three checks, and why each one is there</h3>
+      <p>The first version of this filter put artefacts into moving picture, which is the
+only place it runs. All three of the following were added in response, and the
+third is the one that makes the difference:</p>
+      <p><strong>Each frame is verified separately.</strong> The shift is measured between this frame
+and the last, and carried on as <code>f*d</code> for the two behind it. On an interlaced
+source the third frame back is a tenth of a second old; an object that turns,
+stops, accelerates, or is passed in front of by another one is not where <code>f*d</code>
+says it is. Taken on trust, that arrives as half the output pixel fetched from
+somewhere else entirely — a trailing ghost. So each of the three is asked with its
+own cost function whether the shift explains it, and contributes only as much as
+it agrees:</p>
+      <pre><code>float3 w;
+w.x = saturate(1.0 - cost / kMatchGiveUp);
+w.y = saturate(1.0 - MatchCost(cur, x, row, 2 * d, 2, width) / kMatchGiveUp);
+w.z = saturate(1.0 - MatchCost(cur, x, row, 3 * d, 3, width) / kMatchGiveUp);</code></pre>
+      <p>That one change settles three failure modes at once. Acceleration drops the far
+frames and keeps the near one. Movement the search did not find a good shift
+for drops all three, which is the honest answer. An edge uncovering background drops whichever
+frames were still covered, because there no shift can be right: the pixel was not
+in them.</p>
+      <p><strong>A margin against standing still</strong> (<code>kMatchMargin = 0.005</code>). The search always
+returns something, and on a picture that only shivers with noise the something is
+noise: the smallest of seven noisy numbers sits about a third of the noise below
+the honest one, every time. Following that lines the noise up and averages it
+<em>into</em> the picture instead of out of it.</p>
+      <p><strong>A hard cap on the correction</strong> (<code>kMotionClamp = 0.06</code> per channel). The filter
+exists to take noise off a moving picture, and noise is small. A correction
+larger than the cap is not noise but a mismatch, and every test above can still
+be fooled by the right piece of picture. This is the line that decides what being
+fooled costs: held small it is invisible, let through whole it is a ghost.</p>
+    </section>
+
+    <section id="restore-bandwidth-bandwidthrestore">
+      <h2>Restore bandwidth: <code>BandwidthRestore()</code></h2>
+      <p>Composite carries brightness up to where the subcarrier sits, and no encoder or
+decoder has a brick wall there — both taper towards it, and the decoder's chroma
+trap takes the rest. That taper is the softness a composite picture has and a
+component one does not, and because its shape follows the carrier it can be undone
+with a filter built from the carrier.</p>
+      <figure><img src="../composite-bandwidth.png" alt="The same frame with restore bandwidth off and at full" width="1468" height="496" loading="lazy">
+<figcaption>Restore bandwidth at full, everything else off. The slats of the shopfront, the
+poles of the scaffolding and the awning above the door come back; this is the
+band the chain rolled off, not contrast added to edges that were already there.</figcaption></figure>
+      <p>This is <strong>not</strong> the sharpening on the Scaling section. That one runs after
+scaling, on whatever size the window happens to be, and raises the contrast of
+edges that are already there. This one runs in the source's own samples with a
+kernel derived from the standard, and lifts a band of frequencies the chain
+actually attenuated.</p>
+      <h3 id="boxes-were-wrong-and-the-reasoning-sounded-complete">Boxes were wrong, and the reasoning sounded complete</h3>
+      <p>The band is picked out by the difference of two windows, one a carrier period
+wide and one two. It was written with <strong>boxes</strong> first, on the argument that a box
+of exactly one carrier period has a null exactly on the carrier — so the filter
+could not possibly amplify the dot crawl, the one thing it must never do sitting
+downstream of two filters whose whole job is removing it.</p>
+      <p>The argument is valid and the conclusion is false, because <strong>dot crawl is not a
+line at the carrier</strong>. It is the chroma band leaking into brightness, and that
+band is a good megahertz wide on either side. A box is zero only at the point.
+Measured on PAL, where the lower chroma edge sits at 0.71 of the carrier:</p>
+      <div class="tbl"><table>
+<tr><th>At 0.71 × carrier</th><th>Response</th></tr>
+<tr><td>difference of two <strong>boxes</strong></td><td><strong>1.13</strong></td></tr>
+<tr><td>difference of two <strong>triangles</strong></td><td><strong>0.24</strong></td></tr>
+</table></div>
+      <p>The box version was more than doubling exactly what the two filters upstream had
+just spent their effort removing. On the upper sideband its gain went negative,
+which deforms the pattern on top of amplifying it.</p>
+      <h3 id="triangles">Triangles</h3>
+      <p>A triangle is a box convolved with itself, so its response is a squared sinc: the
+same null on the carrier a box of that width has, but a null of <strong>second order</strong>
+and with no sidelobe anywhere near it. The stopband becomes a region instead of a
+point — everything from 0.8 of the carrier upward is under <strong>0.02</strong>.</p>
+      <pre><code>float slopeA = 1.0 / width;   // a triangle reaching one carrier period each way
+float slopeB = 0.5 / width;   // and one reaching two
+float wa = max(0.0, 1.0 - t * slopeA);
+float wb = max(0.0, 1.0 - t * slopeB);</code></pre>
+      <p>The second-order null is also what makes this the most standard-tolerant filter
+on the page. Near its centre a squared sinc is quartic, so even a carrier figure
+4 % wrong — SECAM's worse case, below — still leaks under a fifth of a percent.</p>
+      <p>The peak of the band sits at about 0.4 of the carrier, near 1.8 MHz on PAL and
+1.4 on NTSC, where the difference of the two triangles reaches 0.52 of the
+signal. The slider's gain of 2.4 puts its top end a little past double.</p>
+      <h3 id="the-part-no-fixed-filter-can-do">The part no fixed filter can do</h3>
+      <p>The band composite rolled off <strong>is</strong> the band its colour crosstalk lives in. That
+is not a flaw in any particular kernel; it is what putting colour on a brightness
+carrier means, and no linear filter gets round it.</p>
+      <p>So the pass asks what is actually there. Where the line carries energy at the
+carrier's own frequency, detail and crawl are indistinguishable and lifting is a
+coin toss played against two filters upstream — so it does not lift. Where it does
+not, the softness is genuinely rolloff and gets its full lift back.</p>
+      <pre><code>add *= 1.0 - carrier;</code></pre>
+      <p>This costs nothing in the case it is for: a soft edge is soft <em>precisely</em> because
+it has little at the carrier. That is the same statement twice.</p>
+      <p>The overshoot limiter is unchanged — a quarter of the local excursion, measured
+over the narrow window only. Over the wide one it would find the contrast of half
+a picture element away and stop limiting anything.</p>
+    </section>
+
+    <section id="only-where-needed-carrierenergy">
+      <h2>Only where needed: <code>CarrierEnergy()</code></h2>
+      <p>The chroma blur above was unconditional at every setting, and unconditional is
+wrong: composite colour is low-bandwidth, but it is not fictional. Blurring
+colour that the decoder got right is pure loss.</p>
+      <p><code>CarrierEnergy()</code> measures how much of the brightness right here sits at the
+subcarrier's own frequency — which is the thing that turns into false colour. The
+decoder cannot tell dense brightness detail at the carrier from an actual colour;
+it demodulates whatever is there and paints it. That is the rainbow over a
+pinstripe, a dither pattern, a brick wall.</p>
+      <p>It is the same synchronous detection the demodulator uses, over a shorter window,
+in one pass instead of two: the local mean is subtracted afterwards rather than
+beforehand, using the fact that the sum of <code>(l - mean) * cos</code> is the sum of
+<code>l * cos</code> minus <code>mean</code> times the sum of <code>cos</code>. A flat area reads near zero; the
+patterns that produce the rainbow reach several hundredths, so a twelvefold scale
+saturates on exactly the material this is for and leaves plain pictures alone.</p>
+      <pre><code>rgb = gAdaptChroma != 0 ? lerp(rgb, soft, carrier) : soft;</code></pre>
+      <p>Two filters need this reading, so it is computed once in <code>main()</code> and handed to
+both. Seventeen taps with a sine and a cosine in each is not something to pay for
+twice.</p>
+    </section>
+
+    <section id="one-number-every-standard">
+      <h2>One number, every standard</h2>
+      <p>There is <strong>no filter per standard and no table of kernels</strong>. Everything on this
+page is derived, while the shader runs, from a single value in the constant
+buffer:</p>
+      <pre><code>cb.carrierPeriod = (float)(carrierSamples_ * (double)srcW / 720.0);</code></pre>
+      <p><code>carrierSamples_</code> is 13.5 MHz over the subcarrier frequency — the BT.601 sampling
+rate over what the standard specifies — and the <code>srcW / 720</code> term rescales it to
+whatever width the card is actually delivering, so 720, 704 and 640 all land in
+the right place.</p>
+      <div class="tbl"><table>
+<tr><th>Standard</th><th>Subcarrier</th><th>Period at 720</th><th>Figure used</th></tr>
+<tr><td>PAL B/G/I, PAL 60, NTSC 4.43</td><td>4.43361875 MHz</td><td>3.045</td><td>exact</td></tr>
+<tr><td>NTSC M, NTSC M-J</td><td>3.579545 MHz</td><td>3.771</td><td>exact</td></tr>
+<tr><td>PAL M</td><td>3.575611 MHz</td><td>3.775</td><td>3.579545, 0.11 % off</td></tr>
+<tr><td>PAL N</td><td>3.582056 MHz</td><td>3.769</td><td>3.579545, 0.07 % off</td></tr>
+<tr><td>SECAM</td><td>4.250 / 4.40625 MHz</td><td>3.176 / 3.064</td><td>4.43362, see below</td></tr>
+</table></div>
+      <p>The two PAL variants are close enough to count with NTSC M: over the nine periods
+the demodulator looks at, 0.11 % comes to a fiftieth of a sample. The three
+filters added in 3.3 are considerably more tolerant than that again, because none
+of them is phase-sensitive — they only need a window null in roughly the right
+place, and a second-order null is flat where it matters.</p>
+      <p>The figure follows the standard the card is <strong>locked</strong> to, not the one in the
+profile, and it is re-applied whenever a standard settles as well as at capture
+start — a card that re-locks across the two carrier groups on its own would
+otherwise leave the filters 24 % off.</p>
+    </section>
+
+    <section id="secam">
+      <h2>SECAM</h2>
+      <p>The demodulator does not handle SECAM, and cannot: its colour is frequency
+modulated on two carriers that alternate line by line — 4.250 MHz for Db and
+4.40625 MHz for Dr — so there is no single frequency to demodulate against.</p>
+      <p>Everything else applies. The average of what stands still is indifferent to how the colour
+got there. The noise filter removes noise, which is the same defect everywhere.
+The bandwidth restore places its null at 4.43362 MHz, which is 0.6 % from Dr and
+4.3 % from Db; a second-order null is flat enough around its centre that even the
+worse of those leaks under a fifth of a percent.</p>
+      <p>None of this has been measured against a real SECAM source. It is reasoned from
+the standard, and it is stated here as an approximation rather than a result.</p>
+    </section>
+
+    <section id="where-this-sits-against-the-state-of-the-art">
+      <h2>Where this sits against the state of the art</h2>
+      <p>The established offline filters — TComb, DeDot, LUTDeCrawl, Checkmate — are all
+temporal and say so themselves about moving content: they clean what stands still
+and hand the rest back. That is where composite restoration generally stops in
+real time, and it is where CapView stopped through 3.2.</p>
+      <p>3.3 does not move that line for dot crawl, and the algebra above says why it
+cannot: motion compensation and the four-frame cancellation are mutually
+exclusive at every velocity but one. What it does instead is take the <em>other</em>
+three defects off moving picture — noise, invented colour and the rolled-off top
+end — none of which is raster-locked, and all of which the offline filters treat
+as somebody else's problem.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="deinterlacing.html"><span>&larr; Previous</span>Deinterlacing</a>
+      <a class="next" href="cropping-and-geometry.html"><span>Next &rarr;</span>Cropping and geometry</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

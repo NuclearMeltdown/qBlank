@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deinterlacing — qBlank wiki</title>
+<meta name="description" content="How interlace is detected, and what the five modes actually do.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/deinterlacing.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Deinterlacing","item":"https://qblank.com/wiki/deinterlacing.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Deinterlacing</h1>
+    <p class="tag">How interlace is detected, and what the five modes actually do.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#detection">Detection</a>
+      <a href="#field-order">Field order</a>
+      <a href="#the-five-modes">The five modes</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/render/shaders.h</code> (pass 2, <code>kConvertPS</code>), <code>src/render/video_renderer.cpp</code>
+(<code>AnalyzeInterlace</code>)</p>
+      <figure><img src="../deinterlace-closeup.png" alt="The same 480i moment woven and through YADIF" width="1468" height="496" loading="lazy">
+<figcaption>480i from a GameCube: the same moment of one replay, found again in a second
+run by matching the picture rather than the clock. Left, weaving. Luigi is
+sharp — he is barely moving relative to the camera — while everything behind him
+is torn into combs. Combing is not a property of the frame but of what moved in
+it.</figcaption></figure>
+    </section>
+
+    <section id="detection">
+      <h2>Detection</h2>
+      <p>Whether the source is interlaced is measured rather than believed. A media type
+is entitled to say so and frequently does not — a plain <code>VIDEOINFOHEADER</code> has
+nowhere to put it, and cards that use <code>VIDEOINFOHEADER2</code> often leave the
+interlace flags at zero. A 480i console can arrive described as progressive.</p>
+      <p><code>AnalyzeInterlace()</code> asks two questions of the same three row reads. It walks
+odd <code>y</code> only, so <code>rowA = y−1</code>, <code>rowM = y</code>, <code>rowB = y+1</code>: <code>rowA</code>/<code>rowM</code> are the
+two rows of one pair, and <code>rowM</code>/<code>rowB</code> straddle the boundary into the next.
+Sixty-four columns across the width, every third frame
+(<code>kCombSampleEvery = 3</code>), over twenty analysed frames (<code>kCombFramesWanted = 20</code>).</p>
+      <p>Only the luma plane is looked at. Chroma is subsampled vertically in half these
+formats, which would blur away the very thing being measured.</p>
+      <h3 id="question-1-offset-or-co-sited-fields">Question 1: offset or co-sited fields?</h3>
+      <p>A 240p or 288p console packed into a 480 or 576 line frame puts both fields on
+the same lines: rows 2<em>k</em> and 2<em>k</em>+1 are one picture line at two moments. The
+fields of 480i and 576i sit a line apart.</p>
+      <p>The pair test only looks where the answer means something — across an edge, and
+where nothing moved:</p>
+      <pre><code>if (detail &gt; kPairEdge &amp;&amp; comb &lt;= kPairStill) {   // 24, 16
+  inner += |la − lm|;     // within a pair
+  outer += |lm − lb|;     // across the pair boundary
+}</code></pre>
+      <p>On an edge the two rows of a doubled line agree and two picture lines do not.
+Averaged over the whole frame instead, flat areas drown the edges and a moving
+240p game reads as full resolution.</p>
+      <p>The smaller sum over the larger decides, once 2000 edges are in
+(<code>kPairMinSamples</code>):</p>
+      <div class="tbl"><table>
+<tr><th>Ratio</th><th>Reading</th></tr>
+<tr><td>below 0.30</td><td>co-sited: 240p or 288p</td></tr>
+<tr><td>above 0.55</td><td>offset: 480i or 576i</td></tr>
+<tr><td>between</td><td>undecided; the next window asks again</td></tr>
+</table></div>
+      <p>Measured on raw 576i and 480i clips and on co-sited frames built from their
+fields: interlaced 0.43 to 1.00, co-sited 0.04 to 0.43, both ends from racing at
+full speed. Still pictures sit near 0.9 and 0.1.</p>
+      <p>Which of the two sums is smaller gives <code>coSitedPhase_</code> (0 or 1); either phase is
+legitimate, because which row of a pair comes first is a property of where the
+capture happened to start, not of the signal.</p>
+      <p>Such a source <strong>is</strong> interlaced in the sense that matters: the two fields are
+half a field apart in time and comb on anything that moves. What it does not
+need is spatial reconstruction — nothing is missing.</p>
+      <p>The measurement is taken in buffer order and used in picture order. Those differ
+for bottom-up layouts, but only by a mirror, and mirroring an even number of rows
+maps a pair starting on an even row to a pair starting on an even row. Capture
+heights are even, so the phase carries over unchanged.</p>
+      <h3 id="question-2-is-there-combing">Question 2: is there combing?</h3>
+      <pre><code>const int comb   = (lm - la) * (lm - lb);
+const int detail = abs(la - lb);
+if (comb &gt; 900 + detail * 12) ++hits;</code></pre>
+      <p>The product is positive exactly when the middle line lies <strong>outside</strong> the range
+its two neighbours span — bright, dark, bright — and near zero on a smooth
+gradient. The <code>detail</code> term raises the bar in proportion to genuine vertical
+detail, so a finely striped but static image is not read as combing.</p>
+      <p>Combing is judged <strong>per frame</strong>, not pooled. Combing lives where something moved,
+so it is concentrated in the few frames that had movement in them; spreading
+those hits across a window full of still ones is how a real interlaced source
+gets called progressive. A frame counts when</p>
+      <ul>
+<li>3 % of its samples comb (<code>kCombThreshold</code>), or</li>
+<li>on an analogue input, 10 % of one tile in an 8 × 6 grid
+(<code>kCombTileThreshold</code>).</li>
+</ul>
+      <p>The tile catches what moves in one corner: a menu cursor, a pulsing pause text,
+one animated character on a title screen. Noise and dot crawl are spread evenly
+and score the same in a tile as in the whole frame, so the higher tile bar keeps
+them out. Two counting frames in a window (<code>kCombFramesNeeded = 2</code>) mean combing.</p>
+      <p><strong>One-sided combing does not count.</strong> Motion between two fields has a leading and
+a trailing edge and combs both ways: some middle lines brighter than their
+neighbours, some darker. A pattern in the picture itself — upscaler scanlines, a
+texture of single lines — combs one way only. A frame counts only if the rarer
+direction holds at least an eighth of its hits (<code>kCombSignShare = 8</code>). On the raw
+clips, real combed frames rarely fell below that; scanlines and stripes sat at
+zero in every frame.</p>
+      <p>The same patterns fool question 1: beside an edge, the darkened row of a pair
+looks like its neighbour, and scanlines measured as 240p. When more frames comb
+one way than both ways, "co-sited" is not accepted.</p>
+      <h3 id="the-verdict">The verdict</h3>
+      <p>At the end of each window, in this order:</p>
+      <ol>
+<li><strong>Co-sited</strong> → interlaced, fields co-sited.</li>
+<li><strong>Analogue input, under 720 lines, under 32 frames/s, fields offset</strong> →
+interlaced. Every frame is a woven field pair; the format says so, nothing
+has to move.</li>
+<li><strong>Combing</strong> → interlaced — unless, on an analogue input, question 1 is
+undecided. A moving 240p game combs just like 480i, and the verdict latches.
+The log says "not yet" and the next window asks again.</li>
+<li>Otherwise <strong>no</strong>.</li>
+</ol>
+      <p><strong>The frame rate can veto.</strong> At 720 lines or more, and unless the media type
+itself says interlaced, a measured rate of 48 frames/s or more rules interlacing
+out. While the rate is not measured yet, the check waits a window rather than
+racing it.</p>
+      <h3 id="what-latches-and-what-does-not">What latches and what does not</h3>
+      <ul>
+<li><strong>Interlaced latches</strong>, co-sited or not. It is structural; once seen there is
+no reason to doubt it, and <code>AnalyzeInterlace()</code> returns immediately on every
+later call.</li>
+<li><strong>Progressive never latches.</strong> A paused game or a title screen has nothing
+moving in it, and calling that progressive and sticking to it would leave the
+deinterlacer off for the rest of the session. The verdict is reported once,
+then the window resets and the measurement keeps running.</li>
+</ul>
+    </section>
+
+    <section id="field-order">
+      <h2>Field order</h2>
+      <p>Asked of the media type first (<code>AMINTERLACE_Field1First</code> in the
+<code>VIDEOINFOHEADER2</code>) and overridable in the Picture tab. Guessing wrong does not soften the
+picture — it makes it judder, because the fields are shown in the wrong temporal
+order and the picture steps backwards every second field.</p>
+    </section>
+
+    <section id="the-five-modes">
+      <h2>The five modes</h2>
+      <p><code>gDeinterlaceMode</code> in the pass-2 constant buffer. Everything below reads the
+<em>cleaned</em> picture from pass 1, so the deinterlacers know nothing about pixel
+formats or composite artefacts — see <a href="the-composite-filter.html">The composite filter</a>
+for why that ordering is not optional.</p>
+      <p>The figures are vertical movement between consecutive frames, measured on a 480i
+console:</p>
+      <div class="tbl"><table>
+<tr><th>Mode</th><th><code>gDeinterlaceMode</code></th><th>Vertical movement</th><th></th></tr>
+<tr><td>Off (weave)</td><td>0</td><td>none</td><td>combing on anything that moves</td></tr>
+<tr><td>Bob</td><td>1</td><td><strong>1.0 line</strong></td><td>full rate, no latency, no interpolation</td></tr>
+<tr><td>Bob interpolated</td><td>2</td><td>0.56</td><td>the alternation between sharp and interpolated lines, not the picture moving</td></tr>
+<tr><td>Motion adaptive</td><td>3</td><td><strong>0.005</strong></td><td>weaves what is still, interpolates what is not</td></tr>
+<tr><td>Edge directed</td><td>4</td><td>0.69</td><td>follows edges; meant for pixel art, weakest on composite</td></tr>
+<tr><td>YADIF</td><td>5</td><td><strong>0.002</strong></td><td>best quality; keeps one frame in memory</td></tr>
+</table></div>
+      <h3 id="the-co-sited-shortcut">The co-sited shortcut</h3>
+      <p>When <code>gCoSitedPhase &gt;= 0</code>, every mode collapses to the same and only correct
+answer:</p>
+      <pre><code>int base = ((row - gCoSitedPhase) &amp; ~1) + gCoSitedPhase;
+rgb = FetchRgbAt(int2(srcX, clamp(base + gFieldIndex, rowTop, rowBottom)));</code></pre>
+      <p>Take the line belonging to the field being shown and use it for both rows of its
+pair. No interpolation, no ghosting, and — because the two fields are not offset
+from each other — no vertical step. On such a source, bob is the sharpest option
+available and costs nothing.</p>
+      <h3 id="bob-mode-1">Bob (mode 1)</h3>
+      <pre><code>float t = (float(row) - float(gFieldIndex)) * 0.5;
+int r = int(floor(t)) * 2 + gFieldIndex;</code></pre>
+      <p><strong><code>floor</code>, not <code>round</code>.</strong> Rounding lands on exactly .5 for every second output
+row, and which way it goes depends on the field — so the whole picture shifts by
+a line each time the field changes, sixty times a second. Flooring is half a line
+low for <em>both</em> fields equally, which is invisible; a line of difference between
+fields is not.</p>
+      <p>That still leaves the measured 1.0 line of movement, and it is unavoidable in
+this mode: the two fields of a real interlaced signal sit half a line apart, a
+distance nearest-neighbour doubling cannot represent. Either the block boundaries
+move or the content does, and the measured line is the former.</p>
+      <h3 id="bob-interpolated-mode-2">Bob interpolated (mode 2)</h3>
+      <p>The same <code>t</code>, but linearly interpolated between the field's own rows either side
+of it. The 0.56 figure is the alternation between sharp and interpolated lines,
+not the picture moving.</p>
+      <h3 id="motion-adaptive-mode-3">Motion adaptive (mode 3)</h3>
+      <p>Rows belonging to the field being shown are used exactly as captured. Rows
+between them come from the other field, half a field time away, and are only
+trustworthy where nothing moved — so the mode measures how much moved and
+crossfades.</p>
+      <pre><code>float3 w  = FetchRgbAt(int2(srcX + dx, row));
+float3 da = w - FetchRgbAt(int2(srcX + dx, rowAbove));
+float3 db = w - FetchRgbAt(int2(srcX + dx, rowBelow));
+float3 comb = min(abs(da), abs(db)) * step(0.0, da * db);
+motion = max(motion, saturate((max(comb.r, max(comb.g, comb.b)) - 0.006) * 40.0));</code></pre>
+      <p>Each of these was arrived at by measurement:</p>
+      <p><strong><code>min(|da|, |db|)</code> rather than <code>da × db</code>.</strong> The obvious form multiplies the two
+deviations together, which is quadratic in contrast, and on soft anti-aliased
+material it collapses: against this card the typical comb value came out at
+0.00008 with the threshold at 0.00422 — fifty times too high. The mode wove
+essentially everywhere and left the picture interlaced wherever anything moved.
+Hard pixel edges cleared it and 3D rendering never did. Taking the smaller
+deviation is linear in contrast and works on both.</p>
+      <p>It also needs no allowance for genuine vertical detail: on a real edge the middle
+line lies <em>between</em> its neighbours, so the deviations have opposite signs and the
+expression reads zero by construction.</p>
+      <p><strong>Per colour channel, not on brightness.</strong> A red outline over purple has nearly
+the brightness of its background, so on luma alone its teeth read as nothing —
+and they were what was left combing on a pulsing menu.</p>
+      <p><strong>The strongest of three columns, not their average.</strong> An edge that moved by one
+pixel combs in only one of them, and an average leaves two thirds of the comb.</p>
+      <p><strong>0.006 and 40.</strong> Tested against interlaced frames built from the card's own
+fields, where the missing line is known: no combing left where things move.</p>
+      <p>Where it does interpolate, it uses <code>EdgeDirected</code> rather than a vertical average
+— straight averaging was leaving jagged steps on things moving quickly across the
+picture.</p>
+      <h3 id="edge-directed-mode-4">Edge directed (mode 4)</h3>
+      <p><code>EdgeDirected()</code> looks for the direction in which the line above and the line
+below agree, instead of straight down the column. On a diagonal edge the vertical
+average produces a staircase; following the edge does not.</p>
+      <p>Three things make it usable on an analogue signal:</p>
+      <ul>
+<li><strong>Scored over three pixels, not one.</strong> A single pair matches by coincidence all
+over a flat or noisy picture — dozens of directions come out near zero and the
+winner is essentially arbitrary. That was the speckle this mode produced
+originally.</li>
+<li><strong>Scored on <code>LumaSmooth</code></strong>, a three-tap horizontal average. An unsmoothed score
+follows the composite shimmer's own diagonal instead of the picture's: the
+shimmer's dots line up at an angle and the search reports that as an edge. The
+<em>value</em> of a pixel still comes from the pixel; only the decision about which
+direction to take it from is made on the smoothed version.</li>
+<li><strong>A slant penalty</strong> of <code>d × 0.018</code> per step, so a genuinely vertical edge is
+not talked out of being vertical by a marginally better diagonal match.</li>
+</ul>
+      <p>Finally the result is clamped into the range its own two vertical neighbours
+span. A pixel interpolated from some diagonal outside that range did not come
+from this edge — it came from wherever the search wandered off to. That clamp is
+what removes the gross misses rather than merely making them rarer.</p>
+      <p>Search range is ±3 pixels of slant.</p>
+      <h3 id="yadif-mode-5">YADIF (mode 5)</h3>
+      <p><code>Yadif()</code> predicts the missing line spatially with <code>YadifSpatial()</code> — the same
+three-pixel smoothed scoring, but widening to two pixels of slant only when one
+pixel already looked better than straight down — then refuses to let that
+prediction stray further from the temporal evidence than the surrounding lines
+say it plausibly could.</p>
+      <pre><code>float3 tPrev = FetchRgbPrev(int2(x, row));   // missing line, one frame ago
+float3 tCur  = FetchRgbAt(int2(x, row));     // missing line, woven into this frame
+float3 d = (tPrev + tCur) * 0.5;
+…
+return clamp(spatial, d - diff, d + diff);</code></pre>
+      <p><code>diff</code> starts as how much this part of the picture is moving — measured on the
+lines that exist as well as on the line being guessed — and is then widened by
+the local vertical gradient two lines out in each direction (<code>b</code> and <code>f</code>), which
+is the standard YADIF spatial check.</p>
+      <p>Three additions keep it from combing where the textbook version does:</p>
+      <ul>
+<li><strong>The spatial guess stays between its two neighbours</strong>, as in edge directed.
+A slant the search wandered off on otherwise lands brighter or darker than
+both lines around it — a comb of its own making.</li>
+<li><strong>Motion over five columns</strong>, on the strongest colour channel. A fast, finely
+patterned surface — cobbles, gravel, a crowd — can match itself from one frame
+to the next at a single column by pure coincidence, and YADIF then trusts the
+stale line. Its neighbours rarely all do.</li>
+<li><strong>A comb gate.</strong> The coincidence can hold across a whole patch: a stripe that
+moved by exactly two lines sits where it sat a frame ago, every test calls it
+still, and the result combs. Locally that looks like a genuine thin line that
+never moved. So where the result combs, the gate looks three lines up and
+down and three pixels across, and only where something there moved does the
+line go to the spatial guess.</li>
+</ul>
+      <p><strong>This implementation is one-sided.</strong> Textbook YADIF also looks at the frame
+<em>after</em> the current one, which would mean holding every frame back until its
+successor arrives. In a viewer whose entire point is latency that trade is not
+worth making. Where the one-sided version costs accuracy, it falls back towards
+the spatial prediction, which is the safe direction to be wrong in.</p>
+      <p>YADIF is the only mode that needs history — <code>DeinterlaceNeedsHistory()</code> in
+<code>src/config.h</code> returns true only for it — and therefore the only one that costs
+anything to have switched on, in the form of one extra frame kept in GPU memory
+and copied each frame.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="signal-detection.html"><span>&larr; Previous</span>Signal detection</a>
+      <a class="next" href="the-composite-filter.html"><span>Next &rarr;</span>The composite filter</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

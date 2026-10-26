@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual camera — qBlank wiki</title>
+<meta name="description" content="The DirectShow filter, the source 1:1, the shared memory, and the DLL name problem.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/virtual-camera.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Virtual camera","item":"https://qblank.com/wiki/virtual-camera.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Virtual camera</h1>
+    <p class="tag">The DirectShow filter, the source 1:1, the shared memory, and the DLL name problem.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#why-directshow-having-argued-for-media-foundation">Why DirectShow, having argued for Media Foundation</a>
+      <a href="#the-source-11">The source, 1:1</a>
+      <a href="#installation">Installation</a>
+      <a href="#the-dll-is-inside-the-executable">The DLL is inside the executable</a>
+      <a href="#the-dll-name-carries-a-hash-of-its-own-contents">The DLL name carries a hash of its own contents</a>
+      <a href="#the-shared-memory">The shared memory</a>
+      <a href="#inside-the-filter">Inside the filter</a>
+      <a href="#the-idle-picture">The idle picture</a>
+      <a href="#hdr">HDR</a>
+      <a href="#testing-it-without-obs">Testing it without OBS</a>
+      <a href="#known-behaviour">Known behaviour</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/vcam/</code> — <code>vcam_shared.h</code>, <code>virtual_camera.cpp</code>, <code>vcam_filter.cpp</code>,
+<code>vcam_dll.cpp</code>, <code>qblank_vcam.def</code></p>
+      <p>The picture can be offered to other programs as a webcam — OBS, Discord, a
+browser — under the name <strong>qBlank Virtual Camera</strong>. Switched on in
+<strong>Settings → Recording</strong>. The filter is registered machine-wide, so the camera
+stays in every device list from the moment it is installed, whether qBlank is
+running or not; while nothing is feeding it, it shows <a href="#the-idle-picture">the idle
+picture</a>.</p>
+      <p>In 3.0 it delivers the source <strong>1:1</strong>: the source's own resolution at the
+source's own frame rate. Consumers that cannot take that get what they ask for
+instead, scaled inside their own process.</p>
+    </section>
+
+    <section id="why-directshow-having-argued-for-media-foundation">
+      <h2>Why DirectShow, having argued for Media Foundation</h2>
+      <p>This page used to make the opposite case, and the case was not wrong. Media
+Foundation genuinely is the superset: a camera registered through
+<code>MFCreateVirtualCamera</code> appears in <strong>both</strong> backends, because Windows bridges
+frame-server cameras into DirectShow enumeration and not the other way about. A
+DirectShow camera cannot reach the Windows Camera app, the camera list in
+Settings, packaged apps, Windows Hello, or the current Teams.</p>
+      <p>What the argument left out is what it cost, which only became clear once the
+thing was finished and in daily use:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Media Foundation (2.x)</th><th>DirectShow (3.0)</th></tr>
+<tr><td>Where the camera code runs</td><td>Frame Server service, session 0</td><td>inside the consuming program</td></tr>
+<tr><td>Shared objects</td><td><code>Global\</code>, needs <code>SeCreateGlobalPrivilege</code></td><td><code>Local\</code>, needs nothing</td></tr>
+<tr><td>Formats offered</td><td>1080p, 720p, 480p — all at 30</td><td>the source's own, plus the ordinary sizes below it</td></tr>
+<tr><td>Updating the DLL</td><td>stop a system service</td><td>replace a file</td></tr>
+<tr><td>Windows version</td><td>11 (build 22000) and later</td><td>anything qBlank runs on</td></tr>
+<tr><td>Reaches packaged apps</td><td>yes</td><td>no</td></tr>
+</table></div>
+      <p>The fixed list is the one that mattered. A 576i50 SNES came out of the 2.x
+camera upscaled to 1080p and stuttering at 30, and there was nowhere in that
+design to put the real answer, because a Media Foundation source has to declare
+a finite list of media types up front. DirectShow does not: <code>IAMStreamConfig</code>
+advertises <strong>ranges</strong>, and a consumer states what it wants rather than picking
+from a menu.</p>
+      <p>Running in the consumer's process is the second thing. The camera is the same
+user in the same session as the program reading it now, so <code>Global\</code> goes away
+along with the privilege it needed, the frame server goes away along with the
+service restarts, and Windows 11 stops being a requirement.</p>
+      <p>The price is app containers. <code>Local\</code> names are invisible inside one, so Store
+apps do not see the camera. That is a deliberate trade: nothing anyone wants to
+feed a capture card into is a Store app, and the alternative was asking every
+user for administrator rights on every start.</p>
+    </section>
+
+    <section id="the-source-11">
+      <h2>The source, 1:1</h2>
+      <p><code>Pin::BuildTypeList()</code> puts the source's own shape first:</p>
+      <pre><code>if (srcPixel == kPixelP010) add(kPixelP010, srcW, srcH);
+add(kPixelNv12, srcW, srcH);</code></pre>
+      <p>A consumer that takes the first thing offered — OBS does — gets the picture
+untouched. There is no scaling step at all in that case: <code>ScalePlane</code> takes a
+<code>memcpy</code> fast path when source and destination are the same size.</p>
+      <p>A consumer that asked for something smaller gets an area average rather than
+two taps. Two taps read a pair of source pixels and skip whatever lies between
+them, and at a six-to-five shrink the sampling phase repeats as 0.1, 0.3, 0.5,
+0.7, 0.9 — every fifth pixel nearly a copy of one source pixel, the next a
+half-and-half blend. That alternation is what grains. <code>ShrinkPlane</code> covers the
+whole footprint of each destination pixel, weighted in 16.16 by how much of
+each source pixel it overlaps, so there is no phase to beat against. It costs
+about <code>(srcW + dstW) × (srcH + dstH)</code> samples against two taps' <code>4 × dstW × dstH</code> — more, not less, and worth it. Enlarging still uses two taps: a
+footprint narrower than one source pixel averages nothing.</p>
+      <p>It does not make a small picture out of a large one for free. At a six-to-five
+shrink the footprint is 1.2 source pixels wide, which cannot average away
+detail at the Nyquist limit and is not meant to — an alternating black and
+white column pattern comes out 43 to 213 instead of two taps' 25 to 230. What
+changes is that every destination pixel is now treated the same way.</p>
+      <p>Then the ordinary sizes follow, for consumers that read the list instead of
+negotiating. Chromium does that, which means Discord and every browser do:</p>
+      <pre><code>1920×1080  1280×720  960×540  854×480  640×480  640×360  320×240</code></pre>
+      <p>1600×900 was in that list and is not any more. Nothing has it on a wish list,
+and from a 1080p source it is a six-to-five shrink — the ratio at which a
+resampler is most visible. It was the one size below 1080p that grained.</p>
+      <p>Nothing larger than the source is offered, and there is no exception. 720p used
+to be in the list even from a 576i source, on the reasoning that a consumer with
+a fixed wish list needs its wish to be present. What that actually bought was a
+576i console permanently displayed at 720p: a program picks the largest entry it
+likes and then keeps that choice for as long as it holds the camera. Discord did
+exactly that. Offering only what exists costs such a consumer nothing — it
+takes the next size down, or upscales at its own end, where the work belongs.</p>
+      <p>While qBlank is not running there is no source to be smaller than, so the list
+is offered whole. A consumer that opens the camera before qBlank starts should
+not be pinned to the stand-in's shape once a real picture arrives.</p>
+      <h3 id="the-capabilities">The capabilities</h3>
+      <p><code>GetStreamCaps</code> fills a <code>VIDEO_STREAM_CONFIG_CAPS</code> alongside each type, and each
+one describes that type and nothing else:</p>
+      <pre><code>c-&gt;MinOutputSize      = { w, h };          // this entry's own size,
+c-&gt;MaxOutputSize      = { w, h };          // both ends
+c-&gt;OutputGranularityX = 2;                 // chroma is half resolution
+c-&gt;OutputGranularityY = 2;
+c-&gt;MinFrameInterval   = srcInterval;       // fastest: the source's own rate
+c-&gt;MaxFrameInterval   = kSlowestInterval;</code></pre>
+      <p>There is no ceiling of its own — the largest entry follows the source. Put 8K at
+120 in front of it and 8K at 120 is what it advertises.</p>
+      <p>It used to advertise a <em>size range</em> per entry instead, <code>32×32</code> up to
+<code>max(srcW, 1920) × max(srcH, 1080)</code>, on the reasoning that a consumer which
+reads ranges could then ask for anything without finding it in a list. The
+reasoning was sound and the result was not, because OBS reads those bounds
+straight into its resolution dropdown. From a 576i console the list therefore
+offered <code>32×32</code> at one end and <code>1920×1080</code> at the other, neither of which the
+camera had, and both of which survived restarting OBS — they were never a
+description of the source, so nothing about the source could change them.</p>
+      <p>Asking for a size that is not advertised still works: <code>QueryAccept</code> takes
+anything from 32×32 up to the source's size, or 1920×1080 when the source is
+smaller. Advertise narrowly, accept broadly.</p>
+      <p><code>MinFrameInterval</code> is the source's interval rather than something invented: the
+camera will divide a rate down but never make frames up.</p>
+      <h3 id="a-consumer-keeps-the-filter-it-loaded">A consumer keeps the filter it loaded</h3>
+      <p>Windows identifies a loaded module by name, which is why the DLL's filename
+carries a hash of its contents — installing a new qBlank lays down a new file
+rather than replacing one that may be in use. The other half of that is worth
+knowing: <strong>a program that was already running when the camera was installed or
+updated keeps the filter it loaded</strong> until it is restarted. It is not a stale
+picture but stale <em>code</em>, so it can show behaviour that no longer exists in the
+build sitting on disk. Restarting the consuming program is the whole fix.</p>
+      <h3 id="what-a-consumer-actually-gets">What a consumer actually gets</h3>
+      <p>Measured with <code>qblank_vcam_test</code> (below), against a source at 1920×1080 / 59.94:</p>
+      <div class="tbl"><table>
+<tr><th>Asked for</th><th>Delivered</th><th>Samples in 5 s</th></tr>
+<tr><td>nothing (first offer)</td><td>1920×1080 @ 59.94</td><td>301 — 59.94 fps</td></tr>
+<tr><td>1280×720 @ 30</td><td>1280×720 @ 30</td><td>151 — 30.00 fps</td></tr>
+<tr><td>854×480 @ 24</td><td>854×480 @ 24</td><td>97 — 24.00 fps</td></tr>
+<tr><td>640×480 @ 15</td><td>640×480 @ 15, pillarboxed</td><td>61 — 15.00 fps</td></tr>
+</table></div>
+      <p>Three of those running at once, each at its own size and its own rate, is the
+normal case rather than a stress test — there is one filter instance per
+consumer and they share nothing but the pictures.</p>
+      <h3 id="a-format-is-settled-once-when-the-camera-is-opened">A format is settled once, when the camera is opened</h3>
+      <p>This is the part that surprises people, and it is DirectShow's rule rather than
+qBlank's. A consumer connects, the two agree a media type, and the allocator
+commits buffers of exactly that size. From then on the shape is fixed for as
+long as that connection lives. There is no way to grow it underneath a running
+graph: the buffers the consumer already holds are the size they were agreed at,
+and a larger picture would not fit in them.</p>
+      <p>So swapping a 1080p console for a 576i one does everything on qBlank's side
+immediately — a new frame section, a new generation, the new shape published —
+and changes nothing on the consumer's side. It goes on asking for what it
+negotiated, and the filter goes on fitting the new picture into it, pillarboxed.
+The camera is not stuck; the connection is.</p>
+      <p>Reopening the camera in the consumer is the whole fix, and the way to never
+need it is to let the consumer choose: <strong>leave the resolution on automatic in
+whatever program reads the camera, and do not pick a size by hand.</strong> A size
+picked by hand is a size that stays picked. Worth knowing per program:</p>
+      <ul>
+<li><p><strong>OBS</strong> — a Video Capture Device has <strong>Resolution/FPS Type</strong>. On <em>Custom</em> it
+asks for the resolution written in the box and will keep asking for it
+forever. On <strong>Device Default</strong> it takes the first thing the camera offers,
+which is the source's own shape. Set it to Device Default and it follows the
+console; leave it on Custom and it never will. What Custom <em>offers</em> is now
+only what the camera actually has — that is what narrowing the capabilities
+above bought — so a stale 1080p in that box no longer has a matching entry to
+keep it looking legitimate.</p>
+<p><strong>Disabling the device and enabling it again is the whole fix</strong>, in both
+directions: OBS reopens the camera and takes the current Device Default size,
+576i or 1080p or whatever is in front of the card now.</p>
+<p>The list of sizes under <em>Custom</em> is a different thing and does not follow
+reliably. A freshly started OBS gets it right — a 576i console lists
+<code>720×576  640×360  640×480  320×240</code> and a 1080p console lists
+<code>1920×1080  1280×720  960×540  854×480  640×360  640×480  320×240</code>, replacing
+the previous list rather than adding to it. But within one session it may or
+may not rebuild when the console changes, in either direction, disabling the
+device or not. <strong>Assume it needs OBS restarted</strong>, and then do not rely on it
+at all: this only ever reaches someone who picked a resolution by hand.</p>
+<p>Nothing on this side is cached — every <code>GetNumberOfCapabilities</code> and
+<code>GetStreamCaps</code> is rebuilt from the live control block, and
+<code>MediaTypeEnumerator::Reset</code> re-derives rather than rewinds, which is why a
+fresh OBS is right. On Device Default none of it matters, because that list
+is never consulted.</p></li>
+<li><p><strong>Discord</strong> — settles a format when the camera goes live and holds it for that
+call. Turning the camera off and on again in Discord renegotiates. Observed in
+the consumer table asking for 1280×720 at <strong>60</strong>, not the 30 assumed here
+before anyone had watched it. From a 576i console there is no 720p entry to
+find any more, so it takes 720×576 and the upscale stops happening at all.</p></li>
+<li><p><strong>Browsers</strong> — take whatever the page's <code>getUserMedia</code> constraints ask for,
+per <code>getUserMedia</code> call.</p></li>
+</ul>
+      <p>Nothing here can be fixed from qBlank's side, which is worth stating plainly
+because the symptom looks exactly like a bug in the camera: qBlank's own window
+shows the new console correctly while OBS shows it letterboxed into the old
+size.</p>
+    </section>
+
+    <section id="installation">
+      <h2>Installation</h2>
+      <p>A one-time step with a UAC prompt, with an uninstall button next to it. Using
+the camera afterwards needs no rights at all.</p>
+      <p>The reason is narrower than it was: a DirectShow filter is found through
+<code>HKEY_CLASSES_ROOT\CLSID</code> and the filter mapper, both of which are machine-wide.
+Nothing has to run as a service any more.</p>
+      <pre><code>if (!WriteFilterDll(error)) return false;
+if (!RunRegsvr(false, error)) return false;
+CleanUpOldSources();</code></pre>
+      <p><code>RunRegsvr()</code> runs <code>regsvr32</code> through <code>ShellExecuteEx</code> with the <code>runas</code> verb,
+which is what raises the prompt. <code>UninstallSource()</code> is the same call with <code>/u</code>.</p>
+      <p><code>DllRegisterServer</code> writes the class, its <code>InprocServer32</code>, and an
+<code>IFilterMapper2::RegisterFilter</code> entry under <code>CLSID_VideoInputDeviceCategory</code>.
+The merit is <strong><code>MERIT_DO_NOT_USE</code></strong>, which is what every virtual camera uses: it
+keeps the entry in the device list where a user can choose it, while stopping
+the graph builder from wiring it into unrelated graphs on its own initiative.</p>
+      <h3 id="a-per-user-install-would-work-and-is-not-what-30-does">A per-user install would work, and is not what 3.0 does</h3>
+      <p>The UAC prompt is avoidable. COM resolves a class through <code>HKEY_CLASSES_ROOT</code>,
+which is a merged view: <code>HKEY_CURRENT_USER\Software\Classes</code> shadows
+<code>HKEY_LOCAL_MACHINE\Software\Classes</code>. Writing the class, its <code>InprocServer32</code>
+and an <code>Instance</code> entry under the video-input category into the per-user hive
+needs no rights at all, and it was tried:</p>
+      <pre><code>[4] qBlank Virtual Camera
+    DevicePath : @device:sw:{860BB310-...}\{A326E6EC-...}
+    Gemeldete Capability-Entraege: 6</code></pre>
+      <p>That is <code>qblank_probe</code> going through the ordinary system device enumerator, so
+the camera really does appear and really does answer <code>GetStreamCaps</code> with no
+administrator anywhere in the picture. There is no <code>FilterData</code> blob in that
+registration — <code>IFilterMapper2::RegisterFilter</code> was not involved — and with
+<code>MERIT_DO_NOT_USE</code> nothing should want to read one.</p>
+      <p>3.0 ships the machine-wide install anyway. What has been shown is that the
+filter enumerates; what has not been shown is that OBS, Discord and the
+browsers are happy with a registration that carries no <code>FilterData</code>, and a
+camera that quietly fails to appear for everyone is not a thing to find out
+after release. It is written down here as the first candidate for 3.1.</p>
+      <p>One piece of it did ship, because it is a correctness fix rather than a change
+of behaviour: <code>RegisteredPath()</code> now reads the per-user hive before the
+machine-wide one, in the order COM itself uses. If the two ever disagree, the
+per-user entry names the DLL that would really be loaded, and qBlank reporting
+the other one would send someone hunting for an evening.</p>
+      <h3 id="the-2x-registration-is-removed-automatically">The 2.x registration is removed automatically</h3>
+      <p>CapView 3.0 uses a <strong>different CLSID</strong> from the Media Foundation source, so
+installing it does not touch the old registration and the old camera would
+otherwise go on appearing in device lists, pointing at a DLL that no longer
+exists. <code>RemoveLegacyRegistration()</code> runs from both <code>DllRegisterServer</code> and
+<code>DllUnregisterServer</code> and deletes the 2.x class along with its entry under
+<code>Windows Media Foundation\Platform\VirtualCameras</code>.</p>
+      <p><strong>Anyone upgrading from 2.x has to install the camera again.</strong> There is no way
+around it: the old filter and the new one are different COM classes.</p>
+    </section>
+
+    <section id="the-dll-is-inside-the-executable">
+      <h2>The DLL is inside the executable</h2>
+      <p>The filter has to be a separate DLL because DirectShow loads it into the
+consuming program. It is <strong>not</strong> a separate download: it travels inside
+<code>qBlank.exe</code> as an <code>RT_RCDATA</code> resource (<code>kFilterResourceId = 101</code>) and is
+written out when the camera is installed.</p>
+      <p>A release is one file, and the executable can only ever install a filter that
+matches itself.</p>
+      <p><code>qblank_vcam.def</code> exists because <code>STDAPI</code> carries no <code>dllexport</code> — without the
+module definition file the DLL exported nothing at all and <code>regsvr32</code> had
+nothing to call.</p>
+    </section>
+
+    <section id="the-dll-name-carries-a-hash-of-its-own-contents">
+      <h2>The DLL name carries a hash of its own contents</h2>
+      <pre><code>uint64_t hash = 1469598103934665603ull;         // FNV-1a
+for (DWORD i = 0; i &lt; size; ++i) hash = (hash ^ data[i]) * 1099511628211ull;
+swprintf(buffer, 64, L"%s%016llx.dll", DllPrefix(kAppName).c_str(), hash);</code></pre>
+      <p>This is not tidiness, and it took a long time to arrive at.</p>
+      <p><strong>Windows identifies a loaded module inside a process by its file name, not by
+its path.</strong> A later <code>LoadLibrary</code> of a <em>different file with the same name</em> hands
+back the module already loaded rather than reading the new one. Renaming the old
+file out of the way does not help either — measured: a loaded module keeps its
+pages, not its directory entry.</p>
+      <p>Between them those two facts made this look unfixable from the outside.
+Installing appeared to work, <code>regsvr32</code> reported success, and the old code kept
+answering. Every symptom pointed at the new DLL being broken; nothing pointed at
+it never being read.</p>
+      <p>A name that changes with the contents cannot be confused with anything, and an
+install becomes idempotent: the file for this build either is already there or
+is not.</p>
+      <p>Under DirectShow this matters <em>less</em> than it did — there is no long-lived
+service holding the file, so a program that closes releases it — but a consumer
+that stays open for days is ordinary, and the mechanism costs nothing.</p>
+      <p>The prefix is the program's name in lower case, so it follows a rename — and
+<code>CleanUpOldSources()</code> sweeps the former names' patterns as well as the current
+one. A folder that once held <code>capview_vcam_*.dll</code> is cleared by the build that
+calls itself qBlank, because nothing else will ever come back for those files.</p>
+      <p><code>CleanUpOldSources()</code> sweeps every file matching the pattern except the one this
+build uses. Anything still mapped refuses to delete and gets another chance at a
+later start. <strong><code>RegisteredPath()</code></strong> reads back what the registration actually
+points at, so "installed" means the file is there rather than merely that a key
+exists.</p>
+    </section>
+
+    <section id="the-shared-memory">
+      <h2>The shared memory</h2>
+      <p>Three kinds of object, all under <code>Local\</code>:</p>
+      <pre><code>Local\CapViewVCamControl        one control block
+Local\CapViewVCamFrames-&lt;gen&gt;   the pictures, named by generation
+Local\CapViewVCamWake-&lt;0..7&gt;    one auto-reset event per consumer slot</code></pre>
+      <p>They still say CapView, and they will keep saying it. These names are what the
+two halves find each other by: a consumer that loaded a filter DLL from before
+the rename looks for exactly these, and renaming them would mean a camera that
+is installed, running, and connected to nothing.</p>
+      <p><strong>qBlank creates all of them.</strong> Under Media Foundation it was the other way
+about, because only the service could create under <code>Global\</code>; now both halves
+are the same user and the producer can own its own objects.</p>
+      <h3 id="why-the-frames-are-in-a-section-of-their-own-named-by-generation">Why the frames are in a section of their own, named by generation</h3>
+      <p>Because their size follows the source, and the source changes. A mapped section
+cannot grow in place. So a format change makes a <strong>new</strong> section, and the
+control block's <code>frameGeneration</code> names the current one; consumers notice the
+number moved and remap. Releasing the old handle is safe while a consumer is
+still reading from it, because that consumer holds a handle of its own.</p>
+      <p>The alternative is sizing one section for the largest picture the camera will
+ever carry, and at 8K that is three hundred megabytes reserved to show a SNES.</p>
+      <p>Generations never start at zero. A fresh control block seeds from
+<code>GetTickCount() | 1u</code>, so a consumer that survived a qBlank which did not clean
+up is never handed a generation it already has mapped.</p>
+      <h3 id="the-seqlock">The seqlock</h3>
+      <pre><code>struct alignas(64) SlotHeader {
+  volatile uint32_t sequence;   // odd while being written, even when whole
+  uint32_t width, height, strideY, pixel;
+  uint32_t frameIndex;          // running count: new picture or repeat
+  int64_t timestamp100ns;
+};</code></pre>
+      <p>A reader that sees the same <strong>even</strong> value before and after copying knows the
+copy is not torn. Neither side ever waits for the other. Three slots is enough
+that a reader normally never collides with the writer: one being written, one
+being read, one spare.</p>
+      <p><strong>Normally.</strong> A torn read used to mean giving up until the next frame, and at
+large sizes the copy is long enough that contention stops being rare — measured
+at 8K, that turned into a black picture that never recovered: <strong>0 fresh frames
+out of 94 served</strong>. <code>ReadInto</code> now retries up to three times, which is enough
+because the writer has moved to a different slot by then. The same test after
+the change: <strong>239 fresh out of 269</strong>.</p>
+      <h3 id="one-wake-event-per-consumer-not-one-shared">One wake event per consumer, not one shared</h3>
+      <p>A single shared event cannot wake several readers exactly once — whoever waited
+first eats it. So there is one auto-reset event per consumer slot, and the
+producer signals the ones whose slots are in use.</p>
+      <p>Missing a wake is not a correctness problem: the delivery thread wakes on a
+timer regardless, and a reader that misses a signal simply serves the picture it
+already has. The event only saves it from spinning.</p>
+      <h3 id="the-consumer-table">The consumer table</h3>
+      <pre><code>struct ConsumerSlot {
+  volatile uint32_t inUse;
+  uint32_t pid;
+  wchar_t name[64];                     // the consuming executable
+  volatile uint32_t width, height, pixel;
+  volatile int64_t frameInterval100ns;  // 0 until a format is settled
+  volatile uint32_t streaming, framesServed, framesFresh, lastSeenMs;
+};</code></pre>
+      <p>Eight slots. This is not a nicety — it is the shape of the design. There is one
+filter instance per consumer, each negotiating its own format, and two of them
+disagreeing is the normal case. Each instance claims a slot, writes its own
+answers into it, and heartbeats <code>lastSeenMs</code>.</p>
+      <p>Settings → Recording lists the table: program name, negotiated format, and
+whether it is merely connected or actually reading.</p>
+      <p><strong>A quiet slot is not a dead one.</strong> A filter that has been instantiated but not
+yet started only touches its slot when its format is negotiated, and a consumer
+sitting in a preview dialog can be slow about that. So <code>PruneConsumers()</code> treats
+a slot quiet for more than three seconds as a <em>candidate</em>, and reclaims it only
+after confirming with <code>OpenProcess</code>/<code>WaitForSingleObject</code> that the process has
+actually exited.</p>
+    </section>
+
+    <section id="inside-the-filter">
+      <h2>Inside the filter</h2>
+      <p><code>vcam_filter.cpp</code>. One <code>IBaseFilter</code> with one output pin, which also implements
+<code>IAMStreamConfig</code> (the ranges), <code>IKsPropertySet</code> (<code>PIN_CATEGORY_CAPTURE</code>, which
+is how applications recognise a capture pin) and <code>IAMFilterMiscFlags</code>
+(<code>AM_FILTER_MISC_FLAGS_IS_SOURCE</code>).</p>
+      <h3 id="streaming-starts-in-pause-not-run">Streaming starts in Pause, not Run</h3>
+      <pre><code>STDMETHODIMP Filter::Pause() {
+  // A live source has nothing to hold still for. Streaming starts here rather
+  // than in Run because a graph pauses first and expects the first sample to
+  // be on its way before it ever calls Run.</code></pre>
+      <p>A graph that pauses and waits for a sample that only arrives on <code>Run</code> deadlocks.
+Every live source does this.</p>
+      <h3 id="the-delivery-thread-paces-itself">The delivery thread paces itself</h3>
+      <p><code>Pin::ThreadLoop()</code> keeps a <code>QueryPerformanceCounter</code> deadline and adds one
+frame interval per sample. Being woken by a new picture is explicitly <strong>not</strong> a
+reason to deliver early:</p>
+      <pre><code>// Woken by a new picture is not a reason to deliver early: the consumer
+// asked for a rate and gets that rate. It only means the wait ends.
+continue;</code></pre>
+      <p>If it falls more than four frames behind — the machine slept, the consumer
+blocked — the deadline resets to now rather than delivering the backlog as fast
+as the loop can run.</p>
+      <p>This is the part 2.x got wrong in the other direction: the Media Foundation
+source served samples as fast as they were requested, <strong>measured at over 2000 a
+second</strong> for a 30 fps camera, and consumers showed nothing at all.</p>
+      <h3 id="scaling-happens-in-the-consumers-process">Scaling happens in the consumer's process</h3>
+      <p><code>Compose()</code> scales and letterboxes into whatever the consumer negotiated. That
+work happening inside Discord rather than inside qBlank is the point: a 4:3
+console in a 16:9 camera is pillarboxed rather than stretched, and the cost is
+paid by the program that asked for the odd shape, not by everything else reading
+the same camera.</p>
+    </section>
+
+    <section id="the-idle-picture">
+      <h2>The idle picture</h2>
+      <p class="src"><code>src/vcam/vcam_idle.cpp</code></p>
+      <p>The camera is in every device list from the moment it is installed, and a camera
+that is always listed and shows black when idle is indistinguishable from a
+broken one. So when nothing is feeding it, it draws the qBlank mark over a dark
+ground with <strong>qBlank is not running</strong> underneath, and a smaller line saying to
+start qBlank and turn the camera on.</p>
+      <p>The second line covers the other case honestly: qBlank running with the camera
+switched off looks identical from here. The two cannot be told apart — a
+consumer that mapped the control section keeps that mapping alive after qBlank
+exits, so the section still being there proves nothing about the process.</p>
+      <p>What separates black from the idle picture is <code>producerAlive</code>. A read that fails
+while the producer is alive is a torn slot or the moment before the first frame:
+that lasts a frame or two and gets black, because a sentence flashing up between
+two pictures would be worse than nothing. A read that fails with no producer is
+not going to succeed, and gets the explanation.</p>
+      <p>Drawn with GDI, in the consumer's process like everything else here:</p>
+      <ul>
+<li><strong>GDI rather than a baked bitmap font</strong>, because the size is not known until
+the consumer has negotiated one. A font baked at one size looks like a font
+baked at one size at every other. <code>ANTIALIASED_QUALITY</code> and never ClearType —
+subpixel fringes become red and blue edges on the letters once they have been
+through a 4:2:0 chroma pass.</li>
+<li><strong>The mark is a resource in the DLL</strong>, palette-and-run-length packed by
+<code>tools/make_vcam_icon.py</code>: 213 colours in 1729 runs, 7.8 KiB instead of the
+256 KiB the raw 256×256 image costs. It is paid for twice — once in the DLL,
+once again in <code>qBlank.exe</code>, which carries the DLL — which is why it is packed
+at all. The decoder is twenty lines and the generator round-trips its own
+output before writing it.</li>
+<li><strong>Drawn once per shape and kept.</strong> Laying out text thirty times a second to
+say the same thing would be thirty times too many.</li>
+<li><strong>Both layouts.</strong> NV12 and P010, BT.709 limited range, converted from the
+BGRA canvas. P010 is only reachable by a consumer that negotiated it against
+an HDR source and then lost the producer, since an idle camera offers NV12
+only — but that path exists, so it is tested.</li>
+</ul>
+      <p>Below about a hundred lines there is no room for a sentence and the subtitle is
+dropped; below that the mark is drawn alone. The pin does advertise down to
+32×32, and a frame of one flat colour says nothing at all.</p>
+    </section>
+
+    <section id="hdr">
+      <h2>HDR</h2>
+      <p>Off by default, and deliberately so: something that takes the ten bits without
+understanding them shows a wrong picture. When the source is HDR and the switch
+is on, P010 is offered <strong>first</strong> and NV12 immediately behind it, so a consumer
+that has never heard of an HDR webcam still finds something it understands.</p>
+      <p>The 2.x design needed a file in <code>ProgramData</code> to carry this switch across the
+session boundary before the shared section existed. That is gone: <code>sourcePixel</code>
+in the control block is the whole of it, and it doubles as the answer to whether
+there is anything to offer the ten bit form <em>from</em> — one field rather than two
+that can disagree.</p>
+      <p><code>SetSourceShape()</code> is called every frame whether or not anybody is watching, and
+that ordering matters. Readback is only enabled once a consumer streams, so if
+the source shape were noted when a frame was pushed, it would still be zero at
+the moment a consumer negotiated — and every consumer would fall back to the
+idle 1280×720.</p>
+    </section>
+
+    <section id="testing-it-without-obs">
+      <h2>Testing it without OBS</h2>
+      <p><code>qblank_vcam_test.exe</code> (built from <code>src/tools/vcam_test.cpp</code>, not shipped) is
+both halves of the contract in one program.</p>
+      <pre><code>qblank_vcam_test.exe --caps-only
+qblank_vcam_test.exe --size 1280x720 --fps 30 --seconds 5
+qblank_vcam_test.exe --produce --size 7680x4320 --fps 120</code></pre>
+      <p>As a <strong>consumer</strong> it loads the DLL by path and calls <code>DllGetClassObject</code>
+directly, so it needs no registration and no administrator rights. It prints
+every capability with its ranges, optionally calls <code>SetFormat</code>, connects a
+minimal <code>IPin</code> + <code>IMemInputPin</code> sink — a DirectShow source needs nothing else on
+the other end — runs the filter, and reports the rate that actually arrived and
+whether the picture was blank.</p>
+      <p>As a <strong>producer</strong> it publishes a moving pattern into the same shared section
+qBlank publishes into, written straight against <code>vcam_shared.h</code> rather than
+against <code>VirtualCamera</code>. That is deliberate: an independent second
+implementation of the same contract, so where the two agree the contract is
+unambiguous. It also means the reading half can be exercised with no capture
+card, no installed camera, and no qBlank running at all.</p>
+      <p>The 8K seqlock failure above was found this way and would not have been found
+any other way.</p>
+      <h3 id="against-the-real-producer">Against the real producer</h3>
+      <p>The test tool standing in for qBlank leaves one half untested: <code>VirtualCamera</code>
+itself, the code in qBlank that owns the section and fills it from the capture
+card. A temporary per-user registration was enough to get past the "installed?"
+gate and run the real thing, with the PAL source live on the SA7160:</p>
+      <div class="tbl"><table>
+<tr><th>consumer asked for</th><th>arrived</th><th>picture</th></tr>
+<tr><td>native</td><td>300 samples in 5.005 s (59.94 fps)</td><td>luma 17..234, mean 143</td></tr>
+<tr><td>1280x720 @ 30</td><td>150 samples in 5.000 s (30 fps)</td><td>luma 17..233, mean 172</td></tr>
+<tr><td>640x480 @ 15</td><td>61 samples in 4.067 s (15 fps)</td><td>luma 16..233, mean 153</td></tr>
+</table></div>
+      <p>The luma ranges are the tell: the synthetic producer paints a 16..235 ramp, so
+values that stop just short of it are the capture card's picture rather than the
+test pattern. qBlank's own log agreed from the other side — <code>Leser da</code>,
+<code>Leser weg</code>, and a published count climbing by about 61 a second.</p>
+    </section>
+
+    <section id="known-behaviour">
+      <h2>Known behaviour</h2>
+      <ul>
+<li><strong>Not visible to packaged apps.</strong> See the trade at the top.</li>
+<li><strong>A consumer keeps the size it opened with.</strong> Changing console mid-session
+does not change what OBS or Discord are asking for. See <a href="#a-format-is-settled-once-when-the-camera-is-opened">A format is settled
+once</a> — in OBS the
+setting is <strong>Resolution/FPS Type: Device Default</strong>.</li>
+<li><strong>Slightly choppy in Discord</strong> under 2.x. Whether the DirectShow path changes
+that is untested — it was Discord's own handling of virtual cameras rather
+than qBlank's pacing, and the same source was smooth in OBS on the same
+machine at the same time.</li>
+</ul>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="screenshots.html"><span>&larr; Previous</span>Screenshots</a>
+      <a class="next" href="the-main-window.html"><span>Next &rarr;</span>The main window</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

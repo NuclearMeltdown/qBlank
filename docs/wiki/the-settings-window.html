@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The settings window — qBlank wiki</title>
+<meta name="description" content="A window of its own, what it shows for which source, search, and the stutter that took three fixes.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/the-settings-window.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"The settings window","item":"https://qblank.com/wiki/the-settings-window.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>The settings window</h1>
+    <p class="tag">A window of its own, what it shows for which source, search, and the stutter that took three fixes.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#what-the-settings-contain-depends-on-the-source">What the settings contain depends on the source</a>
+      <a href="#the-first-run">The first run</a>
+      <a href="#how-the-settings-are-arranged">How the settings are arranged</a>
+      <a href="#search">Search</a>
+      <a href="#right-click-resets-a-slider">Right click resets a slider</a>
+      <a href="#the-stutter-three-causes-each-hiding-the-next">The stutter: three causes, each hiding the next</a>
+      <a href="#getting-back-into-windows-modal-drag-loop">Getting back into Windows' modal drag loop</a>
+      <a href="#a-device-of-its-own">A device of its own</a>
+      <a href="#black-patches-on-an-interlaced-source-fixed">Black patches on an interlaced source: fixed</a>
+      <a href="#what-is-left-and-whose-it-is">What is left, and whose it is</a>
+      <a href="#three-smaller-things-that-were-also-wrong">Three smaller things that were also wrong</a>
+      <a href="#moving-to-a-monitor-with-other-scaling">Moving to a monitor with other scaling</a>
+      <a href="#is-imgui-the-wrong-framework-for-this">Is ImGui the wrong framework for this?</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/ui/settings_host.cpp</code>, <code>src/ui/settings_window.cpp</code>, <code>src/ui/ui_surface_win32.cpp</code>,
+<code>src/app_ui.cpp</code></p>
+      <p>The settings can be drawn over the picture or given a window of their own, which
+can then be moved to a second monitor or set beside the preview. The switch is
+under <strong>Settings → General</strong>.</p>
+      <p><strong>The separate window is the default as of 2.0.</strong> It has a graphics device of
+its own (Direct3D 11 or Vulkan, whichever the main window runs on), so it is fully decoupled from the preview — nothing it does can affect
+the preview's pacing, and the preview's size and position do not constrain it.
+The embedded panel stays, and not only for taste: a window capture in OBS cannot
+see a second window.</p>
+    </section>
+
+    <section id="what-the-settings-contain-depends-on-the-source">
+      <h2>What the settings contain depends on the source</h2>
+      <p>Eleven tabs of controls before a capture card has been chosen is not an offer, it
+is an obstacle. Until a device is selected there are only <strong>General</strong>, <strong>Source</strong>
+with the device picker, and <strong>About</strong>. The other eight tabs are not rendered at
+all. A <strong>no device</strong> entry in
+the dropdown makes that state reachable without editing the configuration by
+hand.</p>
+      <p>Once a card is running, controls that cannot apply are <strong>absent rather than
+disabled</strong>. A greyed-out control still has to be read and dismissed.</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Shown when</th></tr>
+<tr><td>Composite filter</td><td>the source is analogue</td></tr>
+<tr><td>Native pixel grid</td><td>the source is analogue <strong>and</strong> 576 lines or fewer</td></tr>
+<tr><td>Deinterlacing</td><td>the source has fields</td></tr>
+<tr><td>HDR source curve, source peak</td><td>the source is not analogue</td></tr>
+</table></div>
+      <p>Two of those deliberately do <strong>not</strong> key on analogue versus digital, because the
+obvious rule is wrong in both directions:</p>
+      <ul>
+<li><strong>Deinterlacing is keyed on whether there are fields.</strong> 1080i and 480i exist
+over HDMI. Hiding the field controls for every digital source would break the
+people who need them most.</li>
+<li><strong>The native pixel grid needs both.</strong> It counts samples along one analogue
+line, so a digital source has nothing for it to undo — and above 576 lines
+something has scaled on the way, which puts the edges it looks for somewhere
+other than where they started. Knowing the line count does not rescue it:
+that is a statement about vertical, and this grid is horizontal.</li>
+</ul>
+      <h3 id="and-one-that-used-to-be-here-and-is-not">And one that used to be here and is not</h3>
+      <p><strong>Scanlines and the CRT mask</strong> were hidden above 576 lines until 3.7. The
+reasoning was that the shader's own gate switches them off up there anyway, so
+nothing was lost — and that turned out to be half wrong twice over. The mask
+counts <em>output</em> pixels and never looks at the source at all. The scanlines do
+have a gate, but it is not 576: it is whether the window has two output rows per
+picture line, and a 4K screen has that at 720p.</p>
+      <p>What was lost was the answer to "does this program do scanlines?", which
+<a href="https://github.com/NuclearMeltdown/qBlank/issues/1">issue 1</a> asked twice from
+behind a 720p card. The section stays put now, and when there is genuinely no
+room it says so with the figure it is working from:</p>
+      <blockquote>
+<p>No room: the window shows 1.3 rows per picture line, 2 are needed. Make the
+window bigger — or is the line count above right?</p>
+</blockquote>
+      <p>A control that explains its own silence beats one that is missing. The principle
+above still holds: <em>absent rather than disabled</em> is for controls that <strong>cannot</strong>
+apply, and a control that can apply the moment you resize the window is not one
+of them.</p>
+      <p>The HDR tab is likewise split rather than hidden. The <strong>source</strong> half — which
+transfer curve arrives, how bright the source peaks — is meaningless for an
+analogue decoder and goes away. The <strong>display</strong> half stays, because it is not
+about the source at all: with the desktop in HDR mode an SDR picture still has
+to be written into the HDR container at a chosen white level, or it comes out
+too dim or too bright. That is as true of a SNES as of anything else.</p>
+      <h3 id="automatic-looks-at-the-picture-not-just-at-the-card">Automatic looks at the picture, not just at the card</h3>
+      <p><code>SetAnalogueSource</code> used to ask only whether the card exposes an analogue
+decoder. On a hybrid card that is the wrong question: both inputs sit on one
+board, the decoder is reported either way, and a console at 1080p60 over the
+digital input was being called analogue.</p>
+      <p>The picture answers it. No standard in <code>kStandards</code> produces more than 576
+lines, so a taller source did not come out of the decoder no matter what the
+card can do.</p>
+    </section>
+
+    <section id="the-first-run">
+      <h2>The first run</h2>
+      <p>A welcome screen, not the settings. It is the same screen as "no signal" — icon,
+wordmark, one line underneath — but the line says which key opens the settings
+instead of reporting that something is missing. Nothing is missing the first
+time.</p>
+      <p>From the second run onward the old behaviour returns and a missing device opens
+the settings directly, because by then it <em>is</em> a problem rather than a greeting.
+The state is read from whether a configuration file existed at startup:
+<code>Config::Load</code> returns the same false for "no file" and for "broken file", and
+the difference is that <code>error</code> is empty.</p>
+      <p>The second window used to share one Direct3D device with the preview, and that
+sharing turned out to be the whole story behind a stutter which reached the
+desktop's own mouse cursor. It has a device of its own now.</p>
+      <p>This page is mostly a post-mortem, because everything here was found by
+measurement and several of the intermediate fixes were wrong. The three balancing
+acts below are kept even though the last of them is superseded: they are how the
+shared device was identified as the cause in the first place.</p>
+    </section>
+
+    <section id="how-the-settings-are-arranged">
+      <h2>How the settings are arranged</h2>
+      <p>Eleven tabs, grouped by what a setting <strong>affects</strong> rather than by what it
+technically is. In screen order:</p>
+      <div class="tbl"><table>
+<tr><td><strong>General</strong></td><td>language, the settings window, appearance, tray, shortcuts, log</td></tr>
+<tr><td><strong>Source</strong></td><td>the card and the signal coming out of it</td></tr>
+<tr><td><strong>Picture</strong></td><td>what is done to that signal for viewing</td></tr>
+<tr><td><strong>HDR</strong></td><td>the whole subject, including what the outputs write</td></tr>
+<tr><td><strong>Audio</strong></td><td>playback, delay, levels, recording sources</td></tr>
+<tr><td><strong>Display</strong></td><td>the picture window: graphics API, behaviour, volume readout, fullscreen</td></tr>
+<tr><td><strong>Recording</strong></td><td>everything that leaves qBlank as a file or a camera</td></tr>
+<tr><td><strong>Encoder</strong></td><td>ffmpeg, which encoder, and what it is told</td></tr>
+<tr><td><strong>Keys</strong></td><td></td></tr>
+<tr><td><strong>Profiles</strong></td><td></td></tr>
+<tr><td><strong>About</strong></td><td>version, copyright, licence, links, and the updates (the Updates tab until 5.4.2)</td></tr>
+</table></div>
+      <p>That distinction did real work. The switches deciding whether a recording, a
+screenshot or the virtual camera keeps its full range used to sit under Display —
+three tabs away from any of the three things they govern.</p>
+      <p><strong>General was split off Display in 5.2</strong> for the same reason. Display had grown
+into everything that was not about the signal: the language next to the
+fullscreen behaviour, the tray next to the volume readout. Now Display holds
+only what concerns the picture window, and General holds the program itself.
+General comes first and is there without a device, because the language is the
+first thing someone may need to change.</p>
+      <p><strong>Graphics</strong> in Display is a choice between Direct3D 11 and Vulkan. It applies at
+the next start. While the choice differs from the renderer that is running, a
+<strong>Restart</strong> button sits next to it. The restart saves the settings, ends the
+program and starts it again only once the card has been released. See
+<a href="latency.html#vulkan">Latency</a> for what Vulkan changes.</p>
+      <h3 id="the-tab-strip">The tab strip</h3>
+      <p>ImGui's own tab bar squeezes the labels down to "…" once they stop fitting side
+by side. Eleven tabs at 150 % scaling do not fit side by side in a window of
+reasonable width, so labels like <em>Recording</em> read <em>Rec…</em>.</p>
+      <p>Since 5.2 the strip is drawn by hand (<code>SettingsWindow::DrawTabStrip</code>):</p>
+      <ul>
+<li>One row while everything fits, with the labels at their own widths.</li>
+<li>Otherwise as few rows as will do, with the tabs spread evenly over them and
+each row stretched to the full width, the way the Windows tab control does it.</li>
+<li>No label is ever cut.</li>
+<li>The first time the settings window opens, it is widened to fit all tabs in one
+row, if the screen has the room.</li>
+</ul>
+      <p><strong>The layout follows a resize live.</strong> While a window border is dragged, Windows
+runs its own modal loop. qBlank keeps the picture going from there, but up to 5.1
+the settings were not drawn in it, and the last frame sat stretched across the
+new size until the mouse was let go. Now <code>App::DrawSettingsFrame()</code> lays the
+dialog out and draws it again inside that loop, on every size change. Only when
+the size has actually changed, so moving the window still costs nothing. ImGui
+lays out from scratch every frame anyway, which is why a different UI framework
+would not have done this better.</p>
+      <p><strong>Recording and Encoder are separate</strong> because they answer different questions.
+<em>Where does the file go, how big, how often</em> is a decision about the recording;
+<em>which chip encodes it and how hard it works</em> is a decision about the machine.
+One is set once and the other every session. ffmpeg lives with the encoder for
+the same reason: it is what the encoder runs on, not a property of the recording.</p>
+      <p><strong>HDR earns a tab</strong> rather than a section, because it is not a display setting.
+Its source curve belongs to the card, its tone mapping to the screen, and three
+of its switches decide what the recorder, the screenshots and the virtual camera
+write. A subject that reaches across four tabs is a subject.</p>
+      <h3 id="inside-the-picture-tab">Inside the Picture tab</h3>
+      <p>It is the fullest tab by a distance, so its sections are ordered rather than
+merely listed: <strong>at the top what somebody reaches for on a source they have
+just plugged in, at the bottom what stands right on its own.</strong></p>
+      <div class="tbl"><table>
+<tr><td>Scaling</td><td>filter, sharpening, aspect ratio, rotation, line doubling</td></tr>
+<tr><td>Picture controls</td><td>brightness, contrast, saturation, hue</td></tr>
+<tr><td>Fields</td><td>deinterlacing and field order</td></tr>
+<tr><td>Crop</td><td></td></tr>
+<tr><td>Native pixel grid</td><td>undoing the card's fixed sampling rate</td></tr>
+<tr><td>Composite filter</td><td></td></tr>
+<tr><td>Cathode ray tube</td><td>source lines, scanlines and mask</td></tr>
+<tr><td>Compare</td><td>every filter off on one side, see <a href="freeze-and-compare.html">Freeze and compare</a></td></tr>
+<tr><td>Colour</td><td>range and matrix</td></tr>
+</table></div>
+      <p>Two pairings carry the middle. <strong>Crop and the native pixel grid</strong> sit together
+because they count the same thing — pixels of the source, one saying which to
+throw away and the other how many the console really drew. <strong>Colour is last</strong>
+because it measures itself: range and matrix are decided from the picture, so
+reaching for them means the measurement was wrong, and that is the rare case.</p>
+      <p>The controls that moved furthest were the ones that had never been placed at
+all. <strong>Aspect ratio, rotation and line doubling had no heading of their own</strong>
+and so fell under <em>Cathode ray tube</em> by accident, which made three settings that
+reach every recording and screenshot look like nostalgia. They belong to
+Scaling, and the square-pixel help text already assumed as much: it spoke of
+"the scaling filter chosen above" while pointing four sections up the page.</p>
+      <p>What the order cannot fix is that the composite filter and the CRT section end
+up as neighbours. One recovers what the transmission spoiled and the other lays
+something back on top that was never in the signal; side by side they read as
+two matters of taste, and one of them is not. Nothing inside a single tab
+separates them — that would take a tab of its own.</p>
+      <h3 id="tab-persistence">Tab persistence</h3>
+      <p>Which tab is open is state ImGui keeps <strong>per context</strong>, and the settings are
+drawn into a different context depending on whether they live in their own
+window. So <code>SettingsWindow</code> tracks it explicitly:</p>
+      <pre><code>if (!tabRestored_) {                     // once per run, from the configuration
+  tabRestored_ = true;
+  activeTab_ = cfg().app.settingsTab;
+  wantTab_ = activeTab_;
+}
+ImGuiContext* nowContext = ImGui::GetCurrentContext();
+if (nowContext != tabContext_) {         // and on every context switch
+  tabContext_ = nowContext;
+  wantTab_ = activeTab_;
+}</code></pre>
+      <p>Without the second half, switching to the separate window dropped you back on the
+Source tab every time.</p>
+    </section>
+
+    <section id="search">
+      <h2>Search</h2>
+      <p class="src"><code>src/ui/settings_search.cpp</code>, <code>SettingsWindow::DrawSearchField()</code></p>
+      <p>A field above the tabs; <strong>Ctrl+F</strong> puts the cursor in it from anywhere in the
+window. While it holds text the results take the tabs' place. Enter, a click or
+the arrow keys pick one: its tab opens, the view scrolls to the control and the
+control flashes for a second and a half. It lands a third of the way down
+rather than at the top edge, so the heading above it and the line it depends
+on stay in view.</p>
+      <p>When the settings are drawn over the picture, Ctrl+F counts only while they
+have the focus. Over the picture the keys belong to the app, and someone may
+have bound that one.</p>
+      <p><strong>Every setting is known three times:</strong> by the name on screen, by its name in
+the other language, and by the words of someone who does not know the name. The
+third is what the search is for. Whoever types <em>Gamma</em> does not know it is
+called Brightness here, and whoever knows barely needs a search. So <em>Gamma</em>,
+<em>Stretch</em>, <em>Input lag</em>, <em>Bitrate</em>, <em>YPbPr</em> and <em>PAL60</em> all find something. The
+table, <code>kEntries</code>, has 157 rows in tab order; which tab and section a control
+belongs to is read off its position.</p>
+      <p>Each word of the query is matched on its own, and the best of these counts:</p>
+      <div class="tbl"><table>
+<tr><th>Score</th><th>Match</th></tr>
+<tr><td>100</td><td>the whole word</td></tr>
+<tr><td>80</td><td>the beginning of a word, or of several run together</td></tr>
+<tr><td>60</td><td>inside a word: the back half of a compound, <em>rand</em> in <em>Bildrand</em></td></tr>
+<tr><td>30 / 20</td><td>one typo, or two from seven letters on</td></tr>
+<tr><td>20</td><td>the letters in order, with gaps: <em>hlgkt</em> finds <em>Helligkeit</em></td></tr>
+</table></div>
+      <p>A typo is counted by optimal string alignment, Levenshtein plus swapping two
+neighbours, because that is the typo people actually make (<em>Kontarst</em>). It is
+also tried against the word's beginnings around the query's length, so a typo in
+a word still being typed finds it too. Pieces shorter than five letters count
+inside a word only at its end: in the middle they turn up in words that have
+nothing to do with them, <em>crop</em> in <em>microphone</em>.</p>
+      <p>Both sides go through the same normalisation, so <em>Größe</em>, <em>Groesse</em> and
+<em>grosse</em> are one word. Dots, slashes and apostrophes join rather than split,
+because <em>H.264</em>, <em>A/V</em> and <em>BT.601</em> are typed as one word. Words like <em>the</em>,
+<em>for</em> or <em>der</em> are dropped. A section's name narrows a search
+(<em>recording sources gain</em>) but never finds anything on its own, since every control in
+that section would match.</p>
+      <p><strong>Order.</strong> What matches the label as it reads comes first, up to twelve. Guesses
+— a synonym, the other language, a typo — follow under <em>Related</em>, at most six,
+and when there is nothing but guesses they are headed <em>Did you mean</em>. A guess
+scoring under half the best hit is dropped: those are letters that happen to
+fit. Every result shows <em>Tab › Section</em> on the right, because two controls share
+a name now and then.</p>
+      <p><strong>Hidden controls are still found.</strong> Every control the search knows draws an
+anchor (<code>Anchor()</code>) right after itself, and the jump waits for it. A control
+hidden for the current source never draws one, so after eight frames the field
+says so instead — <em>"X" is hidden right now – it depends on the source or
+another setting</em> — rather than leaving the reader to search the tab by eye.
+Without a video device only Source and Updates exist; the jump then goes to the
+device list, with <em>Select a video device first</em>.</p>
+    </section>
+
+    <section id="right-click-resets-a-slider">
+      <h2>Right click resets a slider</h2>
+      <p>Right click on a slider sets it back to the value it ships with. The defaults
+come from default-constructed configuration structs (<code>kImage</code>, <code>kAudio</code>,
+<code>kRecord</code>, <code>kApp</code> in <code>settings_window.cpp</code>), so there is no second list to go
+stale.</p>
+      <p>The tooltip saying so, <em>Right click: default</em>, appears only when the slider is
+off its default, and only after the mouse has rested on it for a moment.
+Otherwise it would hang on every slider the mouse crosses on its way down the
+page.</p>
+      <p>Volume is left out on purpose. Its default is 100 %, and a stray click should
+not blow anyone's ears off.</p>
+    </section>
+
+    <section id="the-stutter-three-causes-each-hiding-the-next">
+      <h2>The stutter: three causes, each hiding the next</h2>
+      <p>The symptom was that having the settings in their own window made everything
+stutter — including the <strong>system mouse cursor</strong>, which is what said it was not an
+ordinary frame-rate problem.</p>
+      <h3 id="1-presenting-inside-another-windows-frame">1. Presenting inside another window's frame</h3>
+      <p>The dialog's frame was drawn <em>and presented</em> from inside the preview's own frame.
+Presenting a second swap chain part-way through another window's frame flushes
+everything already queued for it.</p>
+      <p>It runs after the preview's present now.</p>
+      <h3 id="2-drawing-235-times-a-second-for-a-25-fps-source">2. Drawing 235 times a second for a 25 fps source</h3>
+      <p>The preview redrew on every wake-up of the message loop, and a second window on
+screen produces a steady stream of messages.</p>
+      <p>Measured: the whole pipeline — video shaders, colour work, readbacks for the
+recorder and the camera, a present — ran <strong>235 times a second to show a source
+delivering 25</strong>.</p>
+      <p>Drawing is paced by the picture now: a new frame, a field falling due, or a floor
+of thirty a second so meters and toasts keep moving. See <a href="latency.html">Latency</a> for
+the loop.</p>
+      <blockquote>
+<p>This fix was wrong the first time. The first version paced against a fixed
+33 ms clock, which beats against 25 fps and produced a slow visible pulse.
+Pacing has to be against the picture, not against a timer.</p>
+</blockquote>
+      <h3 id="3-setmaximumframelatency-is-device-wide">3. <code>SetMaximumFrameLatency</code> is device-wide</h3>
+      <p>This is the one that actually cost the milliseconds.</p>
+      <blockquote>
+<p><strong>Superseded.</strong> The window now creates a Direct3D device of its own, which
+removes this coupling rather than balancing it — see
+<a href="#a-device-of-its-own">A device of its own</a> below. The measurement is kept
+because it is what pointed at the shared device in the first place.</p>
+</blockquote>
+      <p><code>SetMaximumFrameLatency(1)</code> is what makes the preview's latency as short as it
+is — and it applies to the <strong>device</strong>, not to a swap chain. With one frame of
+queue and two swap chains, each present waited for the other's frame to retire.</p>
+      <p>Measured: the dialog's present cost <strong>8–14 ms</strong> and the preview's <strong>3 ms</strong>. At a
+queue of three, both are <strong>under a millisecond</strong>.</p>
+      <p>The fix at the time was <code>D3DContext::SetFrameLatency(UINT)</code>, which raised the
+queue to three only while the dialog was on screen, because the rest of the time
+the short queue is the point.</p>
+      <p>The dialog's swap chain also uses <code>BufferCount = 3</code> and <code>ALLOW_TEARING</code> where
+supported (<code>swapchainFlags_</code> / <code>presentFlags_</code>).</p>
+    </section>
+
+    <section id="getting-back-into-windows-modal-drag-loop">
+      <h2>Getting back into Windows' modal drag loop</h2>
+      <p>Dragging a window puts Windows into a loop of its own that does not return until
+the mouse is released. qBlank's own loop stops running and the preview stops
+with it — <strong>measured at 1.24 seconds frozen</strong> during a drag.</p>
+      <p>The only way back in is from a message the window receives while that loop is
+running.</p>
+      <h3 id="wm_timer-does-not-work"><code>WM_TIMER</code> does not work</h3>
+      <p>The obvious answer, and it fails:</p>
+      <pre><code>case WM_ENTERSIZEMOVE:
+  ::SetTimer(hwnd, 1, 16, nullptr);</code></pre>
+      <p><code>WM_TIMER</code> is the <strong>lowest priority message there is</strong>, and Windows only
+generates one when the queue is otherwise empty. During a drag the queue never
+is. Measured: at an interval of 8 ms it fired <strong>seven times in a second</strong>.</p>
+      <p>The timer is still set, but only as a floor for when the mouse is held still.</p>
+      <h3 id="wm_moving-and-wm_sizing-do"><code>WM_MOVING</code> and <code>WM_SIZING</code> do</h3>
+      <pre><code>case WM_MOVING:
+case WM_SIZING:
+  self-&gt;PumpModalFrame();
+  break;   // and on to DefWindowProc, which does the actual moving</code></pre>
+      <p>Windows sends these continuously while the window is being dragged or resized —
+once per mouse movement — and unlike <code>WM_TIMER</code> they are real messages that
+cannot be starved by the flood of mouse input causing the problem in the first
+place.</p>
+      <p>Measured after: <strong>125 pumps a second</strong> against the timer's seven.</p>
+      <h3 id="the-ceiling-three-tries-and-the-answer-was-to-have-none">The ceiling: three tries, and the answer was to have none</h3>
+      <p>Rendering on every <code>WM_MOVING</code> puts a whole frame — shaders, readbacks, two
+presents — between each mouse movement and the window following it, which trades
+one kind of stutter for another. That was the second wrong fix: the preview ran
+beautifully and the <em>window</em> lagged behind the cursor. So a ceiling went in:</p>
+      <pre><code>if (lastModalTick_ != 0 &amp;&amp; now - lastModalTick_ &lt; 30) return;   // wrong</code></pre>
+      <p><strong>That number was visible.</strong> Dragging the window dropped the preview from 60 to
+33 frames — not because anything was overloaded, but because it had been decided
+here.</p>
+      <p>The obvious repair was to pace against the source's measured frame rate. It made
+things <strong>worse</strong>, and for two reasons that multiplied:</p>
+      <ul>
+<li><strong>PAL delivers 25 frames and the preview shows 50 deinterlaced fields.</strong> Pacing
+on the frame rate throws away half of what there is to show.</li>
+<li><strong><code>GetTickCount</code> advances in 15.6 ms steps.</strong> Every threshold rounds up to the
+next multiple: 40 ms becomes 46.8, which is <strong>21.4 frames a second</strong>. That is
+what was measured. The old 30 ms rounded to 31.2 — the 32 seen before.</li>
+</ul>
+      <p>Any number is wrong here. Whether there is something new to show is known only
+to the loop upstairs, which has decided it for the ordinary case all along, so
+<code>PumpModalFrame</code> now decides nothing:</p>
+      <pre><code>void SettingsHost::PumpModalFrame() {
+  if (!onFrame_ || inFrameCallback_) return;
+  inFrameCallback_ = true;
+  onFrame_();
+  inFrameCallback_ = false;
+}</code></pre>
+      <p>The callback in <code>App</code> applies the same three conditions as the main loop — a new
+picture, a field falling due, a slow floor (see <a href="latency.html">Latency</a>). The capture
+card's event is auto-reset, so testing it with a zero wait is the same
+consumption the main loop performs, and that loop is not running at the time.</p>
+      <p>The <code>WM_TIMER</code> floor went from 16 ms to 10, the smallest Windows accepts
+(<code>USER_TIMER_MINIMUM</code>). A wake-up without a new picture now costs only the
+question of whether there is one, so it may be asked more often than 60 Hz needs.</p>
+      <p>Measured during a drag: a preview frame costs <strong>0.6 to 0.8 ms</strong>, and the preview
+runs at the source's rate rather than at a rate chosen here.</p>
+      <p><code>inFrameCallback_</code> guards against reentrancy, since the frame callback can itself
+pump messages.</p>
+    </section>
+
+    <section id="a-device-of-its-own">
+      <h2>A device of its own</h2>
+      <p>The three fixes above balanced a shared Direct3D device. They worked, and the
+window still did not feel free — so the sharing itself went.</p>
+      <p><code>SettingsHost::Create</code> now calls <code>D3D11CreateDevice</code> and keeps its own device
+and immediate context. Two things follow:</p>
+      <ul>
+<li><strong>The preview keeps a frame queue of one, permanently.</strong> It no longer has to
+be raised to three while the dialog is open, which was the single biggest
+lever on its latency being given away for the dialog's sake.</li>
+<li><strong>Nothing serialises.</strong> Both windows used the same immediate context, so every
+ImGui draw call for the dialog went through the exact context the preview
+needed. Separate contexts, separate queues.</li>
+</ul>
+      <p>Measured with the settings window open and overlapping the preview: <strong>0.5 to
+1.6 ms</strong>. That was frame age as it was then defined, stopped at the start of the
+draw rather than at the present, so it is not directly comparable with the
+pipeline figure the overlay shows today. It stands against a preview that
+previously had to run at a queue of three to stay under a millisecond at all.</p>
+      <h3 id="what-it-costs">What it costs</h3>
+      <p><strong>A second font atlas.</strong> A texture belongs to the device that made it, so the
+two contexts cannot share one. <code>LoadUiFont()</code> is called again inside the host's
+context — without it the window comes up in ImGui's built-in font and looks like
+a different program.</p>
+      <p><strong>And it removes a trap.</strong> The shared atlas had a sting: the DX11 backend keeps
+the atlas's texture id <em>inside the atlas</em>, so shutting down the second context
+called <code>SetTexID(0)</code> and released the texture the first one was still drawing
+with. Closing the settings window blanked the entire interface until restart.
+That was patched by rebuilding the texture on the way out; with two atlases
+there is nothing to patch.</p>
+    </section>
+
+    <section id="black-patches-on-an-interlaced-source-fixed">
+      <h2>Black patches on an interlaced source: fixed</h2>
+      <p>Reported against 1.7: with the settings in their own window, the preview
+occasionally flickered black in places. Only with the analogue, interlaced
+source. <strong>Gone as of 1.9</strong>, confirmed on the hardware that showed it.</p>
+      <p>It was never reproduced by instrumentation here. Two attempts, both defeated by
+the instrument rather than by the bug: screen capture runs at about twenty
+frames a second against a sixty frame preview, so a single dropped frame is
+caught roughly one time in three, and on moving content a per-pixel "darker than
+both neighbours" test flags every moving edge in the picture.</p>
+      <p>What found it was the report itself — that it only happened on the interlaced
+source. That pointed at the field schedule rather than at the renderer, and the
+<code>WAIT_TIMEOUT</code> bug below was sitting there: with the dialog open, every second
+field was dropped. Fixing it made the flicker stop.</p>
+      <p>Ruled out along the way, each by reading rather than by guessing:</p>
+      <ul>
+<li><strong>Scissor rectangles left behind by ImGui.</strong> The renderer's rasteriser state
+has <code>ScissorEnable = FALSE</code>, so a stale rectangle cannot clip the video.</li>
+<li><strong>Undefined back-buffer content under <code>FLIP_DISCARD</code>.</strong> <code>D3DContext::BeginFrame</code>
+clears the whole surface every frame.</li>
+<li><strong>Repeated <code>SetMaximumFrameLatency</code> calls.</strong> <code>D3DContext::SetFrameLatency</code>
+already returns early when the value has not changed.</li>
+</ul>
+      <p>The defect behind it: with the settings window open, the message queue never
+goes quiet, so the second field of every interlaced frame was being dropped —
+see <a href="latency.html">Latency</a>. On a still picture that is invisible; on moving
+interlaced content half the fields going missing is exactly the kind of thing
+that reads as flicker.</p>
+      <p>Worth recording that the cause was reached from <em>which sources it happened on</em>
+rather than from a reproduction. Two reproduction attempts had already failed,
+and both of them were measuring the wrong thing.</p>
+    </section>
+
+    <section id="what-is-left-and-whose-it-is">
+      <h2>What is left, and whose it is</h2>
+      <p><strong>The settings window itself does not always move perfectly smoothly.</strong> The
+preview no longer cares what the window does — that part is fixed — but the
+window can still hitch as it follows the cursor.</p>
+      <p>The work is not the problem: 0.6 to 0.8 ms a frame, measured. What is left is
+the desktop's. Two overlapping windows have to be composed together by DWM, and
+one of them is repainting at the capture card's rate. Dragging the dialog onto
+another monitor, or off the preview, makes it go away — which is the test that
+says whose it is.</p>
+    </section>
+
+    <section id="three-smaller-things-that-were-also-wrong">
+      <h2>Three smaller things that were also wrong</h2>
+      <h3 id="no-taskbar-button">No taskbar button</h3>
+      <p>The window was created owned but without <code>WS_EX_APPWINDOW</code>, which is how Windows
+is asked for a taskbar button. Without one, a window has nowhere to go when it is
+minimised, and lands as a stub in a corner of the screen the way windows did
+before there was a taskbar.</p>
+      <p><code>MakeWindowAssociation</code> is deliberately <strong>not</strong> called — it is per-factory, not
+per-window, and calling it for the second window would change the first one's
+Alt+Enter behaviour.</p>
+      <h3 id="the-shared-font-atlas-released-the-wrong-texture">The shared font atlas released the wrong texture</h3>
+      <p>Both windows used to share one <code>ImFontAtlas</code> — same glyphs, one copy on the GPU.</p>
+      <p>But the DX11 backend stores the atlas's texture id <strong>in the atlas</strong>. Closing the
+second window released the texture the first one was still drawing with, and the
+whole interface went blank until restart.</p>
+      <p>That was patched by rebuilding the texture on the way out. It is moot now: with
+a device of its own the window needs an atlas of its own, and neither can reach
+into the other.</p>
+      <h3 id="the-window-jumped-on-every-switch">The window jumped on every switch</h3>
+      <p>Switching between embedded and separate destroys and rebuilds the window, so it
+came up wherever Windows decided each time.</p>
+      <p><strong>Each form remembering its own position is not the answer</strong> — that was the
+first fix, and it produced two windows that each reappeared where <em>it</em> had last
+been, so switching modes still made the panel jump across the screen. What is
+wanted is a handover: the separate window opens exactly where the embedded panel
+was standing, and the other way round.</p>
+      <p>That handover has to be measured <strong>outer edge to outer edge</strong>:</p>
+      <pre><code>RECT outer = {};
+if (::GetWindowRect(host, &amp;outer)) {          // including the title bar
+  POINT inMain = {outer.left, outer.top};
+  ::ScreenToClient(hwnd_, &amp;inMain);
+  config_.app.settingsPanelX = inMain.x;
+  config_.app.settingsPanelY = inMain.y;
+  config_.app.settingsPanelW = outer.right - outer.left;
+  config_.app.settingsPanelH = outer.bottom - outer.top;
+}</code></pre>
+      <p>Mapping client to client — with <code>AdjustWindowRect</code> to convert between them —
+looks right and is not: the embedded panel counts <strong>its own ImGui title bar</strong> as
+part of its area, while a real window's client area starts <em>below</em> the Windows
+title bar. The difference between the two bars shifted the panel a few pixels on
+every switch, down one way and up the other. Outer edges assume nothing about
+what is inside.</p>
+      <p>The failsafe stays: a separate window dragged outside the main window has no
+sensible embedded position, so the panel is centred in the preview instead.</p>
+      <p><code>SettingsHost::placement()</code> reads <code>GetWindowPlacement</code> — the <strong>restored</strong>
+rectangle, not the current one, so a window read while minimised or maximised is
+not remembered at the wrong size. <code>App::RememberSettingsWindow()</code> copies it into
+the configuration before <code>Destroy()</code>, and <code>Create()</code> checks the remembered
+position against the virtual screen before using it:</p>
+      <pre><code>// A hundred pixels of title bar has to remain reachable.
+if (where.x + 100 &gt; desk.left &amp;&amp; where.x &lt; desk.right - 100 &amp;&amp;
+    where.y &gt;= desk.top &amp;&amp; where.y &lt; desk.bottom - 40) { x = where.x; y = where.y; }</code></pre>
+      <p>A window remembered on a monitor that is no longer there does not come up
+somewhere nobody can reach it.</p>
+      <h3 id="minimum-size">Minimum size</h3>
+      <p>Dragged too small, the tab row wraps and the fields beside their labels are
+squeezed. The separate window now stops where the embedded panel always has: <code>kSettingsMinWidth</code> ×
+<code>kSettingsMinHeight</code> (620 × 460) inside, in <code>settings_host.h</code>, shared by both.</p>
+      <p><code>WindowSpec::minWidth</code> / <code>minHeight</code> carry it to the platform. <code>WM_GETMINMAXINFO</code>
+turns it into a whole-window size for the monitor's scaling (<code>ToolMinSize</code>:
+<code>MulDiv</code> by the DPI, then <code>AdjustWindowRectExForDpi</code>). That message arrives
+before <code>WM_NCCREATE</code> attaches the window's state, so it cannot catch a smaller
+size remembered from before; <code>Window::Create</code> brings that up to the minimum
+with one <code>SetWindowPos</code> after creation.</p>
+    </section>
+
+    <section id="moving-to-a-monitor-with-other-scaling">
+      <h2>Moving to a monitor with other scaling</h2>
+      <p>Up to 5.0.0 the DPI scale was read once, at startup. A window dragged from a
+100 % monitor to a 150 % one kept its old sizes and font and looked small.</p>
+      <p>Since 5.0.1 <code>WM_DPICHANGED</code> becomes a window event carrying the new scale. The
+main window and the separate settings window take the rectangle Windows
+suggests, so they stay the same size to the eye, and restyle before their
+<strong>next</strong> frame. The event can arrive in the middle of a frame (a <code>SetWindowPos</code>
+from the UI that lands the window on another monitor sends it right away), and
+restyling there would change sizes under a half-built frame.</p>
+      <p>The startup dialog does not follow. It is seen once.</p>
+      <h3 id="font-and-sizes">Font and sizes</h3>
+      <p>The font is loaded at its 100 % size and scaled through <code>FontScaleDpi</code>. Since
+1.92 ImGui rasterizes glyphs for the size they end up at, so a scaled font is
+as sharp as one loaded at that size.</p>
+      <p><code>ApplyImGuiTheme</code> starts from a fresh <code>ImGuiStyle()</code> every time. <code>ScaleAllSizes</code>
+multiplies whatever is there, so on top of the previous call it scaled the
+fields the theme does not set once more with every monitor or theme change.</p>
+      <p>Fixed widths in the settings (number fields, buttons, the release notes box,
+the status card) were plain pixels. They now go through <code>Px()</code>, which multiplies
+by the style's current scale.</p>
+      <h3 id="the-embedded-panel">The embedded panel</h3>
+      <p>The panel's default and minimum size scale too. When the main window changes
+monitors, the panel grows or shrinks by the same factor and keeps its place in
+it. At 150 % the unscaled minimum of 620 × 460 was too narrow for the tab row.</p>
+      <p>This turned up an older bug: the remembered panel size was never restored.
+<code>SetNextWindowSize</code> keeps only the last call, and the <code>FirstUseEver</code> default
+came after the restore. It goes first now.</p>
+    </section>
+
+    <section id="is-imgui-the-wrong-framework-for-this">
+      <h2>Is ImGui the wrong framework for this?</h2>
+      <p>Reasonable question, and the answer is no — the problems above were all Direct3D
+and Win32 problems, not ImGui ones.</p>
+      <p>ImGui does assume it is called once per frame from whatever thread owns the
+device, which is exactly the assumption that makes the modal-loop problem visible.
+But any immediate-mode or retained-mode UI sharing a device with a latency-tuned
+swap chain hits the same three issues: the present ordering, the device-wide
+frame latency, and Windows' modal loop. A different framework would have hidden
+the first, made no difference to the second, and hit the third identically.</p>
+      <p>Swapping it out has no upside either. Qt would multiply the size of a 2.7 MB
+program, and the other small ones (Nuklear, microui) do less than ImGui does.
+ImGui draws into the same swap chain as the picture, with no second window and
+no second compositor pass. What it lacks (right-to-left text, screen readers, a
+native look) is nothing qBlank needs. Since 1.92 it also loads every glyph the
+font has on demand, so a language with its own script is a matter of a font,
+not a framework.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="the-main-window.html"><span>&larr; Previous</span>The main window</a>
+      <a class="next" href="configuration-and-profiles.html"><span>Next &rarr;</span>Configuration and profiles</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

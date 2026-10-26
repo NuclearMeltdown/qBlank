@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio — qBlank wiki</title>
+<meta name="description" content="WASAPI passthrough, drift correction, recording sources, track layout.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/audio.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Audio","item":"https://qblank.com/wiki/audio.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Audio</h1>
+    <p class="tag">WASAPI passthrough, drift correction, recording sources, track layout.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#two-capture-backends">Two capture backends</a>
+      <a href="#drift-correction">Drift correction</a>
+      <a href="#priming-and-starvation">Priming and starvation</a>
+      <a href="#the-recording-tap">The recording tap</a>
+      <a href="#latency-settings">Latency settings</a>
+      <a href="#level-meters">Level meters</a>
+      <a href="#recording-sources">Recording sources</a>
+      <a href="#device-loss">Device loss</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/audio/audio_engine.cpp</code>, <code>src/audio/dshow_audio_capture.cpp</code>,
+<code>src/audio/source_capture.cpp</code>, <code>src/audio/audio_ring.cpp</code></p>
+      <p>The path is: capture device → ring buffer → WASAPI render endpoint.</p>
+      <p>Routing the card's audio through qBlank's own ring is what makes the delay
+adjustable at all. A DirectShow audio renderer would hand you whatever buffering
+it feels like, typically over a hundred milliseconds; here the <strong>target fill of
+the ring is the latency</strong>.</p>
+    </section>
+
+    <section id="two-capture-backends">
+      <h2>Two capture backends</h2>
+      <p><strong>WASAPI</strong> for anything Windows exposes as a recording device — which is most
+cards' embedded audio.</p>
+      <p><strong>DirectShow</strong> (<code>dshow_audio_capture.cpp</code>) for cards whose embedded audio Windows
+does not expose as a sound device. That builds a small graph with a sample-grab
+sink of the same shape as the video one.</p>
+      <p>Playback is <strong>always WASAPI</strong>, so the output device picker and the exclusive-mode
+option work either way.</p>
+      <p><code>OnCapturedAudio()</code> is the single entry point for captured audio, whichever
+backend produced it. It feeds the playback ring and, when recording, the tap.</p>
+    </section>
+
+    <section id="drift-correction">
+      <h2>Drift correction</h2>
+      <p>The card's sample clock and the sound device's sample clock are not the same
+clock and never will be. Over an hour they separate by enough to matter.</p>
+      <p>The correction is a <strong>playback rate nudge</strong>, computed each callback from how full
+the ring is against where it should be:</p>
+      <pre><code>double ratio = (double)captureRate / (double)fmt.sampleRate;
+const double err = ((double)available - (double)targetFrames) / (double)targetFrames;
+ratio *= Clamp(1.0 + 0.05 * err, 0.997, 1.003);</code></pre>
+      <p>Three tenths of one per cent at the extreme — well under the threshold of
+audibility for pitch, and it absorbs the drift <strong>without ever cutting the
+stream</strong>. No resampler, no dropped blocks, no clicks.</p>
+      <p>The resampling itself is linear interpolation between the two neighbouring
+frames, with <code>prev</code> holding the last frame of the previous callback so the
+interpolation is continuous across callback boundaries.</p>
+      <pre><code>const double endPos = srcFrac + ratio * frames;
+const size_t shift = (size_t)std::floor(endPos);</code></pre>
+      <p>Everything up to <code>shift</code> is consumed; the rest stays in <code>pending</code> for the next
+callback, so no sample is ever silently dropped.</p>
+    </section>
+
+    <section id="priming-and-starvation">
+      <h2>Priming and starvation</h2>
+      <p><strong>Priming</strong>: nothing is played until the ring holds a full target's worth. Until
+then, silence.</p>
+      <p><strong>Starvation</strong>: if the ring falls below a quarter of the target, the engine
+un-primes and writes a clean gap of silence while it refills.</p>
+      <pre><code>} else if (available * 4 &lt; targetFrames) {
+  primed = false;
+  writeSilence(frames);
+  continue;
+}</code></pre>
+      <p>That is what a card with no signal locked does — it delivers less than real time.
+One clean gap beats grinding along on held samples.</p>
+      <p><strong>Underrun</strong>: when the ring runs short mid-callback, the last known sample value
+is <strong>held</strong> rather than dropping to silence. Far less clicky, and a short hold is
+nearly inaudible. <code>underruns_</code> counts it, and the statistics overlay reports it.</p>
+    </section>
+
+    <section id="the-recording-tap">
+      <h2>The recording tap</h2>
+      <p>A <strong>second ring</strong> receives the captured audio exactly as it arrived: no
+resampling, no drift correction, no volume, no mute.</p>
+      <p>The playback ring is deliberately not usable for this. It nudges the playback
+rate by a fraction of a per cent to hold its target fill, which is right for
+listening and wrong for a file that has to stay in sync over an hour — and it
+would bake the volume slider into the recording.</p>
+      <p><code>tapOverruns()</code> counts how often the tap ring overflowed, which is the recorder
+falling behind.</p>
+    </section>
+
+    <section id="latency-settings">
+      <h2>Latency settings</h2>
+      <p><strong>Buffer target</strong> is the fill the ring is held at, in milliseconds, and is
+therefore the latency. <code>AudioEngine</code> raises what it actually aims for above the
+configured value to clear the playback device's own buffer — asking for 10 ms
+when the endpoint's own period is 10 ms would leave nothing to absorb a single
+late callback.</p>
+      <p><strong>Exclusive mode</strong> takes the endpoint away from the rest of Windows, which
+removes the mixer from the path and lowers the floor. Nothing else on the machine
+can make a sound while it is held.</p>
+      <p><strong>A/V offset</strong> shifts the audio against the picture, in milliseconds, either way.
+The card's audio and video paths do not necessarily have the same delay, and no
+card reports what the difference is.</p>
+    </section>
+
+    <section id="level-meters">
+      <h2>Level meters</h2>
+      <pre><code>float inputPeak() const;   // 0..1, with a decay</code></pre>
+      <p>Measured <strong>before</strong> volume and mute, so the meter shows what the card is
+delivering rather than how loud you have it. A silent meter therefore means no
+signal, not a muted output — which is the question you actually want answered
+when nothing is coming out.</p>
+      <p>Both the capture input and every recording source have one.</p>
+    </section>
+
+    <section id="recording-sources">
+      <h2>Recording sources</h2>
+      <p><code>source_capture.cpp</code>. Any number of extra sounds for the recording, each with
+its own gain, added and removed on the audio tab.</p>
+      <figure class="ui"><img src="../shots/audio.png" alt="Recording sources: the card audio, an input and the system sound, each with gain, tracks and level, and Add" width="528" height="524" loading="lazy"></figure>
+      <div class="tbl"><table>
+<tr><th>Kind</th><th>Records</th></tr>
+<tr><td>Input</td><td>a microphone or other input device, or what plays on an output device (WASAPI loopback)</td></tr>
+<tr><td>System sound</td><td>everything Windows plays except qBlank (process loopback, Windows 10 2004+)</td></tr>
+</table></div>
+      <p>An input's device list holds both sides, microphones first, then the outputs:
+a virtual cable is a microphone on one end and an output on the other, and
+with sound split over several of them (one for the game, one for voice chat)
+each gets its own entry and track.</p>
+      <ul>
+<li><strong>Never played back</strong> and never mixed into what you hear.</li>
+<li><strong>System sound leaves qBlank out</strong>, so the game is not in the file twice. An
+output device has no such filter: if the card plays there too, the settings
+warn that it would be recorded twice.</li>
+<li><strong>An idle output delivers nothing</strong>: a loopback on a device that plays
+nothing gets no packets at all. qBlank plays silence on it while the source
+is open. Process loopback delivers silence by itself.</li>
+<li><strong>Open only while used</strong>: while recording, and while the settings are open
+so the meter means something. Longer would light the Windows privacy
+indicator for nothing.</li>
+<li>The card's sound heads the list, fixed, with its meter; it is picked
+under Source. The rest starts empty and is added by hand below it.
+Settings from before the list keep their microphone if it was used.</li>
+<li>During a recording only the gain can change: the tracks are laid out.</li>
+</ul>
+      <p>See <a href="recording.html#track-layout">Recording</a> for the track layout.</p>
+    </section>
+
+    <section id="device-loss">
+      <h2>Device loss</h2>
+      <p><code>AudioEngine</code> sets a flag when a device disappears (unplugged, driver reload,
+default device changed). The app notices and offers a restart rather than silently
+running with no sound.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="ffmpeg.html"><span>&larr; Previous</span>ffmpeg</a>
+      <a class="next" href="screenshots.html"><span>Next &rarr;</span>Screenshots</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

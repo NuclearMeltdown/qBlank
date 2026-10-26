@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screenshots — qBlank wiki</title>
+<meta name="description" content="PNG, JPEG, JPEG XR and AVIF, why WIC rather than ffmpeg, and the two grab points.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/screenshots.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Screenshots","item":"https://qblank.com/wiki/screenshots.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Screenshots</h1>
+    <p class="tag">PNG, JPEG, JPEG XR and AVIF, why WIC rather than ffmpeg, and the two grab points.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#sdr-png-and-jpeg">SDR: PNG and JPEG</a>
+      <a href="#nothing-waits-for-the-gpu-or-the-disk">Nothing waits for the GPU or the disk</a>
+      <a href="#hdr-jpeg-xr-and-avif">HDR: JPEG XR and AVIF</a>
+      <a href="#including-the-interface">Including the interface</a>
+      <a href="#file-naming">File naming</a>
+      <a href="#to-the-clipboard">To the clipboard</a>
+      <a href="#showing-the-file">Showing the file</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/record/screenshot.cpp</code>, <code>src/render/still_copy.h</code>,
+<code>src/render/video_renderer.cpp</code> (<code>CopyStill</code>, <code>CopyStillHalf</code>),
+<code>src/render/display_win32.cpp</code> and <code>display_vulkan.cpp</code> (<code>CopyBackBuffer</code>),
+<code>src/app_frame.cpp</code> (<code>CollectScreenshots</code>)</p>
+      <p>F10 by default, Ctrl+F10 for the clipboard. Written at <strong>source resolution</strong>,
+after crop, deinterlacing and rotation, and <strong>before the interface is drawn</strong> —
+so no toolbar, no statistics overlay, no toast in the picture. <strong>Include the
+interface</strong> in the Recording tab moves the grab to the other side of that line;
+see below.</p>
+    </section>
+
+    <section id="sdr-png-and-jpeg">
+      <h2>SDR: PNG and JPEG</h2>
+      <p>Through <strong>Windows Imaging Component</strong>, which ships with Windows. A screenshot is
+the one output that should work on a fresh machine where nobody has pressed the
+ffmpeg download button yet.</p>
+      <p><code>CopyStill()</code> queues a copy of the current picture and returns at once. Alpha
+comes back opaque. It must be called on the render thread.</p>
+    </section>
+
+    <section id="nothing-waits-for-the-gpu-or-the-disk">
+      <h2>Nothing waits for the GPU or the disk</h2>
+      <p>Since 6.0 a screenshot costs the render thread about <strong>0.005 ms</strong> for the
+hand-over. Before, the read-back waited for the GPU on the spot: a millisecond
+or two, which at 240 fps is a whole frame.</p>
+      <ul>
+<li>The press only <strong>queues</strong> the copy (<code>StillCopy</code>, one per backend).</li>
+<li>Every frame <code>CollectScreenshots()</code> asks it with <code>TryMap()</code>, which never waits.
+A frame or so later the GPU is done and the copy is mapped.</li>
+<li>The bytes are read <strong>out of the mapping by the saving thread</strong>
+(<code>StillPixels::Read()</code>): copying eight megabytes on the thread that draws
+would cost another millisecond.</li>
+<li>Encoding, writing and the clipboard happen on <code>screenshotJobs_</code>. So does
+freeing the copy and the bytes, which also takes a millisecond or two.</li>
+<li>The answer — the toast, a fallback folder — comes back through <code>Collect()</code> on
+the render thread, the only thread that touches toasts and the config.</li>
+</ul>
+      <p>Several presses in a row queue several copies, saved in order. At most <strong>four</strong>
+are under way at once (<code>kMaxShotsInFlight</code>); a fifth gets <em>Still saving
+screenshots</em>, so a held key cannot pile them up.</p>
+    </section>
+
+    <section id="hdr-jpeg-xr-and-avif">
+      <h2>HDR: JPEG XR and AVIF</h2>
+      <p>Only offered when the source is actually HDR and the "keep the range" switch for
+screenshots is on. See <a href="high-dynamic-range.html">High dynamic range</a>.</p>
+      <p><code>CopyStillHalf()</code> queues the picture as <strong>linear light, four half floats per
+pixel, 1.0 meaning diffuse white</strong>.</p>
+      <h3 id="jpeg-xr-jxr">JPEG XR (<code>.jxr</code>)</h3>
+      <p><code>SaveScreenshotHdr()</code>. Holds scRGB half floats, which is exactly what Windows
+itself writes for an HDR screenshot — and therefore what the Photos app opens as
+one rather than as a dark mess.</p>
+      <p>Costs nothing: Windows ships the encoder, so this is the HDR format that can be
+written on a machine where nobody has pressed the download button. AVIF, below,
+is the one screenshot format that cannot.</p>
+      <p><code>paperWhiteNits</code> is passed in because scRGB fixes its own 1.0 at eighty nits, so
+the linear values have to be scaled into that convention.</p>
+      <h3 id="avif">AVIF</h3>
+      <p><code>SaveScreenshotAvif()</code>. Ten bit PQ in BT.2020, with the colour description that
+makes it an HDR image rather than a dark one.</p>
+      <p>Read by every browser and by most things that are not Windows — but it needs
+ffmpeg: libaom, inside qBlank through ffmpeg's libraries. Since ffmpeg is
+already there for recording that is not a new dependency, only a newly required
+one, and the format picker says so.</p>
+      <p>Since 6.1 it is encoded in the process, and the tags are set on the encoder
+directly. Up to 6.0 it went through <code>ffmpeg.exe</code>, whose version 9 no longer
+carried the PQ curve into the file on that route: the image opened as a flat SDR
+one.</p>
+      <h3 id="why-not-16-bit-png">Why not 16-bit PNG</h3>
+      <p>Nothing would know to read it as HDR. PNG has no place to say "this is on the PQ
+curve" that any viewer acts on, so a 16-bit PNG of HDR content is a file full of
+correct numbers that every program displays wrongly.</p>
+    </section>
+
+    <section id="including-the-interface">
+      <h2>Including the interface</h2>
+      <p><code>RenderFrame</code> has two grab points, and the setting decides which one fires.</p>
+      <p>The default is immediately after <code>renderer_.Draw()</code> and before
+<code>display_.NewUiFrame()</code>, which is why nothing of the interface can reach the
+file. The other is after the draw data has been rendered and before
+<code>display_.EndFrame()</code> — the only moment the back buffer holds the finished window,
+since under the flip model its contents are undefined once the present has
+happened.</p>
+      <p><code>CopyBackBuffer()</code> queues a copy into a staging texture, about 0.2 ms on the
+render thread; the saving thread swizzles BGRA to RGBA. Alpha is <strong>set</strong> rather
+than carried over: what looks opaque on screen has to be opaque in the file.</p>
+      <p>Two consequences worth knowing before turning it on:</p>
+      <ul>
+<li>The result is the size of the <strong>window</strong>, not of the source. It is the scaled
+picture, letterboxing included, not the source pixels.</li>
+<li>It is always <strong>SDR</strong>. With HDR output the back buffer is scRGB in half floats,
+and converting that to SDR unverified would mean shipping untested colour
+maths, so the grab is refused, the picture alone is saved instead, and the
+message says so.</li>
+</ul>
+      <p>A separate settings window is its own top-level window with its own swapchain,
+so it does not appear either way. The embedded panel does.</p>
+    </section>
+
+    <section id="file-naming">
+      <h2>File naming</h2>
+      <p><code>MakeScreenshotPath()</code> builds a timestamped name in the configured folder, with a
+counter appended when the same second is hit twice. It creates the folder if
+necessary and returns empty when it cannot.</p>
+      <p><code>MakeHdrScreenshotPath()</code> is the same for the two HDR formats.</p>
+      <p>The default folder is <code>Pictures\qBlank</code> (<code>DefaultScreenshotFolder()</code>).</p>
+    </section>
+
+    <section id="to-the-clipboard">
+      <h2>To the clipboard</h2>
+      <p><code>CopyScreenshotToClipboard()</code>. The same grab, handed over as a 24-bit <code>CF_DIB</code>
+instead of written to a file. It is always the SDR path, even with an HDR source
+and the range switch on: the clipboard has no way to carry a wide range.</p>
+      <p>Another program may hold the clipboard for the moment it takes to read it, so
+opening it is tried five times, 20 ms apart, before <em>The clipboard is busy</em> is
+reported. That is an answer to come back to, not a failure the user can act on.</p>
+    </section>
+
+    <section id="showing-the-file">
+      <h2>Showing the file</h2>
+      <p>The toast after a screenshot, and after a recording (<em>Recording saved</em>), can be
+clicked: Explorer opens with the file selected (<code>ShowFileInFolder()</code> in
+<code>src/desktop_win32.cpp</code>). If the file has gone in the meantime, the toast says
+so instead.</p>
+      <ul>
+<li>These toasts stand <strong>4 s</strong> instead of 2.5 s. By the time the mouse reaches the
+bottom centre, a short one would already be half faded.</li>
+<li>The toast <strong>stays while the mouse rests on it</strong>, but only once the mouse has
+moved there. A mouse that happens to be parked at the bottom centre would
+otherwise hold it over the picture forever.</li>
+<li>The first <strong>three</strong> such toasts say in a second line that they can be
+clicked. One click ends that for good.</li>
+<li><strong>They never stack.</strong> Since 5.2 two other toasts arriving within 1.5 s stand
+one under the other instead of the second replacing the first before it could
+be read — matching the resolution, then the crop that follows it. Only two
+lines, and not with a file: its click belongs to exactly one message.</li>
+</ul>
+      <p><code>SHOpenFolderAndSelectItems</code> reuses an Explorer window that already shows the
+folder instead of opening another next to it. It wants a single-threaded
+apartment, though, and the calling thread is multithreaded because of
+DirectShow, so the call runs on a short thread of its own. If it fails there,
+<code>explorer /select</code> does the same job with one window more.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="audio.html"><span>&larr; Previous</span>Audio</a>
+      <a class="next" href="virtual-camera.html"><span>Next &rarr;</span>Virtual camera</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Latency — qBlank wiki</title>
+<meta name="description" content="The capture path end to end, and the four decisions that make it short.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/latency.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Latency","item":"https://qblank.com/wiki/latency.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Latency</h1>
+    <p class="tag">The capture path end to end, and the four decisions that make it short.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#1-a-renderer-filter-that-does-not-render">1. A renderer filter that does not render</a>
+      <a href="#2-no-graph-clock">2. No graph clock</a>
+      <a href="#3-flip-model-swap-chain-one-frame-of-queue">3. Flip-model swap chain, one frame of queue</a>
+      <a href="#vulkan">Vulkan</a>
+      <a href="#4-format-conversion-on-the-gpu">4. Format conversion on the GPU</a>
+      <a href="#the-render-loop">The render loop</a>
+      <a href="#nothing-waits-on-a-disk">Nothing waits on a disk</a>
+      <a href="#where-the-remaining-milliseconds-are">Where the remaining milliseconds are</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p>Measured on a StarTech PEXHDCAP60L: <strong>1080p60 sustained, around 1 ms between a
+frame arriving from the card and being drawn.</strong> That figure is the age of the
+frame at the moment the draw call is issued, read from the statistics overlay,
+which computes it from the QPC timestamp taken when the sample was handed over.</p>
+      <p>Four decisions account for it. Each is a place where the obvious implementation
+would have added a queue.</p>
+    </section>
+
+    <section id="1-a-renderer-filter-that-does-not-render">
+      <h2>1. A renderer filter that does not render</h2>
+      <p class="src"><code>src/capture/frame_sink.h</code>, <code>src/capture/frame_sink.cpp</code></p>
+      <p>The stock DirectShow renderers — VMR9, EVR — schedule samples against the graph
+clock and keep a queue in front of them. That is correct for playback and
+exactly wrong here. <code>FrameSink</code> is a minimal <code>IBaseFilter</code> with one input pin
+(<code>SinkPin</code>, implementing <code>IPin</code> and <code>IMemInputPin</code>) that does the opposite.</p>
+      <p><code>SinkPin::Receive</code> forwards to <code>FrameSink::OnSample</code>, which:</p>
+      <ol>
+<li>Checks the sample for an attached media type. A mid-stream format change
+arrives that way; when the width, height or subtype differ from the current
+format, all three slots are reallocated and the ready and read indices are
+reset to −1 so nothing half-sized is ever handed out.</li>
+<li>Picks a write slot under the lock — <code>PickWriteSlotLocked()</code> returns the one
+index of three that is neither the slot waiting to be picked up (<code>readyIdx_</code>)
+nor the slot the reader is holding (<code>readIdx_</code>).</li>
+<li><strong>Copies outside the lock.</strong> The chosen slot cannot be touched by anyone
+else, and only the upstream streaming thread calls <code>Receive</code>, so there is no
+second writer. The <code>memcpy</code> — the expensive part — therefore never blocks the
+render thread.</li>
+<li>Retakes the lock only to publish: if <code>readyIdx_</code> was still set, that frame
+never reached the screen and <code>dropped_</code> is incremented. Then <code>readyIdx_</code>
+becomes the new slot, <code>sequence_</code> and <code>received_</code> advance, and
+<code>lastArrivalQpc_</code> is stamped.</li>
+<li>Signals <code>frameEvent_</code>, an auto-reset event, so the render loop can sleep on a
+handle instead of polling.</li>
+</ol>
+      <p><code>Receive</code> returns immediately in every case. Frames arriving faster than they
+can be shown are overwritten, not buffered, so delay cannot accumulate — the
+<code>dropped</code> counter in the statistics overlay is the visible consequence.</p>
+      <p><code>AcquireFrame</code> is the reader half. It moves <code>readyIdx_</code> into <code>readIdx_</code>, clears
+<code>readyIdx_</code>, and returns <code>true</code> when the frame is one the reader has not seen.
+The returned <code>FrameView</code> always describes the frame currently held, even when
+that is the previous one — so a render pass triggered by something other than a
+new frame still has something valid to draw.</p>
+      <p><code>ReceiveCanBlock</code> returns <code>S_FALSE</code>, and <code>GetMiscFlags</code> reports
+<code>AM_FILTER_MISC_FLAGS_IS_RENDERER</code>, which is what stops the graph from inserting
+anything helpful upstream.</p>
+      <h3 id="why-three-slots">Why three slots</h3>
+      <p>Two would deadlock the copy-outside-the-lock trick: with the reader holding one
+and one waiting to be picked up, there is no third to write into. Three is the
+minimum that lets the writer always have a free slot without ever waiting for
+the reader, and there is no benefit to four — a fourth slot is a queue, which is
+the thing being avoided.</p>
+    </section>
+
+    <section id="2-no-graph-clock">
+      <h2>2. No graph clock</h2>
+      <p><code>FrameSink::SetSyncSource</code> accepts the clock and stores it, but the graph is run
+without one: <code>src/capture/video_capture.cpp</code> calls <code>IMediaFilter::SetSyncSource(nullptr)</code>
+before running. With no reference clock, no filter holds a sample back until its
+presentation time, and the capture filter delivers as soon as the driver hands
+it something.</p>
+      <p>The cost is that DirectShow's own timestamps become advisory. Nothing in qBlank
+uses them for the display path; the recorder derives its timeline from the audio
+instead (see <a href="recording.html">Recording</a>).</p>
+    </section>
+
+    <section id="3-flip-model-swap-chain-one-frame-of-queue">
+      <h2>3. Flip-model swap chain, one frame of queue</h2>
+      <p class="src"><code>src/render/display_win32.cpp</code></p>
+      <ul>
+<li><code>DXGI_SWAP_EFFECT_FLIP_DISCARD</code></li>
+<li><code>IDXGIDevice1::SetMaximumFrameLatency(1)</code></li>
+<li><code>DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING</code> where the adapter supports it, present
+with <code>DXGI_PRESENT_ALLOW_TEARING</code> and a sync interval of 0</li>
+<li>VSync off by default</li>
+</ul>
+      <p>Two details are worth stating because both were found the hard way:</p>
+      <p><strong>A sync interval of 0 without the tearing flag still blocks.</strong> On a flip-model
+swap chain, DXGI treats "no vsync" as "no vsync <em>if you have told me you can
+tear</em>". Without <code>ALLOW_TEARING</code> on both the swap chain and the present call, the
+present waits for the next vertical blank anyway. <code>display_win32.cpp</code> queries
+<code>IDXGIFactory5::CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, …)</code> and
+records the answer in <code>tearingSupported()</code>.</p>
+      <p><strong><code>SetMaximumFrameLatency</code> applies to the device, not to a swap chain.</strong> With
+one frame of queue and two swap chains — which happened when the settings lived
+in their own window on the same device — each present waited on the other's
+frame to retire. That is covered on <a href="the-settings-window.html">The settings window</a>.
+The settings window has its own device now, with its own queue of three
+(<code>ui_surface_win32.cpp</code>), and the picture's device keeps its queue of one.</p>
+    </section>
+
+    <section id="vulkan">
+      <h2>Vulkan</h2>
+      <p class="src"><code>src/render/display_vulkan.cpp</code>, <code>src/render/vulkan_device.cpp</code>,
+<code>src/render/render_passes_vulkan.cpp</code></p>
+      <p>Since 5.2 the picture can also be drawn with Vulkan, under <strong>Settings → Display →
+Graphics</strong>. Direct3D 11 stays the default and the fallback. The Vulkan backend
+draws the same passes with the same shaders, compiled to SPIR-V at build time,
+and keeps the same rules:</p>
+      <ul>
+<li><strong>Two swapchain images</strong>, or the driver's minimum if it is higher.</li>
+<li><strong><code>IMMEDIATE</code> when VSync is off</strong>, the Vulkan word for tearing. <code>MAILBOX</code> only
+if the driver has no <code>IMMEDIATE</code>, with a warning in the log. <code>FIFO</code> with VSync.</li>
+<li><strong>One frame in flight.</strong> One command buffer with one fence; the next frame's
+commands wait for the previous submission.</li>
+<li><strong>A longer chain kept to one frame ahead.</strong> With more than two images, the
+acquire first waits up to 100 ms for the previous present, through
+<code>VK_KHR_present_wait</code> where the device has it.</li>
+</ul>
+      <p>Measured on the analogue card at 576i, deinterlaced to 50 frames a second. The
+second field of every frame is drawn 20 ms after the first, which pulls the mean
+frame age up to about 11 ms:</p>
+      <div class="tbl"><table>
+<tr><th>Build</th><th>Mean frame age</th></tr>
+<tr><td>5.1.0, Direct3D 11</td><td>11.3 ms</td></tr>
+<tr><td>5.2, Direct3D 11</td><td>11.3 ms</td></tr>
+<tr><td>5.2, Vulkan</td><td>10.7 ms</td></tr>
+</table></div>
+      <p>Vulkan is a little ahead, but not by enough to make it the default. Direct3D 11
+has years of drivers behind it, and both renderers get their shaders compiled
+by the build. <code>vulkan-1.dll</code> is delay-loaded, so a PC without a
+Vulkan loader still starts, on Direct3D 11. If Vulkan fails to come up for any
+reason, the program starts on Direct3D 11 and says why in the log.</p>
+    </section>
+
+    <section id="4-format-conversion-on-the-gpu">
+      <h2>4. Format conversion on the GPU</h2>
+      <p><code>src/render/shaders.h</code>, pass 1 (<code>kConvertPS</code>)</p>
+      <p>YUY2, UYVY, YVYU, NV12, planar 4:2:0, RGB24 and RGB32 are unpacked in a pixel
+shader. The bytes go from the capture buffer into a <code>D3D11_USAGE_DYNAMIC</code>
+texture with <code>Map</code>/<code>Unmap</code> and are decoded on the way out.</p>
+      <p>The one exception is RGB24, because no texture format holds three bytes a
+pixel. It goes into the same BGRA texture as RGB32 and gains its alpha on the
+way in: one four byte read and one four byte write per pixel, the read's fourth
+byte being the next pixel's blue, which the alpha covers. That brought 1080p
+from 2.9 ms of frame age to 1.9 ms. Unpacking the three bytes in the shader
+instead measured 1.3 ms, but it made the clean pass a third larger for everyone,
+its first compile two seconds longer and the exe 12 KB bigger, for a format
+that is only ever used when chosen by hand.</p>
+      <p>Everything in that pass uses texel fetches (<code>Load</code>) rather than samplers, so no
+hardware filtering can smear anything before it is meant to. Sampling with a
+filter enabled would interpolate across the chroma subsampling boundary, which
+is a colour error, not a softness.</p>
+      <h3 id="chroma-between-samples">Chroma between samples</h3>
+      <p>In 4:2:2 and 4:2:0 a colour sample sits on every even pixel, and the odd pixel
+lies halfway between two of them. On a <strong>digital</strong> source the odd pixel takes
+the midpoint of its two samples. Its colour edges are as sharp as its
+brightness, and copying the left sample moved each of them half a pixel and
+turned it into a step. An <strong>analogue</strong> source keeps the copy: composite colour
+has no edges that sharp, and every composite filter was measured on it. Only
+the clean pass's own fetch does this, one branch on a constant, so the
+deinterlacers' many fetches compile exactly as before.</p>
+    </section>
+
+    <section id="the-render-loop">
+      <h2>The render loop</h2>
+      <p><code>App::Run</code> in <code>src/app_frame.cpp</code> waits on the sink's frame event with a timeout, and
+draws when one of three things is true:</p>
+      <pre><code>const bool wokeOnPicture = lastWait_ == WAIT_OBJECT_0 &amp;&amp; lastWaitHadEvent_;
+const bool fieldDue      = secondFieldPending_ &amp;&amp; nowQpc &gt;= secondFieldQpc_;
+const double idleFloor   = IdleFloorMs();
+if (wokeOnPicture || fieldDue || sinceRenderMs &gt;= idleFloor) {
+  lastRenderQpc_ = nowQpc;
+  RenderFrame();
+}</code></pre>
+      <ul>
+<li><p><strong><code>wokeOnPicture</code></strong> — a new frame arrived. This is the normal case and the only
+one that matters for latency.</p></li>
+<li><p><strong><code>fieldDue</code></strong> — a bob-style deinterlacer is showing the second field of the
+frame it already has, and that field's turn has come. Scheduled from
+<code>FrameSink::lastArrivalQpc()</code>, not from when the first field was drawn:
+scheduling from the draw is how a second field ends up due after the <em>next</em>
+frame has already arrived.</p>
+<p>This condition used to read <code>lastWait_ == WAIT_TIMEOUT &amp;&amp; secondFieldPending_</code>,
+and that was a bug with a very specific footprint.
+<code>MsgWaitForMultipleObjectsEx</code> returns <code>WAIT_TIMEOUT</code> <strong>only when nothing else
+woke the loop</strong>. Open the settings window and there is a steady stream of
+messages, so the wait returns "input available" every time and the timeout
+branch never runs. The next arriving picture then takes the <code>haveNewFrame</code>
+branch, which resets <code>fieldIndex_</code> — so <strong>every second field was silently
+dropped for as long as the dialog was open</strong>, and only on interlaced sources.</p>
+<p>It is the same shape of mistake as the <code>WM_TIMER</code> that could not compete with
+the drag loop's message flood (see
+<a href="the-settings-window.html">The settings window</a>): a schedule must not be
+conditional on the message queue being quiet. Asking the clock instead is both
+correct and cheaper.</p></li>
+<li><p><strong><code>sinceRenderMs &gt;= idleFloor</code></strong> — a floor, so something on screen that has to
+move keeps moving when no pictures are arriving at all. <code>App::IdleFloorMs()</code>
+returns <strong>200 ms</strong> for the video, which needs no floor of its own — nothing
+arrived, so there is nothing new to show — and <strong>16 ms</strong> whenever the frame
+contains something that animates by itself: the embedded settings panel, the
+crop picker, a toast, the volume display.</p>
+<p>The distinction is not whether a signal is present but whether anything on
+screen has to move. With a source running, its own rate sets the pace and this
+floor never applies. Without one, the embedded panel used to be drawn by this
+loop at the video's floor and ran at a measured <strong>4.7 frames a second</strong>.</p>
+<p>The wait below is capped to match: a floor is worthless if the loop sleeps for
+longer than the floor is.</p></li>
+</ul>
+      <p>Everything else the message loop wakes up for — mouse moves, timer messages,
+the settings window's own traffic — deliberately does <strong>not</strong> trigger a redraw.
+Before that was true, the pipeline measured <strong>235 draws a second on a source
+delivering 25</strong>, because a second window on screen produces a steady stream of
+messages and every one of them was being treated as a reason to redraw.</p>
+      <p>These same three conditions are what the settings window's drag loop applies as
+well. While a window is being dragged, Windows keeps the thread to itself and
+this loop does not run at all, so the preview is driven from a message the
+dialog receives instead — but the decision of whether to draw is identical, down
+to consuming the same auto-reset capture event with a zero wait. Two different
+ways in, one rule. See
+<a href="the-settings-window.html#the-ceiling-three-tries-and-the-answer-was-to-have-none">The settings window</a>
+for the two wrong versions that came before it, both of which were a number.</p>
+    </section>
+
+    <section id="nothing-waits-on-a-disk">
+      <h2>Nothing waits on a disk</h2>
+      <p>Since 6.0 the render thread waits for no disk, driver or shell. A drive that
+has gone to sleep takes a second or more to answer; at 240 fps a frame lasts
+4 ms.</p>
+      <p><code>src/job_thread.h</code>: one thread per <strong>area</strong>, so work that does not belong
+together never waits on each other. Jobs in one area run in order. A job that
+has an answer returns what to do with it, and <code>Collect()</code> runs that on the
+render thread, once a frame, for one atomic load when there is none. That way
+toasts, the config and the settings window are only ever touched by the thread
+that draws them.</p>
+      <div class="tbl"><table>
+<tr><th>Thread</th><th>Owner</th><th>What</th></tr>
+<tr><td><code>configJobs_</code></td><td>App</td><td>writing the settings (serialised on the render thread)</td></tr>
+<tr><td><code>screenshotJobs_</code></td><td>App</td><td>reading out, saving and freeing <a href="screenshots.html#nothing-waits-for-the-gpu-or-the-disk">screenshots</a></td></tr>
+<tr><td><code>folderJobs_</code></td><td>App</td><td>the folder to open: made again, or the default</td></tr>
+<tr><td><code>disk_</code></td><td>RecordingControl</td><td><a href="recording.html#the-disk-is-asked-elsewhere">start checks, free space, file size</a></td></tr>
+<tr><td><code>worker_</code></td><td>SourceCapture</td><td>opening and closing a recording source (one per source)</td></tr>
+<tr><td><code>deviceJobs_</code></td><td>Settings window</td><td>device lists, probes, the card's own audio</td></tr>
+<tr><td><code>setupJobs_</code></td><td>Settings window</td><td>the shortcuts, the virtual camera's registration</td></tr>
+</table></div>
+      <p>Opening a link, a folder or a file runs on a short thread of its own: the
+shell wants a single-threaded apartment, and the render thread is
+multithreaded because of DirectShow.</p>
+      <p>Measured against 5.8.0, the frame age is the same within the noise: 0.5 ms on
+Vulkan, 1.1 to 1.2 ms on D3D11. The gain is in the frames that used to stall,
+not in the average.</p>
+    </section>
+
+    <section id="where-the-remaining-milliseconds-are">
+      <h2>Where the remaining milliseconds are</h2>
+      <p>The overlay's <strong>Pipeline</strong> row is the span qBlank is answerable for: from the
+moment a frame lands in the sink to the moment <code>Present</code> returns and the frame
+belongs to the compositor. Upload, deinterlacing, filters, scaling, drawing, the
+present queue and — with VSync on — the wait for the flip are all inside it.</p>
+      <p>It used to be measured to the start of the draw instead, and read around 1 ms.
+That was not wrong so much as uninformative: the loop sleeps on the capture
+event, so a draw almost always begins a fraction of a millisecond after the
+frame arrives, and the number mostly reported that the render thread had woken
+up. Everything the program actually does with a frame happened after the
+measurement stopped.</p>
+      <p>Measured on a GameCube over composite, 480i at 29.97 fps, VSync on:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Pipeline</th></tr>
+<tr><td>Deinterlacing off</td><td><strong>0.6 – 1.1 ms</strong>, excursions to about 7 as the source's 29.97 Hz drifts against a 60 Hz flip</td></tr>
+<tr><td>Bob deinterlacing</td><td><strong>8.8 – 9.5 ms</strong>, peaks 20 – 27</td></tr>
+</table></div>
+      <p>The second row is not a cost that bob added and the first row was hiding. Bob
+draws each arrived frame twice, and the second draw is deliberately placed half
+a frame later so the two fields appear at the times they were captured. That
+draw shows a frame that has been in the building for about 16.7 ms, and now the
+number says so. Averaged over both draws, <code>(0.9 + 16.7) / 2</code> is the 8.8 that
+turns up.</p>
+      <p>What is outside it, and what qBlank cannot measure from where it stands:</p>
+      <ul>
+<li>the card's own field capture, DMA and driver latency, ahead of the sink — on
+480i this is the largest term in the whole chain, because the card delivers
+woven frames and the first line of one is a full 33.4 ms older than the last</li>
+<li>DWM composition, when not in fullscreen</li>
+<li>the cable, the display's processing, and the panel's own pixel response</li>
+</ul>
+      <p>Fullscreen removes the second of those. The rest is the card's and the
+monitor's, and no number this program prints can stand in for them: this is a
+pipeline delay, not the age of the light.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="./"><span>&larr; Previous</span>Contents</a>
+      <a class="next" href="source-and-signal.html"><span>Next &rarr;</span>Source and signal</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automatic video standard — qBlank wiki</title>
+<meta name="description" content="How the standard is found and confirmed, and what every threshold is worth.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/automatic-video-standard.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Automatic video standard","item":"https://qblank.com/wiki/automatic-video-standard.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Automatic video standard</h1>
+    <p class="tag">How the standard is found and confirmed, and what every threshold is worth.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#why-it-takes-two-stages">Why it takes two stages</a>
+      <a href="#stage-one-the-lock">Stage one: the lock</a>
+      <a href="#stage-two-the-colour-round">Stage two: the colour round</a>
+      <a href="#what-the-picture-says-while-the-search-runs">What the picture says while the search runs</a>
+      <a href="#running-the-search-by-hand">Running the search by hand</a>
+      <a href="#the-crop-is-dropped-when-the-format-changes">The crop is dropped when the format changes</a>
+      <a href="#the-profile-can-follow-the-standard">The profile can follow the standard</a>
+      <a href="#what-it-costs">What it costs</a>
+      <a href="#limits">Limits</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/video_standard_search.cpp</code> (<code>UpdateVideoStandard</code>, <code>VerifyStandardColour</code>, <code>StartSignalWatch</code>),
+<code>src/capture/dshow_util.cpp</code> (<code>AutoStandardCandidates</code>,
+<code>VideoStandardColourCandidates</code>, <code>VideoStandardColourSystem</code>)</p>
+      <p>An analogue decoder has to be told which standard it is looking at. Set it wrong
+and you get either no picture at all or a picture decoded by the wrong rules.
+On <strong>Automatic</strong>, qBlank works it out and keeps working it out: switching a
+console between 50 and 60 Hz, or unplugging the cable and putting it back, is
+followed without touching the settings.</p>
+      <p>The setting is one <code>long</code> in the profile:</p>
+      <div class="tbl"><table>
+<tr><th>Value</th><th>Meaning</th></tr>
+<tr><td><code>0</code></td><td>Leave alone — never call <code>put_TVFormat</code></td></tr>
+<tr><td><code>-1</code></td><td>Automatic</td></tr>
+<tr><td>anything else</td><td>That standard, set once when the graph starts</td></tr>
+</table></div>
+    </section>
+
+    <section id="why-it-takes-two-stages">
+      <h2>Why it takes two stages</h2>
+      <p>The decoder answers exactly one question — <code>get_HorizontalLocked</code>, "am I locked?"
+— and that question is about line frequency, not about colour. Several standards
+lock equally well on the same line count:</p>
+      <div class="tbl"><table>
+<tr><th>Lines</th><th>Standards that all lock</th></tr>
+<tr><td>625</td><td>PAL B, PAL N, SECAM B</td></tr>
+<tr><td>525</td><td>PAL 60, NTSC M, PAL M, NTSC 4.43</td></tr>
+</table></div>
+      <p>The decoder reports a lock for the wrong one just as confidently as for the
+right one, and a wrong choice inside a line count is not a blank screen — it is
+a picture with wrong colour. Measured on 30.08.2026, one PAL scene decoded three
+ways:</p>
+      <div class="tbl"><table>
+<tr><th>Standard</th><th>Colour</th><th>Dark regions</th></tr>
+<tr><td>PAL B (correct)</td><td>0.152</td><td>0.101</td></tr>
+<tr><td>SECAM B (wrong)</td><td>0.461</td><td>0.353</td></tr>
+<tr><td>PAL N (wrong)</td><td>0.017</td><td>0.014</td></tr>
+</table></div>
+      <p>SECAM-decoding a PAL signal does not produce a grey picture; it produces a
+strongly tinted one — on screen, a bright red background where black should be.
+So "has colour" alone is not the test, and the second stage exists.</p>
+    </section>
+
+    <section id="stage-one-the-lock">
+      <h2>Stage one: the lock</h2>
+      <p><strong><code>StartSignalWatch()</code></strong> spawns a thread that reads the current standard and the
+lock flag together, ten times a second, and publishes them with a sequence
+counter. Both come from the same pass deliberately: asked separately they could
+come from different moments, and that is exactly how a display ends up reporting
+one standard as locked while another is set on the card.</p>
+      <p>The thread holds its own <code>ComPtr</code> to the filter, so tearing the graph down
+cannot pull the object out from under it.</p>
+      <p>The poll rate is <strong>the floor under every deadline on this page</strong>. Before judging
+a freshly set standard, <code>UpdateVideoStandard</code> waits for <strong>two</strong> fresh readings,
+so what is judged is the standard that is actually set rather than the one
+before it. At the old 250 ms cadence that was 0.25–0.5 s of pure waiting inside
+every measurement; at 100 ms it is 0.1–0.2 s.</p>
+      <p><strong><code>UpdateVideoStandard()</code></strong> runs on the main loop:</p>
+      <ul>
+<li>Does nothing unless the profile says <code>-1</code> and the capture is running.</li>
+<li><strong>Locked</strong> → settled. If a candidate was being tried, the line count may have
+changed with it, so the graph is rebuilt around the new format, the crop is
+reset (see below), the colour measurement is restarted, and stage two runs.</li>
+<li><strong>Not locked</strong> → after <code>kStandardLostSeconds</code> (1.5 s), step to the next
+candidate.</li>
+<li>After a full pass with nothing locking, back off for
+<code>kStandardBackoffSeconds</code> (6 s) — the console is probably off — and <strong>park the
+card on the first candidate</strong> rather than on whatever the pass ended with.</li>
+</ul>
+      <p>That last point was a real bug. The candidate list ends with the rarest
+standards, so a pass left NTSC 4.43 on the card; because the lock is horizontal
+only, NTSC 4.43 then confirms itself against any 525/60 source. A PAL-60
+GameCube switched on during the pause was reliably detected as NTSC 4.43 — and
+that is the most common sequence of all, qBlank first and the console second.</p>
+      <h3 id="candidates">Candidates</h3>
+      <p><code>AutoStandardCandidates()</code> returns <strong>one candidate per line count and colour
+system</strong>, ordered by the configured region, not one per table entry. Trying PAL B
+and then PAL G would be asking the same question twice — they differ in the
+sound carrier, which is no part of the picture.</p>
+      <p>The standard that was <strong>last good</strong> and its 50/60 Hz partner are moved to the
+front and given <code>kStandardPreferredSeconds</code> (2 s) instead of the ordinary
+window. A console that is restarting or changing mode needs a moment before
+anything stable comes out of it.</p>
+      <p><strong>Only on an analogue input.</strong> A card with both kinds of input still reports its
+analogue standards while it sits on HDMI, and until 5.2.1 the search ran there
+too. It found nothing and left the analogue decoder on NTSC M. Now an input set
+to Digital, or one the card reports as digital, gets no search at all.</p>
+      <h3 id="the-deadlines-and-what-they-are-worth">The deadlines, and what they are worth</h3>
+      <p><code>kStandardSettleSeconds</code> is what an ordinary candidate gets to show a lock.
+It is set from measurement, and the measurement is in the log — every success
+writes <code>Videonorm automatisch gefunden: … (Lock nach %.2f s)</code>.</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Lock times measured</th></tr>
+<tr><td>At 250 ms polling, ten values over three sessions</td><td>0.32 – 0.88 s</td></tr>
+<tr><td>At 100 ms polling, after a lost lock (31.08., 03:09)</td><td>0.73 s</td></tr>
+<tr><td>At 100 ms polling, from a forced wrong standard (31.08., 05:24 and 05:27)</td><td>0.24 s, 0.26 s</td></tr>
+</table></div>
+      <p>The deadline is <strong>1.25 s</strong>. It was briefly 1.0 s, derived from the argument that
+removing 0.3 s of polling wait should move the worst case from 0.88 s to about
+0.6 s. The first measurement with the new cadence came back at 0.73 s and did
+not support that, so the deadline was set from the measurement instead: with up
+to 0.2 s of polling wait, the worst case of that kind is around 0.83 s, and
+1.25 s stands to it as 1.5 s stood to 0.88 s.</p>
+      <p>If those log values start approaching 1.25 s, the deadline belongs back at 1.5.</p>
+      <h3 id="two-passes">Two passes</h3>
+      <p>That deadline covers every lock ever measured here, including one from a source
+that is still booting. For the candidate that turns out to be the answer, that
+is right. For the other seven it is waste: <strong>a standard with the wrong line
+count never locks at all — it only sits out the deadline.</strong> Eight candidates at
+1.25 s is ten seconds, of which nine go to standards that were disproved in
+their first tenth of a second.</p>
+      <p>So the list is walked twice. The first pass gives every candidate
+<code>kStandardFastSeconds</code> (<strong>0.8 s</strong>, 0.6 s before 5.2.1) and accepts that it may
+miss a slow lock; if it finds nothing, the second pass walks the same list with
+the full deadline. Nothing is ever discarded for good — what the fast pass
+leaves behind, the patient one picks up — and the worst case grows only by the
+length of the fast pass, 6.4 s.</p>
+      <p>The 0.6 s comes out of the same series of measurements as the deadline above.
+Six real locks:</p>
+      <div class="tbl"><table>
+<tr><th>Source</th><th>Lock</th></tr>
+<tr><td>Freshly switched on, still booting</td><td>0.78 / 0.72 / 0.76 s</td></tr>
+<tr><td>Signal already present</td><td>0.30 / 0.39 / 0.55 s</td></tr>
+<tr><td>After a lost lock</td><td>0.73 s</td></tr>
+</table></div>
+      <p>The line between those two groups is not an accident of the card. What makes the
+difference is whether <strong>the source itself</strong> is stable yet. 0.6 s sits above the
+slowest measurement on a present signal (0.55) and below the fastest on a
+booting one (0.72), which is exactly the right place: a source that is not
+delivering yet loses the fast pass regardless — at that moment the <em>correct</em>
+standard does not lock either, whether you give it 0.6 or 1.25 s — and it is
+caught by the second pass. What the fast pass is there to win is the commonest
+case of all, a running console switched between 50 and 60 Hz.</p>
+      <p><strong>Why it is 0.8 s now.</strong> On 25.09 PAL B missed 0.6 s on a running Switch right
+after an input change, and SECAM B locked next. The patient pass would have
+caught PAL B, but it never came, because a lock ends the search. Two changes
+since 5.2.1:</p>
+      <ul>
+<li>The fast pass gives 0.8 s.</li>
+<li><strong>A lock proves the line count, not the standard.</strong> A standard earlier in the
+list with the same lines only failed the deadline. So after a lock qBlank sets
+the standard that comes first for that line count, and the colour check then
+says whether it is right.</li>
+</ul>
+      <p>Between the two passes there is <strong>no back-off and no parking</strong>. Both of those
+belong at the end of the <em>search</em>, not in its middle: the pause is the answer to
+"there is nothing here", and after a fast pass that is not yet established.</p>
+      <p>The log says which pass discarded what, and it says it for the first two rounds
+only — which are now precisely the fast one and the patient one:</p>
+      <pre><code>Videonorm: PAL B nach 0.61 s ohne Lock verworfen (schneller Durchgang)
+Videonorm: schneller Durchgang ohne Lock (4 Normen zu je 0.60 s), zweiter Durchgang mit 1.25 s</code></pre>
+      <p>Their comparison is the check on the constant. A standard that fails the fast
+pass and locks in the patient one says 0.6 s is cut too fine; sources with a
+present signal landing regularly in the second pass say the same.</p>
+      <h3 id="starvation-is-not-evidence">Starvation is not evidence</h3>
+      <p>A standard with the wrong line count delivers <strong>no frames at all</strong> into a graph
+built for the old size. That is not evidence against it — the lock is read from
+the decoder and works without frames, and the standard that delivers nothing may
+well be the right one.</p>
+      <p>So starvation (<code>kStandardStarvedSeconds</code>, 2 s without a frame) is never used to
+<em>discard</em> a candidate. It is used only to stop <em>waiting</em> on one: the extra
+patience of the preferred places falls away, and the deadline is shortened
+retroactively, on each tick, once starvation becomes provable.</p>
+      <p>That "retroactively" matters. The first version of this decided starvation once,
+at the moment the candidate was set — when nothing has yet been missing
+long enough to count — so it evaluated false and the full window was granted
+anyway. On 31.08. at 02:43:39 PAL B was given its whole preferred window
+although no frame had arrived for seven seconds.</p>
+    </section>
+
+    <section id="stage-two-the-colour-round">
+      <h2>Stage two: the colour round</h2>
+      <p><code>VerifyStandardColour()</code> measures the picture rather than asking the card.</p>
+      <p>Two numbers come out of the renderer: <strong>how much colour is present</strong>
+(<code>chromaEnergy</code>) and <strong>how far dark areas are tinted</strong> (<code>darkChromaEnergy</code>).
+The second is what catches SECAM-on-PAL, and it was missing at first — the "has
+colour" test passed the misdecode, the misdecode counted as confirmed, and it
+was never questioned again.</p>
+      <h3 id="the-fast-path">The fast path</h3>
+      <p>If the standard already set shows <strong>confident colour</strong> (≥ 0.080) <strong>and neutral
+darks</strong> (&lt; 0.18), that is the answer and nothing is switched. This runs in
+normal operation, so most of the time the round never happens at all.</p>
+      <h3 id="a-round-needs-a-picture-to-run-on">A round needs a picture to run on</h3>
+      <p>Doubt has two quite different causes, and only one of them is a question a round
+can answer. A <strong>lit</strong> picture with no colour means the carrier was wrong, and
+which one is right is exactly what the candidates settle among themselves. A
+<strong>black</strong> picture with no colour means it is black. Every candidate measures the
+same zero there, and no standard can be picked out of four identical numbers.</p>
+      <p>So before a round starts, the share of measured blocks that had any light in
+them is checked (<code>chromaLitFraction()</code> — the same blocks, window and crop the two
+colour numbers came from). Below a tenth, the round is postponed.</p>
+      <p>A tenth is far away from anything ordinary content produces. Measured on a
+running GameCube on 31.08. at 05:43, with the confidence threshold raised
+artificially so a round would be forced on a live picture: <strong>54 % lit</strong>, five
+times the threshold. The case this exists for was on the other side of it, at
+95 % of the picture below luma 16.</p>
+      <p>This was measured, not anticipated. On 31.08. at 05:30:03 a round ran on a
+GameCube screen that was black but for one bright element:</p>
+      <pre><code>05:30:03.047  Wertebereich erkannt: ... 95.135 % unter 16
+05:30:03.099  PAL 60 ist zweifelhaft (Farbe 0.005, dunkle Bereiche 0.002)
+05:30:03.931  NTSC M gemessen -- Farbe 0.002
+05:30:04.773  PAL M gemessen -- Farbe 0.003
+05:30:05.604  NTSC 4.43 gemessen -- Farbe 0.003
+05:30:06.438  PAL 60 gemessen -- Farbe 0.163   &lt;- the picture came back</code></pre>
+      <p>Two and a half seconds of visibly switching through three wrong standards for
+four times nothing. When the picture returned, one measurement settled it.</p>
+      <p>The existing dead-input guard does not catch this and should not: it asks
+<code>SignalVerdict::Flat</code>, whether anything is arriving at all, and something was —
+the luma spread was 154. "There is something to see" and "there is enough to see
+to measure colour by" are two questions.</p>
+      <p>Two properties of the wait matter:</p>
+      <ul>
+<li><strong>Tinted darks go past it into the round</strong>, even on a dark picture. Colour
+sitting in the black is evidence of a wrong carrier, not a missing
+measurement, and a dark picture is where that evidence is clearest — those are
+the blocks it is measured on.</li>
+<li><strong>Waiting spends nothing.</strong> No attempt is counted and no standard is marked
+checked, so a console that is black for the first seconds of its boot still has
+all three attempts left when its picture arrives. A round that never ran must
+not count as one that came back undecided.</li>
+</ul>
+      <p>The lit share is written into the line that opens a round, so a round that later
+measures a surprising row of zeroes has its explanation on the line above it.</p>
+      <h3 id="the-round">The round</h3>
+      <p>Otherwise the remaining candidates for this line count are set in turn and each
+is measured. <code>VideoStandardColourCandidates()</code> skips anything whose <strong>colour
+signature</strong> — colour system plus subcarrier frequency — matches a candidate
+already in the list. Nothing in the picture could tell those apart. At 525 lines
+exactly one pair collides, NTSC M and NTSC M (Japan): both NTSC on 3.58 MHz,
+differing only in the 7.5 IRE setup pedestal, which is a brightness property
+this measurement does not look at. That drops the round from five candidates to
+four. At 625 lines nothing collides.</p>
+      <p>Between candidates the card gets <code>kColourSettleSeconds</code> (0.10 s) for its chroma
+PLL, and the measurement is reset <strong>at the end of that window</strong> rather than at
+the start. Reset at the start and the switching moment is measured with the
+candidate: reproduced on 30.08. by setting the window to zero, PAL N read 0.047
+and 0.064 instead of 0.012 to 0.021, and SECAM B's darks read 0.246 instead of
+0.271 to 0.410 — every candidate smeared towards its predecessor.</p>
+      <h3 id="a-candidate-is-measured-until-it-stops-rising">A candidate is measured until it stops rising</h3>
+      <p>That deadline used to be 0.5 s and used to be the whole wait. It is now only the
+floor, because a deadline is the wrong instrument here — measured on 31.08.,
+0.15 s was plenty for three of the four 525-line standards and nowhere near
+enough for the fourth:</p>
+      <div class="tbl"><table>
+<tr><th>Candidate</th><th>0.5 s deadline</th><th>0.15 s, three runs</th></tr>
+<tr><td>NTSC M</td><td>0.018</td><td>0.017 / 0.017 / 0.017</td></tr>
+<tr><td>PAL M</td><td>0.023</td><td>0.023 / 0.023 / 0.024</td></tr>
+<tr><td>NTSC 4.43</td><td>0.065</td><td>0.065 / 0.065 / 0.065</td></tr>
+<tr><td><strong>PAL 60</strong>, on the return</td><td><strong>0.119</strong></td><td><strong>0.000 / 0.047 / 0.095</strong></td></tr>
+</table></div>
+      <p>Three standards identical to the thousandth, one broken — and broken <em>upwards</em>
+with the delay, reading 0.000, 0.047 and 0.095 at 0.276, 0.327 and 0.393 s after
+the switch. That is not scatter, it is a settling curve, and it has a reason:
+the PAL burst alternates phase line by line, and the ident that recovers it
+needs more lines than NTSC's fixed phase. Twice in three runs the round
+<strong>discarded itself</strong> over the result, because a return reading taken too early
+no longer matched the opening one and the scene-change guard fired.</p>
+      <p>A shared deadline therefore always pays for the slowest standard, and every
+other candidate pays with it. But the decoder announces when it is ready: while
+it is locking, the reading climbs; once locked, it stands. So the round asks
+that instead. Each candidate is measured in windows of
+<code>kChromaFramesWantedDense</code> (3) frames, and the first window that is <strong>not
+higher</strong> than the one before it is the one that counts.</p>
+      <p>Directional, not merely similar, and that is the point: a moving picture wanders
+in both directions and is done at its first window that did not rise, while a
+locking decoder can only come from below. <code>kColourStableGiveUpSeconds</code> (1.2 s)
+ends a candidate that never settles, takes its last reading as the best one
+available, and says in the log that it did.</p>
+      <p>Fourteen rounds across three builds gave every number identical to the 0.5 s
+reference, with no rejected comparison. <strong>0.33 s per standard</strong>, and 0.56 s for
+PAL 60 where it takes a third window — the one candidate that needs the time
+gets it, and only it pays.</p>
+      <h3 id="deciding">Deciding</h3>
+      <p>A full round, forced on a live picture on 31.08. at 05:43. It took 3.3 s then;
+the same round takes 1.7 s since the change described above, with the same
+numbers:</p>
+      <div class="tbl"><table>
+<tr><th>Candidate</th><th>Colour</th><th>Dark regions</th></tr>
+<tr><td><strong>PAL 60</strong> (correct)</td><td>0.192</td><td>0.107</td></tr>
+<tr><td>NTSC M</td><td>0.029</td><td>0.025</td></tr>
+<tr><td>PAL M</td><td>0.043</td><td>0.037</td></tr>
+<tr><td>NTSC 4.43</td><td>0.119</td><td>0.079</td></tr>
+<tr><td>PAL 60 again</td><td>0.191</td><td>0.108</td></tr>
+</table></div>
+      <p>The winner has to be <strong>clearly</strong> ahead, not merely ahead: 1.6× when it has
+visible colour, 3.0× when both are faint, and nothing counts below a floor of
+0.005, because a ratio needs a denominator. Where two candidates both have
+colour, the one with the cleaner darks wins.</p>
+      <p>In the round above that margin was met by a hair: 0.192 against NTSC 4.43's
+0.119 is 1.61×, where 1.6 is required. That is not an accident of the scene, and
+it is not fixed by loosening the margin — those two standards share the same
+4.43 MHz subcarrier, and neither colour amount nor darks can separate them at
+all. What separates them is measured directly, one section down.</p>
+      <p>There is deliberately <strong>no absolute threshold</strong> for "this black is tinted".
+Below the luma threshold there are also genuinely dark red and dark blue areas,
+which have colour by right, and how much of that is in frame depends on the
+scene — an absolute number measures the scene as much as the carrier. The
+comparison does not: all candidates see the same scene, so what separates them
+is the carrier alone. The first attempt at a fixed value, 0.060, promptly threw
+out the <em>correct</em> standard.</p>
+      <h3 id="two-standards-on-one-carrier">Two standards on one carrier</h3>
+      <p>PAL 60 and NTSC 4.43 cannot be told apart by the two rules above, and the
+reason is not a threshold that needs tuning. They carry colour on the <strong>same
+4.43 MHz subcarrier</strong>. The only difference is that PAL reverses the V (R−Y)
+phase on every other line and NTSC does not — and both <code>chromaEnergy</code> and
+<code>darkChromaEnergy</code> average over blocks that span more than one line, which is
+precisely where that reversal cancels itself out.</p>
+      <p>So the wrong standard measured <em>less</em>. An NTSC decoder on a PAL signal leaves
+the reversal in place, adjacent lines partly cancel, and the result is less
+colour overall <strong>and</strong> less colour in the darks. Which meant NTSC 4.43 kept
+winning "cleanest blacks" by decoding less. Nothing built on those two numbers
+can fix that; the sign is wrong, not the size.</p>
+      <p><code>VideoRenderer::chromaAltV()</code> measures the reversal itself. Within each chroma
+block it takes four lines of the <strong>same field</strong> — frame lines <em>n</em>, <em>n+2</em>, <em>n+4</em>,
+<em>n+6</em>, since the frame that reaches the analyser is woven — averages Cb and Cr
+along each, and returns the alternating part, <code>(c₀ − c₁ + c₂ − c₃) / 4</code>. Cb and
+Cr rather than U and V so that both axes have the same span and can be compared
+against one another.</p>
+      <p>A candidate is ruled out when <strong>both</strong> hold:</p>
+      <div class="tbl"><table>
+<tr><td><code>kAltFlipping</code></td><td>V alternation at or above 0.005</td></tr>
+<tr><td><code>kAltAxisRatio</code></td><td>and more than 4× the U alternation</td></tr>
+</table></div>
+      <p>Both are needed. Magnitude alone would fire on any picture with fine horizontal
+detail — but such detail alternates on <strong>both</strong> axes, and a reversed phase
+stands on V alone, which is what the ratio catches. The ratio alone would fire
+on noise, where both numbers sit near zero; the magnitude floor keeps it quiet
+there.</p>
+      <p>Twelve rounds per standard, on a GameCube putting out PAL 60:</p>
+      <div class="tbl"><table>
+<tr><th>Candidate</th><th>V alternation</th><th>V / U</th></tr>
+<tr><td>NTSC 4.43 (wrong)</td><td>0.0070 – 0.0515</td><td><strong>7.7 – 14.6</strong></td></tr>
+<tr><td><strong>PAL 60</strong> (correct)</td><td>0.0002 – 0.0026</td><td>0.5 – 2.0</td></tr>
+<tr><td>NTSC M</td><td>0.0001 – 0.0005</td><td>0.4 – 0.8</td></tr>
+<tr><td>PAL M</td><td>0.0001 – 0.0008</td><td>0.1 – 1.0</td></tr>
+</table></div>
+      <p>No overlap on either axis, with a factor of three to four in hand on both.
+Pinned to NTSC 4.43 and then asked ten times in a row: corrected on the first
+press and unchanged on the other nine. The build before this one got it wrong
+four times in nine.</p>
+      <p>This is a <strong>disqualification</strong>, ranking with tinted darks — a candidate that
+does this is not decoding worse, it is decoding the wrong signal — so it is out
+of both stages rather than merely behind in one.</p>
+      <p>Of the starting standard's two readings it takes the <strong>larger</strong> value, and
+deliberately does not follow the choice made for colour and darks. Those two
+depend on the scene, so which reading is the meaningful one is a real question.
+The alternation depends on the standard: a decoder that undoes the phase
+reversal correctly cannot suddenly show it in a second reading, and noise and
+flat scenes only push the number down. Whoever has it in either reading has it.</p>
+      <p>Two things it deliberately does not do. It does not fire on <strong>SECAM</strong> decoded as
+PAL: SECAM alternates <em>which</em> component each line carries, so both axes move and
+the ratio test stays silent — and that case is exactly what the darks rule was
+calibrated on. The two rules cover complementary failures rather than
+overlapping.</p>
+      <p>And it has only been measured in <strong>one direction</strong> — a PAL signal offered to an
+NTSC decoder. The mirror case, an NTSC signal offered to a PAL decoder, should
+produce the same signature for the same reason (the decoder inverts a line that
+was never inverted), and on a genuine NTSC source the dangerous rival is PAL M,
+whose subcarrier sits only 4 kHz away. But a decoder that averages adjacent
+lines to cancel phase errors would suppress the evidence, and whether this card
+does that is not known. The rule is written so that this costs nothing: it can
+only <strong>rule out</strong>, never promote. If it stays quiet, the decision falls back to
+colour and darks exactly as before, and it cannot fire on a correct standard
+because a matched decoder produces no alternation on either axis.</p>
+      <h3 id="the-scene-does-not-wait">The scene does not wait</h3>
+      <p>A round takes a few seconds and the picture keeps moving, so the starting
+standard is measured <strong>again at the end</strong>. If the two readings of the same
+standard disagree — either crossing one of the two thresholds, or differing by
+more than a factor of two — the scene moved and the comparison is void.</p>
+      <p>That guard was earned. On 31.08. at 02:02 a round began on a dark picture and
+ended on a colourful one: PAL 60 read 0.005 first and 0.122 last, and in between
+NTSC 4.43 took the round with 0.157 — against a GameCube that outputs PAL 60.</p>
+      <p>Of the two readings of the starting standard, the one with the cleaner darks
+counts. That is deliberately unequal, and the reason is measured: across 30.08.,
+the darks of a wrong SECAM B varied by a factor of two while those of the
+correct PAL B varied by a factor of five. A beat from a wrong carrier lies
+evenly over every frame; real colour in dark areas depends entirely on the
+scene. A flat scene therefore makes the <em>right</em> candidate look bad, and moving
+away from a correct standard is the expensive mistake.</p>
+      <p><strong>A void comparison is not a void measurement.</strong> If the round is discarded but
+the starting standard's own reading passes the same test the fast path uses —
+confident colour, neutral darks — that is the answer, and no repeat is needed.
+This is worth about three seconds: on 31.08. at 05:24 the round was discarded at
+39.908 with PAL 60 reading 0.194 and darks 0.107, both well inside the
+thresholds, and the repeat at 42.573 established exactly what had already been
+on the line.</p>
+      <h3 id="when-every-candidate-has-tinted-darks">When every candidate has tinted darks</h3>
+      <p>Then it is the scene. On 25.09 a blue background on a Switch in PAL B put every
+standard over the dark threshold. Nothing decided, the watch reopened the
+round six times, and once SECAM B was left standing: its blue cast suits a blue
+picture. Compared pair by pair on the same scene, the darks still separate:</p>
+      <div class="tbl"><table>
+<tr><th>Standard</th><th>Colour</th><th>Dark regions</th></tr>
+<tr><td><strong>PAL B</strong> (correct)</td><td>0.297 – 0.315</td><td>0.221 – 0.266</td></tr>
+<tr><td>SECAM B</td><td>0.412 – 0.426</td><td>0.397 – 0.405</td></tr>
+</table></div>
+      <p>Since 5.2.1 there is a third stage for this case. The wrong carrier has to have
+at least 1.3× as much in the darks (<code>kTintedCleanerBy</code>), and its extra in the
+darks has to be at least 1.25× its extra in colour (<code>kTintedExtraInShadows</code>):
+the added colour sits exactly where none belongs. Measured was 1.48 for both.
+NTSC 4.43 against PAL 60 does not fall under it, because there the wrong
+standard shows less everywhere.</p>
+      <p>After a comparison like this the watch does not open another round
+(<code>colourCompared_</code>). The blue scene settled on PAL B in 1.5 s.</p>
+      <h3 id="when-nothing-decides">When nothing decides</h3>
+      <p>A scene that is nearly grey when decoded correctly cannot answer this, and is
+not made to. The round is repeated and then abandoned:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Wait before repeating</th><th>Counts as an attempt</th></tr>
+<tr><td>Undecided — the scene is too colourless</td><td>3 s, then 6 s</td><td>yes</td></tr>
+<tr><td>Discarded — the picture moved during the round</td><td>1 s each time</td><td>yes</td></tr>
+<tr><td>Postponed — the screen is essentially black</td><td>next frame</td><td>no</td></tr>
+</table></div>
+      <p>The doubling series is aimed at a grey scene, where waiting is the point: the
+scene has to become colourful. A discarded round is the opposite case — what
+was missing was not colour but stillness, and a racing game does not become
+calmer by waiting six seconds. The number of attempts is the same either way, so
+the visible disruption is unchanged; only the dead time between attempts shrinks.</p>
+      <p>After three attempts it is left alone and the starting standard stands. The log
+says which of the two reasons applied, because "the source is black and white"
+is a claim about the signal and must not be made when what was missing was
+stillness.</p>
+      <p>If no measurement comes back at all within <code>kColourGiveUpSeconds</code> (10 s), the
+format has no readable chroma or too few frames are getting through. That is not
+an error, only a no.</p>
+      <h3 id="after-the-decision-still-watching">After the decision: still watching</h3>
+      <p>Everything above decides once per standard. Up to 5.1 that was not enough in one
+place: when the one chance fell on a picture with nothing to decide. Double Dash,
+switched from 50 to 60 Hz, shows mostly black around Lakitu for a long time. The
+picture is lit enough to pass <code>kChromaLitWanted</code> but has too little colour to tell
+anything apart. Three attempts come to nothing, the check gives up (<em>probably
+black and white</em>), and the card stays on NTSC even when the most colourful race
+is running ten seconds later.</p>
+      <p>The measurement that would show it keeps running anyway, every eighth frame, on
+analogue sources; on a digital one nothing reads it, so it does not run. So
+since 5.2 the settled standard is read along with it, without touching the
+standard. Reading it costs a few comparisons every three seconds. Three findings
+count, and each one on its own belongs to a wrong standard:</p>
+      <div class="tbl"><table>
+<tr><th>Finding</th><th>Test</th></tr>
+<tr><td><strong>Colour flips from line to line</strong></td><td><code>kAltFlipping</code>, as in the round</td></tr>
+<tr><td><strong>Colour down into the blacks</strong></td><td>confident colour with tinted darks</td></tr>
+<tr><td><strong>A lit picture stays pale</strong></td><td>at least 30 % lit, colour below <code>kChromaPale</code> (0.025)</td></tr>
+</table></div>
+      <p>The third one is the delicate one, so it only applies to a standard that has
+never shown strong, plausible colour. A standard that has decoded properly once
+is not wrong on a snow track. Since 5.5.1 the second one follows the same rule: a
+standard that has shown confident colour over real dark areas with clean darks
+is not wrong on a dark red volcano. On DK Mountain the cannon flight reopened the
+check every time (darks 0.214 to 0.244, after 0.074 to 0.138 on the same lock),
+and the round confirmed PAL 60 each time. A wrong carrier never measured below
+0.204. A proof without any dark areas proves nothing about the darks and does not
+count. The threshold of the third finding sits below <code>kChromaSuspect</code>, because
+the question here is not "is this suspect" but "is this clear". On 29.08. the
+wrong standard measured 0.024 on snow and 0.013 in the desert, and the right one
+0.037 on the snow.</p>
+      <ul>
+<li><p><strong>Two windows in a row</strong> (just under six seconds) are a finding. One window is
+a picture; two are a state.</p></li>
+<li><p><strong>Once per lock</strong> the finding reopens the colour check, with the same window it
+was found in.</p></li>
+<li><p><strong>If the second check does not settle it,</strong> switching is no longer the
+automation's call. A notice on the picture says what it sees, with <strong>Find
+standard</strong> and <strong>Ignore</strong>:</p>
+<ul>
+<li><em>The colour flips from line to line — NTSC is probably wrong</em></li>
+<li><em>Hardly any colour under NTSC — the video standard may be wrong</em></li>
+</ul>
+<p>Find standard runs the same search as the button in the Source tab. Ignore
+holds until the next lock. Tinted darks alone do not raise the notice: they
+are the softest of the three findings, and a check that has just confirmed the
+same standard has disproved them.</p></li>
+<li><p><strong>Strong, plausible colour</strong> at any point proves the standard, clears a notice
+and ends the watch.</p></li>
+</ul>
+      <p>The first pass of the round now also rejects colour that flips from line to
+line. On 31.08. NTSC 4.43 on a PAL 60 signal measured 0.099 colour with 0.031 in
+the darks. That passed both old tests, and the picture had the venetian-blind
+stripes of a missing PAL phase switch.</p>
+    </section>
+
+    <section id="what-the-picture-says-while-the-search-runs">
+      <h2>What the picture says while the search runs</h2>
+      <p><code>App::StandardSearchText()</code>. Both stages are visible whether or not anything is
+written on top of them — the standards are switched in front of you, and the
+picture changes with each one. What is <em>not</em> visible is why it is happening, and
+that part is measured. It is on screen as two lines over the picture:</p>
+      <blockquote>
+<p><strong>Checking colour: PAL 60 (3/5)</strong>
+Colour reaches into the blacks — comparing the 4 standards with 525 lines
+(the first one twice)</p>
+</blockquote>
+      <p>The headline names the standard on screen right now and the step. The second
+line names the reason, of which there are three:</p>
+      <div class="tbl"><table>
+<tr><th>Reason</th><th>What was measured</th></tr>
+<tr><td><em>Colour unclear</em></td><td>chroma below <code>kChromaConfident</code> on a standard that could be right</td></tr>
+<tr><td><em>Colour reaches into the blacks</em></td><td>dark-block chroma at or above <code>kDarkTinted</code> — the signature of a wrong carrier</td></tr>
+<tr><td><em>Triggered by hand</em></td><td>F7, with nothing measurably wrong</td></tr>
+</table></div>
+      <p>In stage one there is only one possible reason — the card does not lock on the
+standard that is set — so the counter carries most of the information: which
+candidate of how many is being tried. The second line names <strong>which of the two
+passes</strong> is running, with its deadline:</p>
+      <blockquote>
+<p><strong>Scanning video standard: PAL B (1/4)</strong>
+Card does not lock — second pass, 1.25 s per standard</p>
+</blockquote>
+      <p>That is not a detail for the watcher. The same standard name comes round a
+second time, and without the line it looks as though the search is going in
+circles.</p>
+      <p><strong>The colour round counts steps, not standards.</strong> Its candidate list carries the
+starting standard twice, once at the front and once at the end, so that the last
+measurement is taken under the same conditions as the first (see <em>The scene does
+not wait</em>). Counting standards would print "5 of 4"; counting steps and saying
+<em>the first one twice</em> in the line below prints something that adds up.</p>
+      <p>A counter matters more than it looks. A search without one is a search without
+an end — there is no way to tell whether it finishes in a second or in ten — and
+that is the difference between waiting and watching.</p>
+      <p>The overlay steps aside while the settings window is open, which says the same
+thing in its own line under the standard dropdown — <em>Scanning: PAL 60 …</em> — and
+in more detail besides, with the lock state and the live format next to it.</p>
+    </section>
+
+    <section id="running-the-search-by-hand">
+      <h2>Running the search by hand</h2>
+      <p><strong>F7</strong>, or <em>Detect video standard</em> in the right-click menu.
+<code>App::RescanVideoStandard()</code>.</p>
+      <p>The automatic search has one blind spot, and it is not small. It acts when the
+lock is lost, and it acts when the colour measures wrong. A standard that holds
+its lock and shows plenty of colour with clean blacks is never doubted — the
+fast path takes it and nothing else runs. That is correct for the case it was
+built for and useless for the one it was not: <strong>colour that is wrong rather than
+missing</strong>. Grass in the wrong colour is, to every measurement on this page,
+colour.</p>
+      <p>A person sees it immediately. So there is a key for it.</p>
+      <p>F7 resets both stages: candidate index, sweep count, retry deadlines, and the
+colour round with them. The round it starts <strong>skips the fast path</strong> — that is
+the whole point, since the fast path is exactly what waves the suspect standard
+through. The log line says so, and so does the second line on screen.</p>
+      <p>The wish is held as a <strong>deadline, not a flag</strong>
+(<code>standardForceColourUntilQpc_</code>, 30 s). Pressing F7 on a black picture produces
+no round at all: nothing can be told apart on black, so the round waits for a
+lit frame — that is the <em>Postponed</em> row in the table above, and it consumes no
+attempt. A flag would then stand indefinitely, and the picture would start
+cycling through standards two minutes later with nothing on screen to explain
+it. A deadline expires on its own.</p>
+      <p><code>ResetStandardColourCheck()</code> deliberately does <strong>not</strong> clear it. A graph rebuild
+runs that reset, and a graph rebuild is exactly what tends to happen in the
+second after the key is pressed.</p>
+      <h3 id="and-it-says-what-it-found">And it says what it found</h3>
+      <p>A search started by hand owes an answer. It shows how it is searching, and when
+it stops it puts the result in the same place for
+<code>kStandardResultSeconds</code> (<strong>5 s</strong>):</p>
+      <blockquote>
+<p><strong>Video standard: PAL 60</strong>
+Corrected by colour — was NTSC 4.43</p>
+</blockquote>
+      <p><code>App::FinishManualStandardSearch()</code>. Which exit a search takes is decided far
+away from the key, and none of those places knows whether anybody is waiting on
+it, so the wish is carried as a flag (<code>standardManualSearch_</code>) and every exit
+calls the same function. Each says something different:</p>
+      <div class="tbl"><table>
+<tr><th>How it ended</th><th>The second line</th></tr>
+<tr><td>The round changed the standard</td><td><em>Corrected by colour — was NTSC 4.43</em></td></tr>
+<tr><td>The round confirmed it</td><td><em>The colour confirms it — no change</em></td></tr>
+<tr><td>The measurement alone was enough</td><td><em>The colour checks out — no change</em></td></tr>
+<tr><td>The round was void but the reading stood on its own</td><td><em>The comparison was unusable, but the colour stands on its own — no change</em></td></tr>
+<tr><td>Nothing to compare against at this line count</td><td><em>No other standard with 525 lines — no change</em></td></tr>
+<tr><td>Undecided, and another attempt is coming</td><td><em>The scene has too little colour — trying again in 3 s</em></td></tr>
+<tr><td>Undecided after three attempts</td><td><em>Nothing decides — the source is probably black and white</em></td></tr>
+<tr><td>Discarded three times over</td><td><em>The picture moved every time — no reliable comparison</em></td></tr>
+<tr><td>The picture stayed black past the 30 s deadline</td><td><em>The picture stayed too dark to compare — no change</em></td></tr>
+<tr><td>No standard locked at all</td><td><em>No standard locks — there is probably no signal</em></td></tr>
+</table></div>
+      <p><strong>The first answer wins.</strong> After that the question is answered, and anything
+later — a retry that decides ten seconds afterwards — belongs to the automatic
+search again, with its toast. Those two never appear together: a toast is a
+notice about something that happened by itself, and showing both would say the
+same thing twice in two places.</p>
+      <p>The result also steps aside rather than covering anything. It is shown only
+while no search is running, so if the lock is lost inside those five seconds the
+automatic search starts over and takes the overlay back — at which point the
+result is no longer true anyway.</p>
+      <p>Between the lock and the round there is a stretch where no standard is being
+switched and something is nevertheless happening: the colour is being measured,
+or the round is waiting for a picture with light in it. That stretch has its own
+line — <em>Checking video standard: PAL 60</em>, and underneath either <em>Measuring the
+colour</em> or <em>The picture is too dark to compare — waiting</em>. Without it a search
+started by hand looks finished several seconds before it is.</p>
+      <p>Three cases are refused, each with a notice rather than silence — a key that
+appears to do nothing looks broken:</p>
+      <div class="tbl"><table>
+<tr><th>Case</th><th>Notice</th></tr>
+<tr><td>Capture not running</td><td><em>No source is running.</em></td></tr>
+<tr><td>Input is not analogue</td><td><em>Only analogue inputs have a video standard.</em></td></tr>
+<tr><td>The profile pins a standard</td><td><em>The video standard is fixed — set it to Automatic to search.</em></td></tr>
+</table></div>
+      <p>The last one is the interesting refusal. A fixed standard is a decision somebody
+made, and a key that overturns it in passing would be a surprise. It stays
+fixed; the notice says what to change if that is not what was wanted.</p>
+      <p>The route to all of this used to be picking a fixed standard in the dropdown and
+setting it back to automatic. That works, and nobody finds it who does not
+already know it.</p>
+    </section>
+
+    <section id="the-crop-is-dropped-when-the-format-changes">
+      <h2>The crop is dropped when the format changes</h2>
+      <p><code>UpdateCropForFormat()</code>. A crop is a count of <strong>source pixels</strong> — <code>cropLeft = 20</code>
+means 20 of 720 — so it stops meaning anything the moment the line count
+changes. When the source size changes, the crop is set to zero, the old values
+are written to the log, and a notice says <em>Video format changed (720×480) — crop
+reset</em>.</p>
+      <p>It is deliberately <strong>not</strong> re-measured automatically. The moment a standard
+changes is the worst possible moment to measure a border: the graph has just
+been rebuilt, the console is often mid-boot, and a logo on black is exactly the
+case <code>DetectCrop</code>'s own sanity guard refuses. Sending the measurement into its
+own guard would be self-defeating. <strong>Detect</strong> is a keystroke away (F8) for when
+there is a real picture to measure.</p>
+      <p>A console that keeps changing between 50 and 60 Hz then wants its border
+measured twice over, every time. <em>Remember per picture size</em> in the image
+settings keeps one crop per source size instead, so the switch that used to
+throw the crop away now puts the other one back. See
+<a href="cropping-and-geometry.html">Cropping and geometry</a>.</p>
+    </section>
+
+    <section id="the-profile-can-follow-the-standard">
+      <h2>The profile can follow the standard</h2>
+      <p>A detected standard can also pick the <strong>profile</strong>. That is a property of the
+profile rather than of the search — it is set in the profiles tab and described
+in <a href="configuration-and-profiles.html">Configuration and profiles</a> — but it is this
+page's second stage that triggers it: the switch happens when the colour round
+has settled, not when the lock comes in, because until then the standard is only
+a line count.</p>
+    </section>
+
+    <section id="what-it-costs">
+      <h2>What it costs</h2>
+      <p>Measured 31.08.2026, GameCube at 60 Hz, card forced to PAL B beforehand so the
+search has to find its way out. From the first line of the search to the final
+colour verdict:</p>
+      <pre><code>05:27:23.890  search starts, region default is PAL B
+05:27:25.591  PAL B set
+05:27:26.797  no frame for 2.9 s -- PAL B cannot decode this signal
+05:27:26.797  PAL B discarded after 1.27 s without lock
+05:27:26.831  PAL 60 set
+05:27:27.056  locked (0.26 s)
+05:27:27.169  graph rebuilt, 720x480
+05:27:30.226  PAL 60 has clear colour (0.192), darks neutral (0.107)</code></pre>
+      <p><strong>6.3 seconds</strong>, of which 3.1 is the single colour measurement that confirms the
+result. The run before the last two fixes took 13.0 s for the same sequence,
+and before that, from a lost lock, 11.6 s.</p>
+      <p>That run predates the two passes. In it, PAL B — the wrong candidate — was
+discarded after 1.27 s; in the fast pass it gets 0.6, and every further wrong
+candidate the same.</p>
+      <p>The colour measurement at the end is untouched by any of it — the adaptive
+settle above shortened the round, not this. That is deliberate rather than
+overlooked: it runs at
+the <strong>background</strong> cadence, ten frames at every eighth, and what it decides is
+whether a live picture is grey. Ten frames spread across eighty are a sample of
+the scene; three consecutive frames are one moment of it. The round can afford
+three because a wrong reading there costs one more window and nothing else,
+while here it would be the whole answer. The dense cadence is switched on for a
+search started by hand and for the round itself — not for this.</p>
+    </section>
+
+    <section id="limits">
+      <h2>Limits</h2>
+      <ul>
+<li><strong>The lock is horizontal only.</strong> On this hardware some standards report a lock
+with nothing connected at all, which is why stage two exists and why a pass
+that finds nothing parks the card on the best guess rather than the last one
+tried.</li>
+<li><strong>A source that is black forever is never resolved beyond its line count</strong>,
+because the wait above never ends. That is deliberate — the alternative is a
+verdict reached on no evidence — but it means a permanently dark input keeps
+whatever the lock gave it.</li>
+<li><strong>A black-and-white source cannot be resolved beyond its line count.</strong> After
+three attempts the region default stands. This is correct — there is nothing
+in the picture to decide with — but it means a monochrome source may sit on
+PAL B where PAL N would do equally well.</li>
+<li><strong>NTSC M and NTSC M (Japan) are not distinguished.</strong> They differ in the setup
+pedestal, a brightness property; telling them apart would need a different
+measurement than this one.</li>
+<li><strong>The alternation test is calibrated in one direction only</strong> — a PAL signal
+offered to an NTSC decoder. It should hold in reverse for the same physical
+reason, but that has not been measured, and a decoder that averages adjacent
+lines could hide the evidence. It can only rule a candidate out, so the cost
+of it staying quiet is the older behaviour and nothing worse.</li>
+<li><strong>Everything here was measured on one card</strong>, a StarTech PEXHDCAP60L (SA7160),
+against a GameCube over composite. The thresholds are grounded in that
+hardware.</li>
+</ul>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="source-and-signal.html"><span>&larr; Previous</span>Source and signal</a>
+      <a class="next" href="colour-range-and-matrix.html"><span>Next &rarr;</span>Colour range and matrix</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

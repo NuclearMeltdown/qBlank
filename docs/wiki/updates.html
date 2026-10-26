@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Updates — qBlank wiki</title>
+<meta name="description" content="Checking GitHub, replacing a running executable, and the bridge out of the old name.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/updates.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Updates","item":"https://qblank.com/wiki/updates.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Updates</h1>
+    <p class="tag">Checking GitHub, replacing a running executable, and the bridge out of the old name.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#checking">Checking</a>
+      <a href="#what-is-new">"What is new"</a>
+      <a href="#errors">Errors</a>
+      <a href="#installing">Installing</a>
+      <a href="#across-a-rename">Across a rename</a>
+      <a href="#what-updates-do-not-cover">What updates do not cover</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/update/updater.cpp</code>, <code>src/update/updater.h</code></p>
+      <p><strong>Settings → About</strong> compares this build against the newest release on GitHub,
+either once at startup or on request. Everything that touches the network runs on
+a thread of its own; the UI only ever reads a snapshot.</p>
+    </section>
+
+    <section id="checking">
+      <h2>Checking</h2>
+      <p><code>CheckAsync(bool announce)</code> fetches the latest release from the GitHub API and
+compares the tag against the version this build reports.</p>
+      <p>The repository is asked for <strong>by number</strong>, not by name:
+<code>/repositories/1340564357/releases/latest</code>, with <code>/repos/NuclearMeltdown/qBlank/</code>
+kept only as a fallback. A number survives a rename and even a handover to
+another account, which a name does not. For the same reason the download is
+picked by the release asset's <strong>label</strong> rather than by its file name — the file
+name is the thing that changes when the program is renamed.</p>
+      <p><code>PickProgram()</code> asks for the label of this build's architecture first
+(<code>app-x64</code>, <code>app-arm64</code>, <code>app-x86</code>), then for a plain <code>app</code>, and if a release
+carries no labels at all it takes the largest <code>.exe</code> that is not the migrator —
+the migrator is a few hundred kilobytes and the program is megabytes, so even a
+release somebody forgot to label lands on the right file. See
+<code>src/update/release_source.cpp</code>.</p>
+      <p>The label is not only a key, though, because GitHub shows it <strong>instead of</strong> the
+file name: a release labelled <code>app-x64</code> and <code>migrator</code> lists two downloads that
+say nothing about what they are. So a label is written for both readers at once
+— <code>qBlank.exe (app-x64)</code>, <code>CapView.exe (migrator)</code> — and the word is looked for
+inside it. As a word, with the hyphen counted as part of one: <code>app</code> must not
+match halfway into <code>app-x64</code>, or a plain-<code>app</code> release would hand an ARM build
+to an x64 machine. The download button on the website answers the same question
+the same way, for the same reason — the migrator is uploaded first, so anything
+picking "the first <code>.exe</code>" picks the wrong one.</p>
+      <p>The <code>announce</code> flag is the whole of the difference between the two entry points:</p>
+      <pre><code>// Whether finding something is worth interrupting anybody for. True only for
+// the check made at startup: somebody who pressed "check now" is already
+// looking at the answer, and a dialog on top of it is just in the way.
+bool announce;</code></pre>
+      <ul>
+<li><strong>At startup</strong> — <code>announce = true</code>. When something is found, a notice appears
+over the picture, <strong>once per session</strong> whatever you do with it.</li>
+<li><strong>From the button</strong> — <code>announce = false</code>. The answer appears in the tab you are
+already looking at, and no popup.</li>
+</ul>
+      <p>That second case was a bug: manually checking used to raise the popup as well,
+on top of the tab that had already answered.</p>
+      <p>Nothing is downloaded until you ask. The startup check only asks.</p>
+    </section>
+
+    <section id="what-is-new">
+      <h2>"What is new"</h2>
+      <p>Opens the changelog on the website (<code>StartupNotices::OpenChangelog()</code>), under
+<code>de/</code> when the program speaks German, rather than trying to render release notes
+in the notice. The page shows every release newest first, with its notes and its
+files. Since 7.1; before, the button opened the GitHub release page.</p>
+    </section>
+
+    <section id="errors">
+      <h2>Errors</h2>
+      <p>The status carries an <strong>enum</strong>, not a sentence:</p>
+      <pre><code>enum class UpdateError {
+  None, NoNetwork, NoServer, NoRequest, NoAnswer, HttpStatus, Transfer,
+  Unreadable, NoAsset, NoUrl, NotAProgram, WriteFailed, MoveAsideFailed,
+  InsertFailed,
+};</code></pre>
+      <p>The work happens on a thread of its own and the language can be changed at any
+time, so the wording is picked <strong>where it is shown</strong> rather than where it is
+raised — <code>UpdateErrorText(const UpdateStatus&amp;)</code> does that in the language
+selected right now.</p>
+      <p>Before this, update errors were German-only strings baked in at the point of
+failure.</p>
+      <p><code>httpStatus</code> is carried alongside, and is meaningful only with
+<code>UpdateError::HttpStatus</code>.</p>
+    </section>
+
+    <section id="installing">
+      <h2>Installing</h2>
+      <p>Installing replaces <code>qBlank.exe</code> itself. Windows will not let a running image be
+overwritten, but it <strong>will</strong> let it be renamed — so:</p>
+      <pre><code>qBlank.exe.new   ← the download, written first
+qBlank.exe       → qBlank.exe.old      (MoveFileExW)
+qBlank.exe.new   → qBlank.exe          (MoveFileExW)</code></pre>
+      <p><code>CleanUpPreviousBuild()</code> deletes <code>.old</code> at the next start. Nothing has to be running
+for that to work, and there is <strong>no helper process to go missing</strong> — which is how
+most self-updaters fail.</p>
+      <h3 id="two-safeguards">Two safeguards</h3>
+      <p><strong>Is it actually a program?</strong></p>
+      <pre><code>if (data.size() &lt; 256 * 1024 || data[0] != 'M' || data[1] != 'Z') { … NotAProgram }</code></pre>
+      <p>Every Windows executable starts with those two bytes, and a redirect page or an
+error document does not. Overwriting the program with an HTML page would be a
+remarkably annoying way to find that out later.</p>
+      <p><strong>If the second rename fails, the first is undone.</strong></p>
+      <pre><code>if (!::MoveFileExW(fresh.c_str(), exe.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+  ::MoveFileExW(old.c_str(), exe.c_str(), MOVEFILE_REPLACE_EXISTING);
+  …
+}</code></pre>
+      <p>A failed update leaves the program exactly as it was rather than gone.</p>
+      <h3 id="directories-that-need-administrator-rights">Directories that need administrator rights</h3>
+      <p>An installation directory the user cannot write to refuses the swap and says so
+(<code>MoveAsideFailed</code> / <code>WriteFailed</code>). qBlank does not elevate to update itself —
+if it is installed somewhere that needs rights to write, replacing it is a
+decision for whoever put it there.</p>
+      <h3 id="restarting">Restarting</h3>
+      <p><code>RestartIntoNewBuild()</code> starts the freshly installed build and asks the caller to
+quit. It returns false when nothing is waiting.</p>
+    </section>
+
+    <section id="across-a-rename">
+      <h2>Across a rename</h2>
+      <p>This program was called CapView up to and including 3.7. Version 4.0 is that
+same program under the name it keeps, and getting there had to work through the
+updater that was already shipped — a build from 3.7 cannot be taught anything
+after the fact.</p>
+      <p><strong>The migrator.</strong> Every release carries a second, small executable called
+<code>CapView.exe</code> (<code>src/migrate/migrator.cpp</code>). The updater in 3.7 looks for a
+release asset with exactly that file name, downloads it over itself and restarts
+it, so the last build under the old name walks into the bridge on its own. The
+bridge asks the release which asset is the program, downloads it under whatever
+name the release gives it, unregisters a virtual camera registered from that
+folder, repoints the shortcuts, renames itself to <code>&lt;new name&gt;.exe.old</code> and starts
+the new build.</p>
+      <p>It never spells out the new name — it asks the release. That is why it is
+shipped unchanged with every release from here on and never needs rebuilding: a
+second rename years from now needs nothing from it, because the only name it
+knows is the one it was born with, and that one cannot change any more.</p>
+      <p><strong>An ordinary update across a rename.</strong> The updater keeps the old file name when
+it swaps a new build in — it replaces the running image, and the running image
+is called whatever it is called. <code>AdoptOwnName()</code> in <code>src/app_identity.cpp</code>
+corrects that at the next start: it renames the running executable to the name
+this build answers to and points every shortcut it can find at the new path.
+Windows allows renaming a running image, which is the same trick the update
+itself uses.</p>
+      <p><strong>The settings.</strong> They are not moved by anybody. <code>FindForeignSettings()</code>
+recognises a settings file by its <strong>content</strong>, not by its name, so it finds a
+<code>CapView.json</code> next to the program without a list of former names having to stay
+correct. With only that file there, it is adopted silently. With a <code>qBlank.json</code>
+beside it, the program asks once, in the language stored in the file it found,
+and the answer it does not get is "do nothing and ask again next time". Nothing
+is ever deleted: a file that loses is renamed to <code>.bak</code>, not removed. See
+<a href="configuration-and-profiles.html">Configuration and profiles</a>.</p>
+      <p><strong>What keeps the old name on purpose.</strong> The migrator and its version strings,
+the shared section names the virtual camera is found through, and every sentence
+about a version that really was called CapView.</p>
+    </section>
+
+    <section id="what-updates-do-not-cover">
+      <h2>What updates do not cover</h2>
+      <p>The <strong>virtual camera's filter</strong> is installed separately and is not replaced
+by an update — Windows keeps the DLL locked while a camera is in use, and the
+registration is machine-wide.</p>
+      <p>That is why the shared memory carries a version number both halves check: after
+an update the executable and the installed filter genuinely can be from
+different builds. See <a href="virtual-camera.html">Virtual camera</a>.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="configuration-and-profiles.html"><span>&larr; Previous</span>Configuration and profiles</a>
+      <a class="next" href="shortcuts.html"><span>Next &rarr;</span>Shortcuts</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

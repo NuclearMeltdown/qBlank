@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building — qBlank wiki</title>
+<meta name="description" content="Toolchain, build script, what ends up in the binary.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/building.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Building","item":"https://qblank.com/wiki/building.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Building</h1>
+    <p class="tag">Toolchain, build script, what ends up in the binary.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#requirements">Requirements</a>
+      <a href="#what-the-build-produces">What the build produces</a>
+      <a href="#the-media-source-rides-inside-the-executable">The media source rides inside the executable</a>
+      <a href="#compiler-and-linker-settings">Compiler and linker settings</a>
+      <a href="#where-things-get-written">Where things get written</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="requirements">
+      <h2>Requirements</h2>
+      <ul>
+<li><p><strong>Visual Studio 2022</strong> with the Desktop C++ workload</p></li>
+<li><p><strong>CMake</strong> (the one that ships with Visual Studio is used automatically)</p></li>
+<li><p><strong>Vulkan SDK</strong>, optional, for the <a href="latency.html#vulkan">Vulkan renderer</a>: its
+headers, the loader's import library and <code>dxc</code> for SPIR-V</p></li>
+</ul>
+      <p>Dear ImGui is vendored in <code>third_party/</code>; everything else is a Windows SDK
+library. The Direct3D 11 shaders are compiled during the build with the SDK's
+<code>fxc</code> and carried in the executable, so the program never compiles at startup.</p>
+      <p><code>build.bat</code> takes the SDK from <code>VULKAN_SDK</code>, or else from a <code>VulkanSDK\&lt;version&gt;</code>
+folder next to the repository, which the installer can be pointed at without
+touching the environment. Without one the build warns and makes a Direct3D 11
+only program; <code>-DQBLANK_VULKAN=OFF</code> does the same on purpose. The released
+executable has both.</p>
+      <pre><code>build.bat</code></pre>
+      <p>The result is <code>qBlank.exe</code> in the repository root, about 2.4 MB, linked against
+the static CRT so it runs without redistributables.</p>
+      <div class="tbl"><table>
+<tr><th>Command</th><th></th></tr>
+<tr><td><code>build.bat</code></td><td>Release, then removes the build tree — only the executable is left</td></tr>
+<tr><td><code>build.bat keep</code></td><td>Release, keeps the build tree for incremental rebuilds</td></tr>
+<tr><td><code>build.bat debug</code></td><td>Debug configuration, keeps the build tree</td></tr>
+</table></div>
+      <p><code>findvs.bat</code> locates the Visual Studio installation and its bundled CMake and
+Ninja.</p>
+      <p>Prebuilt executables are attached to each
+<a href="https://github.com/NuclearMeltdown/qBlank/releases">release</a>.</p>
+    </section>
+
+    <section id="what-the-build-produces">
+      <h2>What the build produces</h2>
+      <p>Four targets:</p>
+      <div class="tbl"><table>
+<tr><th>Target</th><th></th></tr>
+<tr><td><strong><code>qBlank</code></strong></td><td>the program itself, <code>WIN32</code> subsystem</td></tr>
+<tr><td><strong><code>qblank_vcam</code></strong></td><td>the virtual camera's DirectShow filter DLL</td></tr>
+<tr><td><strong><code>qblank_probe</code></strong></td><td>a console tool that prints the devices, formats and inputs qBlank sees</td></tr>
+<tr><td><strong><code>CapViewMigrator</code></strong></td><td>the bridge out of the old name, output name <code>CapView.exe</code></td></tr>
+</table></div>
+      <p>The migrator goes to <code>build\bin\migrator\</code> rather than next to the program, so
+that nothing which copies "the build" out of <code>bin\</code> picks up an executable under
+the old name by accident. A release is the two files together — see
+<a href="updates.html#across-a-rename">Updates</a>.</p>
+      <p><code>qblank_probe</code> is a diagnostic and is not shipped. It is the fastest way to find
+out what a card is actually advertising without opening the program.</p>
+    </section>
+
+    <section id="the-media-source-rides-inside-the-executable">
+      <h2>The media source rides inside the executable</h2>
+      <p>The DLL is built first, then baked into <code>qBlank.exe</code> as an <code>RT_RCDATA</code> resource:</p>
+      <pre><code>set(VCAM_DLL_PATH "${CMAKE_BINARY_DIR}/bin/qblank_vcam.dll")
+configure_file("res/vcam_resource.rc.in" "${CMAKE_BINARY_DIR}/vcam_resource.rc" @ONLY)
+# So the resource is rebuilt when the source changes rather than when the path does.
+set_source_files_properties("${CMAKE_BINARY_DIR}/vcam_resource.rc"
+                            PROPERTIES OBJECT_DEPENDS "${VCAM_DLL_PATH}")</code></pre>
+      <p>That <code>OBJECT_DEPENDS</code> line matters. Without it the resource compiler only reruns
+when the generated <code>.rc</code> changes — and the <code>.rc</code> only contains a <em>path</em>, which
+does not change when the DLL behind it does. The resource would then quietly hold
+a stale DLL.</p>
+      <p>Shipping the DLL as a loose second file meant the two halves could be from
+different builds, which happened: Windows locks the file while the camera is in
+use, and replacing it failed silently. See <a href="virtual-camera.html">Virtual camera</a>.</p>
+      <p>A release is therefore <strong>one file</strong>.</p>
+    </section>
+
+    <section id="compiler-and-linker-settings">
+      <h2>Compiler and linker settings</h2>
+      <pre><code>/W3 /permissive- /Zc:__cplusplus /utf-8 /MP
+$&lt;$&lt;CONFIG:Release&gt;:/O2 /Oi /GL&gt;
+$&lt;$&lt;CONFIG:Release&gt;:/LTCG /OPT:REF /OPT:ICF&gt;
+MSVC_RUNTIME_LIBRARY "MultiThreaded$&lt;$&lt;CONFIG:Debug&gt;:Debug&gt;"
+"/MANIFESTUAC:level='asInvoker' uiAccess='false'"</code></pre>
+      <p>C++17. <code>/utf-8</code> is not optional — the source carries German strings directly, and
+without it MSVC reads them in the system code page.</p>
+      <p><strong><code>asInvoker</code></strong> in the manifest is deliberate. qBlank never needs elevation. The
+one operation that does — registering the virtual camera's filter — spawns
+<code>regsvr32</code> through <code>ShellExecuteEx</code> with the <code>runas</code> verb rather than elevating
+the whole program.</p>
+    </section>
+
+    <section id="where-things-get-written">
+      <h2>Where things get written</h2>
+      <p>Everything lives beside the executable:</p>
+      <ul>
+<li><code>qBlank.json</code> — configuration</li>
+<li><code>qblank_vcam_&lt;hash&gt;.dll</code> — written out when the camera is installed</li>
+<li><code>ffmpeg\</code> — ffmpeg's four libraries, if the download button was used</li>
+</ul>
+      <p>Nothing is written to the registry, except the virtual camera's machine-wide COM
+registration.</p>
+      <p><code>build.bat</code> rescues <code>ffmpeg</code> and <code>qBlank.json</code> out of the build tree before
+deleting it, since the download button and the settings both land next to
+whichever executable was running.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="translations.html"><span>&larr; Previous</span>Translations</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

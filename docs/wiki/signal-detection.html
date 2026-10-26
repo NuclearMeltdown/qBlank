@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signal detection and the empty state — qBlank wiki</title>
+<meta name="description" content="Telling snow from a scene cut, and the empty state.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/signal-detection.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Signal detection and the empty state","item":"https://qblank.com/wiki/signal-detection.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Signal detection and the empty state</h1>
+    <p class="tag">Telling snow from a scene cut, and the empty state.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#why-are-frames-arriving-is-the-wrong-question">Why "are frames arriving" is the wrong question</a>
+      <a href="#the-trap-no-signal-is-not-black">The trap: no signal is not black</a>
+      <a href="#the-measurement">The measurement</a>
+      <a href="#magnitude-alone-is-not-enough">Magnitude alone is not enough</a>
+      <a href="#persistence-in-havelivesignal">Persistence, in HaveLiveSignal()</a>
+      <a href="#why-the-threshold-is-65-and-not-48">Why the threshold is 65 and not 48</a>
+      <a href="#known-limits">Known limits</a>
+      <a href="#the-empty-state">The empty state</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/render/video_renderer.cpp</code> (<code>AnalyzeSignal</code>), <code>src/app_source.cpp</code>
+(<code>HaveLiveSignal</code>), <code>src/app_ui.cpp</code> (<code>LoadIdleIcon</code>), <code>src/ui/overlay.cpp</code> (<code>DrawIdleScreen</code>)</p>
+    </section>
+
+    <section id="why-are-frames-arriving-is-the-wrong-question">
+      <h2>Why "are frames arriving" is the wrong question</h2>
+      <p>On a digital input it is the whole answer: no signal, no frames, and
+<code>FrameSink::HasRecentFrame()</code> says so.</p>
+      <p>On an <strong>analogue</strong> input it is no answer at all. A card with nothing on its
+composite pin goes on delivering sixty frames a second of whatever its decoder
+makes of an open wire. The frames arrive; there is simply nothing in them.</p>
+      <p>So the question has to be put to the pixels instead.</p>
+    </section>
+
+    <section id="the-trap-no-signal-is-not-black">
+      <h2>The trap: no signal is not black</h2>
+      <p>The obvious test — "is the picture dark and flat?" — fails on exactly the retro
+consoles this matters for. An unterminated analogue input is <strong>snow</strong>, which is
+full of contrast.</p>
+      <p>There are two appearances of no signal and they look nothing like each other:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Contrast in frame</th><th>Change between frames</th></tr>
+<tr><td>Real picture, moving</td><td>high</td><td>moderate</td></tr>
+<tr><td>Real picture, still (paused, menu)</td><td>high</td><td>~0</td></tr>
+<tr><td><strong>Snow</strong> (open input, no carrier)</td><td>high</td><td><strong>very high</strong></td></tr>
+<tr><td><strong>Flat</strong> (card muting, decoder unlocked)</td><td>~0</td><td>~0</td></tr>
+<tr><td>Fade to black</td><td>~0</td><td>~0</td></tr>
+</table></div>
+      <p><strong>Snow is decidable.</strong> That much contrast with that little correlation cannot be
+a picture.</p>
+      <p><strong>Flat is not.</strong> A black loading screen produces an identical measurement to a
+muted input. Nothing in a single frame separates them — only time does.</p>
+    </section>
+
+    <section id="the-measurement">
+      <h2>The measurement</h2>
+      <p><code>AnalyzeSignal()</code> runs on the CPU over the raw capture buffer, alongside the
+other three analyses in <code>UploadFrame()</code>.</p>
+      <p>Every sixth frame (<code>kSignalSampleEvery</code>), 2048 luma samples on a sparse grid
+with an <strong>odd stride</strong> — for the same reason the level detector uses one: a
+stride that divides the row length reads a single column and calls it the
+picture.</p>
+      <p>Two numbers come out:</p>
+      <ul>
+<li><strong>spread</strong> — <code>max − min</code> across the grid</li>
+<li><strong>delta</strong> — mean absolute difference against the same grid one measurement ago</li>
+</ul>
+      <p>Only the previous <em>sample set</em> is kept, not the previous frame: a few hundred
+bytes stand in for a megabyte. A format change resizes the grid, and the
+comparison simply starts over.</p>
+      <pre><code>if (spread &lt; kSignalFlatSpan)                                    verdict = Flat;
+else if (delta &gt;= kSignalSnowDelta &amp;&amp; spread &gt;= kSignalSnowSpan)  verdict = Snow;
+else                                                              verdict = Picture;</code></pre>
+      <div class="tbl"><table>
+<tr><th>Constant</th><th>Value</th><th>Why</th></tr>
+<tr><td><code>kSignalFlatSpan</code></td><td>16</td><td>Wide enough to cover the noise a decoder puts on a muted output, narrow enough that a dim night scene still clears it</td></tr>
+<tr><td><code>kSignalSnowDelta</code></td><td>65</td><td>Two independent uniform samples average 85 apart; measured fast motion reaches 52, and the two errors are not equally bad — see below</td></tr>
+<tr><td><code>kSignalSnowSpan</code></td><td>96</td><td>So a hard cut between two <em>flat</em> colours cannot be mistaken for snow</td></tr>
+</table></div>
+      <p>Nothing here latches. Unlike the range and interlace verdicts, a signal can come
+and go, so the measurement runs for the whole session.</p>
+    </section>
+
+    <section id="magnitude-alone-is-not-enough">
+      <h2>Magnitude alone is not enough</h2>
+      <p>Checked against synthetic signals replicating the exact classification:</p>
+      <div class="tbl"><table>
+<tr><th>Case</th><th>Verdict</th><th>spread</th><th>delta</th></tr>
+<tr><td>Snow (open input)</td><td>Snow</td><td>255</td><td>85</td></tr>
+<tr><td>Flat black (card muting)</td><td>Flat</td><td>0</td><td>0</td></tr>
+<tr><td>Flat blue, slight noise</td><td>Flat</td><td>6</td><td>2</td></tr>
+<tr><td>Still picture (menu, paused)</td><td>Picture</td><td>223</td><td>0</td></tr>
+<tr><td>Picture, gentle motion</td><td>Picture</td><td>255</td><td>4</td></tr>
+<tr><td>Picture, fast motion</td><td>Picture</td><td>255</td><td>17</td></tr>
+<tr><td><strong>Hard scene cut</strong></td><td><strong>Snow</strong></td><td>223</td><td><strong>72</strong></td></tr>
+<tr><td>Fade to black</td><td>Flat</td><td>2</td><td>2</td></tr>
+</table></div>
+      <p>That last row is the important one. A hard cut between two busy scenes lands
+<strong>inside the snow band</strong> — 72 against a threshold of 65. Snow and cuts genuinely
+overlap in magnitude, and no threshold separates them: pushing it above 72 would
+start missing real snow, which averages 85 and can sit lower after a decoder's
+own filtering.</p>
+      <p>What separates them is that <strong>snow persists and a cut does not.</strong></p>
+    </section>
+
+    <section id="persistence-in-havelivesignal">
+      <h2>Persistence, in <code>HaveLiveSignal()</code></h2>
+      <p>Neither failure verdict is acted on the instant it appears.</p>
+      <div class="tbl"><table>
+<tr><th>Verdict</th><th>Patience</th><th></th></tr>
+<tr><td>Snow</td><td>2.0 s</td><td>Far longer than any cut, far shorter than anyone's patience with a dead input</td></tr>
+<tr><td>Flat</td><td>8.0 s</td><td>Being wrong here covers a game that was only fading out</td></tr>
+<tr><td>Flat, and the decoder reports no lock</td><td>2.0 s</td><td>No reason to wait on a second opinion</td></tr>
+</table></div>
+      <p>Snow started at 1.0 s and was raised after the detector met real content. On a
+live racing demo, steady fast motion reads a change of <strong>37</strong>, far above the
+synthetic estimate of 17, and a fade-and-cut between scenes produced a burst of
+<code>Snow, Picture, Flat, Picture, Snow</code> inside 1.2 seconds. None of those held long
+enough to show the idle screen even at 1.0 s, but the margin was thinner than it
+should be, and widening the time costs nothing: an unterminated input does not
+stop being snow after two seconds.</p>
+    </section>
+
+    <section id="why-the-threshold-is-65-and-not-48">
+      <h2>Why the threshold is 65 and not 48</h2>
+      <p>The same correction, applied to the other axis. 48 was the first value tried,
+chosen off the synthetic estimate of 17 for fast motion. Live 1080p60 with a
+busy animated background reaches <strong>52</strong> and sits in the high forties for seconds
+at a time, so 48 had no margin at all and the verdict flipped several times a
+second.</p>
+      <p>Sixty-five, because the two errors are not equally bad:</p>
+      <ul>
+<li><strong>Too low</strong> and a moving picture is declared dead and covered by the idle
+screen. That is the one outcome nobody can work around.</li>
+<li><strong>Too high</strong> and snow goes unrecognised — at which point you simply see the
+snow, which tells you exactly what the idle screen would have.</li>
+</ul>
+      <p>The persistence window is the second line of defence, and the reason a threshold
+this generous is safe: a hard cut at 72 crosses it, but not for two seconds.</p>
+      <p>Simulated over a stream of measurements at ten a second:</p>
+      <div class="tbl"><table>
+<tr><th>Stream</th><th>Idle screen shown</th></tr>
+<tr><td>Six seconds of play with one scene cut</td><td>0 of 59 measurements</td></tr>
+<tr><td>Six seconds of play with three rapid cuts</td><td>0 of 59 measurements</td></tr>
+<tr><td>Six seconds of open input</td><td>48 of 59 measurements</td></tr>
+</table></div>
+      <p>The decoder's own <code>get_HorizontalLocked</code> is used <strong>only to say "no" faster,
+never to say "yes"</strong> — this card reports a lock on some standards with nothing
+connected at all, which is measured and written down in
+<a href="source-and-signal.html">Source and signal</a>.</p>
+    </section>
+
+    <section id="known-limits">
+      <h2>Known limits</h2>
+      <ul>
+<li><strong>RGB sources are judged on green alone.</strong> <code>LumaLayout()</code> returns green as the
+stand-in for luma, which carries most of it for one read instead of three. A
+flat blue mute screen therefore reads as spread 0, which is correct — but a
+genuinely blue-dominated picture has less headroom than it looks.</li>
+<li><strong>P010 and P016 are not analysed at all.</strong> <code>LumaLayout()</code> has no entry for
+them, so an HDR source never leaves <code>Unknown</code> and always counts as live. HDR
+arrives over HDMI, where frame arrival already answers the question.</li>
+<li><strong>Marginal snow can flicker</strong> between Snow and Picture, resetting the clock and
+never reaching a second. That is a false <em>negative</em> — you keep seeing the
+noise, which is itself informative — and it is the safe direction to fail in.</li>
+</ul>
+    </section>
+
+    <section id="the-empty-state">
+      <h2>The empty state</h2>
+      <p><code>DrawIdleScreen()</code> replaces the old text card when there is no picture: the
+application icon, the name under it, and one line saying why.</p>
+      <p>It is separate from <code>DrawStatusCard()</code> because it means something different. The
+card interrupts a picture and expects it back — which is why <em>Connection lost</em>
+still uses the card, spinner and all. The idle screen replaces a picture that
+was never there.</p>
+      <p><strong>The scrim.</strong> A translucent fill of the theme's window background is drawn into
+ImGui's background list, which sits over the video and under every window. Not
+opaque: what the card is sending is still worth seeing, and the difference
+between blue, black and snow is exactly what tells you which cable to go and
+look at. But a wall of moving noise behind the wordmark is unreadable, and a
+muted blue is bright enough to fight with it.</p>
+      <p><strong>The icon</strong> is loaded by <code>App::LoadIdleIcon()</code> through <code>LoadImage</code> and
+<code>GetDIBits</code> rather than through WIC — although WIC is already linked for
+<a href="screenshots.html">screenshots</a>. The resource compiler splits an <code>.ico</code> into an
+<code>RT_GROUP_ICON</code> plus one <code>RT_ICON</code> per size, so there is no <code>.ico</code> file in the
+binary for WIC to decode; <code>LoadImage</code> understands that split and picks the size
+asked for.</p>
+      <p>Two details on the way to a texture:</p>
+      <ul>
+<li><code>GetDIBits</code> hands back <strong>BGRA</strong>, so the channels are swapped.</li>
+<li>The result is <strong>premultiplied by alpha</strong>, because ImGui's blend state expects
+premultiplied and straight alpha draws a dark halo around every edge.</li>
+<li>An icon with no alpha anywhere is an old-style one whose transparency lives in
+the mask. Rather than decode the mask, it is drawn opaque — plain rather than
+wrong.</li>
+</ul>
+      <p>The icon is scaled against the window (18 % of width or 30 % of height,
+whichever is smaller, capped at its native size and floored at 48 px), because
+256 pixels in a 3840-wide window is a stamp in the middle of a field.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="colour-range-and-matrix.html"><span>&larr; Previous</span>Colour range and matrix</a>
+      <a class="next" href="deinterlacing.html"><span>Next &rarr;</span>Deinterlacing</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

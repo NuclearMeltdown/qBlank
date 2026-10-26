@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Translations — qBlank wiki</title>
+<meta name="description" content="Why the strings sit inline instead of in a table.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/translations.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Translations","item":"https://qblank.com/wiki/translations.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Translations</h1>
+    <p class="tag">Why the strings sit inline instead of in a table.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#strings-sit-at-the-call-site">Strings sit at the call site</a>
+      <a href="#switching">Switching</a>
+      <a href="#where-language-is-decided-late">Where language is decided late</a>
+      <a href="#what-the-log-is-in">What the log is in</a>
+      <a href="#keyboard-names">Keyboard names</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/i18n.h</code>, <code>src/i18n.cpp</code></p>
+      <p>German and English. Everything that reaches the screen is in both.</p>
+    </section>
+
+    <section id="strings-sit-at-the-call-site">
+      <h2>Strings sit at the call site</h2>
+      <pre><code>const char* T(const char* de, const char* en);</code></pre>
+      <pre><code>if (ImGui::Button(T("Dateien wählen ...", "Choose files ..."))) { … }</code></pre>
+      <p>There is no table of numbered strings and no resource file. With a UI this size
+that trade is worth it three times over:</p>
+      <ul>
+<li><strong>The two languages cannot drift apart.</strong> Adding a string in one language
+without the other is a compile error, not a missing entry discovered by a user.</li>
+<li><strong>Every string is greppable where it is used.</strong> Finding what a piece of text
+belongs to is one search, not a search followed by a lookup.</li>
+<li><strong>There is no id bookkeeping to get wrong.</strong> No renumbering, no stale entries,
+no two call sites accidentally sharing an id.</li>
+</ul>
+      <p>The cost is that both languages are compiled into the binary and a third would
+mean touching every call site. For two, that has not been a problem.</p>
+    </section>
+
+    <section id="switching">
+      <h2>Switching</h2>
+      <pre><code>void SetLanguage(Language language);
+Language CurrentLanguage();</code></pre>
+      <p><code>T()</code> returns whichever pointer matches the current setting. Both strings are
+string literals with static storage, so returning a <code>const char*</code> is safe and
+there is no allocation anywhere in the path — which matters, because <code>T()</code> is
+called hundreds of times per frame from an immediate-mode UI.</p>
+      <p>The setting takes effect immediately. Nothing is cached, so there is nothing to
+invalidate.</p>
+    </section>
+
+    <section id="where-language-is-decided-late">
+      <h2>Where language is decided late</h2>
+      <p>Two places do <strong>not</strong> call <code>T()</code> where the text is produced, and both for the
+same reason: the work happens on a background thread and the language can change
+between the failure and the moment somebody looks at it.</p>
+      <p><strong>Update errors</strong> carry an <code>UpdateError</code> enum and are turned into a sentence by
+<code>UpdateErrorText()</code> at display time. See <a href="updates.html">Updates</a>.</p>
+      <p><strong>Capture and audio failures</strong> carry their own status codes for the same reason.</p>
+      <p>The general rule: if a string crosses a thread boundary or is stored for later,
+it stores the <em>reason</em>, not the sentence.</p>
+    </section>
+
+    <section id="what-the-log-is-in">
+      <h2>What the log is in</h2>
+      <p><code>CAP_LOG</code> and friends write German only. The log is a development artefact, not
+user-facing output, and translating it would double the noise in the source for
+no reader's benefit.</p>
+    </section>
+
+    <section id="keyboard-names">
+      <h2>Keyboard names</h2>
+      <p>Not translated by qBlank at all. <code>HotkeyText()</code> reads key names from the
+keyboard layout through the OS, so a French keyboard reads its own labels rather
+than a translation of the American ones. See <a href="shortcuts.html">Shortcuts</a>.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="shortcuts.html"><span>&larr; Previous</span>Shortcuts</a>
+      <a class="next" href="building.html"><span>Next &rarr;</span>Building</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colour range and matrix — qBlank wiki</title>
+<meta name="description" content="Why the range is measured from the pixels rather than read from the format.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/colour-range-and-matrix.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Colour range and matrix","item":"https://qblank.com/wiki/colour-range-and-matrix.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Colour range and matrix</h1>
+    <p class="tag">Why the range is measured from the pixels rather than read from the format.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#the-matrix">The matrix</a>
+      <a href="#the-range-why-it-cannot-be-read">The range: why it cannot be read</a>
+      <a href="#the-measurement">The measurement</a>
+      <a href="#two-ways-the-evidence-is-worthless">Two ways the evidence is worthless</a>
+      <a href="#the-verdict">The verdict</a>
+      <a href="#why-it-is-frozen">Why it is frozen</a>
+      <a href="#thawing-it-by-hand">Thawing it by hand</a>
+      <a href="#what-the-cards-own-option-does-measured">What the card's own option does, measured</a>
+      <a href="#the-numbers-behind-it">The numbers behind it</a>
+      <a href="#what-the-shader-does-with-it">What the shader does with it</a>
+      <a href="#related">Related</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/render/video_renderer.cpp</code>, <code>VideoRenderer::AnalyzeRange()</code></p>
+      <p>Both default to automatic. The matrix is worked out in three steps; the range is
+<strong>measured from the pixels</strong>, and that is the part worth explaining.</p>
+    </section>
+
+    <section id="the-matrix">
+      <h2>The matrix</h2>
+      <p>Automatic asks three questions in order, in <code>VideoRenderer::Draw()</code>:</p>
+      <ol>
+<li><strong>Does the media type say?</strong> <code>DXVA_ExtendedFormat::VideoTransferMatrix</code> in a
+<code>VIDEOINFOHEADER2</code> — 1 is BT.709, 2 is BT.601. Believed when present.</li>
+<li><strong>Is the subtype <code>HDYC</code>?</strong> That is UYVY carrying BT.709 by definition.</li>
+<li><strong>Otherwise, height decides.</strong> <code>croppedHeight_ &gt;= 720</code> means BT.709, below it
+BT.601. This is the case that actually fires on most cards.</li>
+</ol>
+      <p>Note that it is the <em>cropped</em> height, not the capture height — a 480i console
+letterboxed inside a 1080-line capture is still standard definition, and cropping
+to it is what tells the renderer so.</p>
+      <p>The setting can be forced either way.</p>
+    </section>
+
+    <section id="the-range-why-it-cannot-be-read">
+      <h2>The range: why it cannot be read</h2>
+      <p>What a capture card hands over is limited range (16–235) or full range (0–255)
+depending on what the <em>source</em> is sending. It is a console setting, not a
+property of the pixel format the card was asked for: a console set to full range
+delivers full range whether the card produces NV12 or RGB32.</p>
+      <p>DirectShow has a place to say which one it is — <code>DXVA_ExtendedFormat::NominalRange</code>
+in a <code>VIDEOINFOHEADER2</code> — and plenty of cards, this one included, attach no
+colour description at all. There is nothing to read, so the answer has to come
+from the pixels.</p>
+    </section>
+
+    <section id="the-measurement">
+      <h2>The measurement</h2>
+      <p><code>AnalyzeLevels()</code> runs on the raw capture buffer before upload, on the CPU, and
+costs almost nothing because it samples rather than scans.</p>
+      <p><strong>Where the luma is.</strong> <code>LumaLayout()</code> returns an offset and a step into the
+buffer for each packed format:</p>
+      <div class="tbl"><table>
+<tr><th>Format</th><th>Offset</th><th>Step</th></tr>
+<tr><td>YUY2, YVYU</td><td>0</td><td>2</td></tr>
+<tr><td>UYVY</td><td>1</td><td>2</td></tr>
+<tr><td>NV12, planar 4:2:0</td><td>0</td><td>1</td></tr>
+<tr><td>P010</td><td>1</td><td>2</td></tr>
+<tr><td>RGB24</td><td>1</td><td>3</td></tr>
+<tr><td>RGB32</td><td>1</td><td>4</td></tr>
+</table></div>
+      <p>For RGB there is no luma channel, so <strong>green stands in for it</strong>: it carries most
+of the brightness and it costs one read per pixel instead of three. P010 parks
+its ten bits at the top of sixteen, so the upper byte is the upper eight — the
+same scale as everywhere else, and the 16/235 boundaries hold unchanged.</p>
+      <p>Until 3.6.1 this function had a second copy of that table, and the copy had
+drifted. It walked RGB byte by byte, which in RGB32 made every fourth sample the
+unused fourth channel. That byte is zero, so a quarter of the evidence landed in
+the "below 16" column before the signal was looked at.</p>
+      <p><strong>Where in the frame.</strong> Between the <a href="source-and-signal.html">detected picture
+bounds</a>, and this matters more than anything else in the
+measurement. Blanking is not picture: everything outside the active line
+digitises below black — on a PEXHDCAP60L it pins to exactly 0 in RGB and exactly
+1 in Y, over 1,2 million samples without one outlier — and on a PAL capture it is
+an eighth of the frame. Counted along with the picture it answers the question by
+itself. The same capture reads <strong>13,1 % below 16 taken whole and 0,22 % taken
+inside the picture</strong>, against a threshold of 0,2 %.</p>
+      <p>The bounds are ready in time. They settle after five windows of nine frames, so
+45 frames, and no range verdict is due before 120. Until they are, the fallback
+is a sixteenth off each side, which clears the 22- and 26-point border this card
+leaves without knowing anything about it. If either edge would leave less than 32
+points the whole frame is used.</p>
+      <p><strong>How it samples.</strong> Every third frame (<code>kRangeSampleEvery = 3</code>), 8192 samples per
+frame (<code>kRangeSamplesPerFrame</code>), over 40 analysed frames
+(<code>kRangeFramesWanted = 40</code>) — roughly four seconds at 30 fps.</p>
+      <p>The sample stride is forced <strong>odd</strong>, and each row starts one further along than
+the last:</p>
+      <pre><code>size_t stride = (size_t)(x1 - x0) * (size_t)(y1 - y0) / kRangeSamplesPerFrame;
+if (stride &lt; 1) stride = 1;
+if (stride % 2 == 0) ++stride;
+...
+for (int x = x0 + (int)((size_t)y % stride); x &lt; x1; x += (int)stride)</code></pre>
+      <p>A stride that divides the row length evenly lands on the same column every row,
+which on a UI-heavy picture reads one vertical stripe and calls it the whole
+frame. A prime-ish stride on a shifting start walks the samples across.</p>
+      <p><strong>What it counts.</strong> Minimum, maximum, samples below 16, samples above 235. The
+log line names the window it used, so a disagreement is one line away from being
+settled:</p>
+      <pre><code>Wertebereich erkannt: voll 0-255 (min 0, max 255, 3.305 % unter 16, 330830 Proben aus x 24..691, y 21..558)</code></pre>
+    </section>
+
+    <section id="two-ways-the-evidence-is-worthless">
+      <h2>Two ways the evidence is worthless</h2>
+      <p>Both are checked before any verdict:</p>
+      <pre><code>if (rangeMin_ &gt; 40 || (rangeMax_ - rangeMin_) &lt; 64) { /* discard, start over */ }</code></pre>
+      <ul>
+<li><strong>No dark pixels at all</strong> (<code>min &gt; 40</code>). There is nothing to tell the two apart:
+limited range piles its blacks at exactly 16, full range goes below it. With no
+blacks in the picture, neither statement can be checked.</li>
+<li><strong>No contrast at all</strong> (<code>max − min &lt; 64</code>). A console asleep, a card between
+signals. An entirely black frame reads as 100 % below 16 and would otherwise be
+written down as a confident verdict of full range on no evidence whatsoever.</li>
+</ul>
+      <p>In both cases everything is thrown away and the measurement starts fresh, so
+whatever appears later is judged on its own. Until something decides, <code>Draw()</code>
+falls back to the rule of thumb for the pixel format — limited for YUV, full for
+RGB.</p>
+    </section>
+
+    <section id="the-verdict">
+      <h2>The verdict</h2>
+      <pre><code>const double below = (double)rangeBelow16_ / (double)rangeSamples_;
+rangeVerdict_ = below &gt; 0.002 ? RangeVerdict::Full : RangeVerdict::Limited;</code></pre>
+      <p><strong>The black end decides, and only the black end.</strong> Values above 235 prove
+nothing: limited-range signals are allowed to carry superwhites and plenty of
+sources do. Two tenths of one per cent of samples below 16 is enough, because in
+a genuine limited-range signal there should be none at all.</p>
+    </section>
+
+    <section id="why-it-is-frozen">
+      <h2>Why it is frozen</h2>
+      <p>Once decided, the verdict is not revisited until the format changes or
+<code>ResetAnalysis()</code> is called. A verdict that keeps changing with the content would
+be worse than a wrong one held steady — the picture would visibly shift
+brightness as scenes came and went.</p>
+      <p><code>ResetAnalysis()</code> is called on a format change and on a crossbar switch. The
+latter is the important one: a crossbar switch puts a different signal on the
+same pins <em>without the media type changing</em>, so nothing measured about the old
+signal survives it.</p>
+    </section>
+
+    <section id="thawing-it-by-hand">
+      <h2>Thawing it by hand</h2>
+      <p>There is a third case, and no automatic reaches it: an option in the card's own
+driver. Moving a card between full and limited output shifts every black level
+in the picture and leaves the media type exactly as it was, so the frozen
+verdict goes on describing rules that no longer apply.</p>
+      <p><strong>Measure again</strong> does it on demand — beside the verdict in <em>Settings →
+Picture</em>, in the right-click menu, and on <strong>F6</strong>. It calls
+<code>ResetRangeAnalysis()</code>, deliberately not <code>ResetAnalysis()</code>: interlacing and the
+picture bounds are measured in the same pass, they depend on nothing outside
+qBlank, and discarding them as well would buy a re-detected deinterlacer and a
+re-detected crop — both plainly visible — in exchange for nothing. Since 3.6.1
+there is a second reason: the range measurement samples between those bounds, so
+keeping them means a re-measure starts with its window already correct rather
+than on the fallback inset.</p>
+      <p>The measurement needs forty frames, during which the display says what it said
+before, so the action is confirmed with a toast rather than left to look like
+nothing happened.</p>
+    </section>
+
+    <section id="what-the-cards-own-option-does-measured">
+      <h2>What the card's own option does, measured</h2>
+      <p>Worth knowing before reaching for it, because the label is ambiguous and the
+answer is not reversible.</p>
+      <p>On a PEXHDCAP60L the driver's colour-range setting describes its <strong>input</strong>, not
+its output. <em>Full</em> passes the decoder through; <em>Limited</em> means "the source is
+16–235, stretch it to 0–255", and the stretch happens before anything qBlank can
+see. Measured on a PAL composite source, 90 frames, 37 million samples per
+format:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>RGB32 (green)</th><th>YUY2 (Y)</th></tr>
+<tr><td>min / max</td><td>0 / 255</td><td>1 / 254</td></tr>
+<tr><td>occupied codes</td><td>256 of 256</td><td>254 of 256</td></tr>
+<tr><td>gaps between min and max</td><td>0</td><td>0</td></tr>
+<tr><td>blanking border</td><td>exactly 0</td><td>exactly 1</td></tr>
+</table></div>
+      <p>No comb, so the card is not stretching an already quantised 16–235 onto 0–255 —
+the gain change happens before the ADC and every code is reachable. What it does
+lose is the two ends. In the picture interior the blacks pile on the floor
+(bin 1 counts five times its neighbours) and the whites pile on the ceiling
+(bin 254 counts five times its neighbours), and a pile-up is clipping: those
+values were distinct going in and are one value coming out. There is nothing
+downstream that puts them back, in qBlank or anywhere else.</p>
+      <p>qBlank on <em>Limited</em> while the driver is on <em>Limited</em> expands twice, which is
+worse again. The setting to leave the driver on is <strong>Full</strong>.</p>
+    </section>
+
+    <section id="the-numbers-behind-it">
+      <h2>The numbers behind it</h2>
+      <p>Under the verdict, while the range is on automatic, stand the figures it fell
+out of: lowest and highest sample, the share below 16 and the share above 235,
+and how many samples that was. <code>VideoRenderer::rangeNumbers()</code> returns them
+without a lock, the same way the verdict itself is read — written while
+measuring, read while drawing, and worst case a set of figures from two
+consecutive frames, which for a readout does not matter.</p>
+      <p>They are there because the verdict folds two cases into one word. Black at 0 and
+black at 16 both read as <em>detected</em>, and while setting a card up those are
+exactly the two that have to be told apart. The same figures go to the log, but
+once, in the moment they settled.</p>
+    </section>
+
+    <section id="what-the-shader-does-with-it">
+      <h2>What the shader does with it</h2>
+      <p>Pass 1 (<code>kConvertPS</code> in <code>src/render/shaders.h</code>) reads the decision out of its
+constant buffer as three numbers — <code>yOffset</code>, <code>yScale</code>, <code>cScale</code>. Limited range
+sets them to <code>16/255</code>, <code>255/219</code> and <code>255/224</code>; full range sets them to 0, 1 and
+1, so the same shader code runs either way with no branch. The matrix follows as
+four coefficients from <code>MatrixCoefficients()</code>.</p>
+      <p>The statistics overlay at detail level 2 shows what was decided, so a wrong
+verdict is visible rather than merely felt.</p>
+    </section>
+
+    <section id="related">
+      <h2>Related</h2>
+      <p>The same "is there anything in this frame" question, asked continuously rather
+than once, is what drives the empty state — see
+<a href="signal-detection.html">Signal detection</a>.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="automatic-video-standard.html"><span>&larr; Previous</span>Automatic video standard</a>
+      <a class="next" href="signal-detection.html"><span>Next &rarr;</span>Signal detection</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

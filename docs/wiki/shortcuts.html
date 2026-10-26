@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shortcuts — qBlank wiki</title>
+<meta name="description" content="The key list, how rebinding works, and system-wide keys.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/shortcuts.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Shortcuts","item":"https://qblank.com/wiki/shortcuts.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Shortcuts</h1>
+    <p class="tag">The key list, how rebinding works, and system-wide keys.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#defaults">Defaults</a>
+      <a href="#what-is-deliberately-not-rebindable">What is deliberately not rebindable</a>
+      <a href="#how-bindings-work">How bindings work</a>
+      <a href="#system-wide">System-wide</a>
+      <a href="#three-kinds-of-name">Three kinds of name</a>
+      <a href="#keys-that-cannot-be-bound">Keys that cannot be bound</a>
+      <a href="#discoverability">Discoverability</a>
+      <a href="#the-toolbar">The toolbar</a>
+      <a href="#the-statistics-overlay">The statistics overlay</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/hotkeys.cpp</code>, <code>src/hotkeys.h</code></p>
+    </section>
+
+    <section id="defaults">
+      <h2>Defaults</h2>
+      <p>These can be reassigned under <strong>Settings → Keys</strong>:</p>
+      <div class="tbl"><table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>Enter</td><td>Fullscreen</td></tr>
+<tr><td>Ctrl+Enter</td><td>Borderless</td></tr>
+<tr><td>F1</td><td>Statistics</td></tr>
+<tr><td>F2</td><td>Settings</td></tr>
+<tr><td>F3</td><td>Toolbar</td></tr>
+<tr><td>F5</td><td>Restart capture</td></tr>
+<tr><td>Shift+F5</td><td>Reinitialise card</td></tr>
+<tr><td>F6</td><td>Measure colour range again</td></tr>
+<tr><td>F7</td><td>Detect video standard</td></tr>
+<tr><td>F8</td><td>Detect border</td></tr>
+<tr><td>F9</td><td>Start / stop recording</td></tr>
+<tr><td>Shift+F9</td><td>Save the replay as a clip</td></tr>
+<tr><td>Ctrl+F9</td><td>Replay on / off</td></tr>
+<tr><td>Ctrl+Shift+F9</td><td>Set a <a href="recording.html#markers">marker</a></td></tr>
+<tr><td>Pause</td><td><a href="recording.html#pause">Pause / resume recording</a></td></tr>
+<tr><td>F10</td><td>Screenshot</td></tr>
+<tr><td>Ctrl+F10</td><td>Screenshot to the clipboard</td></tr>
+<tr><td>F11</td><td>Freeze</td></tr>
+<tr><td>F12</td><td>Compare filters</td></tr>
+<tr><td>Shift+F12</td><td>All filters off</td></tr>
+<tr><td>M</td><td>Mute</td></tr>
+<tr><td><code>+</code> / <code>-</code></td><td>Volume</td></tr>
+</table></div>
+      <p>These cannot:</p>
+      <div class="tbl"><table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>Esc</td><td>Leave fullscreen, close the settings</td></tr>
+<tr><td>Ctrl+1 … Ctrl+9</td><td>Switch profile</td></tr>
+<tr><td>Ctrl+F</td><td>Search, while the settings are open</td></tr>
+<tr><td>Double click on the picture</td><td>Fullscreen</td></tr>
+<tr><td>Mouse wheel</td><td>Volume</td></tr>
+<tr><td>Right click</td><td>Menu</td></tr>
+<tr><td>Shift while resizing</td><td>Keep the picture's shape</td></tr>
+<tr><td>Dragging the picture</td><td>Move the window, when borderless</td></tr>
+</table></div>
+      <p>F11, F12 and Shift+F12 are described on
+<a href="freeze-and-compare.html">Freeze and compare</a>, Ctrl+F on
+<a href="the-settings-window.html#search">The settings window</a>, the last two on
+<a href="the-main-window.html">The main window</a>.</p>
+    </section>
+
+    <section id="what-is-deliberately-not-rebindable">
+      <h2>What is deliberately not rebindable</h2>
+      <pre><code>// Escape always leaves fullscreen and closes the dialog, and Ctrl+1..9 always
+// picks a profile: both are conventions people expect to hold, and a binding
+// editor that lets you break your way out of fullscreen is a trap rather than
+// a feature.</code></pre>
+      <p>That is the whole reasoning. A UI that lets you rebind Escape produces a program
+you can get stuck inside.</p>
+    </section>
+
+    <section id="how-bindings-work">
+      <h2>How bindings work</h2>
+      <pre><code>enum class HotkeyAction {
+  Fullscreen, Borderless, Settings, Stats, Toolbar, RestartCapture, ReinitCard,
+  Record, ReplaySave, ReplayToggle, Screenshot, ScreenshotClipboard, Freeze,
+  Compare, BypassFilters, DetectCrop, DetectStandard, RemeasureRange, Mute,
+  VolumeUp, VolumeDown, Count
+};
+
+struct HotkeyBinding {
+  Key key = Key::None;  // None = unbound
+  bool ctrl, shift, alt;
+};</code></pre>
+      <p>Twenty-one actions, each with one binding, held in a <code>Hotkeys</code> struct indexed by
+the enum. <code>HotkeyAction::Count</code> doubles as "no action bound to this
+combination", which is what <code>Hotkeys::Find()</code> returns on a miss.</p>
+      <p><code>Key</code> is qBlank's own list of keys (<code>src/keys.h</code>), not a Windows virtual-key
+code; <code>src/keys_win32.cpp</code> translates between the two. Up to 4.4 the binding
+held the virtual-key number itself.</p>
+      <p>Four of them earn their place by being needed exactly when a dialog is the last
+thing you want to open. <strong>Shift+F5</strong> rebuilds the card's device list from
+scratch, for when a card was plugged in or re-enumerated after qBlank started.
+<strong>F8</strong> measures the black border around the picture and crops to it — useful
+whenever a source changes size, because a crop is a count of source pixels and
+is dropped when that count stops meaning anything (see
+<a href="cropping-and-geometry.html">Cropping and geometry</a>).</p>
+      <p><strong>F7</strong> runs the video standard search again from the start, both stages, even
+when the current standard holds and shows plenty of colour — the one case the
+automatic search cannot see, because colour that is <em>wrong</em> is still colour (see
+<a href="automatic-video-standard.html">Automatic video standard</a>).</p>
+      <p><strong>F6</strong> throws away the full-or-limited verdict and measures it again, for the
+case no automatic can see: an option in the card's own driver moves every black
+level in the picture and leaves the media type alone, so the frozen verdict goes
+on describing rules that stopped applying (see
+<a href="colour-range-and-matrix.html">Colour range and matrix</a>).</p>
+      <p>The three sit next to each other because they are the same kind of command: a
+measurement on the picture in front of you, triggered because you can see
+something the automation does not measure. F7 and F8 both need a real picture
+and neither decides anything on black. F6 is the exception, and for a reason
+worth knowing: the black end is precisely what it measures, so a black picture
+is not a poor one to measure on — it is the clearest there is.</p>
+      <p>A search started this way also <strong>says what it found</strong> — the standard and the
+reason, over the picture for five seconds, whichever of its exits it took. The
+automatic search reports with a toast and only when something changed; a key
+that was pressed on purpose gets an answer either way.</p>
+      <p>On a source that is already locked it takes <strong>under two seconds</strong> end to end,
+measured on a GameCube through a PEXHDCAP60L, and the standards visibly step
+past one another while it runs. It cost 6.0 s until 31.08., of which 2.7 s were
+spent before the first switch even happened — see
+<a href="automatic-video-standard.html">Automatic video standard</a> for what each half of that
+was and what replaced it.</p>
+      <p>Modifiers must match <strong>exactly</strong> — <code>HotkeyBinding::Matches()</code> compares all three,
+so F9 and Shift+F9 are different bindings rather than one swallowing the other.</p>
+    </section>
+
+    <section id="system-wide">
+      <h2>System-wide</h2>
+      <p><code>src/global_hotkeys.h</code>, <code>src/global_hotkeys_win32.cpp</code>. Since 7.0.</p>
+      <p>The keys above need qBlank's window in front. Every action can also get a
+second binding that works while a game has the keyboard, in the
+<strong>System-wide</strong> column of the Keys tab (<code>GlobalHotkeys</code>).</p>
+      <figure class="ui"><img src="../shots/keys.png" alt="The Keys tab: the window&#x27;s shortcuts and the System-wide column, with Alt+F9, Alt+Shift+F9 and Alt+F10 bound" width="528" height="548" loading="lazy"></figure>
+      <ul>
+<li><strong>All unbound</strong> out of the box. A combination held system-wide is taken from
+every other program, and that is not something to do unasked.</li>
+<li><strong>Orange:</strong> the combination is taken twice, or a system-wide key is another
+action's key in the window. There the system-wide one wins.</li>
+<li><strong>Refused</strong> shows red: another program holds that combination
+(<code>SystemHotkeys::Refused()</code>). The rest keep working.</li>
+<li><code>RegisterHotKey()</code> on a thread of its own, without a window. It runs only
+while something is bound; a press wakes the main thread, which handles it
+like a key in the window.</li>
+<li><strong>System-wide shortcuts</strong> switches them all off and keeps the bindings.</li>
+</ul>
+    </section>
+
+    <section id="three-kinds-of-name">
+      <h2>Three kinds of name</h2>
+      <p>Each action has three strings, and they are deliberately separate:</p>
+      <div class="tbl"><table>
+<tr><td><code>HotkeyActionName()</code></td><td>the label in the settings and the context menu, in the current language</td></tr>
+<tr><td><code>HotkeyActionKey()</code></td><td>what is written to <code>qBlank.json</code> — language-independent and stable</td></tr>
+<tr><td><code>HotkeyText()</code></td><td><code>"Strg+Umschalt+F9"</code>, or empty when unbound</td></tr>
+</table></div>
+      <p>The middle one matters: a config file written in German and read in English has
+to name the same action. The first and third are display only.</p>
+      <p>The key itself is stored the same way, by name (<code>"key": "F12"</code>), since 5.0.
+Next to it the file still carries the old number (<code>"vk"</code>), for a qBlank older
+than 5.0 reading the same file after a downgrade. A file that has only the
+number, from before 5.0, is read as before, so an update keeps every binding.</p>
+      <p>The combination text comes from the <strong>keyboard layout</strong> through
+<code>GetKeyNameTextW</code> (<code>KeyLabel()</code> in <code>src/keys_win32.cpp</code>), so a French keyboard
+reads its own labels rather than a translation of the American ones. Keys the
+layout names badly or not at all — Enter, Space, the arrows, <code>+</code> and <code>-</code> — are
+named by <code>SpecialKeyName()</code> instead.</p>
+    </section>
+
+    <section id="keys-that-cannot-be-bound">
+      <h2>Keys that cannot be bound</h2>
+      <p><code>IsReservedKey()</code> returns true for keys that must not be swallowed as a shortcut:</p>
+      <ul>
+<li><strong>Escape</strong> — fixed, for the reason above</li>
+<li><strong>The modifiers themselves</strong> — Ctrl, Shift, Alt and both Windows keys, left and
+right variants included. A modifier alone is not a shortcut</li>
+<li><strong>F4</strong> — it would collide with Alt+F4</li>
+</ul>
+      <p>The binding editor refuses these rather than accepting them and behaving oddly
+later.</p>
+    </section>
+
+    <section id="discoverability">
+      <h2>Discoverability</h2>
+      <p>The context menu (right click) shows the same actions with their current
+combinations, so a rebound key is discoverable without opening the settings.</p>
+      <p><strong>Compare filters</strong> is a submenu there, with the two directions inside. Its key
+stands on the submenu rather than on either direction, because F12 switches
+compare on in whichever direction was chosen last.</p>
+      <p>A <strong>double click</strong> on the picture toggles fullscreen, as in any video player.
+Both clicks have to land on the bare picture (<code>App::DoubleClickFullscreen()</code>):
+a first click that closed a menu or grabbed the compare divider would otherwise
+turn the second into a switch nobody asked for. A third click counts as a new
+first one. While the crop picker is open, clicks belong to it.</p>
+    </section>
+
+    <section id="the-toolbar">
+      <h2>The toolbar</h2>
+      <p>The button strip along the top is on by default, and everything it offers is also
+on a key — but a key you have to know about first. <code>showToolbar</code> in
+<code>AppSettings</code> turns it off for anyone who does.</p>
+      <p>The picture is fitted <strong>below</strong> the toolbar rather than drawn underneath it
+(<code>VideoRenderer::SetTopInset()</code>), so the bar never covers what you are playing.</p>
+    </section>
+
+    <section id="the-statistics-overlay">
+      <h2>The statistics overlay</h2>
+      <p>F1 cycles <code>StatsDetail</code>, which has three levels:</p>
+      <div class="tbl"><table>
+<tr><th><code>StatsDetail</code></th><th>Shows</th></tr>
+<tr><td><code>Compact</code></td><td>Frame rates and pipeline delay</td></tr>
+<tr><td><code>Normal</code></td><td>Those, plus capture format, colour handling and audio buffer</td></tr>
+<tr><td><code>Full</code></td><td>Everything, including device names and dropped frame counts</td></tr>
+</table></div>
+      <p><code>Normal</code> is where a wrong colour range verdict becomes visible. The virtual
+camera reports itself elsewhere: <strong>Settings &gt; Recording</strong> lists every program
+reading it, with the format each one negotiated.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="updates.html"><span>&larr; Previous</span>Updates</a>
+      <a class="next" href="translations.html"><span>Next &rarr;</span>Translations</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

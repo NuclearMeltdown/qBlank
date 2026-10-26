@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Freeze and compare — qBlank wiki</title>
+<meta name="description" content="F11, F12 and Shift+F12: holding the picture, splitting it, and every filter off.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/freeze-and-compare.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Freeze and compare","item":"https://qblank.com/wiki/freeze-and-compare.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Freeze and compare</h1>
+    <p class="tag">F11, F12 and Shift+F12: holding the picture, splitting it, and every filter off.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#freeze">Freeze</a>
+      <a href="#compare">Compare</a>
+      <a href="#all-filters-off">All filters off</a>
+      <a href="#not-while-recording">Not while recording</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/app.cpp</code> (<code>ToggleFreeze()</code>, <code>ToggleCompare()</code>, <code>ChooseCompare()</code>,
+<code>ToggleBypass()</code>), <code>src/app_ui.cpp</code> (<code>DragCompareDivider()</code>), <code>src/render/shaders.h</code>
+(<code>CompareRaw()</code>)</p>
+      <figure><img src="../compare-split.jpg" alt="A GameCube title screen split down the middle by a white line: the filters off on the left half, on on the right" width="1754" height="1418" loading="lazy"></figure>
+      <p>Three aids for setting filters, all on a key and all in the right-click menu:</p>
+      <div class="tbl"><table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>F11</td><td>Freeze</td></tr>
+<tr><td>F12</td><td>Compare filters</td></tr>
+<tr><td>Shift+F12</td><td>All filters off</td></tr>
+</table></div>
+      <p>They change only what is on screen and are never saved: quitting ends all
+three, whatever profile is loaded. The profile keeps only compare's direction
+and where its divider stands. They sit in the right-click menu because you
+reach for them while looking at the picture, not at a tab.</p>
+    </section>
+
+    <section id="freeze">
+      <h2>Freeze</h2>
+      <p>F11 holds the picture. Frames are still taken from the card — the queue would
+otherwise back up and the statistics would lie — but none of them reaches the
+texture. Everything behind that keeps running on the still picture: filters,
+scaling, picture controls. A slider moved during a freeze changes the frozen
+frame live, which is the point. Setting dot crawl or sharpening against a game
+that keeps moving is guesswork.</p>
+      <p>Leaving the freeze empties the frame delay line, if the
+<a href="audio.html">A/V offset</a> has one running. What stood in it is as old as the freeze
+was long, and showing it would first play back the past.</p>
+    </section>
+
+    <section id="compare">
+      <h2>Compare</h2>
+      <p>F12 splits the picture. On one side every filter is off, on the other every
+filter is on. The unfiltered side drops exactly what <strong>All filters off</strong> drops
+(below); deinterlacing, crop and colour run on both sides.</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Unfiltered side</th><th>Filtered side</th></tr>
+<tr><td>Composite filters</td><td>off</td><td>on</td></tr>
+<tr><td>Sharpening</td><td>off</td><td>on</td></tr>
+<tr><td>Brightness, contrast, saturation, hue</td><td>off</td><td>on</td></tr>
+<tr><td>Native pixel grid</td><td>off</td><td>on</td></tr>
+<tr><td>Scanlines and mask</td><td>off</td><td>on</td></tr>
+<tr><td>Deinterlacing, crop, rotation, aspect, scaling</td><td>on</td><td>on</td></tr>
+<tr><td>Colour range and matrix</td><td>on</td><td>on</td></tr>
+</table></div>
+      <p>The split happens in two places, because the filters do. The
+<a href="the-composite-filter.html">composite chain</a> runs in pass 1 and skips the unfiltered
+side there; the rest sits in the scale pass, where <code>CompareRaw()</code> decides per
+pixel which side it is on. Both passes are told the same divider.</p>
+      <p><strong>Direction.</strong> Vertical puts the unfiltered side on the left, horizontal puts it
+on top. The right-click menu has <strong>Compare filters</strong> as a submenu with both
+directions; choosing one switches compare on in that direction, choosing the one
+already shown switches it off. F12 itself uses whichever direction was chosen
+last. <strong>Settings → Picture → Compare</strong> has the same switch, the direction and
+the divider as a slider.</p>
+      <p><strong>The divider</strong> can be dragged in the picture, like the crop edges. It lives in
+the source's own grid rather than on the screen, so it turns with a rotated
+picture; <code>DragCompareDivider()</code> works out where it lands on screen and turns the
+mouse position back into a share of the source. A double click that starts on
+the divider is a drag, not a
+<a href="shortcuts.html#discoverability">fullscreen switch</a>.</p>
+      <p>Compare works on <strong>every input</strong>. Up to 4.4 it sat at the end of the composite
+section and compared only that chain, so it disappeared with any digital source.
+Sharpening, picture controls and the CRT effects exist on every input, and so
+does the question whether they help.</p>
+      <figure><img src="../compare-dotcrawl.jpg" alt="A GameCube title screen under F12, magnified across the divider: the logo and the lettering beaded with dot crawl on the left half, clean on the right" width="1000" height="502" loading="lazy"></figure>
+    </section>
+
+    <section id="all-filters-off">
+      <h2>All filters off</h2>
+      <p>Shift+F12 shows the whole picture the way the unfiltered side of compare shows
+half of it. It answers a different question: not "what does this filter do" but
+"does any of them help at all".</p>
+      <p>What stays is what puts the picture right in the first place — deinterlacing,
+crop, aspect, rotation, scaling, range and matrix. Without those the picture
+would not be unfiltered but wrong.</p>
+      <p>Deinterlacing used to be on the other side of that line and dropped to weave.
+Comb lines are not the signal as it arrives, though; they are two fields that
+were never meant to be shown together, and next to them every filter was hard
+to judge. Since 5.0 it stays on.</p>
+      <p>Switching one on switches the other off: next to a picture with no filters at
+all there is nothing to compare. The Picture tab says at the top that the
+filters are off while they are, since otherwise every slider below it would
+seem to do nothing.</p>
+    </section>
+
+    <section id="not-while-recording">
+      <h2>Not while recording</h2>
+      <p>None of the three works during a recording, and starting one ends all three.
+The recording and the <a href="virtual-camera.html">virtual camera</a> take their picture from
+behind the same passes as the display, so a frozen, half filtered or unfiltered
+picture would end up in the file. Starting a recording turns them off rather
+than refusing: whoever presses F9 means the whole picture, from now.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="scaling-and-sharpening.html"><span>&larr; Previous</span>Scaling and sharpening</a>
+      <a class="next" href="high-dynamic-range.html"><span>Next &rarr;</span>High dynamic range</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

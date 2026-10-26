@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qBlank wiki — how it works and why</title>
+<meta name="description" content="How each part of qBlank works, which file it lives in, and why it was built the way it was.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="page">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Wiki</h1>
+    <p class="tag">How each part of qBlank works, which file it lives in, and why it was built the way it was.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#the-picture-path">The picture path</a>
+      <a href="#what-leaves-qblank">What leaves qBlank</a>
+      <a href="#the-program-itself">The program itself</a>
+      <a href="#conventions-used-here">Conventions used here</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p>This wiki is the long version. The <a href="https://github.com/NuclearMeltdown/qBlank">README</a>
+says what qBlank is, the <a href="../manual.html">manual</a>
+(English and German) how to use it; the pages here say how each part works,
+which file it lives in, and why it was built the way it was.</p>
+      <p><strong>This program was called CapView.</strong> 4.0 is 3.7 under a different name and
+nothing else — nothing was added or taken away in that step. Settings, profiles
+and the log carry over by themselves, and an installed 3.7 finds its way here
+through its own update check. How that works, and what deliberately keeps the
+old name, is on <a href="updates.html#across-a-rename">Updates</a>.</p>
+      <p>Most of what is written down here was measured rather than reasoned about. Where
+a number appears — a threshold, a window width, a percentage — it came off this
+hardware: a StarTech PEXHDCAP60L, a PAL SNES over composite, and a GameCube at
+480i and PAL-60. Where something is untested, the page says so.</p>
+    </section>
+
+    <section id="the-picture-path">
+      <h2>The picture path</h2>
+      <div class="tbl"><table>
+<tr><th>Page</th><th>What it covers</th></tr>
+<tr><td><a href="latency.html">Latency</a></td><td>The capture path end to end, and the four decisions that make it short</td></tr>
+<tr><td><a href="source-and-signal.html">Source and signal</a></td><td>Device enumeration, format forcing, the analogue video standard</td></tr>
+<tr><td><a href="automatic-video-standard.html">Automatic video standard</a></td><td>How the standard is found and confirmed, and what every threshold is worth</td></tr>
+<tr><td><a href="colour-range-and-matrix.html">Colour range and matrix</a></td><td>Why the range is measured from the pixels rather than read from the format</td></tr>
+<tr><td><a href="signal-detection.html">Signal detection</a></td><td>Telling snow from a scene cut, and the empty state</td></tr>
+<tr><td><a href="deinterlacing.html">Deinterlacing</a></td><td>How interlace is detected, and what the five modes actually do</td></tr>
+<tr><td><a href="the-composite-filter.html">The composite filter</a></td><td>Dot crawl, rainbow shimmer, noise and the rolled-off top end, and the five filters that address them</td></tr>
+<tr><td><a href="cropping-and-geometry.html">Cropping and geometry</a></td><td>Automatic border detection, rotation, line doubling, aspect</td></tr>
+<tr><td><a href="scaling-and-sharpening.html">Scaling and sharpening</a></td><td>The five scalers and contrast adaptive sharpening</td></tr>
+<tr><td><a href="freeze-and-compare.html">Freeze and compare</a></td><td>F11, F12 and Shift+F12: holding the picture, splitting it, and every filter off</td></tr>
+<tr><td><a href="high-dynamic-range.html">High dynamic range</a></td><td>PQ, HLG, tone mapping, and what each output writes</td></tr>
+</table></div>
+    </section>
+
+    <section id="what-leaves-qblank">
+      <h2>What leaves qBlank</h2>
+      <div class="tbl"><table>
+<tr><th>Page</th><th>What it covers</th></tr>
+<tr><td><a href="screen-and-window.html">Screen and window</a></td><td>Desktop Duplication, Windows.Graphics.Capture, and exclusive fullscreen</td></tr>
+<tr><td><a href="recording.html">Recording</a></td><td>Encoding in the process, the audio master clock, containers, splitting and the replay</td></tr>
+<tr><td><a href="encoder-settings.html">Encoder settings</a></td><td>One set of names translated into four vendors' own</td></tr>
+<tr><td><a href="ffmpeg.html">ffmpeg</a></td><td>Loading its libraries, downloading them, and probing what the hardware can do</td></tr>
+<tr><td><a href="audio.html">Audio</a></td><td>WASAPI passthrough, drift correction, recording sources, track layout</td></tr>
+<tr><td><a href="screenshots.html">Screenshots</a></td><td>PNG, JPEG, JPEG XR and AVIF, why WIC rather than ffmpeg, and the two grab points</td></tr>
+<tr><td><a href="virtual-camera.html">Virtual camera</a></td><td>The DirectShow filter, the source 1:1, the shared memory, and the DLL name problem</td></tr>
+</table></div>
+    </section>
+
+    <section id="the-program-itself">
+      <h2>The program itself</h2>
+      <div class="tbl"><table>
+<tr><th>Page</th><th>What it covers</th></tr>
+<tr><td><a href="the-main-window.html">The main window</a></td><td>Window size, Shift keeps the shape, borderless, the red dot while recording, the tray icon, and Start menu and desktop shortcuts</td></tr>
+<tr><td><a href="the-settings-window.html">The settings window</a></td><td>A window of its own, what it shows for which source, search, and the stutter that took three fixes</td></tr>
+<tr><td><a href="configuration-and-profiles.html">Configuration and profiles</a></td><td>What is stored, where, and what a profile holds</td></tr>
+<tr><td><a href="updates.html">Updates</a></td><td>Checking GitHub, replacing a running executable, and the bridge out of the old name</td></tr>
+<tr><td><a href="shortcuts.html">Shortcuts</a></td><td>The key list, how rebinding works, and system-wide keys</td></tr>
+<tr><td><a href="translations.html">Translations</a></td><td>Why the strings sit inline instead of in a table</td></tr>
+<tr><td><a href="building.html">Building</a></td><td>Toolchain, build script, what ends up in the binary</td></tr>
+</table></div>
+    </section>
+
+    <section id="conventions-used-here">
+      <h2>Conventions used here</h2>
+      <p>Source references are given as <code>path/file.cpp</code> with the function name, because
+the code carries its own reasoning in comments and this wiki is a guide to it
+rather than a replacement for it.</p>
+      <p>"Measured" means exactly that: a number taken from a running capture, usually
+through the statistics overlay (F1) or a temporary log line. "Estimated" and
+"untested" are used where that was not possible.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="next" href="latency.html"><span>Next &rarr;</span>Latency</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

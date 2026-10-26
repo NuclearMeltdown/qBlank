@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recording — qBlank wiki</title>
+<meta name="description" content="Encoding in the process, the audio master clock, containers, splitting and the replay.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/recording.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Recording","item":"https://qblank.com/wiki/recording.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Recording</h1>
+    <p class="tag">Encoding in the process, the audio master clock, containers, splitting and the replay.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#rule-1-the-display-path-is-never-blocked">Rule 1: the display path is never blocked</a>
+      <a href="#rule-2-audio-is-the-master-clock">Rule 2: audio is the master clock</a>
+      <a href="#what-gets-recorded">What gets recorded</a>
+      <a href="#threads">Threads</a>
+      <a href="#what-the-encoder-is-told">What the encoder is told</a>
+      <a href="#lossless">Lossless</a>
+      <a href="#track-layout">Track layout</a>
+      <a href="#containers-and-the-remuxer">Containers, and the remuxer</a>
+      <a href="#splitting">Splitting</a>
+      <a href="#when-the-encoder-cannot-keep-up">When the encoder cannot keep up</a>
+      <a href="#replay">Replay</a>
+      <a href="#markers">Markers</a>
+      <a href="#pause">Pause</a>
+      <a href="#the-disk-is-asked-elsewhere">The disk is asked elsewhere</a>
+      <a href="#when-something-fails">When something fails</a>
+      <a href="#in-the-process-not-beside-it">In the process, not beside it</a>
+      <a href="#when-it-ends">When it ends</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/record/recorder.cpp</code>, <code>src/record/recorder.h</code></p>
+      <figure class="ui"><img src="../settings-recording.png" alt="The Recording tab" width="854" height="840" loading="lazy"></figure>
+      <p>Frames and samples go to ffmpeg's encoders <strong>inside the process</strong>, through the
+libraries <a href="ffmpeg.html">ffmpeg</a> loads, and a thread of its own writes the packets to
+the file. Up to 6.0 an <code>ffmpeg.exe</code> child process took them over pipes; why
+that changed is <a href="#in-the-process-not-beside-it">below</a>. Two rules shape the
+whole design.</p>
+    </section>
+
+    <section id="rule-1-the-display-path-is-never-blocked">
+      <h2>Rule 1: the display path is never blocked</h2>
+      <p><code>PushVideo()</code> is called from the render thread with a freshly read-back frame
+(for a hardware encoder the picture <a href="#hardware-encoders-no-readback">stays on the GPU</a>).
+It copies it into a buffer from a pool (<code>AVBufferPool</code>) and returns. The video
+thread hands that buffer to the encoder by reference, so nothing copies it a
+second time, and a buffer only goes back to the pool once the encoder has let
+go of it too.</p>
+      <p>If the encoder cannot keep up, frames are dropped from the <strong>recording</strong>, never
+from the screen. The screen is what you play on.</p>
+      <p>The readback itself is asynchronous. <code>QueueReadback()</code> converts the picture on
+the GPU into exactly the YUV layout the encoder takes, copies it into a staging
+texture, and <code>FetchReadback()</code> maps it <strong>two frames later</strong>, so the display path
+never waits on the GPU. The recording is therefore a frame or two behind the
+screen, which is the right trade. The encoder converts nothing: it is opened
+with the format the bytes already are.</p>
+      <h3 id="hardware-encoders-no-readback">Hardware encoders: no readback</h3>
+      <p>Since 6.1. NVENC and AMF take D3D11 frames, and get the picture without it
+ever passing through system memory:</p>
+      <ul>
+<li>The recorder makes three textures on its own D3D11 device and shares them
+(<code>SharedFrames</code>, <code>src/render/shared_frames.h</code>): NT handles, each with a keyed
+mutex. The renderer opens them under D3D11, or imports them as external
+memory under Vulkan, and the YUV pass draws into one instead of a staging
+texture.</li>
+<li><code>PushGpuFrame()</code> marks the slot ready. A ready slot the video thread has not
+taken when the next one comes is dropped, as a frame would be.</li>
+<li>On the video thread <code>kYuvSplitPS</code> (<code>src/record/gpu_frames_win32.cpp</code>) splits
+the one-plane picture into an NV12 or P010 frame from the encoder's pool
+(<code>av_hwframe_get_buffer</code>).</li>
+</ul>
+      <p>A slot goes Free → Writing → Ready → Converting → Free. The log line says
+<code>nv12 on the GPU</code>.</p>
+      <p><strong>A slot goes back by fence</strong> since 7.0: the split signals an <code>ID3D11Fence</code>,
+and a threadpool wait frees the slot once the GPU is through with it. Before,
+the slot went back as soon as the split was queued, the renderer's next
+picture into it waited for the split on the GPU, and the display with it: on
+Silent Hill f at 1440p it dropped 36 frames a second while recording, now none.</p>
+      <p><strong>4:4:4 goes as CUDA frames</strong>, to NVENC, the one hardware encoder that takes
+it; no D3D11 format holds planar 4:4:4. The yuv pass draws the three planes
+one under the other. The recorder's device copies the slot into a texture of
+its own (CUDA does not register one shared by NT handle) and hands the slot
+back; three <code>cuMemcpy2DAsync</code> move the planes into a frame of the pool.
+<code>nvcuda.dll</code> is loaded at run time; without it 4:4:4 is read back. Measured at
+1080p: 265 MB less RAM, CPU 18 % of one core instead of 24 %, files identical
+to the readback.</p>
+      <p><strong>Still read back:</strong> software encoders, Quick Sync (takes only its own <code>qsv</code>
+frames, not D3D11 ones) and the virtual camera.</p>
+      <p><strong>Falls back without a restart</strong> when the renderer cannot share
+(<code>RefuseShared()</code>), or after three frames in a row that do not come through.
+The encoder stays open: frames from <code>PushVideo()</code> are uploaded into its pool
+(<code>av_hwframe_transfer_data</code>).</p>
+      <p>Measured at 1080p30, three runs each: about 245 MB less RAM while recording,
+CPU 12 % of one core instead of 17 %, frame age unchanged, files identical to
+the readback path on D3D11 and Vulkan, SDR and HDR. The CPU only ever did one
+copy per frame each way, into the pool and the driver's copy back up; the RAM
+held the staging ring, the pool and the encoder's input. AMF is untested.</p>
+    </section>
+
+    <section id="rule-2-audio-is-the-master-clock">
+      <h2>Rule 2: audio is the master clock</h2>
+      <p>The card's clock and the PC's clock drift apart over an hour. The video timeline
+is derived from the number of audio samples written, duplicating or dropping
+frames to match — which makes sync arithmetic instead of hope, and produces
+constant frame rate output, which both MKV and MP4 prefer.</p>
+      <pre><code>if (audioIsMaster) target = (uint64_t)((double)audioFrames / (double)audioRate_ * fps_);
+else               target = (uint64_t)(TicksToSeconds(now - originTicks_) * fps_);</code></pre>
+      <p>Measured drift over the file: <strong>1 ms over 15 seconds</strong>.</p>
+      <h3 id="the-frame-rate-setting">The frame rate setting</h3>
+      <p>0 takes the source's rate. A lower one drops frames on the same timeline. One
+above the source is capped at it in <code>Recorder::Start</code>, and the stored value
+stays: a 60 set for NTSC is still there when PAL's 50 has come and gone. Card,
+screen and window each keep their own (<code>RecordSettings::FpsFor</code>), so a screen
+held at 60 leaves a card on "same as source" alone.</p>
+      <h3 id="when-audio-cannot-be-the-master">When audio cannot be the master</h3>
+      <p>Two cases, both handled by falling back to the wall clock:</p>
+      <p><strong>At the start.</strong> Until the first samples arrive. The wall clock starts when the
+encoder has opened (<code>originTicks_</code>), not at <code>Start()</code>: NVENC takes a tenth of a
+second and more to open, and counted from <code>Start()</code> the first frames would all
+be late. Whatever audio arrived before that is thrown away, because it belongs
+to no frame.</p>
+      <p><strong>If it stops.</strong> A device disappearing mid-recording would otherwise freeze the
+video timeline forever:</p>
+      <pre><code>const bool audioStalled =
+    lastAudioProgressTicks_ != 0 &amp;&amp; TicksToSeconds(now - lastAudioProgressTicks_) &gt; 2.0;</code></pre>
+      <p>Two seconds of no progress, then the wall clock takes over and a warning goes to
+the log.</p>
+      <h3 id="every-frame-at-its-slot">Every frame at its slot</h3>
+      <pre><code>uint64_t first = written;
+if (!raw &amp;&amp; target - written &gt; 1) {
+  first = target - 1;                      // the slots before stay a gap
+  leftOut_.fetch_add(first - written, …);
+}
+for (uint64_t i = first; i &lt; target &amp;&amp; running; ++i) {
+  frame-&gt;pts = (int64_t)i;
+  result = av.avcodec_send_frame(s-&gt;video, frame);
+  …
+}</code></pre>
+      <p>A frame placed a slot early would make the video shorter than the audio and
+desync the file for good, so each goes out at its slot's number. If the encoder
+stalls, it stalls right here — on the video thread, not on the renderer.</p>
+      <p><strong>Slots it fell behind on are left out</strong>, since 7.0. Up to 6.1 the held frame
+was encoded again into each one: a whole frame of encoder time apiece, which
+kept an encoder near its limit behind for good, with the one picture over and
+over in the file. Now it goes out once, at the newest slot due. The gap before
+it plays as the previous frame standing, the same as a repeat, and the
+encoder's time goes to the next fresh frame. Uncompressed keeps every slot: a
+repeat there is one more reference to the same buffer.</p>
+      <p><code>duplicated_</code> counts both, for the statistics overlay; <code>leftOut()</code> only the
+slots the encoder was still busy for, which the file shows as a stutter.</p>
+    </section>
+
+    <section id="what-gets-recorded">
+      <h2>What gets recorded</h2>
+      <p>The picture at <strong>source resolution, after crop, deinterlacing and rotation, and
+before window scaling</strong>. Window size does not affect the result, and neither does
+sharpening. <strong>Unfiltered</strong> records the card's frames instead, see
+<a href="#unfiltered">below</a>.</p>
+      <p>Odd sizes break 4:2:0 chroma, so the width and height are always rounded down by a
+pixel (<code>width &amp; ~1</code>). The alternative is telling somebody their 1439 pixel
+capture cannot be recorded, which helps nobody.</p>
+      <p><strong>Resolution</strong> (<code>record.maxLines</code>, since 7.0) caps the short side, 2160 down to
+360: 720 means 1280×720 lying down and 720×1280 turned (<code>CappedRecordSize()</code>).
+Only ever down, both sides even. The delivery pass scales into a target of the
+recording's own, so the screen and the camera keep their size. Unfiltered
+ignores it.</p>
+      <p>A <a href="screen-and-window.html">screen or a window</a> is recorded the same way as a card.</p>
+      <p><strong>Where files go.</strong> Lossless ones into <code>raw\</code> as <code>qBlank-raw_…</code>, replay clips
+into <code>clips\</code> as <code>qBlank-clip_…</code>, so neither sits among the recordings somebody
+shares. Named to the second, with a number when that name is taken.</p>
+    </section>
+
+    <section id="threads">
+      <h2>Threads</h2>
+      <div class="tbl"><table>
+<tr><th>Thread</th><th>Does</th></tr>
+<tr><td>Video</td><td>Opens the encoders and the file (<code>Open()</code>), then encodes the frames</td></tr>
+<tr><td>Audio</td><td>Pulls every source, makes the mix, encodes every track</td></tr>
+<tr><td>Muxer</td><td>Writes the packets to the file, from a queue</td></tr>
+<tr><td>Closer</td><td>After <code>Stop()</code>: flushes the encoders and writes the index</td></tr>
+</table></div>
+      <p>The muxer has its own thread because <strong>the disk may pause and the encoders must
+not</strong>. A drive that wakes up takes a second; the packets wait in the queue
+meanwhile, up to 512 MB: seconds of an encoded file, under two of an
+uncompressed one. Past that the disk is simply slower than the encoder, and
+the recording stops with <em>The disk cannot keep up with the writing</em> rather than
+running out of memory.</p>
+      <p><strong>Larger buffer in memory</strong> (Recording tab, since 6.1) raises the 512 MB to
+1–256 GB. Nothing is reserved; it only fills while the disk is behind.</p>
+      <ul>
+<li>The size is a ceiling: the buffer takes at most what is free beyond 2 GB
+left for other programs, checked at the start and once a second, never less
+than 512 MB. The log says what it got against what was set.</li>
+<li>The indicator shows the fill from 10 %, amber from 75 %. A toast at 75 %,
+again only once it fell below half.</li>
+<li>Full stops the recording; what is in the buffer still goes into the file.</li>
+<li>The disk space check counts what still waits in it.</li>
+</ul>
+      <p><code>Stop()</code> returns at once. What the encoders still hold — look-ahead and
+B-frames, the last part of an audio frame — and the container's index take
+seconds with a slow preset, and neither the picture nor the next file of a
+split should wait for that. The closer does it; each one joins the one before,
+and <code>TakeFinished()</code> says when a file is done.</p>
+    </section>
+
+    <section id="what-the-encoder-is-told">
+      <h2>What the encoder is told</h2>
+      <p><code>Recorder::Open()</code> sets up the encoder's context; <code>EncoderOptions()</code> adds what
+the settings say, in the words of that encoder (see
+<a href="encoder-settings.html">Encoder settings</a>). The log line at the start shows all of
+it:</p>
+      <pre><code>Recording: hevc_nvenc 720x576 nv12 at 50/1 fps, rc=vbr preset=p5 …, 3 audio tracks at 48000 Hz</code></pre>
+      <p>A few things are load-bearing:</p>
+      <p><strong>The pixel format is one value, used twice.</strong> <code>Recorder::FormatFor()</code> picks a
+<code>YuvFormat</code> (matrix, layout, where the ten bits sit) at <code>Start()</code>, the renderer
+draws exactly that, and <code>FfmpegPixelFormat()</code> names it for the encoder. So
+nothing converts, and <code>PushVideo()</code> drops any frame of another format rather
+than handing over bytes the encoder was not opened for.</p>
+      <div class="tbl"><table>
+<tr><th>Layout</th><th>8 bit</th><th>10 bit, hardware</th><th>10 bit, CPU</th></tr>
+<tr><td>NV12 (hardware, x264 SDR)</td><td><code>nv12</code></td><td><code>p010le</code></td><td>—</td></tr>
+<tr><td>I420 (x265, SVT-AV1, x264 HDR)</td><td><code>yuv420p</code></td><td>—</td><td><code>yuv420p10le</code></td></tr>
+<tr><td>I444 (4:4:4 switch)</td><td><code>yuv444p</code></td><td><code>yuv444p16le</code></td><td><code>yuv444p10le</code></td></tr>
+</table></div>
+      <p>Hardware encoders take ten bits in the top of the word, the CPU encoders in the
+bottom; the shader shifts by six or not. NVENC's 4:4:4 at ten bits only comes as
+<code>yuv444p16le</code>, and ten bits shifted up are exactly its limited range: 64·64 and
+940·64.</p>
+      <p>Everything is in one buffer, chroma rows below the luma rows, so a frame is one
+texture and one readback. The frame's plane pointers point into it. For I420 the
+two quarter-size planes are laid out linearly across full-width rows.</p>
+      <p><strong>The frame number is the timestamp.</strong> The time base is one frame, and
+<code>RecordingRate()</code> makes the measured rate a clean fraction: 59.94 becomes exactly
+60000/1001, 50.0003 becomes 50. That is what makes the output constant frame
+rate. The video thread guarantees that many frames per second actually arrive.</p>
+      <p><strong>The colour tags.</strong> Matrix, transfer, primaries and limited range are set on
+the encoder and on every frame. Nothing else in the file says the picture is
+BT.709, or on the PQ curve, and a player that is not told guesses.</p>
+      <p><strong>Threads.</strong> <code>thread_count = 0</code>, as many as the encoder likes. The command line
+did that by default; the library's default is one.</p>
+      <p><strong>Options it does not know</strong> stay behind in the dictionary after
+<code>avcodec_open2()</code>. That is no failure, but it is a setting that did nothing, so
+the log says <code>Recording: &lt;encoder&gt; ignored &lt;names&gt;</code>.</p>
+      <p><strong>Named audio tracks</strong>, so a player and an editor both show which is which
+instead of "Audio 1" and "Audio 2".</p>
+    </section>
+
+    <section id="lossless">
+      <h2>Lossless</h2>
+      <p>Since 6.1, three encoders that keep every sample. They are never picked
+automatically and sit last in the list, under a line of their own.</p>
+      <div class="tbl"><table>
+<tr><th>Encoder</th><th>Container</th><th>Picture</th><th>HDR</th></tr>
+<tr><td>H.265 lossless (NVENC), <code>tune=lossless</code></td><td>MKV</td><td><code>yuv444p</code></td><td><code>yuv444p16le</code>, ten bits</td></tr>
+<tr><td>UT Video, median prediction</td><td>AVI</td><td><code>yuv444p</code></td><td>recorded as SDR</td></tr>
+<tr><td>Uncompressed</td><td>AVI</td><td><code>bgr24</code></td><td>recorded as SDR</td></tr>
+</table></div>
+      <ul>
+<li><strong>Always 4:4:4.</strong> The 4:4:4 switch is greyed out and shown on.</li>
+<li><strong>The container follows the encoder.</strong> AVI because that is where editors look
+for UT Video and raw frames. ffmpeg writes it as OpenDML, so no 4 GB limit.
+The sound goes in as PCM <code>s16le</code>.</li>
+<li><strong>Uncompressed skips the encoder.</strong> The GPU draws <code>bgr24</code> bottom-up, rows
+padded to four bytes, which is exactly how an AVI holds it, and the buffer
+goes into the file as a packet.</li>
+<li><strong>Rate controls are greyed out</strong>; there is nothing to control.</li>
+<li><strong>HDR on UT Video or uncompressed</strong> is recorded as SDR, with a toast.</li>
+<li><strong>The disk estimate</strong> goes by picture size and rate: three bytes a pixel,
+half that for the two codecs. Real captures came to about 0.3.</li>
+</ul>
+      <p>UT Video and NVENC decode bit for bit to the same frames, and the
+uncompressed AVI matches a screenshot exactly.</p>
+      <h3 id="unfiltered">Unfiltered</h3>
+      <p><code>record.unfiltered</code>, lossless only. The card's frames as they arrive: without
+deinterlacing, crop, scaling or filters, at the card's own rate. Off, the file
+holds the picture as it is seen.</p>
+      <p><strong>Nothing is converted or read back.</strong> <code>FeedFrameConsumers()</code> hands the frame
+the renderer just uploaded (<code>uploadedFrame()</code>) to <code>PushCardFrame()</code>, which
+copies it into the pool. The GPU passes for the recording do not run.</p>
+      <p><strong>What the encoder gets</strong> (<code>src/record/card_pixels.cpp</code>, <code>PlanCard()</code>). The
+card's bytes as they are where the encoder takes them; else one repack on the
+video thread, the same samples in another order:</p>
+      <div class="tbl"><table>
+<tr><th>Card</th><th>Uncompressed</th><th>UT Video</th><th>NVENC</th></tr>
+<tr><td>YUY2, UYVY, YVYU</td><td>as is</td><td><code>yuv422p</code></td><td><code>yuv444p</code>, each chroma sample twice</td></tr>
+<tr><td>NV12</td><td>as is</td><td><code>yuv420p</code></td><td>as is</td></tr>
+<tr><td>I420, YV12</td><td>as is</td><td>as is</td><td>as is</td></tr>
+<tr><td>P010</td><td>—</td><td>—</td><td>as is</td></tr>
+<tr><td>RGB24</td><td>as is</td><td><code>gbrp</code></td><td><code>gbrp</code></td></tr>
+<tr><td>RGB32, ARGB32</td><td><code>bgr24</code></td><td><code>gbrp</code></td><td><code>gbrp</code></td></tr>
+</table></div>
+      <p>NVENC has no lossless 4:2:2, hence the doubled chroma. A card format the
+encoder does not take is recorded filtered, and a toast says so.</p>
+      <ul>
+<li><strong>Tags</strong> come from how the renderer reads the card: range, matrix, transfer.
+An interlaced card stays one woven frame, tagged top or bottom field first
+from the profile or the card.</li>
+<li><strong>View aids stay on</strong>; they never reach these frames.</li>
+<li><strong>The file is cut</strong> when the card's format changes, not only its size, or
+when HDR comes or goes.</li>
+</ul>
+      <p>Tested on RGB24, ARGB32 and YUY2: all three encoders decode to the same frames.</p>
+    </section>
+
+    <section id="track-layout">
+      <h2>Track layout</h2>
+      <p>Each <a href="audio.html#recording-sources">recording source</a> picks where it goes: <strong>mixed
+and separate</strong> (default), <strong>mixed only</strong> or <strong>separate only</strong>.</p>
+      <ul>
+<li><strong>Mix</strong> first, as the default track, once two sounds go into it, the card's
+included.</li>
+<li><strong>Capture</strong> next, if the card has sound — unless every source is mixed only;
+then the mix says it all.</li>
+<li><strong>One track per source</strong> that is not mixed only, named after its device, or
+"System sound".</li>
+<li>Fewer than two sounds for the mix make none, and every sound gets its own
+track, whatever it picked.</li>
+</ul>
+      <div class="tbl"><table>
+<tr><th>Card plus</th><th>Tracks in the file</th></tr>
+<tr><td>microphone, mixed and separate</td><td>Mix, Capture, Microphone</td></tr>
+<tr><td>microphone, mixed only</td><td>Mix</td></tr>
+<tr><td>microphone, separate only</td><td>Capture, Microphone</td></tr>
+<tr><td>microphone (both), an output (separate), system sound (mixed)</td><td>Mix, Capture, Microphone, the output</td></tr>
+</table></div>
+      <p>AAC at 192 kbit/s each. After 7.1.1 <strong>Audio bitrate</strong> in the Recording tab sets
+it, 96 to 320 kbit/s (<code>record.audioKbps</code>); an AVI takes PCM and greys it out.
+Next to 20 Mbit of picture even 320 is under two percent of the file. Opus and
+FLAC were left out: AAC plays everywhere, and FLAC would only grow the file.
+The capture track is exactly what the device delivered —
+no resampling, no volume. See <a href="audio.html">Audio</a> for why that matters.</p>
+      <p><strong>The mix is a plain sum</strong>, made in qBlank, so the game is as loud in it as on
+its own track. The sum can clip if the sounds are hot; that is what the level meters
+are for.</p>
+      <p><strong>Every source is brought onto the recording's clock</strong>: the card's, or without
+card sound a wall clock at 48 kHz. Two devices never quite agree on what 48 kHz
+is, so over an hour a source would drift away from the picture. <code>swresample</code>
+converts each one, and once a second the recorder looks at how much of it is
+waiting: the lowest point over that second is held near 15 ms by asking for a
+few samples more or fewer — a tenth of the distance per second, never more
+than 0.2 %, far below hearing. A source that runs dry is filled with silence,
+one half a second ahead is cut back; the log says how often either happened.</p>
+    </section>
+
+    <section id="containers-and-the-remuxer">
+      <h2>Containers, and the remuxer</h2>
+      <p>MKV and MP4, and AVI for <a href="#lossless">lossless</a> UT Video and uncompressed. <strong>MKV
+is the default because it survives a crash</strong>: a truncated
+MKV plays right up to the point the power went out, where an MP4 whose <code>moov</code>
+atom was never finalised has no header and will not open at all. That now
+includes a crash of qBlank itself, see
+<a href="#in-the-process-not-beside-it">below</a>.</p>
+      <p>MP4 is what everything else wants to be handed, so the two together need a step
+in between. <code>src/record/remuxer.cpp</code> is that step, reachable from the Recording
+tab: pick any number of finished recordings and it rewraps them into MP4.
+Nothing is re-encoded — the packets are copied across as they are, with their
+timestamps, track names and default flags, which takes seconds rather than the
+length of the recording and cannot lose quality. <code>+faststart</code> moves the index to
+the front, so a player can start before the whole file has arrived.</p>
+      <ul>
+<li>Nothing is overwritten: a name that is taken gets <code> (1)</code>, <code> (2)</code> …</li>
+<li>A stream MP4 has no tag for is refused up front, in a sentence that says
+re-encoding would be needed. That covers UT Video and raw AVIs; lossless
+H.265 goes across.</li>
+<li>Cancel is checked while reading, so it does not sit out a long file. A file
+finished before the cancel is kept; a half-written one is deleted.</li>
+</ul>
+      <p>It runs on its own thread with a progress bar, and only failures are listed in
+the UI afterwards: a success is its own file on disk.</p>
+    </section>
+
+    <section id="splitting">
+      <h2>Splitting</h2>
+      <h3 id="by-file-size">By file size</h3>
+      <p>Optional, and off by default — <code>splitSizeMb</code>, default 4000, which is the FAT32
+case it exists for.</p>
+      <p><code>RecordingControl</code> asks the file size once a second and, past the limit, calls
+<code>StopRecording()</code> immediately followed by <code>StartRecording()</code>. The asking happens
+on <code>disk_</code>, the thread that also asks for the free space (see
+<a href="#the-disk-is-asked-elsewhere">The disk is asked elsewhere</a>); an answer about a
+file a split has since replaced is thrown away.</p>
+      <p>That is a restart, not a seamless cut: the old file closes on its own thread,
+but the new one's encoder has to open first, and that fraction of a second is
+lost at the boundary. Which is why it is off unless somebody really is on
+FAT32.</p>
+      <h3 id="when-the-source-changes">When the source changes</h3>
+      <p>Not optional, and not a setting. The encoder is opened for one size and one
+rate and takes no other for the length of a file. A console switched from 60 to
+50 Hz mid-recording, a switch box, a cable pulled and put back — from that
+moment the frames arriving do not fit the file being written. The old behaviour
+was to write them anyway: wrong line count, wrong tempo, and ffmpeg with no way
+of noticing.</p>
+      <p>The recording is now <strong>cut and continued in a new file</strong> at the new shape, the
+same <code>StopRecording()</code> / <code>StartRecording()</code> pair the size split uses. Two things
+are compared each pass, both against what the encoder was opened for
+(<code>Recorder::frameWidth()</code>, <code>frameHeight()</code>, and <code>recordSourceFps_</code>):</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Threshold</th></tr>
+<tr><td>Frame size</td><td>any difference, rounded down to even the way <code>Start</code> rounds</td></tr>
+<tr><td>Frame rate</td><td>more than 8 % from the rate the file was opened with</td></tr>
+<tr><td>Held for</td><td>1.5 s before anything is cut</td></tr>
+</table></div>
+      <p>The rounding matters: an odd source is a legitimate one — a crop can leave 721
+columns — and <code>Start</code> already opens the encoder at 720 on purpose. Comparing raw
+numbers would cut such a file once a second forever.</p>
+      <p>The <strong>1.5 seconds</strong> are there for the standard search. A search walks through
+several line counts on its way to an answer (see
+<a href="automatic-video-standard.html">Automatic video standard</a>), and the timer restarts
+whenever the observed shape changes, so a whole search produces at most one cut
+— the one where it settles. A search that ends where it started produces none.</p>
+      <p>The rate is compared <strong>undoubled</strong>, before the deinterlacer's frame doubling is
+applied. Somebody switching the deinterlacer mid-recording is changing a
+setting, not the source, and that must not cut the file. A genuine 25 → 29.97
+does.</p>
+      <p>Underneath this sat a real out-of-bounds read, which is the reason it is not
+optional. <code>PushVideo()</code> copied <code>height_</code> rows of <code>width_ * 4</code> bytes out of the
+staging buffer without checking how large the frame in it actually was; a source
+that had just gone from 576 to 480 lines read a fifth of a frame past the end of
+it. <code>PushVideo()</code> now takes the frame's dimensions and format and drops anything
+that does not match, which covers the fraction of a second between the source changing and
+the app noticing.</p>
+      <p>The same comparison catches an older case for free. The rate the file is opened
+with is the measured arrival rate, and that measurement counts frames over a
+window of at least a second rather than averaging — so a recording started
+immediately after a graph rebuild can latch a half-filled window and open the
+file at the wrong rate. A second and a half later it no longer matches what is
+arriving, and the recording continues in a new file at the correct rate.</p>
+    </section>
+
+    <section id="when-the-encoder-cannot-keep-up">
+      <h2>When the encoder cannot keep up</h2>
+      <p>Since 6.0, like OBS. Should not happen on a sane PC, but a slow one with a slow
+preset gets there.</p>
+      <p>The video thread notes when it last had nothing left to write
+(<code>caughtUpTicks</code>). An encoder that keeps up gets there after every frame. One
+that does not never gets there again, because each frame takes longer than a
+frame lasts. A slow source looks nothing like that: the held frame goes out
+again at once.</p>
+      <ul>
+<li>Behind for <strong>3 s</strong> on end sets <code>encoderBehind()</code>; at the start <strong>8 s</strong>,
+because the encoder settles in while the first frames pile up.</li>
+<li>A toast once per recording: <em>Encoder overloaded — try a faster preset, or a
+lower resolution or frame rate.</em></li>
+<li>The recording indicator shows a second line while it lasts.</li>
+<li>Catching up clears it, and the log says so.</li>
+<li>Slots <a href="#every-frame-at-its-slot">left out</a> get a toast of their own, <em>Frames
+dropped — the encoder fell behind</em>: at the first, and again when new ones
+follow half a minute without.</li>
+</ul>
+      <p>The file stays in sync either way, by Rule 2. On a card with more than one
+NVENC, <a href="encoder-settings.html#all-encoder-chips">All encoder chips</a> is the bigger
+lever.</p>
+    </section>
+
+    <section id="replay">
+      <h2>Replay</h2>
+      <p>Since 7.0. The <strong>Replay</strong> tab keeps the newest seconds of what is encoded,
+5 s to 30 min, 60 by default. <strong>Shift+F9</strong> saves them as a clip, <strong>Ctrl+F9</strong>
+switches it; both can be <a href="shortcuts.html#system-wide">system-wide</a>.</p>
+      <figure class="ui"><img src="../shots/replay.png" alt="The Replay tab: on, 60 s, in memory at most 4 GB" width="528" height="330" loading="lazy"></figure>
+      <ul>
+<li><strong>The same encoders.</strong> With the replay on they run without a file, and a
+recording is one more output on them (<code>StartFile()</code>, <code>StopFile()</code>), begun and
+ended at a keyframe asked for at once. A clip during a recording costs no
+second encoder session, and a split loses no frame and repeats none.</li>
+<li><strong>Packets, not frames.</strong> The ring holds the encoded packets of the picture
+and every sound track and lets the oldest go as new ones come. A clip starts
+at its first keyframe: at least the length set, at most a keyframe interval
+more. It is written on a muxer thread, like a recording.</li>
+<li><strong>In memory</strong> at most what is free beyond the 2 GB
+<a href="#threads">left for other programs</a>. The tab says what the length takes.</li>
+<li><strong>On disk</strong> (<code>replayOnDisk</code>) the pictures go into files of about a second
+under <code>clips\.replay</code> (<code>src/record/replay_disk.cpp</code>), each begun at a keyframe
+and written on a thread of their own, so the encoders never wait. The ring
+keeps each packet without its data: its file and its place in it. Sound stays
+in memory; it is small. A clip being saved keeps the files it reads until it
+is done.</li>
+<li>A disk that fails or falls behind ends the replay with a toast. The
+recording, if any, runs on.</li>
+</ul>
+    </section>
+
+    <section id="markers">
+      <h2>Markers</h2>
+      <p>Since 7.1.1. <strong>Ctrl+Shift+F9</strong> marks the picture on the screen; it can be
+<a href="shortcuts.html#system-wide">system-wide</a> like the rest. The file being written and
+every replay clip that holds the moment get a chapter there when they close.</p>
+      <ul>
+<li><strong>The slot, not the clock.</strong> <code>AddMarker()</code> takes the slot the next picture is
+sent in, the one shown now. Each open output keeps its own list, and the
+session keeps one for clips still to come; a clip takes those between its
+first picture and its last.</li>
+<li><strong>Start, then Marker 1, 2 …</strong> Each runs to the next, the last to the end. The
+first chapter always begins at 0: MP4's chapter track cannot start later and
+would pull the first marker back. A marker on the first picture names it.</li>
+<li><strong>MKV and MP4</strong>, written before the trailer. AVI has no chapters, so the key
+says so instead. Without a recording or the replay running it says that.</li>
+<li>The <a href="#containers-and-the-remuxer">remuxer</a> copies the chapters into the MP4.</li>
+</ul>
+    </section>
+
+    <section id="pause">
+      <h2>Pause</h2>
+      <p>After 7.1.1. <strong>Pause</strong> pauses the file and resumes it; it can be
+<a href="shortcuts.html#system-wide">system-wide</a>, and the right-click menu has
+<strong>Pause recording</strong> with a tick while it lasts.</p>
+      <ul>
+<li><strong>One file, no gap.</strong> <code>PauseFile()</code> ends the file at a keyframe and goes on
+at the next one; the pause is taken out of the times, so the player sees one
+piece. Sound goes on from the packet nearest the picture.</li>
+<li><strong>The slot, as a marker.</strong> Pause, resume, start and stop take the slot the
+next picture is sent in, read before the keyframe is asked for. Up to 7.1.1
+start and stop took the newest picture out of the encoder; its lookahead
+holds half a second back, and a keyframe of its own in there cut that much
+early.</li>
+<li><strong>Clips go on.</strong> The <a href="#replay">replay</a> is not paused: a clip in a pause holds
+everything, the paused part too. A <a href="#markers">marker</a> set in a pause lands
+where the file goes on.</li>
+<li><strong>Splits.</strong> A new file, <a href="#by-file-size">by size</a> or
+<a href="#when-the-source-changes">for a new source</a>, starts paused.</li>
+<li><strong>Shown</strong> as <em>PAUSED</em> in the corner and the status panel, in amber; the
+toolbar time stands still in amber; the tray tooltip says <em>Recording paused</em>.</li>
+</ul>
+    </section>
+
+    <section id="the-disk-is-asked-elsewhere">
+      <h2>The disk is asked elsewhere</h2>
+      <p>Since 6.0 nothing in a recording waits on the disk on the render thread. A
+drive that has gone to sleep takes a second or more to answer. On <code>disk_</code>, a
+<a href="latency.html#nothing-waits-on-a-disk">job thread</a> of its own:</p>
+      <ul>
+<li>the checks before a start: ffmpeg still there, the folder (made again if it
+was deleted), the free space, the next file name;</li>
+<li>the free space shown in the Recording tab, once a second;</li>
+<li>the file size for splitting.</li>
+</ul>
+      <p>The answers come back through <code>Collect()</code> in <code>FeedRecorder()</code>, once a frame. A
+start called off in the meantime ignores its answer. The graphics adapter for
+the encoder cache is asked on the encoder probe's thread.</p>
+      <p>The remaining time is worked out from what the encoders actually produced, in
+bytes per second. Up to 6.0 it counted what went into the pipe — raw frames —
+and so ran out hundreds of times too early.</p>
+    </section>
+
+    <section id="when-something-fails">
+      <h2>When something fails</h2>
+      <p><code>failed()</code> is set when the encoder could not open, when encoding fails, and when
+writing fails. <code>FeedRecorder()</code> checks it each pass, stops the recording cleanly
+and shows the reason as a toast. The reason is ffmpeg's own first error line,
+with the name of what said it — <code>h264_nvenc: No capable devices found</code> — not a
+generic one.</p>
+      <p>A file whose writing failed somewhere is still closed as well as it can be, and
+the log says it was not finished cleanly.</p>
+    </section>
+
+    <section id="in-the-process-not-beside-it">
+      <h2>In the process, not beside it</h2>
+      <p>Since 6.1. The child process cost a copy of every frame — into the pipe, and
+out of it again on the other side — and a second program that only spoke
+through its exit code and a few lines of text. Inside the process:</p>
+      <ul>
+<li><strong>One copy fewer per frame.</strong> The buffer the readback lands in is the one the
+encoder reads.</li>
+<li><strong>Errors are known exactly.</strong> Which call failed, with what, and which options
+the encoder ignored.</li>
+<li><strong>No ffmpeg.exe.</strong> The download is the four libraries; see <a href="ffmpeg.html">ffmpeg</a>.</li>
+<li><strong>AVIF and the remuxer</strong> use the same libraries. AVIF gained correct HDR tags
+on the way, which the ffmpeg 9 command line had stopped writing; see
+<a href="screenshots.html">Screenshots</a>.</li>
+</ul>
+      <p>What it costs:</p>
+      <ul>
+<li><strong>The encoder's CPU time is qBlank's now</strong> in the Task Manager. x264 at
+640×480 50p is about a quarter of a core, x265 nearly three cores. That was
+always spent; it used to be listed under ffmpeg.</li>
+<li><strong>NVENC keeps about 80 MB</strong> of driver memory in the process after the first
+recording. The child process gave it back when it ended.</li>
+<li><strong>A crash of qBlank loses an MP4.</strong> The child process used to notice its input
+ending and finish the file. Now nothing is left to write the <code>moov</code> atom. MKV
+plays up to the crash, as it always did.</li>
+</ul>
+    </section>
+
+    <section id="when-it-ends">
+      <h2>When it ends</h2>
+      <p>A recording that ends normally says <em>Recording saved</em> with its length. Clicking
+that toast opens Explorer with the file selected; how that works, and how long
+the toast stays, is on <a href="screenshots.html#showing-the-file">Screenshots</a>, which shares
+it.</p>
+      <p>Starting a recording ends freeze, compare and <em>All filters off</em>, and none of
+them can be switched on while it runs. The recording takes its picture from
+behind the same passes as the display; see
+<a href="freeze-and-compare.html#not-while-recording">Freeze and compare</a>.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="screen-and-window.html"><span>&larr; Previous</span>Screen and window</a>
+      <a class="next" href="encoder-settings.html"><span>Next &rarr;</span>Encoder settings</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

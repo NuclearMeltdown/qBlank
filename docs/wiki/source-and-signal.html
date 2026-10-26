@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Source and signal — qBlank wiki</title>
+<meta name="description" content="Device enumeration, format forcing, the analogue video standard.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/source-and-signal.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Source and signal","item":"https://qblank.com/wiki/source-and-signal.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Source and signal</h1>
+    <p class="tag">Device enumeration, format forcing, the analogue video standard.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#device-enumeration">Device enumeration</a>
+      <a href="#format-selection-and-forcing">Format selection, and forcing</a>
+      <a href="#the-crossbar">The crossbar</a>
+      <a href="#which-cable-is-in-use">Which cable is in use</a>
+      <a href="#the-analogue-video-standard">The analogue video standard</a>
+      <a href="#the-subcarrier-frequency">The subcarrier frequency</a>
+      <a href="#configure-card">Configure card</a>
+      <a href="#reinitialise-card">Reinitialise card</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <figure class="ui"><img src="../settings-source.png" alt="The Source tab" width="886" height="753" loading="lazy"></figure>
+      <p class="src"><code>src/capture/dshow_util.cpp</code>, <code>src/capture/video_capture.cpp</code>, <code>src/capture/device_config.cpp</code></p>
+    </section>
+
+    <section id="device-enumeration">
+      <h2>Device enumeration</h2>
+      <p>Devices come from <code>CLSID_VideoInputDeviceCategory</code> through
+<code>ICreateDevEnum::CreateClassEnumerator</code>. Each moniker's property bag supplies the
+friendly name and the device path; the path is what gets written to the
+configuration, because friendly names are not unique and change with driver
+updates.</p>
+      <p>Audio devices are enumerated twice over: once through WASAPI
+(<code>src/audio/audio_devices.cpp</code>) and once through
+<code>CLSID_AudioInputDeviceCategory</code>, because a card's embedded audio is sometimes
+only reachable as a DirectShow filter. See <a href="audio.html">Audio</a>.</p>
+    </section>
+
+    <section id="format-selection-and-forcing">
+      <h2>Format selection, and forcing</h2>
+      <p>The capture pin's <code>IAMStreamConfig</code> advertises a list of
+<code>(AM_MEDIA_TYPE, VIDEO_STREAM_CONFIG_CAPS)</code> pairs. qBlank shows colour format,
+resolution and frame rate as three independent pickers rather than as one list
+of combinations, which is what makes forcing possible.</p>
+      <p><code>ApplyFormat()</code> in <code>dshow_util.cpp</code> does the work:</p>
+      <ol>
+<li><p><strong>Pick a template.</strong> Every advertised capability is scored: 3 for an exact
+subtype and resolution match, 2 for the right subtype at a resolution at
+least as large, 1 for the right subtype at any size, −1 for nothing. The
+highest scoring media type is copied.</p>
+<p>The template matters. A driver's media type carries fields qBlank has no
+business inventing — palette entries, <code>pbFormat</code> tails that are vendor
+private, <code>dwControlFlags</code>. Patching a real one keeps all of that intact.</p></li>
+<li><p><strong>Patch it.</strong> <code>PatchMediaType()</code> rewrites <code>biWidth</code>, <code>biHeight</code>, <code>biSizeImage</code>
+and <code>AvgTimePerFrame</code> in the <code>VIDEOINFOHEADER</code> or <code>VIDEOINFOHEADER2</code>, and
+recomputes <code>lSampleSize</code>.</p></li>
+<li><p><strong>Set it.</strong> If <code>SetFormat</code> fails and a frame rate was asked for, the call is
+retried with the template's own <code>AvgTimePerFrame</code> and only the resolution
+changed. Some drivers reject an unusual frame interval but accept the size.</p></li>
+<li><p><strong>Read back what actually happened.</strong> <code>GetFormat</code> is called afterwards and
+parsed into the <code>VideoFormatInfo</code> returned to the caller, so the UI reports
+the format in force rather than the one requested.</p></li>
+</ol>
+      <p>This is what covers the common case of a card advertising only 1080p30 for a
+mode it will in fact deliver at 1080p60. The driver's list is what it is
+prepared to state, not the boundary of what it accepts.</p>
+      <h3 id="what-gets-picked-by-default">What gets picked by default</h3>
+      <p>The list is also the same list whatever is plugged in. The SA7160 advertises
+720×480, 720×576, 1280×720 and 1920×1080, each of them up to 60.00, with a PAL
+composite cable in front of it delivering 720×576 at 50. Nothing in the
+capability set marks the line that is true, so <code>CapsModel::PickDefault()</code> used to
+take the largest area at the highest rate — a console recorded as 1080p, scaled
+up inside the card, without one detail gained.</p>
+      <p>The video standard settles it, and settles two things that do not follow from
+each other:</p>
+      <ul>
+<li>the <strong>raster</strong> — 625 lines carry 576 visible ones, 525 carry 480;</li>
+<li>the <strong>field rate</strong> — see the table under
+<a href="#the-analogue-video-standard">the analogue video standard</a> below.</li>
+</ul>
+      <p><code>CapsModel::SetNativeStandard()</code> hands both to the model, and <code>PickDefault()</code>
+then caps the resolution to that raster. Where nothing is known, or nothing on
+offer fits underneath, the largest still wins exactly as it did.</p>
+      <p>It is worth asking only where the picture goes through the analogue decoder, so
+the connector decides whether to ask at all. <code>ConnectorFollowsVideoStandard()</code>
+is true for composite, S-Video, tuner, SCART and AUX, false for component, VGA
+and everything digital — those carry whatever the source feels like and no
+standard describes it. Which connector that is gets answered at the input,
+deliberately <em>not</em> at the picture height: the height is what this is supposed to
+produce.</p>
+      <h3 id="colour-format-chosen-or-automatic">Colour format: chosen or automatic</h3>
+      <p>The colour format list starts with <strong>Automatic</strong>, which shows the format it
+picked in brackets. It is what a new card starts on. Picking a format by hand
+keeps that format across input changes and re-reads of the card, because the
+card that offered it still does. Automatic picks again every time the resolution
+is searched again: after a change of input, a re-read card or a new video
+standard. Earlier versions only had the first behaviour, so an RGB32 picked on
+the composite input stayed on HDMI, where YUY2 converts faster.</p>
+      <p>Older configurations have no <code>subtypeAuto</code> entry. A format already stored in
+them counts as chosen, since there is no telling whether someone picked it.</p>
+      <h3 id="two-rates-that-are-not-numbers">Two rates that are not numbers</h3>
+      <p><code>FormatSel::fps</code> holds a rate in Hz, or one of two sentinels from <code>config.h</code>:</p>
+      <div class="tbl"><table>
+<tr><th>Value</th><th>Meaning</th></tr>
+<tr><td><code>kFpsHighest</code> = <code>0.0</code></td><td>Whatever the card tops out at</td></tr>
+<tr><td><code>kFpsNative</code> = <code>-1.0</code></td><td>Whatever the video standard prescribes</td></tr>
+</table></div>
+      <p>Neither is written into the profile as a number. Both are resolved in
+<code>VideoCapture::Start()</code>, late on purpose: the answer then comes from the card
+that is really in front of you, so a console switching from 576i50 to 480p60
+survives without anyone editing a profile. A number noted down today is wrong
+the moment the mode changes; a mode is not. The settings list shows in brackets
+what each currently comes to.</p>
+      <p><code>CapsModel::NativeFps()</code> rounds the standard's rate onto what the card actually
+advertises for that subtype and size, through the same <code>ReportedRange()</code> helper
+the <em>highest available</em> path uses — so it holds for every pixel format rather
+than for YUY2 alone, and for a hand-forced resolution it borrows the subtype's
+bands the same way. Where the standard is unknown it returns 0 and the highest
+available takes over, which is not a failure but the answer qBlank always gave.</p>
+      <p>Because both are modes rather than values, a standard change no longer collapses
+them: <code>App::ReleaseStandardBoundFormat()</code> lets go of the resolution and keeps the
+mode, and <code>SettingsWindow::EnsureValidFormat()</code> puts it back after
+<code>PickDefault()</code>, which has only numbers to return.</p>
+      <p>An older CapView reads both sentinels as <em>highest available</em>, because it tests
+only <code>fps &lt;= 0</code>. That is precisely the behaviour it always had, so a profile
+written here stays readable there.</p>
+      <h3 id="a-resolution-that-does-not-fit">A resolution that does not fit</h3>
+      <p>A standard change releases the size on its own. What is left is a size picked
+by hand or brought along in an old profile: 720x480 on a PAL source, 720x576 on
+NTSC, 1080p on composite. The card then scales the lines, and the picture comes
+out soft or with bars, with nothing saying why.</p>
+      <p><code>App::ResolutionMismatchLines()</code> catches that without looking at the picture: it
+compares the height against the raster of the locked standard. Full and half
+both fit (576 or 288, 480, 486 or 240). It reports only when:</p>
+      <ul>
+<li>the input is analogue and the standard is locked, with no search under way;</li>
+<li>the card actually offers a fitting size for the pixel format — otherwise
+there is nothing to point at.</li>
+</ul>
+      <p>After three seconds of it, what happens depends on <strong>Match the resolution to the
+video standard</strong> in the Source tab. It is on by default and only shown for an
+analogue input.</p>
+      <ul>
+<li><strong>On:</strong> <code>App::ApplyFittingResolution()</code> sets the fitting size itself and says
+so in a toast (<em>Resolution matched to the video standard: 720x576</em>). A fixed
+frame rate goes back to the standard's own, as <code>ReleaseStandardBoundFormat()</code>
+does, because it was picked under the wrong size.</li>
+<li><strong>Off:</strong> a notice with <strong>Fix</strong> and <strong>Ignore</strong> stays on the picture until it is
+answered. Fix does the same as the automatic path. Ignore takes it off the
+picture for this size and this standard. Ticking the checkbox while the notice
+is open counts as Fix.</li>
+<li><strong>Either way</strong>, the <strong>Source</strong> tab shows a note under the resolution with a
+<strong>Use 720x576</strong> (or whatever fits) button, for as long as the size does not
+fit, Ignore included.</li>
+<li>When the fitting size is already set and the card still delivers another one,
+no button can fix it. A toast then points to the Source tab once.</li>
+</ul>
+      <p>The point of the notice is that a wrong size gets noticed on the picture, where
+it shows, and not by stumbling over it in the settings.</p>
+    </section>
+
+    <section id="the-crossbar">
+      <h2>The crossbar</h2>
+      <p>Cards with multiple physical inputs expose an <code>IAMCrossbar</code>, found through
+<code>ICaptureGraphBuilder2::FindInterface</code> on the capture filter.
+<code>EnumerateCrossbarInputs()</code> walks the input pins, reads
+<code>get_CrossbarPinInfo(TRUE, …)</code> for each, and turns the physical type into a name
+(<code>PhysicalConnectorName()</code> — Composite, S-Video, SCART, Component, HDMI/SDI and
+the rest).</p>
+      <p><code>RouteCrossbarInput()</code> routes the chosen video input to whichever output pin
+accepts it, and routes the related audio pin alongside it when the card reports
+one (<code>relatedAudioIn</code> from the same call).</p>
+      <p>Switching the crossbar puts a <em>different signal on the same pins without the
+media type changing</em>, so every measured verdict — colour range, interlace,
+content bounds — is thrown away at that point via
+<code>VideoRenderer::ResetAnalysis()</code>. Nothing about the old signal is still true.</p>
+    </section>
+
+    <section id="which-cable-is-in-use">
+      <h2>Which cable is in use</h2>
+      <p>The crossbar above answers this where it exists. It frequently does not: the
+card qBlank is developed against, a StarTech PEXHDCAP60L on the SA7160 chipset,
+exposes no <code>IAMCrossbar</code> at all. Its input selector — HDMI, DVI-D, VGA,
+component, composite, SDI — is in the vendor's own property page, behind a
+private KS property set with no documented shape. <code>qblank_probe inputs</code> exists
+to test whether a driver at least carries the crossbar as
+<code>PROPSETID_VIDCAP_CROSSBAR</code> on the filter; this one does not, and the Source tab
+says so plainly: <em>this card has no switchable inputs</em>.</p>
+      <p>So the Source tab asks. <strong>Input</strong> offers Automatic, Composite, S-Video,
+Component / RGB and Digital — one list, not two. Whether the source is analogue
+and which cable carries it are two questions on paper, but saying <em>composite</em>
+already says <em>analogue</em>, and nobody has ever wanted to answer them separately.
+They are still stored separately, in <code>signalKind</code> and <code>connector</code>, so profiles
+written before the two were merged keep working; <code>SignalInputIndex()</code> and
+<code>SignalInputApply()</code> in <code>config.cpp</code> translate between the pair and the single
+list.</p>
+      <p>Each entry describes the plug rather than the standard, because the person who
+needs the question answered is the one holding a cable they cannot name:</p>
+      <div class="tbl"><table>
+<tr><th>Setting</th><th>What the plug looks like</th></tr>
+<tr><td><strong>Composite</strong></td><td>a single yellow RCA, usually beside a red and a white one for sound</td></tr>
+<tr><td><strong>S-Video</strong></td><td>a round black plug with four pins, about as thick as a finger — an old PS/2 mouse connector</td></tr>
+<tr><td><strong>Component / RGB</strong></td><td>three RCAs in green, blue and red, often marked Y, Pb, Pr, plus red and white for sound, so five in all. The blue VGA plug belongs here too</td></tr>
+</table></div>
+      <p>Automatic reads the crossbar's <code>physicalType</code> where there is one — <code>SVideo</code>
+becomes S-Video, <code>YRYBY</code> and <code>RGB</code> become component — and otherwise assumes
+composite. <code>SCART</code> deliberately resolves to nothing: the same connector carries
+composite on one cable and RGB on another, and the physical type does not say
+which one is plugged in. Composite is the right thing to assume when nothing is
+known, because it is the setting that shows every control; guessing it on a
+cleaner input costs a few sliders too many and never costs a picture.</p>
+      <h3 id="what-hangs-on-the-answer">What hangs on the answer</h3>
+      <p>Not cosmetics. Four of the picture controls exist only because composite shares
+one wire between brightness and colour:</p>
+      <div class="tbl"><table>
+<tr><th>Control</th><th>Composite</th><th>S-Video</th><th>Component</th></tr>
+<tr><td>Colour shimmer, Only where needed</td><td>yes</td><td>no</td><td>no</td></tr>
+<tr><td>Dot crawl (demodulator)</td><td>yes</td><td>no</td><td>no</td></tr>
+<tr><td>Restore bandwidth</td><td>yes</td><td>no</td><td>no</td></tr>
+<tr><td>Extended history</td><td>yes</td><td>no</td><td>no</td></tr>
+<tr><td>Average what stands still</td><td>yes</td><td>yes</td><td>yes</td></tr>
+<tr><td>Follow the movement</td><td>yes</td><td>yes</td><td>yes</td></tr>
+<tr><td>Colour round of the standard search</td><td>yes</td><td>yes</td><td>no</td></tr>
+</table></div>
+      <p>S-Video puts luma and chroma on separate wires, so neither can leak into the
+other: dot crawl and rainbow shimmer cannot occur, and the rolloff those filters
+correct is a consequence of squeezing both into one band. Component goes
+further — Y, Pb and Pr are baseband on three wires and there is no subcarrier
+anywhere in the signal.</p>
+      <p>Two things follow. <code>App::EffectiveImage()</code> zeroes <code>chromaSoft</code>,
+<code>adaptiveChroma</code>, <code>dotNotch</code> and <code>bandwidthRestore</code> on anything that is not
+composite, and the Picture tab hides the same four. Both are needed: hiding a
+control without neutralising the value leaves a saved setting acting where
+nothing can turn it off any more, which is a rule this codebase keeps running
+into.</p>
+      <p>The two that stay change what they say about themselves. The section is headed
+<em>Composite filter</em> on composite and <em>Noise</em> everywhere else, and the help behind
+<em>Average what stands still</em>, <em>Avoid ghosting</em> and <em>Follow the movement</em> is
+written twice: once about the subcarrier, once about noise alone. The code is
+identical either way. Averaging one crawl cycle cancels the carrier, whose phase
+walks that cycle, <em>and</em> averages the noise out. Only the second half is left when
+there is no carrier. Without a carrier no cycle is measured, and the average
+takes four frames. Leaving the composite wording in place made the
+remaining controls read as a dot-crawl filter with pieces missing, which is what
+they are not.</p>
+      <p>And <code>VerifyStandardColour()</code> returns immediately on component. That routine sets
+four standards in turn and keeps the one under which the picture shows colour —
+it is a question about subcarriers, and component has no subcarrier, so all four
+candidates would measure the same colour. Running it would mean a visible walk
+through three wrong standards that returns nothing. The standard it is currently
+on is marked as checked so nothing asks again, and a manual search gets its
+answer there instead of waiting for one that would never come. The rest of the
+search is untouched: 50 against 60 Hz and 576 against 480 lines are decided by
+the decoder's lock, and the lock works the same on component.</p>
+      <h3 id="untested">Untested</h3>
+      <p>Every analogue measurement in this wiki was taken over composite, from a PAL
+SNES and from a GameCube. S-Video and component have not been run through
+qBlank at all. The direction of the uncertainty is worth stating: choosing them
+only ever <em>removes</em> processing, so nothing gets applied that the signal did not
+ask for — but that the result is correct follows from how the signals are
+defined, not from anything measured here.</p>
+    </section>
+
+    <section id="the-analogue-video-standard">
+      <h2>The analogue video standard</h2>
+      <p>Cards with an analogue decoder expose <code>IAMAnalogVideoDecoder</code>.</p>
+      <ul>
+<li><code>get_AvailableTVFormats</code> gives a bitmask of what the decoder supports.</li>
+<li><code>put_TVFormat</code> / <code>get_TVFormat</code> set and read the current one.</li>
+<li><code>get_HorizontalLocked</code> reports whether the decoder has locked to a signal.</li>
+</ul>
+      <p>The table in <code>dshow_util.cpp</code> (<code>kStandards</code>) holds twenty entries with their
+line counts. <strong>The index is written to the configuration, so entries may be
+appended but never reordered.</strong></p>
+      <p>This matters more than it looks on a console that can do both 50 and 60 Hz:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Lines</th><th>Field rate</th></tr>
+<tr><td>PAL B/G/I/D/H/N</td><td>625</td><td>50</td></tr>
+<tr><td>SECAM</td><td>625</td><td>50</td></tr>
+<tr><td>NTSC M, NTSC M (Japan), NTSC 4.43</td><td>525</td><td>59.94</td></tr>
+<tr><td>PAL M</td><td>525</td><td>59.94</td></tr>
+<tr><td>PAL 60</td><td>525</td><td><strong>60</strong></td></tr>
+</table></div>
+      <p>Setting the wrong one gives either no picture at all or one with the wrong
+number of lines in it. A GameCube running a 50 Hz PAL title wants PAL B; the
+same console running a 60 Hz title wants PAL 60.</p>
+      <p><strong>The rate belongs to the standard, not to the line count</strong>, which is why
+<code>VideoStandardFieldRate()</code> is a table and not arithmetic on
+<code>VideoStandardLines()</code>. PAL 60 and NTSC M share the 525-line raster and do not
+share the rate: everything in the NTSC family runs at 60000/1001 because the
+colour subcarrier sits at 3.579545 MHz and the field rate was pulled off it,
+and PAL M inherited that timing. PAL 60 is not a broadcast standard at all — it
+is a 525-line raster carrying a PAL subcarrier, produced by converters and by
+consoles in their 60 Hz mode, and the sources that do it are not agreed on
+59.94 against 60. A flat 60 is what qBlank asks for, because the consoles this
+is aimed at generate their own timing rather than deriving it from NTSC.</p>
+      <p>It matters less than it looks: the recorder takes the <em>measured</em> source rate,
+not the requested one (<code>RecordSettings::fps</code> defaults to 0), so the choice only
+affects the media type asked of a decoder that is genlocked to the incoming
+signal anyway.</p>
+      <p>The setting has three states, encoded in one <code>long</code> in the profile:</p>
+      <div class="tbl"><table>
+<tr><th>Value</th><th>Meaning</th></tr>
+<tr><td><code>0</code></td><td>Leave alone — never call <code>put_TVFormat</code></td></tr>
+<tr><td><code>-1</code></td><td>Automatic</td></tr>
+<tr><td>anything else</td><td>That standard, set once when the graph starts</td></tr>
+</table></div>
+      <h3 id="how-automatic-works">How automatic works</h3>
+      <p>Two stages, and the reason there are two is that the card answers only one
+question — <code>get_HorizontalLocked</code>, which is about line frequency and says
+nothing about colour. Several standards lock equally well on the same line
+count, and the decoder reports a lock for the wrong one just as confidently as
+for the right one.</p>
+      <ol>
+<li><strong>The lock.</strong> <code>StartSignalWatch()</code> polls the standard and the lock flag
+together, ten times a second, and <code>UpdateVideoStandard()</code> steps through one
+candidate per line count and colour system until one locks. Measured on the
+SA7160, a lock takes 0.24–0.26 s.</li>
+<li><strong>The colour round.</strong> <code>VerifyStandardColour()</code> measures the picture rather
+than asking the card: how much colour there is, and how far the dark areas
+are tinted. The second number is what catches a misdecode — SECAM-decoding a
+PAL signal does not produce a grey picture but a strongly tinted one, which
+the "has colour" test alone would wave through.</li>
+</ol>
+      <p>Most of the time stage two costs one measurement and no switching: a standard
+that already shows confident colour with neutral darks is the answer. The full
+round only runs when that is in doubt, and only when there is enough lit picture
+for candidates to differ on — on a black screen every standard measures the same
+zero.</p>
+      <p>From a wrong standard to a confirmed right one, measured against a GameCube at
+60 Hz: <strong>1.7 to 2.4 seconds</strong>, where the same sequence used to take 6.3. The
+lock costs a third of a second; the rest is the colour round, which now measures
+each candidate only until its reading stops climbing instead of giving all of
+them the window the slowest one needs.</p>
+      <p>The details — every threshold, what each one is worth, and the measurements
+behind them — are on their own page:
+<strong><a href="automatic-video-standard.html">Automatic video standard</a></strong>.</p>
+      <h3 id="the-limit-of-automatic-mode-stated-plainly">The limit of automatic mode, stated plainly</h3>
+      <p>The only measurement a <em>card</em> offers is whether its decoder has locked, and on
+this hardware some standards report a lock with <strong>nothing connected at all</strong>.
+That is why stage two exists: what settles the colour system is the picture, not
+the card.</p>
+      <p>What is left over is a genuine limit rather than a missing feature. A
+black-and-white source cannot be resolved beyond its line count — there is
+nothing in the picture to decide with — so after three attempts the region
+default stands. And NTSC M and NTSC M (Japan) are not distinguished at all: they
+differ in the setup pedestal, which is a brightness property, not a colour one.</p>
+      <p>There is a third limit, and it is the one a key exists for: neither measurement
+can see colour that is simply <strong>wrong</strong>. A standard that holds its lock and
+delivers a strongly coloured picture is never doubted, even when every hue in it
+is off. That is a case a person spots at a glance and no threshold on this page
+catches, so <strong>F7</strong> runs both stages again on demand — see
+<a href="automatic-video-standard.html#running-the-search-by-hand">Automatic video standard</a>.</p>
+      <p>The tab still shows which standard it settled on rather than leaving you to
+guess, and says so while a search is still running rather than naming a guess as
+though it were a decision.</p>
+    </section>
+
+    <section id="the-subcarrier-frequency">
+      <h2>The subcarrier frequency</h2>
+      <p><code>VideoStandardSubcarrierSamples()</code> converts the standard into samples per cycle
+of the colour subcarrier, against BT.601's 13.5 MHz active-line sampling:</p>
+      <div class="tbl"><table>
+<tr><th>Standard</th><th>Carrier</th><th>Samples per cycle</th></tr>
+<tr><td>NTSC M, NTSC M (Japan), PAL M</td><td>3.579545 MHz</td><td>3.77</td></tr>
+<tr><td>PAL, PAL 60, SECAM, NTSC 4.43</td><td>4.43361875 MHz</td><td>3.04</td></tr>
+</table></div>
+      <p>This number is handed to the renderer with <code>SetCarrierSamples()</code> and scaled by
+the capture width in <code>effectiveCarrierPeriod()</code>. The
+<a href="the-composite-filter.html">composite filter</a> is built around it, which is the reason
+the video standard matters even after a picture is on screen.</p>
+    </section>
+
+    <section id="configure-card">
+      <h2>Configure card</h2>
+      <p class="src"><code>src/capture/device_config.cpp</code></p>
+      <p>The <strong>Configure card</strong> button opens the driver's own property pages through
+<code>ISpecifyPropertyPages</code> and <code>OleCreatePropertyFrame</code>. Whatever the driver keeps
+to itself — input selection, decoder tuning, vendor controls, proc-amp settings
+qBlank does not expose — lives there.</p>
+      <p><code>OleCreatePropertyFrame</code> is modal and does not return until the dialog is
+dismissed, so <code>DevicePropertyPages</code> runs it on a thread of its own
+(<code>DevicePropertyPages::Run</code>) with its own COM apartment. That is what keeps the
+picture running while the pages are open.</p>
+    </section>
+
+    <section id="reinitialise-card">
+      <h2>Reinitialise card</h2>
+      <p>Next to it, and a different thing from restarting the capture. A restart takes
+whatever settings are currently in the profile with it — and on this path those
+settings are the problem.</p>
+      <p><strong>A video standard belongs to the analogue decoder, not to the card.</strong> Moving
+between the analogue and the digital input leaves PAL D standing in the profile,
+where it means nothing over HDMI and pins the card to 720×576 at 50 Hz. The
+symptom is a card that seems stuck between decoder profiles after re-plugging.</p>
+      <p>Three separate places had to change, because there were three ways in:</p>
+      <p><strong>Changing the device forgets it.</strong> On this card the analogue and the digital
+inputs are <em>separate devices</em>, so re-plugging is a device change. That path
+already cleared the format and the crossbar input — "format belongs to the old
+card" — and the video standard belongs to the old card for exactly the same
+reason. It was simply missing.</p>
+      <p><strong>A declared-digital source never gets one.</strong> <code>VideoCapture::Start</code> now checks
+<code>signalKind</code> before applying a standard. A card that does both still reports its
+analogue standards over a digital input; that report says nothing about what is
+on the socket, and someone who set the source to Digital meant it.</p>
+      <p><strong>And the button, for everything else.</strong> It releases the card, re-enumerates the
+device list — a re-plugged card can appear under a different path — sets the
+standard and the format back to automatic, and starts over.</p>
+      <p>What it does <em>not</em> touch is the device and the crossbar input. Those are
+decisions somebody made; the standard and the format are things qBlank measured
+or guessed, and measurements are what a reinitialise is entitled to discard.</p>
+      <p>Verified on the running card: the standard drops to <strong>Automatic</strong>, the automatic
+search finds <strong>PAL D</strong> again on its own, the decoder relocks, and the picture
+never stops.</p>
+      <h3 id="changing-the-input">Changing the input</h3>
+      <p>A different input is a different source, not just a different route. Until
+5.2.1 a change of input only switched the routing, and the old format stayed:
+HDMI ran at 720×576, the standard search ran on the HDMI input, and composite
+afterwards stayed black until the card was reinitialised by hand. Now a change
+of input takes the same path as the button: the resolution is searched again,
+the standard search starts over and the graph is rebuilt. A standard someone
+chose by hand is kept.</p>
+      <h3 id="closing-the-whole-card">Closing the whole card</h3>
+      <p>The driver of the SA7160 sets the card up afresh only once <strong>every</strong> handle to
+it is closed, the audio filter included. Before 5.2.1 a rebuild left the card's
+sound running, so the driver never saw the card close. HDMI after composite
+could stay green through every reinitialise, and only restarting qBlank helped:
+it was the only way the sound went down as well.</p>
+      <p><code>App::StopCapture</code> now stops the sound first, drops the reference the driver's
+own dialog holds (<code>DevicePropertyPages::Reap</code>, once that dialog is closed) and
+then the video. The sound comes back with the new graph. How to tell it works:
+between <em>input set</em> and <em>capture running</em> the log now shows about 450 ms, as at
+program start, where it used to show 16 ms.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="latency.html"><span>&larr; Previous</span>Latency</a>
+      <a class="next" href="automatic-video-standard.html"><span>Next &rarr;</span>Automatic video standard</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scaling and sharpening — qBlank wiki</title>
+<meta name="description" content="The five scalers and contrast adaptive sharpening.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/scaling-and-sharpening.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Scaling and sharpening","item":"https://qblank.com/wiki/scaling-and-sharpening.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Scaling and sharpening</h1>
+    <p class="tag">The five scalers and contrast adaptive sharpening.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#the-five-filters">The five filters</a>
+      <a href="#the-native-pixel-grid">The native pixel grid</a>
+      <a href="#integer-scaling">Integer scaling</a>
+      <a href="#square-pixels">Square pixels</a>
+      <a href="#contrast-adaptive-sharpening">Contrast adaptive sharpening</a>
+      <a href="#scanlines-and-the-mask">Scanlines and the mask</a>
+      <a href="#where-the-picture-lands">Where the picture lands</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/render/shaders.h</code>, pass 3 (<code>kScalePS</code>)</p>
+      <p>The pipeline is split so that scaling never sees a card format. Pass 1 cleans
+the signal, pass 2 deinterlaces and applies geometry, and only then does pass 3
+resample onto the window. Every scaling filter therefore works on real pixels
+rather than on half-decoded chroma, and is independent of what the card happened
+to deliver.</p>
+    </section>
+
+    <section id="the-five-filters">
+      <h2>The five filters</h2>
+      <p><code>ScaleFilter</code> in <code>src/config.h</code>: <code>Nearest, Bilinear, Bicubic, Lanczos3, SharpBilinear</code>.</p>
+      <div class="tbl"><table>
+<tr><th>Filter</th><th>Taps</th><th>Notes</th></tr>
+<tr><td><strong>Nearest</strong></td><td>1</td><td>Point fetch. Exact pixels, hard edges, uneven pixel sizes at non-integer factors</td></tr>
+<tr><td><strong>Bilinear</strong></td><td>2×2</td><td>The hardware sampler</td></tr>
+<tr><td><strong>Bicubic</strong></td><td>4×4</td><td>Catmull-Rom, so it interpolates through its samples rather than approximating them</td></tr>
+<tr><td><strong>Lanczos3</strong></td><td>6×6</td><td>Sharpest of the resampling filters; slight ringing at hard edges</td></tr>
+<tr><td><strong>Sharp bilinear</strong></td><td>2×2</td><td>Nearest up to the integer factor, bilinear only across the remainder</td></tr>
+</table></div>
+      <p><strong>Catmull-Rom</strong> rather than Mitchell or B-spline: it passes through its control
+points, so a pixel that lands exactly on a source pixel comes back unchanged.
+For a signal made of hard pixel edges that is what you want.</p>
+      <p><strong>Sharp bilinear</strong> is the right answer for pixel art at non-integer window sizes.
+It gives you the crispness of nearest neighbour with the uneven-pixel artefact
+confined to a single blend across each boundary, instead of some pixels being
+drawn twice as wide as others.</p>
+      <p>Both Catmull-Rom and Lanczos3 are written as real loops with weights computed per
+tap, not as unrolled tap lists — for the same shader-compile reason as the
+composite filter's chroma loop.</p>
+    </section>
+
+    <section id="the-native-pixel-grid">
+      <h2>The native pixel grid</h2>
+      <p><code>SampleNativeGrid()</code> in the scale pass. Off by default; set the source's real
+horizontal pixel count and it resolves every output pixel to the console's own
+pixel instead of to a fraction of one.</p>
+      <h3 id="the-problem-it-solves">The problem it solves</h3>
+      <p>A capture card samples the active line at a fixed rate — 720 samples for BT.601,
+whatever the source is doing. A SNES draws <strong>256</strong> pixels across that same line,
+so each console pixel lands on about <strong>2.8 samples</strong>. Not a whole number, and
+already low-pass filtered by the card.</p>
+      <p>Scale that straight to a window and the pixel boundaries fall wherever the
+arithmetic puts them: some console pixels come out three output blocks wide,
+some four, and the edges between them are soft in a way that changes across the
+picture. That is why upscaled pixel art usually looks slightly wrong even when
+it is sharp.</p>
+      <h3 id="where-the-grid-is">Where the grid is</h3>
+      <p>Measured since 5.7.0. <em>Source width</em> says how many pixels there are, not where.
+A console draws its 256 or 320 across about 47.5 µs of the line, the card
+samples about 53, and the dot clock is the console's own. A PAL SNES lands on
+864/341 = <strong>2.534 samples per pixel</strong>, from sample 24; "256 across 720" would put
+2.81 from 0 and be a whole pixel off every nine.</p>
+      <p>Every pixel boundary is a possible edge, so the summed horizontal steps of the
+picture repeat with the pitch. <code>AnalyzePixelGrid()</code> takes the strongest repeat
+in the range the setting allows; its phase gives the boundaries. A quarter of
+the lines every fifth frame, after Present. Nothing snaps until a grid is found,
+and the log says so:</p>
+      <pre><code>Pixel grid: 2.5336 samples per pixel, from 1.49, 257.3 pixels in 24..675 (strength 5.8)</code></pre>
+      <p>A source without a grid -- a GameCube or Wii at 640 -- never reaches the
+threshold and is left alone.</p>
+      <h3 id="found-without-a-width">Found without a width</h3>
+      <p>With <em>Source width</em> on <em>not specified</em>, an analogue source of up to 576 lines
+is searched the same way, over the pitches a 256 or 320 console can have (2.04
+to 2.81 samples at 720). Left out: the colour carrier and its alias, which
+repeat too. The same grid at strength 5 or more, three looks running (about
+1.5 s), brings up a notice:</p>
+      <blockquote>
+<p>Looks like pixel art, about 256 pixels wide. Set the source width?</p>
+</blockquote>
+      <p><em>Set</em> puts the width in; <em>Show me</em> opens the settings at <em>Source width</em> and
+changes nothing; <em>Ignore</em> keeps it quiet until the next start. After the
+notice the search stops. Never on HDMI, where the console scales its own
+pixels.</p>
+      <p>256 or 320 is decided by the dot clock: a 256 console fits about 285 of its
+pixels into a whole line, a Neo Geo 320. A Mega Drive in H40, a PS1 or Saturn
+at 320 lands on 2.01 samples, too close to Nyquist to tell from dithering, and
+is not found; nor are 384, 512 or 640.</p>
+      <div class="tbl"><table>
+<tr><th>Clips (raw, replayed)</th><th>Strongest grid</th></tr>
+<tr><td>PAL SNES</td><td>5.6 – 5.8 at 2.534</td></tr>
+<tr><td>GameCube / Wii PAL 50, 14 clips</td><td>under 2.5</td></tr>
+<tr><td>GameCube PAL 60, menus included, 29 clips</td><td>3.3 at 2.680</td></tr>
+</table></div>
+      <h3 id="how-blurred">How blurred</h3>
+      <p>The rebuild needs to know how far the card spreads a pixel. Up to 5.7.0 that
+was a fixed 0.7 samples at 720. Now it is measured, once a grid is in use: six
+lines every fifth frame are fitted with twelve blurs from 0.3 to 1.4 samples,
+each a banded least squares with the console pixels as unknowns, and the one
+with the smallest remainder wins, a parabola through its neighbours placing it
+between them. A hundred looks, about ten seconds, then it is kept for the
+source format.</p>
+      <pre><code>Pixel grid: card blur 0.68 samples (0.68 at 720), rms 5.50 there, 6.72 at 0.3, 6.45 at 1.4</code></pre>
+      <p>Under a millisecond a look, after Present; frame age unchanged at 10.7 ms.</p>
+      <h3 id="what-it-does">What it does</h3>
+      <p>Each output pixel belongs to one console pixel, and gets that pixel's value.
+On a digital source that is the average of exactly the samples it covers, with
+partial weights at both ends; at 2.5 samples per pixel the boundaries land
+inside a sample most of the time.</p>
+      <p>On an analogue source the average is not the console's pixel. The card's filter
+and the dot demodulator spread every pixel over about one on either side, so a
+black outline comes out grey and the colours next to it muddy. With the grid
+known that is a least squares problem: every pixel one flat value, the blur
+measured (<a href="#how-blurred">above</a>). Its answer is a fixed weighting of the
+samples by their distance from the pixel's centre, worked out once per grid (<code>GridKernel()</code>, 8 knots, logged as
+<code>rebuild weights</code>), clamped to what the pixel's own samples span.</p>
+      <h3 id="cleanup-per-console-pixel">Cleanup per console pixel</h3>
+      <p>The card still hands one colour over as many: it desaturates by position, and
+overshoots for about two pixels behind a big step. On analogue SDR sources
+<code>kGridPS</code> therefore runs over one texel per console pixel and line, before the
+scale pass:</p>
+      <ol>
+<li>rebuild, as above</li>
+<li>PAL only: undo the card's colour averaging with the line above</li>
+<li>colour by region: pixels that belong to one area take its colour</li>
+<li>brightness by mode, beside a step of 60 or more and two pixels behind it</li>
+<li>pixels half covering a vertical edge take the colour above or below</li>
+</ol>
+      <p>In the order 1, 2, 4, 3, 4, 5. Latency unchanged.</p>
+      <p>Fine texture stays. Up to 5.7.0 mode ran beside any step of 30 and pulled the
+darker grain of a wood frame (contrast about 50) onto the pale majority, and
+region mixed pale neighbours into the grain's colour. Since 5.8.0 mode waits
+for a step the card really errs on, and region's inner average takes only
+pixels within 20 of the pixel's brightness. On the SMW title frame the grain's
+spread went from 15.2 to 20.5 (22.1 with the cleanup off); logo and sprites
+are unchanged. Not on quarter turns.
+Screenshots and recordings are not snapped. Sharpening stands down while
+snapping; the rebuild already does that job.</p>
+      <figure><img src="../pixel-grid-logo.png" alt="Left: the Super Mario World logo from a PAL SNES over composite, snapped in qBlank 5.6.0, outlines grey and colours bleeding. Right: the same frame in 5.7.0, black outlines and one colour per letter" width="1468" height="451" loading="lazy"></figure>
+      <figure><img src="../pixel-grid-text.png" alt="Left: the copyright line in 5.6.0, blurred and in many shades of blue. Right: 5.7.0, one cyan with a black outline" width="1468" height="166" loading="lazy"></figure>
+      <h3 id="what-it-is-not">What it is not</h3>
+      <p><strong>This is not what an OSSC does, and it cannot be.</strong> An OSSC samples the
+analogue waveform at the console's own dot clock, so it recovers the pixels
+before they are ever mixed together. Here they have already been resampled once
+and filtered by the card. What this recovers is <strong>the grid, not the detail that
+grid used to carry.</strong></p>
+      <p>Worth having, and worth not overselling.</p>
+      <h3 id="horizontal-only">Horizontal only</h3>
+      <p>Deliberately. Vertically the card already delivers one sample per real line —
+240 or 288 of them — so there is nothing to undo. The zoomed result shows it
+clearly: hard blocks across, untouched detail down.</p>
+      <p>It also <strong>replaces the filter setting</strong> rather than combining with it. Resolving
+to the console's pixel <em>is</em> a nearest-neighbour decision; running a smoothing
+filter afterwards would restore exactly the boundary softness it just removed.</p>
+      <h3 id="and-only-from-a-standard-raster">And only from a standard raster</h3>
+      <p>Since 3.7 the control is hidden, and a stored value neutralised, above 576 source
+lines — 576 being PAL's count and 480 NTSC's, so anything taller has been scaled
+by something on the way: a dongle, an outboard scaler, the card itself.</p>
+      <p>The arithmetic above is the reason. It assumes samples taken along one analogue
+line at a fixed rate, and works out where the console's pixel boundaries fell
+among them. Once a scaler has been over
+the picture, the samples are no longer those samples; the boundaries are not
+where this looks for them, and the coverage weighting averages across edges
+instead of resolving them. It takes detail away rather than giving it back.
+<a href="https://github.com/NuclearMeltdown/qBlank/issues/1">Issue 1</a> is where that
+showed up: a 480i console through a dongle, arriving at 1080 lines, with a
+horizontal grid quietly making the picture worse.</p>
+      <p><a href="#say-what-the-console-draws">The declared source line count</a> does <strong>not</strong> rescue
+it, deliberately. That number is about vertical. Knowing how many lines a console
+drew does not turn the 720 samples along each one back into the ones the card
+originally took.</p>
+      <p>Pairs with integer scaling, which does the other half of the same job: the grid
+keeps the blocks even across a line, integer scaling keeps them even down the
+picture.</p>
+      <p>The same number also feeds the <a href="#square-pixels">square pixels</a> aspect mode.
+Here it decides where the edges sit; there it decides what shape the picture
+is. Unticking <strong>Snap edges to the grid</strong> keeps the shape and drops the
+snapping; see <a href="#shape-without-snapping">below</a>.</p>
+    </section>
+
+    <section id="integer-scaling">
+      <h2>Integer scaling</h2>
+      <p><code>AspectMode::Integer</code> in <code>src/config.h</code>. The <strong>lines</strong> are multiplied by the
+largest whole number that still fits the window; the width follows from
+<a href="cropping-and-geometry.html">the target aspect</a>, not from a second factor of its own.
+The result is centred.</p>
+      <h3 id="why-only-the-lines">Why only the lines</h3>
+      <p>Until 3.6.3 both axes took the same integer factor off the pixel counts, and
+that quietly threw the shape away. An analogue line is not a row of pixels — it
+is a voltage the card sampled 720 times, and the count says nothing about how
+wide the picture is. Measured on a PAL60 GameCube cropped to 668×448:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Picture in a 1895×1115 window</th><th>Aspect</th></tr>
+<tr><td>Source</td><td>1478×1115</td><td>1,326</td></tr>
+<tr><td>Integer, until 3.6.2</td><td>1336×896</td><td>1,491</td></tr>
+<tr><td>Integer, from 3.6.3</td><td>1188×896</td><td>1,326</td></tr>
+</table></div>
+      <p>Twelve per cent too wide, and visible the moment you switched between the two
+modes. Now the two agree to within a rounded pixel.</p>
+      <p>Along a line there is nothing to keep whole, so nothing is lost by letting the
+width fall where the aspect puts it. The lines are the one axis where the source
+really does have a discrete count, and every one of them comes out the same
+height.</p>
+      <p>Line doubling needs no special case: <code>outputHeight_</code> already counts the doubled
+rows, and multiplying those by a whole number keeps them equal. A quarter turn
+does need one — it puts the lines on the other axis.</p>
+      <p>If not even one output pixel per line fits, the mode falls through to the
+ordinary aspect fit; a picture too small to be exact is better than no picture.</p>
+      <h3 id="what-it-cannot-do">What it cannot do</h3>
+      <p>Fill the window. 448 lines in 1115 pixels wants a factor of 2,49; the next whole
+one clips a sixth of the height. <strong>Source with the sharp-bilinear filter</strong> is the
+edge-to-edge answer — same shape, no border, and the filter squeezes each line
+boundary into a single output pixel so the blocks still look even.</p>
+      <h3 id="it-has-a-shape-now-so-files-get-it-too">It has a shape now, so files get it too</h3>
+      <p><em>Apply to recording, screenshots and camera</em> resamples the picture to square
+pixels on its way out, because a file is a grid and a grid has no room for
+"these pixels are not square". Integer used to be exempt from that pass
+alongside Stretch, on the grounds that it was a promise about pixels. It is
+not: the whole-number factor is worked out
+from the window size, and a file has no window. What it does have is a shape,
+the same one every other mode has, so the exemption is gone and a recording
+comes out 668×504 rather than 668×448.</p>
+    </section>
+
+    <section id="square-pixels">
+      <h2>Square pixels</h2>
+      <p><code>AspectMode::SquarePixels</code>, new in 3.6.3. Every console pixel as wide as it is
+tall — the shape comes out of the grid the console drew, not out of the
+broadcast standard.</p>
+      <p>The standard knows exactly one shape, 4:3, and for most sources that is the
+right answer. A SNES is the case where it is not: it draws 256×224, and 4:3
+means each of those pixels is 8:7, wider than tall. Emulators offer both, and
+plenty of people prefer the square one.</p>
+      <h3 id="where-the-width-comes-from">Where the width comes from</h3>
+      <p>The lines qBlank knows. The columns it cannot: what arrived was a voltage, and
+how often the console switched it is nowhere in the signal. So the number comes
+from <em>Source width</em> under <a href="#the-native-pixel-grid">the native pixel grid</a> — the
+same setting, read a second way.</p>
+      <p>That setting counts across the <strong>whole</strong> active line, while the aspect is about
+the <strong>cropped</strong> picture, so it is scaled in the same proportion first. Without
+that step a GameCube would come out at 640 ÷ 448 = 1,43 instead of the 1,33
+every other mode shows it at.</p>
+      <p>Measured on a PAL60 GameCube, source 720×480 cropped to 668×448, window
+1895×1115:</p>
+      <div class="tbl"><table>
+<tr><th>Source width</th><th>Columns after crop</th><th>Aspect</th><th>Picture</th></tr>
+<tr><td>640 · GameCube</td><td>594</td><td>1,325</td><td>1478×1115</td></tr>
+<tr><td>256 · SNES</td><td>238</td><td>0,530</td><td>591×1115</td></tr>
+<tr><td>not specified</td><td>668</td><td>1,491</td><td>1663×1115</td></tr>
+</table></div>
+      <p>The 640 row lands on the same shape as <code>Source</code>, which is the point: on a
+console that already draws square pixels, the two modes agree. The 256 row is
+that same 448-line frame with a 256-column grid claimed over it — nonsense for
+this signal, and exactly right as arithmetic.</p>
+      <h3 id="not-specified">Not specified</h3>
+      <p>The first entry in <em>Source width</em> used to read "off". It does not switch
+anything off any more: with no number given, square pixels falls back to the
+card's own samples — 668 across, 448 down, 1,49. That is not a fallback so much
+as the question the mode asks, taken literally, and it is what integer scaling
+did on every source until 3.6.2.</p>
+      <p>On an analogue source those samples are never square: 720 across 576 lines is
+narrower than 4:3, 720 across 480 wider. The settings window says so in amber
+under the aspect ratio and points to <em>Source</em> for 4:3, or to <em>Source width</em>.</p>
+      <h3 id="shape-without-snapping">Shape without snapping</h3>
+      <p><em>Snap edges to the grid</em>, under <em>Source width</em>, is on by default. Off, the
+number only sets the shape for square pixels; the picture goes through the
+scaling filter as if no width were given. It is for those who want the shape
+but not the grid mapping. <code>nativeSnap</code> in <code>ImageSettings</code>; the renderer then
+hands the shader a span of 0.</p>
+      <p>AmaRecTV calls this state "not appoint". qBlank calls it <strong>not specified</strong>,
+which is the same thought in English that reads.</p>
+      <h3 id="half-height-sources">Half-height sources</h3>
+      <p><code>coSitedFields_</code> means the card packed a half-height source into a full-height
+interlaced frame, every line stored twice. The source then has half the lines
+the frame does, and the aspect uses that halved count — otherwise a 240p console
+would come out twice as wide as it should. Line doubling needs no such
+correction: it lives in <code>outputHeight_</code>, and the aspect is built from
+<code>croppedHeight_</code>.</p>
+      <p>The remaining aspect modes are <code>Source</code> (use what the card reports),
+<code>Force16x9</code>, <code>Force4x3</code> and <code>Stretch</code> (fill the window, ignore aspect).</p>
+    </section>
+
+    <section id="contrast-adaptive-sharpening">
+      <h2>Contrast adaptive sharpening</h2>
+      <pre><code>float3 sharp = c + (c * 4.0 - n - s - w - e) * (amount * 0.25);
+return clamp(sharp, lo, hi);</code></pre>
+      <p>A cross-shaped unsharp mask, sampled one <strong>source texel</strong> away.</p>
+      <p>The clamp is what makes it adaptive: <code>lo</code> and <code>hi</code> are the minimum and maximum of
+the centre pixel and its four neighbours, so the result can never leave the range
+the neighbourhood already spans. Flat areas stay clean and edges cannot ring,
+which is what separates this from a plain unsharp mask that halos everything.</p>
+      <p>A consequence worth knowing: <strong>a perfect step edge is left alone at any setting.</strong>
+The centre is already the local extreme and the clamp will not push it past its
+own neighbours. There is nothing to sharpen about an edge that is already hard —
+the filter works on the bandwidth-limited ramps a composite signal actually
+delivers.</p>
+      <p>It samples through a linear sampler rather than by texel fetch, because at this
+point in the pipeline the coordinates are fractional anyway.</p>
+      <h3 id="the-offset-used-to-come-from-the-wrong-size">The offset used to come from the wrong size</h3>
+      <p>This line read <code>1.0 / gDstSize</code> until it was measured. <code>uv</code> runs over the
+<strong>source</strong> texture, so an offset of one <em>destination</em> pixel steps
+<code>srcSize / dstSize</code> source texels — less than one whenever the picture is
+enlarged.</p>
+      <p>Both halves then collapse together. The neighbours are sampled between texels, so
+the unsharp sum shrinks; and the clamp is built from those same samples, so its
+headroom shrinks with it. The filter faded out in proportion to how large you
+made the window.</p>
+      <p>Measured against a bandwidth-limited edge on a 720×576 source, mean change per
+pixel across the edge zone at full strength:</p>
+      <div class="tbl"><table>
+<tr><th>Window</th><th>Factor</th><th><code>1/gDstSize</code></th><th><code>1/gSrcSize</code></th></tr>
+<tr><td>720×576</td><td>1×</td><td>0.71 levels</td><td>0.71 levels</td></tr>
+<tr><td>1440×1152</td><td>2×</td><td>0.38</td><td>1.52</td></tr>
+<tr><td>1920×1536</td><td>2.7×</td><td>0.25</td><td>1.55</td></tr>
+<tr><td>2880×2304</td><td>4×</td><td>0.12</td><td>1.77</td></tr>
+<tr><td>3840×3072</td><td>5.3×</td><td><strong>0.06</strong></td><td>1.90</td></tr>
+<tr><td>480×384</td><td>0.67×</td><td>1.43</td><td>0.92</td></tr>
+</table></div>
+      <p>At 1:1 the two agree, which is why the filter was not obviously broken. Beyond
+that it faded to nothing — and at 4K, 0.06 levels out of 255 is invisible. That
+is exactly the regime a 240p or 576i picture is normally watched in.</p>
+      <p>The last row is the other half of the same error: shrinking the picture stepped
+<em>more</em> than one texel, reaching across detail and over-sharpening.</p>
+      <p>Counted in source texels the response holds between 0.7 and 1.9 levels across the
+whole range, which is what a scale-independent sharpener should do.</p>
+      <p>Sharpening is deliberately <strong>not</strong> applied to what the recorder, the screenshots
+or the virtual camera receive. It is a property of viewing at a particular size,
+not a property of the picture.</p>
+    </section>
+
+    <section id="scanlines-and-the-mask">
+      <h2>Scanlines and the mask</h2>
+      <p>Off by default, and meant to stay that way for anyone who wants the signal as
+clean as it arrived. They are here because 240p artwork was drawn for a display
+that had gaps between its lines and a coloured mask over its phosphors, and on a
+modern panel the absence of both is itself a distortion.</p>
+      <p>Like sharpening, both are display-only — a recording takes the intermediate,
+which is upstream of this pass. Baking scanlines into a file at source
+resolution would put the gaps in the wrong places for whoever plays it back.</p>
+      <figure><img src="../crt-scanlines.png" alt="Left: the Super Mario World title screen at 240p, magnified six times. Right: the same picture with scanlines at 0.35" width="1468" height="442" loading="lazy"></figure>
+      <h3 id="scanlines-follow-the-source-not-the-screen">Scanlines follow the source, not the screen</h3>
+      <pre><code>float lines = gSrcSize.y / gLinePitch;
+float scale = gDstSize.y / max(lines, 1.0);
+float room  = saturate((scale - 2.0) * 1.0);
+if (room &lt;= 0.0) return 1.0;
+
+float phase = frac(uv.y * lines);
+float beam  = 0.5 + 0.5 * cos(3.14159265 * (abs(phase - 0.5) * 2.0));
+float dark  = 1.0 - gScanlines * room * (1.0 - beam);
+return dark / (1.0 - gScanlines * room * 0.5);</code></pre>
+      <p>Four decisions:</p>
+      <p><strong>The grid is the source's.</strong> The gaps belong to the signal, not to the monitor
+showing it.</p>
+      <p><strong>And the source's grid is not always the source's height.</strong> <code>gLinePitch</code> is
+output rows per <em>real</em> picture line, and it is a free float rather than a flag.
+Line doubling puts 2 in it, co-sited fields put 2 in it, and a declared source
+line count puts whatever the division comes to — 1080 arriving from a console
+that drew 480 is 2.25, a number no measurement would ever have proposed. Without
+it a scaled capture gets its gaps at 1080-line density, which is not a grid the
+console ever had.</p>
+      <p><strong>Below twice that, it switches off.</strong> There is nowhere to put a gap: the line
+and the gap land inside the same output pixel and the result is moiré, not
+scanlines. It fades in across 2× to 3× rather than appearing abruptly. This gate,
+and not the source's absolute height, is the whole of the limit — see
+<a href="#when-there-is-no-room-it-says-so">what the control says when it hits it</a>.</p>
+      <p><strong>The brightness is put back.</strong> Scanlines darken by construction, so without
+compensation the control is mostly a brightness slider. Dividing by the profile's
+mean keeps it structural. The formula above, at the 0.5 cap, sampled at the rows
+the screen actually shows:</p>
+      <div class="tbl"><table>
+<tr><th>Source → output</th><th>Rows per line</th><th>Gate</th><th>Mean</th><th>Range</th></tr>
+<tr><td>240p → 1440p</td><td>6.00</td><td>on</td><td>1.000</td><td>0.71–1.29</td></tr>
+<tr><td>288p → 1440p</td><td>5.00</td><td>on</td><td>1.000</td><td>0.73–1.33</td></tr>
+<tr><td>480p → 1440p</td><td>3.00</td><td>on</td><td>1.000</td><td>0.83–1.33</td></tr>
+<tr><td>576p → 1440p</td><td>2.50</td><td>half</td><td>1.000</td><td>0.86–1.12</td></tr>
+<tr><td>720p → 1440p</td><td>2.00</td><td><strong>off</strong></td><td>1.000</td><td>—</td></tr>
+<tr><td>1080p → 1440p</td><td>1.33</td><td><strong>off</strong></td><td>1.000</td><td>—</td></tr>
+<tr><td>720p → 2160p</td><td>3.00</td><td>on</td><td>1.000</td><td>0.83–1.33</td></tr>
+<tr><td>1080 delivered, 480 declared → 1440p</td><td>3.00</td><td>on</td><td>1.000</td><td>0.83–1.33</td></tr>
+<tr><td>1080 delivered, 480 declared → 2160p</td><td>4.50</td><td>on</td><td>1.000</td><td>0.67–1.31</td></tr>
+</table></div>
+      <p>The ranges are narrower than the analytic 0.667–1.333 because no output row lands
+exactly in the middle of a gap; where one nearly does, at 4.5 rows per line, it
+gets close. The mean is 1.000 in every case, which is the point of the division.</p>
+      <p>The last three rows are the ones that matter for what changed in 3.7. <strong>720p on a
+4K screen has three rows per line</strong> — the effect works there, and hiding the
+control below 576 lines had been hiding a control that would have done its job.
+And a <strong>1080-line delivery declared as 480</strong> lands on exactly the same three rows
+as a real 480p source would, which is the whole purpose of declaring it.</p>
+      <h3 id="say-what-the-console-draws">Say what the console draws</h3>
+      <p><code>ImageSettings::sourceLines</code>, <em>Source lines</em> in the settings, above the two
+sliders. 0 is <em>automatic</em> and means what it always meant: count the lines that
+arrive.</p>
+      <p>It exists because the count cannot always be measured. A card that starts at 720p
+and a dongle with a scaler of its own both hand over 1080 lines from a console
+that drew 480, and nothing in the picture says reliably which of the two numbers
+is real — but the person who plugged the console in knows.</p>
+      <div class="tbl"><table>
+<tr><td>240</td><td>NTSC 240p — SNES, Mega Drive, PS1, N64</td></tr>
+<tr><td>288</td><td>PAL 288p — the same in 50 Hz</td></tr>
+<tr><td>480</td><td>NTSC 480i/p — GameCube, PS2, Dreamcast, Wii</td></tr>
+<tr><td>576</td><td>PAL 576i — the same in 50 Hz</td></tr>
+<tr><td>720, 1080</td><td>for completeness</td></tr>
+</table></div>
+      <p>PAL has more lines than NTSC — 576 against 480, half height 288 against 240 — so
+the same console gives a different number by region. <strong>PAL 60 is the exception</strong>:
+a PAL console in 60 Hz mode draws the NTSC raster, 240 or 480, and keeps PAL
+colour. The lines follow the rate, not the colour.</p>
+      <p>It is a statement about <strong>vertical only</strong>. Horizontally the equivalent is
+<a href="#the-native-pixel-grid">the native pixel grid</a>, and the two do not stand in for
+each other: knowing how many lines a console draws says nothing about what a
+scaler did to the samples along each one. That is why the native grid still
+disappears above 576 lines while the scanlines no longer do.</p>
+      <h3 id="when-there-is-no-room-it-says-so">When there is no room, it says so</h3>
+      <p>The renderer keeps the figure it just used — <code>VideoRenderer::scanlineRoom()</code>,
+output rows per picture line, computed from the window, the crop and the declared
+line count together, because nothing else has all three. Under two, the slider
+prints it:</p>
+      <blockquote>
+<p>No room: the window shows 1.3 rows per picture line, 2 are needed. Make the
+window bigger — or is the line count above right?</p>
+</blockquote>
+      <p>Rotated by 90°, <code>gLinePitch</code> is set to 0 and the scanlines are off by
+construction — they would run sideways — and the control says that instead.</p>
+      <p>Before 3.7 the entire section was hidden above 576 source lines, which meant a
+720p card made the feature invisible rather than inapplicable, and
+<a href="https://github.com/NuclearMeltdown/qBlank/issues/1">issue 1</a> asked twice
+whether it existed. A control that explains its own silence is better than one
+that is missing.</p>
+      <h3 id="the-mask">The mask</h3>
+      <p><code>Mask()</code> tints output pixels in triads — aperture grille (vertical stripes, the
+way a Trinitron worked) or shadow mask (the triads step sideways every other
+line). Same brightness compensation.</p>
+      <figure><img src="../crt-mask.png" alt="Three panels magnified to the pixel: mask off, an aperture grille with its vertical stripes, and a shadow mask whose triads step sideways every other row" width="1480" height="442" loading="lazy"></figure>
+      <p>It needs real output resolution to read as a mask rather than as a colour cast:
+at 1080p over a 240p source each source line is four output pixels tall and a
+triad is three across, which is about the floor.</p>
+      <p>What it does <strong>not</strong> need is any knowledge of the source. <code>Mask()</code> takes
+<code>i.pos.xy</code>, the position in output pixels, and nothing else; a triad is three
+screen pixels wide whatever is being shown. It was hidden above 576 source lines
+until 3.7 for no reason that survives reading the function.</p>
+      <h3 id="both-are-capped-at-05">Both are capped at 0.5</h3>
+      <p>Not a taste judgement — beyond half strength the compensation cannot hold the
+colour. Scanlines and the mask both darken by construction and both divide the
+result by the profile's mean to put the brightness back; the further the trough
+goes, the more the division has to lift the peak, and past 0.5 that lift starts
+clipping channels apart from one another. What arrives is not a stronger effect
+but a colour cast.</p>
+      <p>The setting is clamped on load as well as in the control, so an edited
+configuration file cannot reach past it either.</p>
+      <h3 id="the-lift-is-limited-by-the-brightest-channel">The lift is limited by the brightest channel</h3>
+      <p>Even below 0.5 the compensation must not be allowed to clip, so the gain is
+capped by whatever headroom the pixel actually has:</p>
+      <pre><code>float peak = max(max(rgb.r, rgb.g), rgb.b);
+if (peak &gt; 1e-4) {
+  float headroom = 1.0 / peak;
+  gain = min(gain, max(headroom, 1.0));
+}
+rgb *= gain;</code></pre>
+      <p>Clipping one channel and not the others is what turns a bright area a different
+colour. Capping the gain by the peak channel means the pixel gets darker than
+the ideal compensation would like, which is a change in brightness — and a
+brightness error is far less visible than a hue error. <code>max(headroom, 1.0)</code>
+keeps the cap from ever pulling a pixel <em>below</em> where it started.</p>
+    </section>
+
+    <section id="where-the-picture-lands">
+      <h2>Where the picture lands</h2>
+      <p><code>VideoRenderer::videoRect()</code> reports the rectangle the picture occupies in client
+pixels, which is what the crop overlay, the mouse hit-testing and the toolbar all
+work from.</p>
+      <p><code>SetTopInset()</code> reserves pixels at the top of the window for the toolbar. The
+picture is fitted <em>below</em> them rather than drawn underneath, so the bar never
+covers what you are playing.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="cropping-and-geometry.html"><span>&larr; Previous</span>Cropping and geometry</a>
+      <a class="next" href="freeze-and-compare.html"><span>Next &rarr;</span>Freeze and compare</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

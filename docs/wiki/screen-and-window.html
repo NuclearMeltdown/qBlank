@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen and window — qBlank wiki</title>
+<meta name="description" content="Desktop Duplication, Windows.Graphics.Capture, and exclusive fullscreen.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/screen-and-window.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Screen and window","item":"https://qblank.com/wiki/screen-and-window.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Screen and window</h1>
+    <p class="tag">Desktop Duplication, Windows.Graphics.Capture, and exclusive fullscreen.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#screen">Screen</a>
+      <a href="#window">Window</a>
+      <a href="#hdr">HDR</a>
+      <a href="#options">Options</a>
+      <a href="#exclusive-fullscreen">Exclusive fullscreen</a>
+      <a href="#platforms">Platforms</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/capture/screen_capture.h</code>, <code>src/capture/screen_capture_win32.cpp</code>,
+<code>src/capture/window_capture_win32.cpp</code></p>
+      <p>Since 7.0. <strong>Source → Picture source</strong> takes a monitor or one program's window
+instead of a card. Everything after the capture is the same: the passes, the
+<a href="recording.html">recording</a>, the <a href="recording.html#replay">replay</a>, screenshots, the
+camera. What is about a card, the video standard and the card input, is
+hidden. Since 7.1 an HDR monitor comes in <a href="#hdr">HDR</a>.</p>
+      <figure class="ui"><img src="../shots/screen.png" alt="The Source tab with Screen as picture source: monitor, mouse pointer, preview, hide qBlank from the capture" width="528" height="364" loading="lazy"></figure>
+    </section>
+
+    <section id="screen">
+      <h2>Screen</h2>
+      <p>DXGI Desktop Duplication, on a device of its own on the monitor's adapter.</p>
+      <ul>
+<li>The duplication hands out the desktop's texture whenever something on it
+changed, and the pointer apart from it. Each picture is copied into a slot,
+the pointer drawn over it, and the slot published: <strong>one copy on the GPU</strong>,
+two tiny draws for the pointer.</li>
+<li>Three textures, shared with the renderer
+(<a href="recording.html#hardware-encoders-no-readback"><code>SharedFrames</code></a>); the frame buffer
+only says which is newest. A renderer on another adapter gets RGB32 bytes
+instead, like a card's.</li>
+<li>A frame in which only the pointer moved brings no picture; the last one is
+kept and the pointer drawn again.</li>
+<li>Taken in the monitor's own pixels (qBlank is DPI aware); in eight bits, or
+in <a href="#hdr">HDR</a> on an HDR monitor.</li>
+<li>A monitor that is gone falls back to the primary one. One that changes size
+starts the capture anew.</li>
+</ul>
+    </section>
+
+    <section id="window">
+      <h2>Window</h2>
+      <p>Windows.Graphics.Capture through its ABI headers, on a device on the
+renderer's adapter.</p>
+      <ul>
+<li>The compositor hands each picture to a frame pool, whose handler only wakes
+the capture thread. That copies the part the program draws in into a slot:
+one copy on the GPU, like the screen's.</li>
+<li><strong>Covered</strong> windows still come through, <strong>minimised</strong> ones do not.</li>
+<li>Kept in the config <strong>by program and title</strong>: a window is a new one each time
+the program starts. Not found, it takes that program's frontmost window,
+since a title moves on. A program not running is waited for, every few
+seconds, without a log line.</li>
+<li>A size change counts once the window has held it a moment; dragging the edge
+would otherwise restart the capture at every step.</li>
+<li>Newer systems leave out the pointer, the yellow frame and the rate limit.</li>
+<li>The list is what the taskbar shows: visible, not cloaked, not a tool window,
+with a title; never qBlank's own.</li>
+</ul>
+    </section>
+
+    <section id="hdr">
+      <h2>HDR</h2>
+      <p>Since 7.1. On a monitor Windows runs in HDR, screen and window come as
+<strong>half floats</strong> (RGBA16F, scRGB: linear, 1.0 = 80 nits) instead of eight bits.</p>
+      <ul>
+<li>Asked of the duplication (<code>DuplicateOutput1</code> with FP16 first) and of the
+frame pool (<code>R16G16B16A16Float</code>) only when the monitor is in HDR, as OBS
+does. On an SDR monitor the duplication sends eight bits anyway, and
+WGC's half floats come empty for GDI windows.</li>
+<li>Only where the picture stays on the GPU. Read back to another adapter it
+stays eight bits, brought down by Windows.</li>
+<li>The desktop's SDR white comes from <code>DisplayConfig</code>
+(<code>SDR_WHITE_LEVEL</code>), the peak from <code>IDXGIOutput6::GetDesc1</code>. Shown on the
+HDR tab: <em>Source: HDR, white at … nits</em>. HDR switched, the white slider
+moved or the window taken to another screen restarts the capture; asked
+once a second, as WGC hears nothing of it.</li>
+<li>On an <strong>HDR screen</strong> the picture is shown 1:1. On an <strong>ordinary</strong> one, and in
+SDR recordings and screenshots, the desktop's white is white and brighter
+clips, as in Windows' own SDR copy; tone mapping would sink the white to
+grey. HDR recordings and screenshots keep the range, white at the
+desktop's.</li>
+<li>The pointer is drawn into the half floats in one pass that reads the
+desktop, at the desktop's white; the masked kind inverts what is under it.</li>
+<li>Paper white and source peak are the card's; the screen says its own.</li>
+</ul>
+      <p>Tested on an SDR monitor with forced half floats, through a window that draws
+with a swap chain: picture and colours match the eight-bit capture exactly,
+frame age the same. Desktop Duplication in half floats and the HDR pointer
+want an HDR screen.</p>
+    </section>
+
+    <section id="options">
+      <h2>Options</h2>
+      <div class="tbl"><table>
+<tr><th>Setting</th><th>Does</th></tr>
+<tr><td>Include the mouse pointer</td><td>Drawn in, or not</td></tr>
+<tr><td>Preview</td><td>Off, the window shows only resolution, frame rate and recording time, and redraws less often</td></tr>
+<tr><td>Hide qBlank from the capture</td><td>Screen only, default on: <code>WDA_EXCLUDEFROMCAPTURE</code> keeps qBlank out of every capture, Remote Play and Remote Desktop included. Off, it shows there, and records itself when it stands on the captured screen. Windows 10 2004 and later</td></tr>
+</table></div>
+      <figure class="ui own"><img src="../shots/panel.png" alt="The panel with the preview off: Monitor 1, 2560 × 1440, 144 Hz, 5 fps, and Start recording, Screenshot, Show preview" width="420" height="162" loading="lazy"></figure>
+      <p>The frame rate there counts pictures that changed: a desktop at rest shows few.</p>
+      <p>Sound comes from <strong>System sound without qBlank</strong> in the
+<a href="audio.html#recording-sources">recording sources</a>.</p>
+    </section>
+
+    <section id="exclusive-fullscreen">
+      <h2>Exclusive fullscreen</h2>
+      <p>Older games in exclusive fullscreen own the screen, and Windows shares that
+picture with no capture. qBlank cannot get past it, so it says so:</p>
+      <ul>
+<li>After <strong>2 s</strong> without a frame it asks <code>SHQueryUserNotificationState</code>. Silence
+alone says little: a desktop at rest sends nothing either.</li>
+<li><code>QUNS_RUNNING_D3D_FULL_SCREEN</code> on the captured screen, or the window's program
+in front: a toast, <em>A game holds the picture in exclusive fullscreen</em>, and the
+advice to switch the game to windowed or borderless.</li>
+<li>Over once frames flow again. A stray one now and then does not count;
+Desktop Duplication lets the odd one through meanwhile.</li>
+</ul>
+      <p>Tested with F.E.A.R. 2. A hook into the game, as OBS's game capture does, is
+not part of qBlank.</p>
+    </section>
+
+    <section id="platforms">
+      <h2>Platforms</h2>
+      <p>The header is neutral; the two <code>_win32.cpp</code> files are the platform's.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="high-dynamic-range.html"><span>&larr; Previous</span>High dynamic range</a>
+      <a class="next" href="recording.html"><span>Next &rarr;</span>Recording</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

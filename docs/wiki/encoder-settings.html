@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Encoder settings — qBlank wiki</title>
+<meta name="description" content="One set of names translated into four vendors&#x27; own.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/encoder-settings.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Encoder settings","item":"https://qblank.com/wiki/encoder-settings.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Encoder settings</h1>
+    <p class="tag">One set of names translated into four vendors' own.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#what-each-family-supports">What each family supports</a>
+      <a href="#automatic-means-nothing-is-passed">Automatic means nothing is passed</a>
+      <a href="#rate-control">Rate control</a>
+      <a href="#preset">Preset</a>
+      <a href="#tuning">Tuning</a>
+      <a href="#look-ahead">Look-ahead</a>
+      <a href="#all-encoder-chips">All encoder chips</a>
+      <a href="#adaptive-quantisation">Adaptive quantisation</a>
+      <a href="#multipass">Multipass</a>
+      <a href="#what-is-deliberately-left-alone">What is deliberately left alone</a>
+      <a href="#pixel-format">Pixel format</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/record/recorder.cpp</code>, <code>Recorder::EncoderOptions()</code> and <code>PresetName()</code></p>
+      <figure class="ui"><img src="../settings-encoder.png" alt="The Encoder tab" width="854" height="1080" loading="lazy"></figure>
+      <p>Bitrate alone leaves most of an encoder unused. The settings that matter are
+exposed under <strong>one set of names</strong> and translated into each vendor's own, because
+what NVIDIA calls <code>p1</code>–<code>p7</code>, Intel calls <code>veryfast</code>–<code>veryslow</code> and AMD calls
+three words; and a quality target is <code>qp</code> on one, <code>qp_i</code> on another,
+<code>global_quality</code> on a third and <code>crf</code> in software.</p>
+      <p>They go to the encoder as options when it is opened (<code>avcodec_open2()</code>), as
+name and value; the log line at the start of a recording lists them,
+<code>rc=vbr preset=p5 …</code>. An option the encoder does not know is not an error, but
+it did nothing, so it is logged as ignored.</p>
+    </section>
+
+    <section id="what-each-family-supports">
+      <h2>What each family supports</h2>
+      <div class="tbl"><table>
+<tr><th></th><th>NVENC</th><th>AMF</th><th>Quick Sync</th><th>Software</th></tr>
+<tr><td>Rate control</td><td>CBR, VBR, constant quality</td><td>CBR, VBR, constant quality</td><td>by which of bitrate or quality is given</td><td>CBR, VBR, CRF</td></tr>
+<tr><td>Preset</td><td>seven steps</td><td>three, which the seven fold onto</td><td>seven steps</td><td>seven steps</td></tr>
+<tr><td>Tuning</td><td>quality or low latency</td><td>quality or low latency</td><td>—</td><td>—</td></tr>
+<tr><td>Look-ahead</td><td>yes</td><td>yes</td><td>yes</td><td>—</td></tr>
+<tr><td>Adaptive quantisation</td><td>spatial and temporal</td><td>VBAQ</td><td>MBBRC</td><td>—</td></tr>
+<tr><td>Multipass</td><td>off, quarter, full</td><td>—</td><td>—</td><td>—</td></tr>
+</table></div>
+      <p>Anything an encoder has no opinion about is <strong>greyed out rather than hidden</strong>,
+which says "your card cannot" instead of "qBlank cannot".</p>
+      <p><code>Recorder::FamilyOf()</code> maps an ffmpeg encoder name onto one of four families by
+suffix — <code>_nvenc</code>, <code>_amf</code>, <code>_qsv</code>, and everything else as software. SVT-AV1
+(<code>libsvtav1</code>) is software. H.265 on Quick Sync and AMF (after 7.1.1) uses the
+options of H.264 there; it has not run on real Intel or AMD hardware yet.</p>
+      <p>The <a href="recording.html#lossless">lossless encoders</a> take none of these settings: rate
+control and the rest are greyed out.</p>
+    </section>
+
+    <section id="automatic-means-nothing-is-passed">
+      <h2>Automatic means nothing is passed</h2>
+      <p>Everything defaults to automatic, and automatic means <strong>nothing is passed at
+all</strong>. That is not the same as passing the encoder's default, and it is the only
+honest way to leave something alone: encoder defaults change between ffmpeg
+builds and between driver versions, and hardcoding today's default would silently
+pin behaviour that was never asked for.</p>
+      <p><code>PresetName()</code> returns <code>nullptr</code> for <code>EncoderPreset::Auto</code>, and the caller emits
+nothing.</p>
+    </section>
+
+    <section id="rate-control">
+      <h2>Rate control</h2>
+      <pre><code>case Family::Nvenc:
+  pair("rc", cbr ? "cbr" : vbr ? "vbr" : "constqp");
+  if (quality) pair("qp", qp);
+case Family::Amf:
+  pair("rc", cbr ? "cbr" : vbr ? "vbr_peak" : "cqp");
+  if (quality) { pair("qp_i", qp); pair("qp_p", qp); }
+case Family::Qsv:
+  if (quality) pair("global_quality", qualityLevel);   // no rc at all
+default:
+  if (quality) pair("crf", qualityLevel);
+  if (svtav1 &amp;&amp; cbr) pair("svtav1-params", "rtc=1");
+  if (svtav1 &amp;&amp; vbr) pair("maxrate", "0");</code></pre>
+      <p>Quick Sync has no <code>rc</code>: what it does follows from <strong>which</strong> of bitrate or quality
+it is given.</p>
+      <p>The bitrate side is set on the encoder's context in <code>Open()</code>:</p>
+      <pre><code>const int64_t ceiling = cbr ? kbps : kbps * 3 / 2;
+v-&gt;bit_rate = kbps * 1000;
+v-&gt;rc_max_rate = ceiling * 1000;
+v-&gt;rc_buffer_size = ceiling * 2000;</code></pre>
+      <p><strong>Constant bitrate means constant</strong> — the ceiling <em>is</em> the bitrate. Variable is
+allowed to peak at half again, which is what makes it worth choosing over CBR at
+all.</p>
+      <p><strong>Constant quality sends no bitrate</strong> (<code>bit_rate = 0</code>). A quality target and a
+bitrate are contradictory instructions and the encoders resolve them by quietly
+ignoring one; better to send only one.</p>
+      <h3 id="svt-av1-constant-only-in-real-time">SVT-AV1: constant only in real time</h3>
+      <p>SVT-AV1 takes a ceiling only with <code>crf</code>, so variable goes without one
+(<code>maxrate=0</code>). Constant it refuses in its normal structure (random access) and
+quietly ran as variable up to 7.1. It holds constant only in its real-time mode
+(<code>rtc=1</code>), and that mode is made for presets 10 to 12. Measured with ffmpeg at
+1080p60 on 16 threads, noisy picture:</p>
+      <div class="tbl"><table>
+<tr><th>Preset</th><th>Real time, CBR</th><th>Random access, VBR</th></tr>
+<tr><td>12</td><td>91 fps</td><td>—</td></tr>
+<tr><td>11</td><td>90 fps</td><td>—</td></tr>
+<tr><td>10</td><td>73 fps</td><td>141 fps</td></tr>
+<tr><td>9</td><td>62 fps</td><td>111 fps</td></tr>
+<tr><td>8</td><td>26 fps</td><td>83 fps</td></tr>
+</table></div>
+      <p>So constant goes in real time, with its own presets (see below). At 6000 kbit/s
+every second lands between 5850 and 6300; on easy pictures it stays under, as
+there is no padding. It costs little picture: PSNR 32.00 against 32.12 dB at
+6000 kbit/s, 31.79 against 32.03 at 3000. In qBlank at 1080p60 the default
+left out no frame, the slowest step one on a keyframe; 10-bit works the same.
+The settings say so under the rate control.</p>
+      <h3 id="one-quality-scale-for-every-encoder">One quality scale for every encoder</h3>
+      <p>The level is the number <code>crf</code> takes in software, and the hardware encoders get
+the same meaning in their own terms:</p>
+      <ul>
+<li><strong>NVENC listens to <code>qp</code>.</strong> Up to 6.0 it was handed <code>cq</code>, which belongs to
+<code>vbr</code> and which <code>constqp</code> ignores: every quality level gave the same file.
+Measured since, HEVC at 15 against 40: 38 against 25 kB, colour error a third.</li>
+<li><strong>AV1 in hardware counts to 255</strong>, against 63 for the software AV1 encoders'
+<code>crf</code>. Four of one are one of the other, so NVENC and AMF get the level times
+four (<code>av1_</code> in the name) and it means the same whichever AV1 encoder it goes
+to.</li>
+</ul>
+      <h3 id="both-numbers-sit-under-the-setting-that-decides-between-them">Both numbers sit under the setting that decides between them</h3>
+      <p>Bitrate used to live in the Recording tab and quality here, which made a pair of
+settings unreadable: at constant quality the encoder ignores the bitrate
+entirely, and the slider for it was one tab away, fully operable and doing
+nothing at all.</p>
+      <p>Both are now directly under the rate control combo, and whichever does not apply
+is <strong>greyed out rather than hidden</strong> — the same argument as everywhere else on
+this page. Greyed out says "not in effect here"; hidden says nothing, and makes
+the page jump as well. The help marker on the disabled one says which setting
+takes over.</p>
+      <p>The bitrate slider is <strong>logarithmic</strong>. Its range is 1000 to 100000 kbit/s, and
+laid out linearly the part a card like this actually lands in — 1 to 10 Mbit —
+took nine percent of the track, with the other ninety percent reserved for
+hardware that is not in the machine. Logarithmic gives the used range half the
+track. Next to it is a number field, because a slider gets close and this is a
+number people often want exactly; Ctrl+click on the slider does the same thing,
+but nobody finds that who is not told. Both are clamped to the same range.</p>
+    </section>
+
+    <section id="preset">
+      <h2>Preset</h2>
+      <p>Seven steps, 0 fastest to 6 slowest.</p>
+      <div class="tbl"><table>
+<tr><th>Step</th><th>NVENC</th><th>Quick Sync</th><th>Software</th><th>AMF</th><th>SVT-AV1</th><th>SVT-AV1 constant</th></tr>
+<tr><td>0</td><td><code>p1</code></td><td><code>veryfast</code></td><td><code>ultrafast</code></td><td><code>speed</code></td><td><code>9</code></td><td><code>12</code></td></tr>
+<tr><td>1</td><td><code>p2</code></td><td><code>faster</code></td><td><code>veryfast</code></td><td><code>speed</code></td><td><code>8</code></td><td><code>12</code></td></tr>
+<tr><td>2</td><td><code>p3</code></td><td><code>fast</code></td><td><code>faster</code></td><td><code>balanced</code></td><td><code>7</code></td><td><code>11</code></td></tr>
+<tr><td>3</td><td><code>p4</code></td><td><code>medium</code></td><td><code>medium</code></td><td><code>balanced</code></td><td><code>6</code></td><td><code>11</code></td></tr>
+<tr><td>4</td><td><code>p5</code></td><td><code>slow</code></td><td><code>slow</code></td><td><code>quality</code></td><td><code>5</code></td><td><code>10</code></td></tr>
+<tr><td>5</td><td><code>p6</code></td><td><code>slower</code></td><td><code>slower</code></td><td><code>quality</code></td><td><code>4</code></td><td><code>10</code></td></tr>
+<tr><td>6</td><td><code>p7</code></td><td><code>veryslow</code></td><td><code>veryslow</code></td><td><code>quality</code></td><td><code>3</code></td><td><code>9</code></td></tr>
+</table></div>
+      <p>AMF has three names, so the seven steps fold onto them. AMF also spells the
+option <code>quality</code> rather than <code>preset</code>.</p>
+      <p>SVT-AV1 numbers its presets, lower is slower. 10 and up warn of artefacts
+outside its real-time mode, 12 is the same as 11, so the fastest step is 9.
+Measured with ffmpeg at 1080p60 on 16 threads: 9 at 128 fps, 8 at 101, 7 at 68;
+x265 <code>veryfast</code> at 82 for comparison. Constant runs in real time, which falls
+under 60 fps below 10, so there the seven steps fold onto 12 to 9.</p>
+      <h3 id="the-old-speed-setting">The old speed setting</h3>
+      <p>Software encoders had a <code>speed</code> setting before presets existed. It still applies,
+but only when the new preset is left on automatic:</p>
+      <pre><code>if (const char* preset = PresetName(family, settings.preset)) {
+  pair(family == Family::Amf ? "quality" : "preset", preset);
+} else if (family == Family::Software) {
+  pair("preset", RecordSpeedName((int)settings.speed));
+}</code></pre>
+      <p>Nobody's existing configuration changes meaning. For SVT-AV1 the speed setting
+takes the same steps as the table, <code>ultrafast</code> to <code>medium</code> being 9 to 5; the
+default <code>veryfast</code> is 8, or 12 for constant.</p>
+    </section>
+
+    <section id="tuning">
+      <h2>Tuning</h2>
+      <div class="tbl"><table>
+<tr><th></th><th>Quality</th><th>Low latency</th></tr>
+<tr><td>NVENC</td><td><code>tune=hq</code></td><td><code>tune=ll</code></td></tr>
+<tr><td>AMF</td><td><code>usage=transcoding</code></td><td><code>usage=lowlatency</code></td></tr>
+</table></div>
+      <p>Nothing for Quick Sync or software.</p>
+    </section>
+
+    <section id="look-ahead">
+      <h2>Look-ahead</h2>
+      <div class="tbl"><table>
+<tr><td>NVENC</td><td><code>rc-lookahead=</code> 8, 16, 24 or 32</td></tr>
+<tr><td>Quick Sync, H.264</td><td><code>look_ahead=1</code></td></tr>
+<tr><td>Quick Sync, H.265 and AV1</td><td><code>extbrc=1 look_ahead_depth=</code> 8, 16, 24 or 32</td></tr>
+<tr><td>AMF</td><td><code>preanalysis=1</code></td></tr>
+</table></div>
+      <p>Up to 7.1.1 Quick Sync got <code>look_ahead=1</code> for AV1 as well. <code>av1_qsv</code> has no
+such option, so look-ahead did nothing there.</p>
+      <p>Look-ahead lets the encoder see future frames before deciding how to spend bits
+on the current one. It costs latency inside the encoder, which does not matter
+here — the recording is already a couple of frames behind the screen and the
+screen is not affected.</p>
+      <h3 id="frames-ahead">Frames ahead</h3>
+      <p>NVENC since 7.1, before that the depth was always 32; Quick Sync with H.265 and
+AV1 after 7.1.1. <strong>Frames ahead</strong> picks 8, 16, 24 or 32, greyed out while
+look-ahead is off. A value from a hand-edited
+file is rounded up to the next eight.</p>
+      <p>The frames are memory. Measured with ffmpeg on AV1 at 1440p, p7, AQ and
+full-resolution multipass, peak private bytes:</p>
+      <div class="tbl"><table>
+<tr><th>Frames ahead</th><th>0</th><th>8</th><th>16</th><th>24</th><th>32</th></tr>
+<tr><td>MB</td><td>778</td><td>780</td><td>825</td><td>950</td><td>1072</td></tr>
+</table></div>
+      <p>About 15 MB per frame over 8. What the extra frames buy in quality has not been
+measured.</p>
+    </section>
+
+    <section id="all-encoder-chips">
+      <h2>All encoder chips</h2>
+      <p><code>split_encode_mode=forced</code>, NVENC with H.265 and AV1, since 7.0, off by
+default. Larger cards carry more than one NVENC; a frame normally goes to one
+of them. With <strong>All encoder chips</strong> the driver cuts each frame into one strip
+per chip.</p>
+      <p>Measured on an RTX 4080, AV1 at 1440p, preset p7: <strong>110 → 183 fps</strong>. At the
+same data rate a little less quality, at the strip edges. No effect with one
+chip; greyed out for H.264, which cannot be split.</p>
+    </section>
+
+    <section id="adaptive-quantisation">
+      <h2>Adaptive quantisation</h2>
+      <p>Spending bits where the eye looks rather than evenly across the frame.</p>
+      <div class="tbl"><table>
+<tr><td>NVENC</td><td><code>spatial-aq=1 temporal-aq=1</code></td></tr>
+<tr><td>AMF</td><td><code>vbaq=1</code></td></tr>
+<tr><td>Quick Sync</td><td><code>mbbrc=1</code></td></tr>
+</table></div>
+    </section>
+
+    <section id="multipass">
+      <h2>Multipass</h2>
+      <p>NVENC only.</p>
+      <div class="tbl"><table>
+<tr><td>Off</td><td><code>multipass=disabled</code></td></tr>
+<tr><td>Quarter resolution</td><td><code>multipass=qres</code></td></tr>
+<tr><td>Full resolution</td><td><code>multipass=fullres</code></td></tr>
+</table></div>
+    </section>
+
+    <section id="what-is-deliberately-left-alone">
+      <h2>What is deliberately left alone</h2>
+      <p><strong>Keyframe interval and B-frames.</strong> Both are left to the encoder. The encoders'
+own defaults are sensible for a recording that will be played back linearly, and
+exposing them would mean explaining GOP structure in a settings tab to solve a
+problem nobody recording gameplay actually has.</p>
+    </section>
+
+    <section id="pixel-format">
+      <h2>Pixel format</h2>
+      <p>4:2:0 by default: <code>nv12</code> for SDR, the one format every hardware encoder and every
+player agrees on, and ten bits when the recording keeps the HDR range, with the
+three colour description flags. See <a href="high-dynamic-range.html">High dynamic range</a>.</p>
+      <p><strong>Full colour resolution (4:4:4)</strong>, since 6.1 (<code>record.fullChroma</code>, off by
+default), keeps a colour sample for every pixel. 4:2:0 keeps one per four, which
+is fine for a camera and loses detail on an HDMI or RGB source: coloured text and
+pixel edges smear by a pixel. Measured against the screenshot of the same frame,
+the colour error on coloured pixels drops to about a fifth. Latency and CPU are
+unchanged; the conversion is the same pass on the GPU.</p>
+      <div class="tbl"><table>
+<tr><th>Encoder</th><th>8 bit</th><th>10 bit (HDR)</th></tr>
+<tr><td>NVENC H.264</td><td>yes</td><td>—</td></tr>
+<tr><td>NVENC HEVC</td><td>yes</td><td>yes</td></tr>
+<tr><td>x264, x265</td><td>yes</td><td>yes</td></tr>
+<tr><td>Quick Sync, AMF, all AV1</td><td>—</td><td>—</td></tr>
+</table></div>
+      <p>That is what the <a href="ffmpeg.html#working-out-what-the-hardware-can-do">encoder probe</a>
+tests, per machine. An encoder that cannot greys the switch out; one that can only
+at eight bits records HDR in 4:2:0 and the tab says so. A recording started with
+the switch on that ends up in 4:2:0 anyway says so in a toast.</p>
+      <p>The price is elsewhere: larger files, and browsers, phones and most editors
+cannot play 4:4:4. VLC and mpv can. x265 at 4:4:4 on a slow preset is too much
+for most CPUs.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="recording.html"><span>&larr; Previous</span>Recording</a>
+      <a class="next" href="ffmpeg.html"><span>Next &rarr;</span>ffmpeg</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

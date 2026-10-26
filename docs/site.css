@@ -386,3 +386,24 @@ a.card:hover{text-decoration:none}
   .side th:first-child{width:110px}
 }
 @media (prefers-reduced-motion:reduce){.lang:hover{transform:none}}
+
+/* ------------------------------------------------------------------- wiki */
+/* The GitHub wiki, made into pages by tools/wiki_site.py. It brings what the
+   hand-written pages do not have: code, quotes and tables of any width, which
+   scroll on their own rather than take the page with them. */
+.wiki main{overflow-wrap:break-word}
+.wiki code{font:.86em ui-monospace,"Cascadia Mono",Consolas,monospace;padding:.1em .35em;border:1px solid var(--line);border-radius:5px;background:var(--bg-raised)}
+.wiki pre{margin:14px 0;padding:14px 16px;overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--bg-raised);font:.82rem/1.6 ui-monospace,"Cascadia Mono",Consolas,monospace;tab-size:4}
+.wiki pre code{font:inherit;padding:0;border:0;background:none}
+.wiki blockquote{margin:14px 0;max-width:720px;padding:12px 18px;border-left:3px solid var(--accent);border-radius:0 10px 10px 0;background:var(--bg-raised);color:var(--dim)}
+.wiki .src{color:var(--dim);font-size:.9rem}
+.wiki .tbl{overflow-x:auto;margin:14px 0 4px}
+.wiki .tbl table{margin:0}
+.wiki td{vertical-align:top}
+.wiki li ul,.wiki li ol{margin-top:4px}
+.wiki :is(ul,ol,pre,.tbl,blockquote) + p,.wiki li > p + p{margin-top:12px}
+.wiki h4{font-size:.95rem;font-weight:640;margin:20px 0 6px}
+.pager{display:flex;gap:18px;justify-content:space-between;padding-top:22px;border-top:1px solid var(--line)}
+.pager a{display:block;max-width:48%;font-weight:600}
+.pager .next{margin-left:auto;text-align:right}
+.pager span{display:block;margin-bottom:2px;color:var(--dim);font-size:.78rem;font-weight:400;letter-spacing:.05em;text-transform:uppercase}

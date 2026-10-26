@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ffmpeg — qBlank wiki</title>
+<meta name="description" content="Loading its libraries, downloading them, and probing what the hardware can do.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/ffmpeg.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"ffmpeg","item":"https://qblank.com/wiki/ffmpeg.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>ffmpeg</h1>
+    <p class="tag">Loading its libraries, downloading them, and probing what the hardware can do.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#loading-it">Loading it</a>
+      <a href="#downloading-it">Downloading it</a>
+      <a href="#updating-it">Updating it</a>
+      <a href="#working-out-what-the-hardware-can-do">Working out what the hardware can do</a>
+      <a href="#the-two-automatic-modes">The two automatic modes</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/record/libav.cpp</code>, <code>src/record/ffmpeg_locator.cpp</code>, <code>src/record/ffmpeg_download.cpp</code></p>
+      <p>Three things require ffmpeg's libraries: <strong>recording</strong>, <strong>remuxing to MP4</strong>, and
+<strong>HDR screenshots in AVIF</strong>, which go through libaom.</p>
+      <p>Nothing else does. SDR screenshots go through Windows Imaging Component
+precisely so they still work on a fresh machine where nobody has pressed the
+download button yet, and so does the other HDR format — Windows ships the JPEG
+XR encoder — so an HDR still can be saved without ffmpeg by choosing that one
+instead. The preview, the composite filters, deinterlacing and the virtual
+camera never touch it.</p>
+      <p>ffmpeg lives at the top of the Encoder tab rather than buried in it, so the
+option to install it is the first thing visible when it is missing. That
+placement is deliberate and was restored after being accidentally removed once.</p>
+    </section>
+
+    <section id="loading-it">
+      <h2>Loading it</h2>
+      <p>Since 6.1 qBlank does not run <code>ffmpeg.exe</code>; it loads four of its libraries into
+itself and calls them (see <a href="recording.html#in-the-process-not-beside-it">Recording</a>
+for why):</p>
+      <div class="tbl"><table>
+<tr><th>File</th><th>For</th></tr>
+<tr><td><code>avcodec-63.dll</code></td><td>The encoders</td></tr>
+<tr><td><code>avformat-63.dll</code></td><td>MKV and MP4, writing and reading</td></tr>
+<tr><td><code>avutil-61.dll</code></td><td>Frames, buffers, options, the log</td></tr>
+<tr><td><code>swresample-7.dll</code></td><td>The recording sources onto the recording's clock</td></tr>
+</table></div>
+      <p>They are looked for in one place only: the <code>ffmpeg</code> folder next to
+<code>qBlank.exe</code>, where the download puts them. Not in <code>PATH</code>, and there is no path
+setting any more. A library is code running inside qBlank, and one that happens
+to be lying somewhere is not one to load.</p>
+      <p><code>LoadLibav()</code> loads all four or none, resolves every function qBlank calls, and
+checks each library's major version against the one the headers in
+<code>third_party/ffmpeg</code> were written for. The file name carries the number already,
+but a file can be named anything. A library of another major has another layout
+for its structures, and reading those wrongly does not fail cleanly. It
+explains itself instead: <code>avcodec-63.dll is version 62, 63 is needed.</code></p>
+      <p>Once loaded they stay loaded until qBlank exits. Only finding them happens at
+startup; the encoder probe is separate, because it takes seconds.</p>
+      <p>ffmpeg's own log goes into qBlank's: its errors as warnings, and the first error
+on a thread is kept, so that a failed call can say what went wrong in ffmpeg's
+words instead of a number. The encoder probe turns that off while it tests,
+because failing is what half of it is for.</p>
+    </section>
+
+    <section id="downloading-it">
+      <h2>Downloading it</h2>
+      <p>The button in the Encoder tab, or from the command line:</p>
+      <pre><code>qBlank.exe --fetch-ffmpeg</code></pre>
+      <p>What it fetches is the <strong>shared build</strong> from
+<a href="https://github.com/GyanD/codexffmpeg">GyanD/codexffmpeg</a>, the GitHub releases
+of the gyan.dev builds. Shared means the libraries come as DLLs, which the
+essentials build qBlank used to fetch does not have.</p>
+      <p><code>FfmpegDownloader::Start()</code> runs on a worker thread and does five things:</p>
+      <ol>
+<li><strong>Asks GitHub which release is newest</strong>, among the tags of the major the
+headers belong to (<code>git/matching-refs/tags/9.</code>), and then that release for
+its file list.</li>
+<li><strong>Takes the checksum from the same answer.</strong> GitHub publishes a SHA-256 for
+every file it holds (<code>digest</code>), so it comes from GitHub and not from the file
+it is checking.</li>
+<li><strong>Downloads the archive</strong> straight to disk, <code>ffmpeg-&lt;version&gt;-full_build-shared.7z</code>,
+57 MB. Where the system's <code>tar</code> cannot read 7z the zip instead, 95 MB.</li>
+<li><strong>Verifies SHA-256</strong> with <code>BCrypt</code>, streaming the file rather than loading it.</li>
+<li><strong>Extracts only the four libraries</strong> into <code>ffmpeg\new</code>, deletes the archive,
+and writes a <code>complete</code> file with the version into the folder. Unpacked they
+are about 120 MB, most of it avcodec.</li>
+</ol>
+      <p>Then they move in, <strong>all four or none</strong>: each installed one steps aside as
+<code>.old</code>, the new one takes its name, and if any rename fails every one is put
+back. A loaded library cannot be written over but can be renamed, so this
+works with them in use — but then the process would be running one set and
+holding the next, and qBlank does not mix them. So:</p>
+      <ul>
+<li><strong>Nothing loaded yet</strong>, the first download: in at once. ffmpeg is located
+again as soon as no recording or encoder test is running, and the tab shows
+it.</li>
+<li><strong>Already loaded</strong>, an update: it waits in <code>ffmpeg\new</code>, and the next start
+moves it in before anything is loaded. The tab says <em>takes over at the next
+start</em>.</li>
+</ul>
+      <p>A <code>new</code> folder without <code>complete</code> is a download that did not finish, and it is
+deleted. The <code>.old</code> files go once nothing has them open; and the <code>ffmpeg.exe</code>
+earlier versions downloaded goes once the libraries have taken its place.</p>
+      <p><code>StartVersionCheck()</code> does only the first step: which version the download would
+fetch, without downloading anything, on the same worker.</p>
+    </section>
+
+    <section id="updating-it">
+      <h2>Updating it</h2>
+      <p>The check compares that version with the one the libraries report
+(<code>av_version_info()</code>: <code>9.0.2-full_build-www.gyan.dev</code>, the release number at
+the front). A git build writes a date there instead and is never offered an
+update, because there is no release to compare it with.</p>
+      <ul>
+<li><strong>Settings:</strong> when a newer release is out, the version shows in amber and the
+button reads <strong>Update to X</strong>.</li>
+<li><strong>At startup:</strong> with "Check for updates at startup" on, the check runs next to
+the one for qBlank. A newer release raises a popup once per session:
+<strong>Update</strong> or <strong>Later</strong>. Hidden while the download runs, the result comes as a
+toast.</li>
+</ul>
+      <p>Only the major the headers were written for is ever offered: 9.0.3, 9.1, never
+10.0. A new major can change the structures qBlank reads, so it arrives with a
+qBlank release that brings its headers, and that release's downloader fetches
+it. Up to 6.0 a new major only raised a note to make a test recording, because
+the command line it ran could cope with most of what changed.</p>
+      <h3 id="why-downloading-rather-than-bundling">Why downloading rather than bundling</h3>
+      <p>Three reasons, and the licence is not the first of them.</p>
+      <p><strong>It is the user's call whether ffmpeg is on the machine at all.</strong> Recording,
+remuxing and AVIF screenshots are the only things that need it; everything
+else — the preview, the composite filters, deinterlacing, the virtual camera,
+SDR screenshots — runs without. Somebody who only ever watches should not have
+120 MB installed on their behalf. And qBlank stays one file of about 3 MB, which
+is most of what makes "download it and run it" true.</p>
+      <p><strong>A bundled copy would age.</strong> The download fetches the newest release there is,
+so pressing the button on a machine today produces a current build regardless
+of how old the qBlank release is. A binary committed to the repository would sit
+at the version it was committed at, and keeping it current would mean
+re-committing it — or building ffmpeg from source as part of this project, which
+is a second project. This one is not tied to the ffmpeg release cycle and should
+not become tied to it.</p>
+      <p>The licence is the third reason and it has since become the weakest one. The
+shared build contains x264 and x265 and is configured <code>--enable-gpl --enable-version3</code>, so it is GPL 3 — the same terms as qBlank, which loading it
+makes a GPL 3 work as a whole. Shipping the two together would no longer be
+awkward; it still does not happen, because the first reason did not change. The
+headers in the repository are LGPL 2.1 or later and contain no code of their
+own; see <code>THIRD-PARTY.md</code>.</p>
+    </section>
+
+    <section id="working-out-what-the-hardware-can-do">
+      <h2>Working out what the hardware can do</h2>
+      <p>The list of encoders in the library is not enough. It lists what the <strong>build</strong>
+was compiled with, not what the <strong>hardware</strong> can do: a build with <code>h264_nvenc</code>
+on a machine with an AMD card lists it happily and then fails at record time.</p>
+      <p>So each candidate gets a <strong>two frame test encode</strong> of mid grey, flushed so it
+has to produce its packets, in the pixel format the recorder will hand it. That
+takes a moment and tells the truth.</p>
+      <p>Two entry points:</p>
+      <ul>
+<li><strong><code>ProbeEncoders()</code></strong> — the full list, several seconds. This is the "Test
+encoders" button, run on demand and never at startup.</li>
+<li><strong><code>EnsureUsableEncoder()</code></strong> — tests only as much as is needed to answer "can I
+record right now": the requested encoder, or for automatic the preference order
+until one works. Results are remembered, so a second call costs nothing.</li>
+</ul>
+      <p>Since 6.1 an encoder that passes is tried once more in <strong>4:4:4</strong>, eight bits and
+then ten, if it can do it at all (<code>FullChromaCandidate()</code>: H.264 and H.265 on
+NVENC and the CPU; Quick Sync, AMF and AV1 take 4:2:0 only and are not asked).
+The log says <code>Encoder &lt;name&gt; 4:4:4: 8 bit ok, 10 bit ok</code>. See
+<a href="encoder-settings.html#pixel-format">Encoder settings</a>.</p>
+      <p>A failed test says why in the log, in the encoder's own words:
+<code>Encoder h264_amf: not available - Not in this build</code>, or the driver's
+<code>No capable devices found</code>.</p>
+      <p>The result is stored in the configuration (<code>encodersAvailable</code>,
+<code>encodersFullChroma</code>, <code>encodersFullChroma10</code>) and reused on subsequent starts.
+<code>ApplyCachedProbe()</code> fills the list back in from the stored values, so the tab
+shows what this machine can actually do without re-running anything. A cache
+from before 6.1 has no 4:4:4 answers; the tab then says to test again.</p>
+      <p>"Test encoders" starts from the full list every time. Before 6.1 it reused the
+previous answers and so changed nothing on a second press.</p>
+      <p>It is <strong>discarded when the graphics adapter or the ffmpeg build changes</strong> — both
+of those invalidate every answer in it. The signature also carries a number that
+goes up when qBlank learns new encoders, so an old cache does not hide them; 3
+since H.265 on Quick Sync and AMF and SVT-AV1.</p>
+    </section>
+
+    <section id="the-two-automatic-modes">
+      <h2>The two automatic modes</h2>
+      <p>There is no scoring. Which order applies is the user's choice, because the two
+goals genuinely conflict: AV1 is the better codec and the one an older television
+cannot play.</p>
+      <div class="tbl"><table>
+<tr><th>Mode</th><th>Order</th><th>Suited to</th></tr>
+<tr><td>Plays anywhere</td><td>H.264, H.265, AV1</td><td>Files that open on any phone, television or editor</td></tr>
+<tr><td>Smaller files</td><td>AV1, H.265, H.264</td><td>The same quality at a fraction of the size</td></tr>
+</table></div>
+      <p>Hardware encoders precede the CPU encoders in both orders. Each mode takes the
+first entry of its order that passed the test.</p>
+      <p>SVT-AV1 is only ever chosen by hand. Live at 1080p60 it wants a big CPU, and a
+machine with one nearly always has a graphics card that encodes AV1 itself.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="encoder-settings.html"><span>&larr; Previous</span>Encoder settings</a>
+      <a class="next" href="audio.html"><span>Next &rarr;</span>Audio</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

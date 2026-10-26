@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cropping and geometry — qBlank wiki</title>
+<meta name="description" content="Automatic border detection, rotation, line doubling, aspect.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/cropping-and-geometry.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Cropping and geometry","item":"https://qblank.com/wiki/cropping-and-geometry.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Cropping and geometry</h1>
+    <p class="tag">Automatic border detection, rotation, line doubling, aspect.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#manual-crop">Manual crop</a>
+      <a href="#automatic-crop-the-detect-button">Automatic crop: the Detect button</a>
+      <a href="#a-crop-is-dropped-when-the-source-changes-size">A crop is dropped when the source changes size</a>
+      <a href="#line-doubling">Line doubling</a>
+      <a href="#rotation">Rotation</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/render/video_renderer.cpp</code> (<code>AnalyzeContentBounds</code>), <code>src/render/shaders.h</code>
+(pass 2)</p>
+      <p>Crop, line doubling and rotation all happen in pass 2, before scaling. That
+ordering is what makes them appear in recordings and screenshots as well as in
+the window — <code>outputWidth()</code> / <code>outputHeight()</code> report the size <em>after</em> all
+three, and that is the size everything outside the shader works with.</p>
+    </section>
+
+    <section id="manual-crop">
+      <h2>Manual crop</h2>
+      <p>Dragged on the picture itself. The four edges are stored per profile in source
+pixels, and the overlay converts between window coordinates and source
+coordinates through <code>videoRect()</code>.</p>
+      <h3 id="the-dimming-used-to-swallow-the-toolbar">The dimming used to swallow the toolbar</h3>
+      <p>Dragging a crop edge over the overlay's own Apply and Cancel controls turned
+them too dark to read — precisely when you were reaching for them. Fixed in 1.9,
+and it was one word:</p>
+      <pre><code>ImDrawList* dl = ImGui::GetBackgroundDrawList();   // was GetForegroundDrawList</code></pre>
+      <p>ImGui assembles its draw data as <strong>background lists, then windows, then
+foreground lists</strong>. Both extra lists sit over the video regardless — the picture
+does not come from ImGui at all, it is already in the back buffer before any of
+this is drawn — but only the background list sits <em>under</em> the toolbar, which is
+an ordinary window.</p>
+      <p>On the foreground list, the four dimming rectangles were painted over the
+toolbar. The idle screen in <code>overlay.cpp</code> had the ordering right all along; the
+crop overlay simply asked for the wrong list.</p>
+    </section>
+
+    <section id="automatic-crop-the-detect-button">
+      <h2>Automatic crop: the Detect button</h2>
+      <p><code>AnalyzeContentBounds()</code> runs continuously on the CPU over the raw capture
+buffer, and Detect applies what it has measured — unless too much of the picture
+would go, which is its own section below.</p>
+      <p>It is on three things, because the moment you want it is rarely the moment you
+have a settings window open: the <strong>Detect</strong> button in the settings, the entry in
+the right-click menu, and <strong>F8</strong>.</p>
+      <h3 id="what-counts-as-picture">What counts as picture</h3>
+      <pre><code>static const int kContentLuma = 24;</code></pre>
+      <p>Anything above that is picture rather than border. Analogue black does not
+arrive at zero and it is not quiet, so the bar sits a little above where the
+blacker-than-black of a limited range signal would be.</p>
+      <h3 id="rows-first">Rows first</h3>
+      <pre><code>const int minRun = max(w / (50 * kBoundsColumnStep), 2);</code></pre>
+      <p>A row counts as picture only when a decent stretch of it — about 2 % of the
+columns sampled — is above black. One bright speck of analogue noise in the
+letterbox must not widen the crop.</p>
+      <p>Rows are scanned every second line, columns every second pixel
+(<code>kBoundsColumnStep = 2</code>). Each lit pixel also votes for its column in
+<code>columnHits_</code>.</p>
+      <h3 id="then-columns">Then columns</h3>
+      <pre><code>const int minCol = max(litRows / 20, 1);</code></pre>
+      <p>A column has to be lit in at least 5 % of the rows that carry picture at all.
+Same idea the other way round.</p>
+      <p>An entirely black frame returns early and says nothing.</p>
+      <h3 id="the-edge-of-the-signal-is-not-picture">The edge of the signal is not picture</h3>
+      <p>An analogue frame does not stop cleanly at its last line. Measured on a GameCube
+in PAL60 through a PEXHDCAP60L: the bottom line of the 480-line frame is <strong>green
+82 across the full width</strong>, then fourteen black lines, then the picture.</p>
+      <p>A search for what is not black reads that line as picture. Until 3.6.2 it did:
+the bottom border came out as nothing, and since the line is lit in every column
+it dragged both side edges out to the frame as well — <code>x 0..718</code> on a signal
+whose picture ends at 681.</p>
+      <pre><code>static const int kEdgeNoiseMax = 4;  // how thick the strip may be, in lines
+static const int kEdgeNoiseGap = 8;  // and how much black has to follow it</code></pre>
+      <p><code>SkipEdgeNoise()</code> walks in from one end of the lit/unlit mask. A strip up to four
+lines thick with at least eight black lines behind it is the signal ending, and
+the search for picture starts on the far side of it. A thicker strip, or one
+joined to the picture, is picture. Both scans use it, from all four sides.</p>
+      <p>If there is nothing at all behind the strip, the frame holds the signal ending
+and no picture, and it is discarded like an entirely black one. Fades and scene
+changes are full of these, and with the union below taking five frames, one of
+them was enough to put the edge back on the last line — which is why the same
+signal would crop correctly for a while and then stop.</p>
+      <p>The rows dropped this way have already voted in <code>columnHits_</code>. Rather than scan
+the picture a second time, which this analysis cannot afford, those few lines
+are read again and subtracted.</p>
+      <h3 id="accumulated-as-a-union">Accumulated as a union</h3>
+      <pre><code>if (left &lt; accL_) accL_ = left;   // and so on for all four edges</code></pre>
+      <p>The result is the <strong>union</strong> across five sampled frames, because a fade to black
+is not evidence that the picture got smaller. Only after
+<code>kBoundsFramesWanted = 5</code> windows is the accumulated rectangle published, and
+the accumulator resets.</p>
+      <p>The bounds are logged only when they <em>move</em>, not every window — the border is a
+fixed property of the signal, so a line that keeps reappearing in the log means
+something is wrong.</p>
+      <h3 id="why-it-samples-so-sparsely">Why it samples so sparsely</h3>
+      <p><code>kBoundsSampleEvery = 9</code> — every ninth frame, and every second column.</p>
+      <p>This is the only one of the three analyses that never finishes. The range and
+interlace verdicts latch and stop; this one keeps running for the whole session,
+so it is the only one still costing anything once the picture has settled.</p>
+      <p>And it was costing enough to matter. A full-width scan of every third frame
+lands ten times a second, and measured against the deinterlacer, <strong>ten per cent
+of its field switches were arriving more than ten milliseconds late</strong>. That is a
+stutter you can see. The border is in no hurry, so the same answer arrives just
+as reliably from a sixth of the work.</p>
+      <h3 id="bottom-up-layouts">Bottom-up layouts</h3>
+      <p>RGB layouts arrive bottom-up. The scan reads buffer order, so the two vertical
+edges are swapped on the way out:</p>
+      <pre><code>if (source_.bottomUp) { const int t = h - 1 - bottom; bottom = h - 1 - top; top = t; }</code></pre>
+      <p>Both scans step, so each far edge can fall one step short and is nudged outward
+by the step size before being stored.</p>
+      <h3 id="when-detect-refuses">When Detect refuses</h3>
+      <p>The measurement finds the edges of what is not black. It cannot tell a border
+from a part of the picture that simply is not lit at this moment — and a console
+sitting on its home screen or a splash logo is exactly that case. Cropping there
+throws away picture area and keeps the logo.</p>
+      <p>So <code>DetectCrop()</code> asks how much would survive, and the statistic is <strong>area</strong>:</p>
+      <pre><code>if (partW * partH &lt; 0.5 || partW &lt; 0.4 || partH &lt; 0.4) { /* refuse, and say why */ }</code></pre>
+      <p>A real border eats one direction. A logo on black eats both. Measured, on a
+720×480 signal:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>Width</th><th>Height</th><th>Area</th><th></th></tr>
+<tr><td>GameCube home screen</td><td>48 %</td><td>77 %</td><td><strong>37 %</strong></td><td>refused</td></tr>
+<tr><td>2.35:1 in 4:3 — the widest border that is still a border</td><td>100 %</td><td>57 %</td><td>57 %</td><td>applied</td></tr>
+<tr><td>4:3 in 16:9</td><td>75 %</td><td>100 %</td><td>75 %</td><td>applied</td></tr>
+<tr><td>PAL overscan</td><td>93 %</td><td>93 %</td><td>87 %</td><td>applied</td></tr>
+</table></div>
+      <p>Over the edges alone that would be five points of margin; over the area it is
+twenty. The second condition is only against the degenerate case — a narrow
+strip can hold half the area and still be no border.</p>
+      <p>The refusal names the number it refused on, so it can be checked rather than
+believed. Six consecutive live measurements of the GameCube home screen came out
+between 35 % and 37 %; that they moved at all is its own evidence, since a
+border does not wander and a rotating cube does.</p>
+    </section>
+
+    <section id="a-crop-is-dropped-when-the-source-changes-size">
+      <h2>A crop is dropped when the source changes size</h2>
+      <p class="src"><code>UpdateCropForFormat()</code></p>
+      <p>The four numbers are <strong>counts of source pixels</strong> — <code>cropLeft = 20</code> means twenty
+of 720 — so they stop meaning anything the moment the source is a different size.
+A crop measured on a 720×576 PAL picture, left in place when the console
+switches to 60 Hz and the capture becomes 720×480, is no longer describing a
+border; it is cutting into the picture at coordinates that belong to a different
+frame.</p>
+      <p>So when the source size changes, the crop is set to zero. The old values go to
+the log, and a notice says what happened:</p>
+      <blockquote>
+<p>Video format changed (720×480) — crop reset</p>
+</blockquote>
+      <p>This happens on its own during an
+<a href="automatic-video-standard.html">automatic standard change</a>, which is exactly when a
+line count changes without anyone touching a setting.</p>
+      <p>It is deliberately <strong>not</strong> re-measured automatically. The moment a standard
+changes is the worst possible moment to measure a border: the graph has just been
+rebuilt, the console is often mid-boot, and a logo on black is precisely the case
+the refusal above exists for. Sending the measurement straight into its own guard
+would achieve nothing but a refusal in the log. <strong>F8</strong> is there for when there is
+a real picture to measure.</p>
+      <h3 id="unless-it-is-remembered-per-size">Unless it is remembered per size</h3>
+      <p><em>Remember per picture size</em>, <code>cropPerFormat</code>, off by default.</p>
+      <p>One console can deliver two sizes. A PAL GameCube gives 720×576 at 50 Hz and
+720×480 in 60 Hz mode, and each has its own border. Resetting is right when the
+crop has stopped meaning anything, but it is the wrong answer to a source that
+keeps coming back to a size it has been set up for once already — and so is
+keeping two profiles for one console.</p>
+      <p>Ticked, each size keeps its own four numbers:</p>
+      <pre><code>struct CropForFormat {
+  int width, height;
+  int left, right, top, bottom;
+};</code></pre>
+      <p>On a format change the current crop is written to the entry for the size being
+left, and if there is an entry for the size arriving it is put in place, with a
+notice saying so instead of the reset one. If there is none, the reset happens
+as before — an unknown size has no border on record, and a crop from a different
+one is exactly what must not be carried over.</p>
+      <p>Two details are worth stating, because both are places where a simpler version
+misbehaves:</p>
+      <ul>
+<li><strong>A crop of zero is stored as no entry at all</strong>, and an existing entry is
+removed when its crop is cleared. Otherwise "reset it and it stays reset" and
+"reset it and it comes back" would be two different things depending on which
+order the sizes had been seen in.</li>
+<li><strong>The entry for the current size is kept up to date every frame</strong>, not at the
+moment of editing. There are six ways to change a crop — four drag fields, the
+frame on the picture, Detect, the reset button, the menu item — and hooking
+each one means a seventh can be forgotten. Four integer comparisons per frame
+cannot be.</li>
+</ul>
+      <p>At the first format of a session the stored entry wins, because the plain crop
+fields belong to whatever size qBlank was last showing, which is not
+necessarily the one it starts on.</p>
+      <p>The settings show what is on record, under the checkbox:</p>
+      <blockquote>
+<p>Stored for: 720x480, 720x576</p>
+</blockquote>
+      <p>The list is per profile and goes in the config file with everything else. Unticking
+the box leaves it there, so turning the feature off and on again does not cost
+what was measured.</p>
+    </section>
+
+    <section id="line-doubling">
+      <h2>Line doubling</h2>
+      <p>For 240p and 288p sources that arrive half as tall as they should. <code>gLineDouble</code>
+in the pass-2 constant buffer; the logical picture becomes twice as tall and the
+row index is <code>ly &gt;&gt; 1</code>.</p>
+      <p>This is a different thing from the co-sited field case in
+<a href="deinterlacing.html">Deinterlacing</a>: line doubling is for a source that genuinely
+arrives at half height, where co-siting is for a half-height source the card has
+already packed into a full-height interlaced frame.</p>
+    </section>
+
+    <section id="rotation">
+      <h2>Rotation</h2>
+      <p><code>Rotation</code> in <code>src/config.h</code>: <code>None, Cw90, Half, Ccw90</code>.</p>
+      <p>Rotation is undone <strong>first</strong> in pass 2, before anything else:</p>
+      <pre><code>if (gRotation == 1)      { lx = op.y;                 ly = logicalH - 1 - op.x; }
+else if (gRotation == 2) { lx = logicalW - 1 - op.x;  ly = logicalH - 1 - op.y; }
+else if (gRotation == 3) { lx = logicalW - 1 - op.y;  ly = op.x; }
+else                     { lx = op.x;                 ly = op.y; }</code></pre>
+      <p>Everything below that line works in the picture's own orientation, which is the
+only one in which "the line above" means anything — a deinterlacer running in
+rotated coordinates would be reconstructing across columns.</p>
+      <p>Note that <code>logicalH</code> accounts for line doubling but a quarter turn swaps the axes
+of the render target only, not of the logical picture.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="the-composite-filter.html"><span>&larr; Previous</span>The composite filter</a>
+      <a class="next" href="scaling-and-sharpening.html"><span>Next &rarr;</span>Scaling and sharpening</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

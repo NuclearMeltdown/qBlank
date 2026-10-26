@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>High dynamic range — qBlank wiki</title>
+<meta name="description" content="PQ, HLG, tone mapping, and what each output writes.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/high-dynamic-range.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"High dynamic range","item":"https://qblank.com/wiki/high-dynamic-range.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>High dynamic range</h1>
+    <p class="tag">PQ, HLG, tone mapping, and what each output writes.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#reading-the-source">Reading the source</a>
+      <a href="#the-intermediate-buffer">The intermediate buffer</a>
+      <a href="#getting-it-onto-a-screen">Getting it onto a screen</a>
+      <a href="#the-two-settings-worth-understanding">The two settings worth understanding</a>
+      <a href="#what-each-output-writes">What each output writes</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/render/shaders.h</code>, <code>src/render/video_renderer.cpp</code>, <code>src/render/display_win32.cpp</code>,
+<code>src/render/display_vulkan.cpp</code></p>
+      <figure class="ui"><img src="../settings-hdr.png" alt="The HDR tab" width="886" height="753" loading="lazy"></figure>
+      <p>HDR has a tab of its own rather than a section under Display, because it is not
+a display setting. Its source curve belongs to the card, its tone mapping to the
+screen, and three of its switches decide what the recorder, the screenshots and
+the virtual camera write.</p>
+    </section>
+
+    <section id="reading-the-source">
+      <h2>Reading the source</h2>
+      <p>A card that can carry HDR sends <strong>P010</strong> or <strong>P016</strong> — ten or sixteen bits of
+luma per sample rather than eight — encoded against one of two curves.</p>
+      <h3 id="p010-unpacking">P010 unpacking</h3>
+      <p>P010 puts ten bits in the <em>top</em> of a sixteen bit word, so the bottom six are
+zero. That means a full-scale sample reads 65472 rather than 65535, and a naive
+divide by 65535 is short by 0.1 %. <code>VideoRenderer::Draw()</code> compensates:</p>
+      <pre><code>cb.pixelScale = (kind_ == FormatKind::P010 &amp;&amp; tenBitContainer_) ? 65535.0f / 65472.0f : 1.0f;</code></pre>
+      <p>Up to 5.2.0 the clean pass had two fetches, one for earlier frames and one for
+the current frame, and only the first knew P010. The second read it as planar
+4:2:0, U from the first channel of the chroma plane and V from a third plane
+P010 does not have, so every picture from a ten or sixteen bit card came out in
+the wrong colours. Since then both read the interleaved chroma plane the way
+NV12 does and apply <code>pixelScale</code>.</p>
+      <h3 id="the-two-curves">The two curves</h3>
+      <p><strong>PQ</strong> (SMPTE ST 2084, what HDR10 uses) states outright how many nits a code
+means, from nothing up to ten thousand:</p>
+      <pre><code>float PqToNits(float e) {
+  float p = pow(saturate(e), 1.0 / kPqM2);
+  return 10000.0 * pow(max(p - kPqC1, 0.0) / max(kPqC2 - kPqC3 * p, 1e-6), 1.0 / kPqM1);
+}</code></pre>
+      <p><strong>HLG</strong> (BT.2100) states it relative to whatever the display can manage:</p>
+      <pre><code>float HlgToScene(float e) {
+  const float a = 0.17883277, b = 0.28466892, c = 0.55991073;
+  return e &lt;= 0.5 ? (e * e) / 3.0 : (exp((e - c) / a) + b) / 12.0;
+}</code></pre>
+      <p>and needs a system gamma applied on top, which in <code>kCleanPS</code> is 1.2 against the
+luminance of the pixel plus a scale to that display's reference white:</p>
+      <pre><code>rgb *= pow(luma, 0.2);      // system gamma 1.2 applied to luminance
+rgb *= 1000.0 / 203.0;      // reference white of that display, in paper whites</code></pre>
+      <p>Either way the picture ends up as <strong>linear light with 1.0 meaning diffuse
+white</strong>. Anything above 1.0 is a highlight, which is the whole point.</p>
+      <p>The maths was checked against the standards before it was written: PQ 0.5 comes
+out at 92.246 nits where ST.2084 says 92.245, and HLG lands exactly on its three
+defined points.</p>
+      <h3 id="gamut">Gamut</h3>
+      <p>BT.2020 primaries are brought back to BT.709 through XYZ at D65:</p>
+      <pre><code>float3 Bt2020ToBt709(float3 c) {
+  return float3(dot(c, float3( 1.660491, -0.587641, -0.072850)),
+                dot(c, float3(-0.124550,  1.132900, -0.008349)),
+                dot(c, float3(-0.018151, -0.100579,  1.118730)));
+}</code></pre>
+      <p>Components can come out <strong>negative</strong>, and are deliberately not clamped here.
+BT.2020 holds colours BT.709 cannot name; clamping at this point would turn a
+deep green into a flat one. That is left to the end of the pipeline.</p>
+      <h3 id="which-curve-is-in-use">Which curve is in use</h3>
+      <p>Normally read from the media type — the driver puts it in <code>DXVA_ExtendedFormat</code>,
+where transfer function 15 is PQ and 16 is HLG. Most cards put nothing there at
+all, so it can be set by hand in the HDR tab. <code>SetHdrInput(Transfer, bool wideGamut)</code>
+is told rather than guessing.</p>
+      <p>Note that the transfer is kept apart from the pixel format: a card can send eight
+bit PQ, and ten bit says nothing about HDR on its own.</p>
+      <h3 id="screen-and-window">Screen and window</h3>
+      <p>Since 7.1 an HDR desktop comes as linear half floats (<code>Transfer::Linear</code>), with
+Windows' SDR white and the monitor's peak; the card's curve, paper white and
+source peak do not apply. An ordinary screen shows the desktop's white as white
+and clips above, rather than tone mapping it. See
+<a href="screen-and-window.html#hdr">Screen and window</a>.</p>
+    </section>
+
+    <section id="the-intermediate-buffer">
+      <h2>The intermediate buffer</h2>
+      <p><code>EnsureIntermediate()</code> allocates <code>R16G16B16A16_FLOAT</code> when the source is HDR and
+<code>R8G8B8A8_UNORM</code> otherwise.</p>
+      <p>This was a real bug rather than a design note: the intermediate was fixed at
+<code>R8G8B8A8_UNORM</code>, so the entire HDR pipeline was being quantised to eight bits
+and clipped at 1.0 between pass 2 and pass 3, and the highlights the whole
+exercise exists for were gone before tone mapping ever saw them.</p>
+    </section>
+
+    <section id="getting-it-onto-a-screen">
+      <h2>Getting it onto a screen</h2>
+      <p>What happens next depends on the <strong>screen</strong>, not the source.</p>
+      <h3 id="an-ordinary-screen-bt2390-tone-mapping">An ordinary screen: BT.2390 tone mapping</h3>
+      <pre><code>float3 ToneMapToSdr(float3 rgb) {
+  float luma = dot(rgb, float3(0.2126, 0.7152, 0.0722));
+  float scale  = NitsToPq(gSourcePeak);
+  float e      = NitsToPq(luma * gPaperWhite) / scale;
+  float maxLum = NitsToPq(gDisplayPeak) / scale;
+  float mapped = PqToNits(saturate(Bt2390Knee(saturate(e), saturate(maxLum)) * scale));
+  return rgb * (mapped / gDisplayPeak) / luma;
+}</code></pre>
+      <p>Two decisions here:</p>
+      <p><strong>Done in the PQ domain.</strong> PQ is roughly perceptually even, and that is where a
+knee belongs. A knee applied to linear light spends almost all of its travel on
+the top stop.</p>
+      <p><strong>Brightness is mapped and colour carried along</strong>, rather than running the curve
+per channel. Per channel pulls saturated highlights towards white, which is how
+a sunset turns into a smear.</p>
+      <p>The curve itself is BT.2390's:</p>
+      <pre><code>float Bt2390Knee(float e, float maxLum) {
+  float ks = 1.5 * maxLum - 0.5;    // where the straight part gives way
+  if (e &lt; ks) return e;
+  …Hermite spline…
+}</code></pre>
+      <p>Straight below the knee, so ordinary content passes through untouched; a Hermite
+spline above it, so highlights compress instead of clipping to a flat white.</p>
+      <h3 id="an-hdr-screen-scrgb">An HDR screen: scRGB</h3>
+      <p><code>SetHdrOutput()</code> switches the swap chain to
+<code>DXGI_FORMAT_R16G16B16A16_FLOAT</code> with <code>DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709</code>
+— half float, linear, <strong>1.0 fixed at eighty nits by definition</strong>. On Vulkan it is
+<code>R16G16B16A16_SFLOAT</code> with <code>EXTENDED_SRGB_LINEAR</code>, the same scRGB. Highlights
+simply carry on past one; the only work in the shader is a scale.</p>
+      <p><code>RefreshDisplayCapability()</code> asks the output's <code>DXGI_OUTPUT_DESC1</code> whether the
+monitor the window is on is actually in HDR mode, and what its peak luminance is
+(<code>gDisplayPeak</code>).</p>
+      <blockquote>
+<p><strong>Untested.</strong> The scRGB output path has never been run against a real HDR
+monitor. The maths is checked against the standards and the SDR path is
+verified, but this branch is unproven on hardware.</p>
+</blockquote>
+      <h3 id="the-interface-in-linear-light">The interface in linear light</h3>
+      <p><code>kUiCompositePS</code>, pass 4, and only when the swap chain is scRGB.</p>
+      <p>ImGui writes ordinary sRGB bytes. Handing those to a linear target shows them far
+too bright — sRGB 0.5 is linear 0.21, and every grey in the interface would be
+wrong by that much. So <code>BeginUiLayer()</code> redirects the interface into a buffer of
+its own, and <code>CompositeUiLayer()</code> converts it once on the way back over the
+picture.</p>
+      <p>What arrives is <strong>premultiplied</strong>: ImGui blends over a transparent buffer, which
+leaves colour already multiplied by coverage. It has to be undone before the
+curve and redone after, because a curve applied to a premultiplied colour is not
+the same thing at all — half-covered black text would come out grey.</p>
+      <p>Both functions do nothing in SDR.</p>
+    </section>
+
+    <section id="the-two-settings-worth-understanding">
+      <h2>The two settings worth understanding</h2>
+      <p><strong>Paper white</strong> is how bright ordinary white comes out. 203 nits is what BT.2408
+recommends and what most material is graded against.</p>
+      <p><strong>Source peak</strong> is how bright the source gets at its brightest — and DirectShow
+carries no mastering metadata anywhere, so there is nothing to read it from. It
+matters more than it sounds: assume 10000 where the content only reaches 1000 and
+paper white lands at <strong>63 instead of 88</strong> out of 100 nits on an ordinary screen,
+darkening everything. 1000 is the default because that is where consoles sit.</p>
+    </section>
+
+    <section id="what-each-output-writes">
+      <h2>What each output writes</h2>
+      <p>By default recording, screenshots and the virtual camera get the <strong>tone mapped</strong>
+picture — not the linear light the display path works in, and not what an HDR
+screen is being sent.</p>
+      <p>That distinction matters. A recording made while watching on an HDR monitor
+should still be a recording anyone can play, so the mapping to an ordinary screen
+is done for them separately (<code>EnsureSdrCopy()</code> / <code>RenderSdrCopy()</code>) rather than
+borrowed from whatever the display happens to be doing. Sharpening is left out of
+it, being a property of viewing rather than of the picture.</p>
+      <p>Each of the three can be told to keep the range instead:</p>
+      <div class="tbl"><table>
+<tr><th></th><th>What it writes</th><th>What it needs at the other end</th></tr>
+<tr><td>Recording</td><td>ten bit YUV (4:2:0, or 4:4:4 where the encoder can), PQ, BT.2020, with <code>smpte2084</code> and <code>bt2020nc</code> in the file</td><td>an encoder that does ten bits — usual for HEVC and AV1, rare for H.264 — and a player that reads PQ</td></tr>
+<tr><td>Screenshots</td><td>JPEG XR holding scRGB half floats, or AVIF</td><td>the Photos app for .jxr; any browser for AVIF</td></tr>
+<tr><td>Virtual camera</td><td>ten bit P010 offered alongside the ordinary eight bit</td><td>a program that asks for it, which today is almost nothing</td></tr>
+</table></div>
+      <h3 id="one-buffer-for-two-askers">One buffer for two askers</h3>
+      <p>The recording and the camera each say which <code>YuvFormat</code> they want, and the
+renderer keeps one readback ring per format:</p>
+      <pre><code>void SetReadbackWanted(const YuvFormat* record, const YuvFormat* camera);</code></pre>
+      <p>When both want the same one, which is the usual HDR case (PQ, BT.2020, NV12
+with ten bits at the top), the camera passes <code>nullptr</code> and takes its frames from
+the recording's ring. A recording in 4:4:4 or for a CPU encoder wants a
+different layout, and then the camera gets a ring of its own. So does it when
+a hardware encoder takes the recording <a href="recording.html#hardware-encoders-no-readback">on the GPU</a>,
+which leaves no ring to share.</p>
+      <p><code>kYuvPS</code> puts the linear light back on the PQ curve and converts BT.709 back to
+BT.2020 before the matrix — the pipeline works in BT.709 because that is what a
+screen wants, but a PQ file is expected to be BT.2020 and a player will assume so
+whatever the file says. Layouts and bit positions are on
+<a href="recording.html#what-the-encoder-is-told">Recording</a>.</p>
+      <p>The AVIF screenshot starts from the same half-float picture as JPEG XR and does
+that conversion on the CPU: BT.2020, the PQ curve, then Y'CbCr at ten bits with
+each 2×2 block's colour averaged, straight into the encoder's frame. Up to 6.0
+it packed the picture as <code>x2bgr10le</code> and left the rest to <code>ffmpeg.exe</code>.</p>
+      <h3 id="screenshot-formats">Screenshot formats</h3>
+      <p><strong>JPEG XR</strong> costs nothing: Windows ships the encoder and the Photos app reads
+it, so this is the HDR format that can be written on a machine where nobody has
+pressed the download button. It holds scRGB half floats, which is exactly what
+Windows itself writes for an HDR screenshot — and therefore what the Photos app
+opens as one.</p>
+      <p><strong>AVIF</strong> is read by every browser and by most things that are not Windows, but it
+needs ffmpeg's libraries. Since ffmpeg is already there for recording, that is
+not a new dependency, only a newly required one.</p>
+      <p>A sixteen bit PNG would be neither: nothing would know to read it as HDR.</p>
+      <p><code>GrabStillHalf()</code> blocks on the GPU to fetch the linear half-float picture, which
+a still is allowed to do — it happens when somebody presses a key, not sixty
+times a second.</p>
+      <h3 id="why-the-camera-switch-is-off-by-default">Why the camera switch is off by default</h3>
+      <p>Something that takes the ten bits without understanding them shows a wrong
+picture, so the wide format is offered only when asked for.</p>
+      <p>That switch has to cross from qBlank into a DLL running inside a Windows
+service, <strong>and the media source needs to know before the shared memory exists</strong>,
+since it builds its list of formats when it is created. So it is the plainest
+thing that works across that boundary: a marker file in <code>ProgramData</code> that is
+either there or not (<code>SetWideOffered()</code> in <code>src/vcam/virtual_camera.cpp</code>). See
+<a href="virtual-camera.html">Virtual camera</a>.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="freeze-and-compare.html"><span>&larr; Previous</span>Freeze and compare</a>
+      <a class="next" href="screen-and-window.html"><span>Next &rarr;</span>Screen and window</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

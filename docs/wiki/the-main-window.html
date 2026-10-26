@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The main window — qBlank wiki</title>
+<meta name="description" content="Window size, Shift keeps the shape, borderless, the red dot while recording, the tray icon, and Start menu and desktop shortcuts.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/the-main-window.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"The main window","item":"https://qblank.com/wiki/the-main-window.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>The main window</h1>
+    <p class="tag">Window size, Shift keeps the shape, borderless, the red dot while recording, the tray icon, and Start menu and desktop shortcuts.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#window-size">Window size</a>
+      <a href="#shift-keeps-the-shape">Shift keeps the shape</a>
+      <a href="#borderless">Borderless</a>
+      <a href="#the-red-dot-while-recording">The red dot while recording</a>
+      <a href="#the-tray-icon">The tray icon</a>
+      <a href="#start-menu-and-desktop">Start menu and desktop</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p><code>src/window_win32.cpp</code>, <code>src/tray_win32.cpp</code>, <code>src/ui/tray_menu.cpp</code>,
+<code>src/desktop_win32.cpp</code>, <code>src/app_ui.cpp</code> (<code>DrawContextMenu</code>,
+<code>DragBorderlessWindow</code>), <code>src/app.cpp</code> (<code>Tick</code>), <code>src/app_tray.cpp</code>
+(<code>BuildTrayMenu</code>), <code>src/ui/startup_notices.cpp</code> (<code>DrawWelcome</code>),
+<code>src/render/video_renderer.cpp</code> (<code>PictureSizeAt</code>)</p>
+      <p>The preview window is an ordinary window by default: title bar, frame, sized by
+hand. Everything below is an option on top of that, and none of it touches the
+capture path — the frame age stays where it was with every one of them on.</p>
+    </section>
+
+    <section id="window-size">
+      <h2>Window size</h2>
+      <p>The context menu has <strong>Window size</strong> with 1×, 2× and 3×, each showing the size
+it would set. The factor goes on the <strong>lines</strong>; the width follows the picture's
+aspect, with the same arithmetic as the <em>Integer</em> scaling mode. A 240-line SNES
+at 2× gets 480 lines of picture, not 480 lines of window.</p>
+      <ul>
+<li><strong>The width is rounded up.</strong> The Integer fit floors, so a width rounded to
+nearest could come out one pixel short and the fit would drop to the next
+factor down.</li>
+<li><strong>A rotated picture</strong> takes the factor on its width instead, because that is
+where the source's lines now run.</li>
+<li><strong>The toolbar is added on top</strong>, so the picture gets the size, not the window.</li>
+</ul>
+      <p><strong>Statistics</strong> opens a submenu with Compact, Normal and Full. Picking a level
+shows the statistics at that level; picking the level that is already on hides
+them. <strong>F1</strong> shows and hides them at the level last chosen.</p>
+      <p><strong>Toolbar</strong> in the same menu, the × on the bar and <strong>F3</strong> all show and hide the
+toolbar; <em>Settings → Display</em> has the same switch.</p>
+      <ul>
+<li><strong>A size that does not fit the work area is greyed out</strong>, measured with the
+frame the restored window would have. The window is moved back onto the
+screen if the new size would hang off its edge.</li>
+<li><strong>The current size is ticked.</strong> A maximised window has none.</li>
+</ul>
+      <p>The menu is disabled in fullscreen and before the first frame, when there is no
+picture to take a size from.</p>
+    </section>
+
+    <section id="shift-keeps-the-shape">
+      <h2>Shift keeps the shape</h2>
+      <p>Resizing is free, as it always was. <strong>Holding Shift</strong> while dragging an edge
+keeps the picture's shape, the way graphics programs keep an image's
+proportions — the reverse of locking by default and unlocking with a key.</p>
+      <p><code>KeepAspect</code> bends the rectangle Windows proposes in <code>WM_SIZING</code>:</p>
+      <ul>
+<li>A side edge sets the width; the height follows at the bottom.</li>
+<li>The top or bottom edge sets the height; the width follows at the right.</li>
+<li>A corner takes whichever of the two asks for more, and the opposite corner
+stays put.</li>
+<li>The aspect is that of the <strong>picture</strong>, so the frame and the toolbar are taken
+off first and put back afterwards.</li>
+<li>The minimum size is enforced here, on both sides together. Windows clamps
+afterwards one side at a time, which would bend the shape again.</li>
+</ul>
+    </section>
+
+    <section id="borderless">
+      <h2>Borderless</h2>
+      <p><strong>Borderless</strong> in the context menu, under <em>Settings → Display</em> or with
+<strong>Ctrl+Enter</strong> leaves only
+the picture. It is still a normal window: taskbar button, Alt+Tab, Snap,
+maximise and the minimise animation all stay.</p>
+      <p>That is the whole reason for how it is built. The window style stays
+<code>WS_OVERLAPPEDWINDOW</code> throughout, and the frame is taken away in
+<code>WM_NCCALCSIZE</code> by declaring the whole window to be inside. Changing the style
+to <code>WS_POPUP</code> instead would have been shorter, and would have cost the taskbar
+button and the rest with it.</p>
+      <ul>
+<li><strong>Creation sends <code>WM_NCCALCSIZE</code> with wParam FALSE</strong> and a plain <code>RECT</code>, not
+the <code>NCCALCSIZE_PARAMS</code> it sends later. Both are handled, so a window started
+borderless has no frame from its first frame on.</li>
+<li><strong>Maximised</strong>, a window hangs its frame over the screen's edges. With the
+frame gone, the picture would reach past them by as much; it gets the work
+area instead, which also leaves the taskbar uncovered.</li>
+<li><strong>Resizing still works from the edges.</strong> <code>WM_NCHITTEST</code> gives back a strip as
+wide as the frame would have been (<code>SM_CXSIZEFRAME</code> plus
+<code>SM_CXPADDEDBORDER</code> at the window's DPI).</li>
+<li><strong><code>WM_NCACTIVATE</code> is passed on with lParam −1.</strong> Left alone, Windows paints
+the title bar it believes is there over the picture whenever the focus
+changes.</li>
+<li><strong>Windows 11 gets square corners and no outline</strong> through DWM. A rounded
+corner would cut into the picture and the outline would lie on it. Earlier
+versions refuse the attributes and keep their look.</li>
+<li><strong>Switching keeps the picture where it is</strong> on screen; the frame goes around
+it or away from it. The alternative, the window's corner staying put, makes
+the picture jump by the width of the frame. A picture at the top of the
+screen is moved down so the new title bar does not end up above it.</li>
+<li><strong>Fullscreen has no frame either way.</strong> Switching while in fullscreen
+adjusts the stored window it goes back to, so that window keeps the same
+inside.</li>
+</ul>
+      <h3 id="moving-it-by-the-picture">Moving it by the picture</h3>
+      <p>Without a title bar the window is moved by <strong>dragging the picture</strong>.</p>
+      <ul>
+<li>Only a drag past Dear ImGui's threshold becomes a move. A plain click stays a
+click and still counts towards a double click.</li>
+<li>The press must start on the bare picture — not on the compare divider, not in
+a menu or panel.</li>
+<li>The move itself is what a press on a title bar does: <code>WM_NCLBUTTONDOWN</code> with
+<code>HTCAPTION</code>, so Snap and the monitor-to-monitor behaviour are Windows' own.
+Dear ImGui is told about the release afterwards, because the move loop keeps
+it.</li>
+</ul>
+      <p>Two bugs came out of testing it:</p>
+      <ul>
+<li><strong>The window lagged behind the pointer.</strong> A drag of 150 × 100 pixels moved
+it by 142 × 95. The move loop starts from where the pointer was when the
+message was posted, and it had already travelled while the drag was being
+recognised. The window now catches up to <code>GetMessagePos</code> before the loop
+starts, so the point that was grabbed stays under the pointer.</li>
+<li><strong>A double click out of fullscreen put the window at 0,0.</strong> The second click
+lands on the fullscreen picture; leaving fullscreen moves the window away
+under the pointer, and that jump read as a drag. The second click of a
+double click no longer arms a move.</li>
+</ul>
+    </section>
+
+    <section id="the-red-dot-while-recording">
+      <h2>The red dot while recording</h2>
+      <p>While a recording runs, the taskbar button carries a <strong>small red dot</strong>, the red
+of the record button. Screen readers get <em>Recording</em> as its description.</p>
+      <ul>
+<li>It is an overlay icon, <code>ITaskbarList3::SetOverlayIcon</code>, drawn at run time at
+the small-icon size.</li>
+<li><strong>Windows 11 lays the overlay square over the icon's top-right corner</strong>,
+roughly centred on it. A dot filling the square covered most of the icon, so
+the dot is drawn small in the square's top-right corner and sits beside the
+icon instead. A dark, half-transparent ring keeps the two apart where they
+touch.</li>
+<li><strong>Explorer forgets overlays when it restarts.</strong> <code>TaskbarButtonCreated</code> is sent
+again then, and the dot is put back. (Untested: Explorer was not restarted
+for it.)</li>
+<li><strong>The description is cleared with an empty string, not with none.</strong> Passing
+a null description when removing the overlay left <em>Recording</em> behind for
+screen readers.</li>
+<li><strong>It is driven from <code>Tick</code></strong>, compared against the recorder's state every
+frame, so it also goes when a recording ends by itself, such as before the
+drive fills up.</li>
+</ul>
+    </section>
+
+    <section id="the-tray-icon">
+      <h2>The tray icon</h2>
+      <p>An icon in the notification area holds <strong>quick actions</strong>, for what the context
+menu has grown too full to reach quickly. <strong>Left click</strong> brings the window
+forward, <strong>right click</strong> opens the menu.</p>
+      <p>By default the menu has recording, both screenshots (file and clipboard), both
+output folders and the settings. Under <em>Settings → General → Notification area</em>
+more can be ticked: fullscreen, always on top, borderless, mute, freeze, the
+virtual camera, the profiles and restarting the capture. The icon itself can be
+switched off there, or from its own menu (<em>Icon in the notification area</em>).</p>
+      <ul>
+<li><strong>Nothing hides into the tray.</strong> The window keeps its taskbar button whether
+the icon is on or not.</li>
+<li><strong>Windows 11 puts new icons into the overflow</strong> behind the arrow. Dragging it
+onto the taskbar, or switching it on in the taskbar's settings, keeps it in
+sight.</li>
+<li><strong>The menu is drawn by qBlank</strong>, with the same look as every other menu in
+it, and follows the app's theme. It is a small window of its own
+(<code>src/ui/tray_menu.cpp</code>) with its own Direct3D device and ImGui context, like
+the settings window, made the first time it opens. It stands above the
+taskbar, or below it when the taskbar is at the top, and closes on a pick, a
+click elsewhere or Esc.</li>
+<li><strong>The profiles unfold inside the menu</strong>, below their row, rather than flying
+out to the side: nothing can reach out of the menu's window. The menu grows
+away from the taskbar, so another row slides under the pointer; a click there
+counts only once the pointer has moved, so a double click cannot pick a
+profile by accident.</li>
+<li><strong>Nothing blocks the picture.</strong> The native tray menu was a modal loop and had
+to live on a thread of its own. The icon still does, but only to report a
+click; the menu is drawn in the main loop like the settings.</li>
+<li><strong>While recording</strong> the tooltip says so, and the record entry stops it.</li>
+<li><strong>Explorer forgets tray icons when it restarts.</strong> <code>TaskbarCreated</code> is sent
+then, and the icon is put back. (Untested, as with the red dot.)</li>
+<li><strong>The virtual camera entry</strong> opens the settings instead while the camera is
+not installed, since installing it needs a UAC prompt.</li>
+<li><code>src/tray.h</code> holds the icon, <code>src/ui/tray_menu.h</code> the menu as plain data;
+only <code>src/tray_win32.cpp</code> and the window layer know Windows.</li>
+</ul>
+    </section>
+
+    <section id="start-menu-and-desktop">
+      <h2>Start menu and desktop</h2>
+      <p><em>Settings → General → Shortcuts</em> has two buttons: <strong>Add to the Start menu</strong> and
+<strong>Add to the desktop</strong>, each turning into <em>Remove…</em> once the shortcut is there.
+On the very first start — no settings file yet — a small dialog offers the ones
+that are missing, both ticked; <em>No thanks</em> closes it for good.</p>
+      <ul>
+<li><strong>Buttons, not checkboxes.</strong> They act at once. A checkbox would wait for
+<em>Apply</em>, and <em>Discard</em> could not take a file back off the desktop.</li>
+<li><strong>A shortcut counts only if it starts this copy.</strong> One pointing at another
+qBlank shows as missing; adding points it here, removing leaves it alone.</li>
+<li><strong>Moved the program?</strong> Add them again; that points them at the new place.</li>
+<li>For the current user only, so no UAC prompt. <code>src/desktop.h</code> has
+<code>HasShortcut</code>, <code>CreateShortcut</code> and <code>RemoveShortcut</code>; <code>src/desktop_win32.cpp</code>
+writes the <code>.lnk</code>.</li>
+</ul>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="virtual-camera.html"><span>&larr; Previous</span>Virtual camera</a>
+      <a class="next" href="the-settings-window.html"><span>Next &rarr;</span>The settings window</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>

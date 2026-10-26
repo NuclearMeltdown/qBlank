@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuration and profiles — qBlank wiki</title>
+<meta name="description" content="What is stored, where, and what a profile holds.">
+<link rel="icon" href="../icon.png">
+<link rel="canonical" href="https://qblank.com/wiki/configuration-and-profiles.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"qBlank","item":"https://qblank.com/"},{"@type":"ListItem","position":2,"name":"Wiki","item":"https://qblank.com/wiki/"},{"@type":"ListItem","position":3,"name":"Configuration and profiles","item":"https://qblank.com/wiki/configuration-and-profiles.html"}]}</script>
+<link rel="stylesheet" href="../site.css">
+<script>
+// The theme before anything is painted. The wiki is in English only, so unlike
+// the other pages this one sends no German reader to a German copy.
+(function(){
+  try {
+    var t = localStorage.getItem('qblank-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<!-- Made from the GitHub wiki by tools/wiki_site.py. Edit the wiki, then run it again. -->
+
+<nav class="topbar" aria-label="Site">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../icon.png" alt="">qBlank</a>
+    <div class="links">
+      <a href="../install.html">Download</a>
+      <a href="../manual.html">Manual</a>
+      <a href="../faq.html">Troubleshooting</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../changelog.html">Changelog</a>
+      <a href="./" aria-current="true">Wiki</a>
+      <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a>
+    </div>
+    <div class="tools">
+      <button class="theme-toggle" id="themeToggle" type="button" hidden>
+        <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="page-head">
+  <div class="wrap">
+    <h1>Configuration and profiles</h1>
+    <p class="tag">What is stored, where, and what a profile holds.</p>
+  </div>
+</div>
+
+<div class="wrap doc wiki">
+  <nav class="toc">
+    <div class="secs">
+      <a href="#where-it-lives">Where it lives</a>
+      <a href="#profiles">Profiles</a>
+      <a href="#settings-that-change-meaning">Settings that change meaning</a>
+      <a href="#sleep-prevention">Sleep prevention</a>
+      <a href="#old-shader-cache-files">Old shader cache files</a>
+    </div>
+  </nav>
+
+  <main>
+    <section>
+      <p class="src"><code>src/config.cpp</code>, <code>src/config.h</code>, <code>src/json.cpp</code></p>
+    </section>
+
+    <section id="where-it-lives">
+      <h2>Where it lives</h2>
+      <p><code>qBlank.json</code>, beside the executable. <strong>Nothing is written to the registry</strong> —
+the one exception being the virtual camera's COM registration, which has to be
+machine-wide and is not qBlank's own setting. See <a href="virtual-camera.html">Virtual camera</a>.</p>
+      <p>Written a second after the last change, or at once when saved on purpose. The
+text is serialised on the render thread, where the settings live, and handed
+to <code>configJobs_</code> for the disk (see
+<a href="latency.html#nothing-waits-on-a-disk">Latency</a>). Writes run in order, so the last
+one wins. When Windows ends the session, the program waits for the write
+before it lets go.</p>
+      <p>A settings file written under a former name is recognised by what is in it, not
+by what it is called: <code>FindForeignSettings()</code> reads every <code>.json</code> beside the
+executable and picks out the ones that are this program's. Found alone, such a
+file is simply used from then on; found alongside a current one, the program
+asks which to keep, in the language the older file was written with. The loser
+is renamed to <code>.bak</code> rather than deleted. See <a href="updates.html#across-a-rename">Updates</a>.</p>
+      <p>The JSON parser and writer are hand-written (<code>src/json.cpp</code>, 450 lines) rather
+than pulled in as a dependency. The file is small, the schema is known, and every
+read goes through a defaulting accessor:</p>
+      <pre><code>app.settingsTab = a["settingsTab"].AsInt(0);</code></pre>
+      <p>A missing or malformed key yields the default instead of an error, so a config
+file from an older build always loads.</p>
+    </section>
+
+    <section id="profiles">
+      <h2>Profiles</h2>
+      <pre><code>struct Profile {
+  std::string name = "Standard";
+  long autoSelectStandard = 0;  // which detected standard means this profile
+  CaptureSettings capture;   // device, input, format, video standard
+  ImageSettings image;       // scaling, deinterlacing, composite filter, crop, colour
+  AudioSettings audio;       // devices, buffer, offset, volume, recording sources
+};</code></pre>
+      <p>One per source. Selected with <strong>Ctrl+1</strong> to <strong>Ctrl+9</strong>, which is deliberately not
+rebindable — see <a href="shortcuts.html">Shortcuts</a>.</p>
+      <p>A profile is everything that depends on <em>what is plugged in</em>. Switching profiles
+restarts the capture graph, because the device or the format may have changed.</p>
+      <h3 id="save-current-as-">Save current as …</h3>
+      <p>The usual way to make one, and the reason there is no plain "Duplicate" any
+more. Connecting a second console almost never means starting over: you change
+what is different and want to keep the result. An empty profile forces you to
+set up everything that was already right.</p>
+      <p>It copies the active profile — which <em>is</em> the current state, since settings take
+effect immediately and are written there — and opens the name prompt with the
+keyboard focus already in the field. <code>SetKeyboardFocusHere()</code> fires only on the
+popup's first frame, or it would grab the input again every frame.</p>
+      <h3 id="choosing-a-profile-by-itself">Choosing a profile by itself</h3>
+      <p><code>App::UpdateProfileForStandard()</code>, and one <code>long</code> in the profile:</p>
+      <pre><code>long autoSelectStandard = 0;   // 0 = never</code></pre>
+      <p>A profile can say which <strong>video standard means me</strong>. Set it in the profiles tab
+under <em>Choose automatically</em>, and when the
+<a href="automatic-video-standard.html">automatic search</a> settles on that standard, qBlank
+switches to that profile — the PAL console and the NTSC one on the same input,
+each with its own geometry, deinterlacer and colour settings, without picking
+from a menu.</p>
+      <p>It is stored on the profile and not next to the standard on the source page,
+although it is the same list. There the standard answers <em>what should the card
+be set to</em>; here it answers <em>when am I meant</em>. That is a statement about the
+profile, and it belongs where the profiles are.</p>
+      <p><strong>Compared by group, not by value.</strong> The list offers eight groups — PAL, PAL 60,
+PAL M, PAL N, NTSC, NTSC Japan, NTSC 4.43, SECAM — and the rule matches any
+standard in the same one. PAL B and PAL G differ in the sound carrier, which is
+no part of the picture, and a rule meaning "the PAL console" must not miss
+because the search settled on the other spelling of PAL. The value written to
+the config is still an ordinary standard, so the file format does not grow a
+second vocabulary; only the comparison is by group.</p>
+      <p>The trigger is <strong>the end of stage two</strong>, not the lock. Until the colour round
+has settled, all that is known is a line count, and 525 lines are five different
+standards in four different groups. <code>colourCheckedStandard_</code> is the value that
+says both stages are done; a second member remembers what was last acted on, so
+a standing state becomes a one-time event.</p>
+      <p>Four things stop a switch, and each of them is a case where switching would be
+wrong rather than merely unwanted:</p>
+      <div class="tbl"><table>
+<tr><th>Not switched</th><th>Why</th></tr>
+<tr><td>While recording, or while the crop tool is open</td><td>Both would be interrupted by a graph rebuild</td></tr>
+<tr><td>Onto a profile that pins a video standard</td><td>It would never search, so its rule could never fire — and a rule that quietly does nothing is worse than no rule</td></tr>
+<tr><td>Onto a profile on another device or another crossbar input</td><td>The detected standard says nothing about a source that is not the one being watched</td></tr>
+<tr><td>When the <strong>active</strong> profile's own rule already matches</td><td>The loop guard</td></tr>
+</table></div>
+      <p>That last one is the one that matters. Two profiles both claiming PAL, without
+it, would hand the detection back and forth forever. With it, a profile that
+already answers to the standard on screen keeps it, and nothing moves. A profile
+chosen by hand stays until the source really changes.</p>
+      <p>The combo is disabled outright while the profile pins a standard, with the
+reason written under it rather than left to be worked out.</p>
+      <h3 id="settings-that-do-not-apply-are-not-applied">Settings that do not apply are not applied</h3>
+      <p>Hiding a control is not enough. Somebody who had the dot crawl filters and a
+native pixel grid set for a SNES, and then plugs in an HD console, would
+otherwise be looking at a picture they did not ask for with no control anywhere
+to change it — the control is gone precisely <em>because</em> it does not fit.</p>
+      <p><code>App::EffectiveImage()</code> returns the settings as they apply to the current
+source, and it is that copy which is drawn:</p>
+      <div class="tbl"><table>
+<tr><th>Neutralised</th><th>When</th></tr>
+<tr><td><code>chromaSoft</code>, <code>temporalDenoise</code>, <code>dotNotch</code>, <code>nativeWidth</code>, <code>lineDouble</code></td><td>the source is not analogue</td></tr>
+<tr><td><code>nativeWidth</code></td><td>the source is taller than 576 lines, whatever <code>sourceLines</code> says</td></tr>
+<tr><td>a hand-picked deinterlacer (forced to <code>deinterlaceAuto</code>)</td><td>the source has no fields</td></tr>
+</table></div>
+      <p>It neutralises the <strong>copy</strong>, never the profile. The stored values survive,
+because a profile describes a console and that console will come back.</p>
+      <p>What it deliberately does <em>not</em> do is remember and restore across a source
+change. The next analogue source may be a different console wanting different
+values, so restoring would be a guess. That is what profiles are for.</p>
+      <p>The same predicate, <code>App::SourceIsAnalogue()</code>, drives both what the settings
+show and what the renderer applies. Two answers to one question would mean
+something acting where nothing can be adjusted.</p>
+      <p>Measured, with <code>nativeWidth</code> set to 256 against a 1080p source: with the signal
+type forced to Analogue the grid applies and a row shows <strong>55 column
+transitions</strong>; on Automatic, where 1080 lines cannot have come from an analogue
+decoder, the same row shows <strong>240</strong>. The setting is dropped, not merely hidden.</p>
+      <p>What is <strong>not</strong> in a profile — <code>AppSettings</code> — is everything that depends on
+<em>you</em>: theme, accent colour, language, vsync, always-on-top, cursor hiding, sleep
+prevention, the toolbar, the overlay level, where the settings window sits, which
+tab it was on, and every recording, encoder and update setting.</p>
+    </section>
+
+    <section id="settings-that-change-meaning">
+      <h2>Settings that change meaning</h2>
+      <p>Two places in the configuration carry an index into a table rather than a value,
+and both are noted in the source at the table:</p>
+      <ul>
+<li><strong><code>videoStandard</code></strong> — the index into <code>kStandards</code> in
+<code>src/capture/dshow_util.cpp</code>. Entries may be <strong>appended but never reordered</strong>.
+Two values are not indices: <code>0</code> means leave the decoder alone and <code>-1</code> means
+find it, which is what the <a href="automatic-video-standard.html">automatic search</a> reads.</li>
+<li><strong><code>speed</code></strong> — the old software encoder speed, kept working alongside the newer
+preset setting so nobody's existing configuration changes meaning. See
+<a href="encoder-settings.html">Encoder settings</a>.</li>
+</ul>
+    </section>
+
+    <section id="sleep-prevention">
+      <h2>Sleep prevention</h2>
+      <p><code>preventSleep</code>, on by default. Playing a game through a capture card involves no
+keyboard or mouse input as far as Windows is concerned, so the screen saver would
+come on mid-session. <code>App</code> calls <code>SetThreadExecutionState</code> periodically while a
+capture is running.</p>
+    </section>
+
+    <section id="old-shader-cache-files">
+      <h2>Old shader cache files</h2>
+      <p>Builds before 5.5 compiled their Direct3D 11 shaders at the first start and kept
+them as <code>shader-&lt;hash&gt;.cso</code> next to the executable. The build compiles them now,
+the executable carries them, and <code>Updater::CleanUpPreviousBuild()</code> deletes any
+<code>shader-*.cso</code> it finds at startup.</p>
+    </section>
+    <nav class="pager" aria-label="Wiki pages">
+      <a class="prev" href="the-settings-window.html"><span>&larr; Previous</span>The settings window</a>
+      <a class="next" href="updates.html"><span>Next &rarr;</span>Updates</a>
+    </nav>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap row">
+    <div>GPLv3 licensed · © 2026 NuclearMeltdown</div>
+    <div><a href="../">Home</a> · <a href="../manual.html">Manual</a> · <a href="../install.html">Download</a> · <a href="../faq.html">Troubleshooting</a> · <a href="../compare.html">Compare</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/NuclearMeltdown/qBlank">GitHub</a> · <a href="./">Wiki</a></div>
+  </div>
+</footer>
+
+<script src="../site.js"></script>
+</body>
+</html>
