@@ -44,14 +44,8 @@ Recording (lossless too), a replay buffer, screenshots and a virtual camera
 are included; scenes, overlays, compositing and streaming are not. For
 those, use OBS.
 
-> [!TIP]
-> **Start at [qblank.com](https://qblank.com):** what qBlank does, in pictures,
-> with the [manual](https://qblank.com/manual.html) and
-> [how it compares](https://qblank.com/compare.html) with OBS and others.
-> In English and [German](https://qblank.com/de/).
->
-> The [wiki](../../wiki) is the documentation: one page per feature, what the
-> code does and what was measured. This page is the list.
+The [wiki](../../wiki) is the documentation: one page per feature, what the
+code does and what was measured. This page is the list.
 
 ## Latency
 
