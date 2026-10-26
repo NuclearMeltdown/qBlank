@@ -8,7 +8,29 @@
   A low-latency viewer and recorder for capture cards, screens and windows on Windows.
 </p>
 
-![The viewer in fullscreen showing a console at 1080p60, with the statistics overlay reading a frame age of 1.2 ms](docs/viewer.jpg)
+<p align="center">
+  <a href="https://qblank.com"><img alt="Website: qblank.com" src="https://img.shields.io/badge/website-qblank.com-8B5CF6?style=for-the-badge"></a>
+  <a href="https://qblank.com/install.html"><img alt="Download" src="https://img.shields.io/github/v/release/NuclearMeltdown/qBlank?style=for-the-badge&label=download&color=6d28d9"></a>
+  <a href="https://qblank.com/manual.html"><img alt="Manual" src="https://img.shields.io/badge/manual-EN%20%7C%20DE-6d28d9?style=for-the-badge"></a>
+</p>
+
+<p align="center">
+  <a href="https://qblank.com/compare.html">Compare</a> ·
+  <a href="https://qblank.com/faq.html">Troubleshooting</a> ·
+  <a href="https://qblank.com/changelog.html">Changelog</a> ·
+  <a href="../../wiki">Wiki</a> ·
+  <a href="https://qblank.com/de/">Deutsch</a>
+</p>
+
+<table align="center">
+  <tr>
+    <td align="center"><b>~1 ms</b><br><sub>through qBlank, arrival to present</sub></td>
+    <td align="center"><b>1 file</b><br><sub>no installer, no dependencies</sub></td>
+    <td align="center"><b>GPLv3</b><br><sub>free and open source</sub></td>
+  </tr>
+</table>
+
+<a href="https://qblank.com"><img src="docs/viewer.jpg" alt="The viewer in fullscreen showing a console at 1080p60, with the statistics overlay reading a frame age of 1.2 ms"></a>
 
 A lightweight program for playing any console through a capture card: one
 file, any DirectShow device, and as little delay as the hardware allows.
@@ -22,9 +44,14 @@ Recording (lossless too), a replay buffer, screenshots and a virtual camera
 are included; scenes, overlays, compositing and streaming are not. For
 those, use OBS.
 
-> **The [manual](https://qblank.com/manual.html) explains how
-> to use it** (English and German). **The [wiki](../../wiki) is the documentation** —
-> one page per feature, what the code does and what was measured. This page is the list.
+> [!TIP]
+> **Start at [qblank.com](https://qblank.com):** what qBlank does, in pictures,
+> with the [manual](https://qblank.com/manual.html) and
+> [how it compares](https://qblank.com/compare.html) with OBS and others.
+> In English and [German](https://qblank.com/de/).
+>
+> The [wiki](../../wiki) is the documentation: one page per feature, what the
+> code does and what was measured. This page is the list.
 
 ## Latency
 
