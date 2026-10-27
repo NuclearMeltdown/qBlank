@@ -2886,10 +2886,16 @@ double VideoRenderer::TargetAspect(const ImageSettings& image) const {
   //
   // Die Zeilen weiss das Programm, die Spalten nicht: ueber die Leitung kam ein
   // Spannungsverlauf, und wie oft die Konsole ihn umgeschaltet hat, steht
-  // nirgends darin -- deshalb kommt die Zahl aus "Breite der Quelle". Die zaehlt
-  // ueber die ganze aktive Zeile, hier zaehlt aber der Ausschnitt, also muss sie
-  // im selben Verhaeltnis mitgehen. Ohne diesen Schritt kaeme ein GameCube auf
-  // 640/448 = 1,43 heraus statt auf die 1,33, die jeder andere Modus zeigt.
+  // nirgends darin -- deshalb kommt die Zahl aus "Breite der Quelle". Hier
+  // zaehlt aber der Ausschnitt, also muss sie im selben Verhaeltnis mitgehen.
+  //
+  // Und die Konsole zeichnet nicht ueber die ganze Zeile, die die Karte
+  // abtastet: ihre 256 oder 320 Pixel brauchen etwa 47,7 der 53,3 us, egal mit
+  // welchem Pixeltakt. Ein SNES legt 256 seiner 341 Punkte pro Zeile auf 858
+  // (525 Zeilen) oder 864 Proben (625 Zeilen), also 644 oder 649 der 720 --
+  // gemessen 2,534 Proben pro Pixel, siehe AnalyzePixelGrid. Die Breite der
+  // Quelle als Breite des Konsolenbilds zu nehmen machte jedes Pixel ein
+  // Zehntel zu schmal.
   //
   // Steht dort keine Angabe, bleiben nur die Proben der Karte. Sie als
   // quadratisch zu nehmen ist keine Notloesung, sondern genau die Frage, die
@@ -2901,7 +2907,12 @@ double VideoRenderer::TargetAspect(const ImageSettings& image) const {
     const double lines = coSitedFields_ ? (double)h * 0.5 : (double)h;
     double cols = (double)w;
     if (image.nativeWidth > 0 && source_.width > 0) {
-      cols = (double)image.nativeWidth * (double)w / (double)source_.width;
+      double span = (double)source_.width;
+      if (analogueSource_ && source_.height <= kStandardLines) {
+        const bool lines625 = source_.height == 288 || source_.height >= 540;
+        span *= (lines625 ? 864.0 : 858.0) * 256.0 / (341.0 * 720.0);
+      }
+      cols = (double)image.nativeWidth * (double)w / span;
     }
     if (lines > 0.0 && cols > 0.0) {
       const double dar = cols / lines;
