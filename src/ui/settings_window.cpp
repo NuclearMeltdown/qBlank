@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <string_view>
 
 #include "app_files.h"
 #include "desktop.h"
@@ -205,6 +206,35 @@ std::string FpsLabel(double fps) {
 
 // A width written for 100 %, at the scale of the monitor the window is on.
 float Px(float pixels) { return pixels * ImGui::GetStyle().FontScaleDpi; }
+
+// The release text is GitHub markdown, written one way: "**Heading**" lines
+// over "- Fixed: ..." bullets. Drawn as what it means rather than as
+// asterisks; any other line is plain text.
+void DrawReleaseNotes(std::string_view notes) {
+  ImGui::PushTextWrapPos(0.0f);
+  bool first = true;
+  while (!notes.empty()) {
+    const size_t end = notes.find('\n');
+    std::string_view line = notes.substr(0, end);
+    notes.remove_prefix(end == std::string_view::npos ? notes.size() : end + 1);
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.remove_suffix(1);
+    if (line.empty()) continue;
+    if (line.size() > 4 && line.compare(0, 2, "**") == 0 &&
+        line.compare(line.size() - 2, 2, "**") == 0) {
+      if (!first) ImGui::Spacing();
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_CheckMark));
+      ImGui::TextUnformatted(line.data() + 2, line.data() + line.size() - 2);
+      ImGui::PopStyleColor();
+    } else if (line.size() > 2 && (line[0] == '-' || line[0] == '*') && line[1] == ' ') {
+      ImGui::Bullet();
+      ImGui::TextUnformatted(line.data() + 2, line.data() + line.size());
+    } else {
+      ImGui::TextUnformatted(line.data(), line.data() + line.size());
+    }
+    first = false;
+  }
+  ImGui::PopTextWrapPos();
+}
 
 }  // namespace
 
@@ -1024,12 +1054,11 @@ void SettingsWindow::DrawUpdateSection() {
   if (!st.notes.empty() && (st.state == UpdateStatus::State::Available ||
                             st.state == UpdateStatus::State::Ready)) {
     ImGui::Spacing();
-    ImGui::SeparatorText(T("Was neu ist", "What is new"));
-    ImGui::BeginChild("release_notes", ImVec2(0, Px(220.0f)), ImGuiChildFlags_Borders);
-    ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextUnformatted(st.notes.c_str());
-    ImGui::PopTextWrapPos();
-    ImGui::EndChild();
+    ImGui::SeparatorText(T("Änderungen", "Changelog"));
+    DrawReleaseNotes(st.notes);
+    ImGui::Spacing();
+    if (ImGui::Button(T("Alle Änderungen", "Full changelog"))) OpenUrl(ChangelogUrl());
+    ImGui::SetItemTooltip("%s", ChangelogUrl().c_str());
   }
 }
 

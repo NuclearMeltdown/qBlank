@@ -41,9 +41,6 @@ class StartupNotices {
   void DrawWelcome();
 
  private:
-  // Opens the changelog on the website, in the language the program speaks.
-  void OpenChangelog();
-
   Updater& updater_;
   FfmpegDownloader& ffmpeg_;
   Host& host_;

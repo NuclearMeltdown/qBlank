@@ -91,6 +91,8 @@ std::string ReleasePageUrl(const UpdateStatus& status) {
 
 std::string WebsiteUrl() { return Releases().website; }
 
+std::string ChangelogUrl() { return WebsiteUrl() + T("de/", "") + "changelog.html"; }
+
 // The release page one level up, so the repository has no address of its own
 // to keep in step with it.
 std::string RepositoryUrl() {
@@ -156,8 +158,14 @@ void Updater::Run(bool install) {
 
     s.latestVersion = release.tag;
     s.pageUrl = release.pageUrl;
-    s.notes = release.notes;
-    if (s.notes.size() > 1200) s.notes = s.notes.substr(0, 1200) + " ...";
+    // Cut at a line: the About tab draws the lines as headings and bullets, and
+    // half a bullet reads like a mistake. The changelog page has the rest.
+    s.notes = std::move(release.notes);
+    if (s.notes.size() > 1200) {
+      const size_t cut = s.notes.rfind('\n', 1200);
+      s.notes.resize(cut == std::string::npos ? 1200 : cut);
+      s.notes += "\n...";
+    }
 
     // The asset carrying the program itself. A release without one is a release
     // this cannot install, and saying so beats pretending otherwise.

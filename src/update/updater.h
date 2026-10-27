@@ -69,6 +69,8 @@ std::string UpdateErrorText(const UpdateStatus& status);
 // built-in address is only used when there was no answer at all.
 std::string ReleasePageUrl(const UpdateStatus& status);
 std::string WebsiteUrl();
+// Every release, newest first, in the language the program speaks.
+std::string ChangelogUrl();
 std::string RepositoryUrl();
 
 class Updater {

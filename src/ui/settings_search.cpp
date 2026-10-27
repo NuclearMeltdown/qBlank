@@ -443,8 +443,8 @@ const Entry kEntries[] = {
      "Info|Version|Copyright|Lizenz|License|GPL|Autor|Author|Handbuch|Manual|Anleitung|Hilfe|"
      "Help|Website|GitHub|Fehler melden|Report a bug|Bug|Issue"},
     {Kind::Section, kTabAbout, "updatesec", "Updates", "Updates",
-     "Update|Aktualisierung|neue Version|New version|Changelog|Release|Was neu ist|"
-     "What is new|Neuigkeiten"},
+     "Update|Aktualisierung|neue Version|New version|Changelog|Änderungen|Release|"
+     "Was neu ist|What is new|Neuigkeiten"},
     {Kind::Control, kTabAbout, "updatestartup", "Beim Start nach Updates suchen",
      "Check for updates at startup", "Automatisch|Automatic|Autoupdate|Update-Check"},
     {Kind::Control, kTabAbout, "updatecheck", "Jetzt suchen", "Check now",

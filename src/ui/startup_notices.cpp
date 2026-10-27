@@ -24,8 +24,6 @@ void StartupNotices::QueueWelcome(bool startMenu, bool desktop) {
   welcomeQueued_ = welcomeStartMenu_ || welcomeDesktop_;
 }
 
-void StartupNotices::OpenChangelog() { OpenUrl(WebsiteUrl() + T("de/", "") + "changelog.html"); }
-
 void StartupNotices::DrawUpdatePrompt() {
   // The startup check runs on its own thread, so the result turns up a second or
   // two in. Raised once per session and never again, whatever the user does with
@@ -95,12 +93,10 @@ void StartupNotices::DrawUpdatePrompt() {
   ImGui::SameLine();
   if (ImGui::Button(T("Später", "Later"), ImVec2(buttonWidth, 0))) ImGui::CloseCurrentPopup();
   ImGui::SameLine();
-  if (ImGui::Button(T("Was ist neu", "What is new"), ImVec2(buttonWidth, 0))) {
-    // The changelog, not the About tab. The tab shows the notes trimmed to
-    // something that fits; the page has the whole of them, the files, and the
-    // history below them.
-    OpenChangelog();
-    ImGui::CloseCurrentPopup();
+  if (ImGui::Button(T("Änderungen", "Changelog"), ImVec2(buttonWidth, 0))) {
+    // The page has every release since the installed one, not just the newest.
+    // The notice stays open, so Install is still there after reading.
+    OpenUrl(ChangelogUrl());
   }
   ImGui::EndPopup();
 }
