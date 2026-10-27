@@ -54,7 +54,7 @@
   <nav class="toc">
     <div class="secs">
       <a href="#checking">Checking</a>
-      <a href="#what-is-new">"What is new"</a>
+      <a href="#changelog">Changelog</a>
       <a href="#errors">Errors</a>
       <a href="#installing">Installing</a>
       <a href="#across-a-rename">Across a rename</a>
@@ -111,12 +111,19 @@ on top of the tab that had already answered.</p>
       <p>Nothing is downloaded until you ask. The startup check only asks.</p>
     </section>
 
-    <section id="what-is-new">
-      <h2>"What is new"</h2>
-      <p>Opens the changelog on the website (<code>StartupNotices::OpenChangelog()</code>), under
-<code>de/</code> when the program speaks German, rather than trying to render release notes
-in the notice. The page shows every release newest first, with its notes and its
-files. Since 7.1; before, the button opened the GitHub release page.</p>
+    <section id="changelog">
+      <h2>Changelog</h2>
+      <p><strong>In the notice</strong>, <em>Changelog</em> opens the changelog on the website
+(<code>ChangelogUrl()</code>), under <code>de/</code> when the program speaks German. The page shows
+every release newest first, with its notes and its files. The notice stays
+open, so <em>Install</em> is still there after reading. Up to 7.2 the button was
+called <em>What is new</em> and closed the notice.</p>
+      <p><strong>In Settings → About</strong>, a waiting update shows the notes of the newest release
+under <em>Changelog</em>, with <em>Full changelog</em> below them for the page. The release
+text is GitHub markdown written one way, so <code>DrawReleaseNotes()</code> draws it
+without a markdown parser: <code>**Heading**</code> lines in the accent colour, <code>- </code>
+lines as bullets, anything else as plain text. The updater cuts the text at a
+line after 1200 characters, so no bullet ends halfway.</p>
     </section>
 
     <section id="errors">
