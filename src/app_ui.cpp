@@ -296,9 +296,9 @@ RecordStatus App::RecordingStatus() const {
 
 const char* App::ExclusiveFullscreenHint() {
   return T("Ein Spiel hält das Bild im exklusiven Vollbild, Windows gibt es nicht frei.\n"
-           "Im Spiel Fenster oder Randlos einstellen.",
+           "Seine Vollbildoptimierungen einschalten oder im Spiel Fenster oder Randlos einstellen.",
            "A game holds the picture in exclusive fullscreen, and Windows does not share it.\n"
-           "Set the game to windowed or borderless.");
+           "Turn on its fullscreen optimizations, or set the game to windowed or borderless.");
 }
 
 void App::DrawScreenStatus(const FrameBuffer* sink) {

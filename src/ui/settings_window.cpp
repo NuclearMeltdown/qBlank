@@ -1139,10 +1139,10 @@ void SettingsWindow::DrawScreenSource() {
                "records itself too."));
 
   ImGui::Spacing();
-  TextDisabledWrapped(T("Ältere Spiele im exklusiven Vollbild lassen sich nicht aufnehmen; im "
-                        "randlosen Fenster geht es.",
-                        "Older games in exclusive fullscreen cannot be captured; borderless "
-                        "windowed works."));
+  TextDisabledWrapped(T("Für Spiele im exklusiven Vollbild müssen die Vollbildoptimierungen von "
+                        "Windows an sein.",
+                        "To capture games in exclusive fullscreen, make sure Windows' fullscreen "
+                        "optimizations are on."));
   TextDisabledWrapped(T("Ton: im Reiter Ton „Systemton ohne qBlank“ hinzufügen.",
                         "Sound: add “System sound without qBlank” on the Audio tab."));
 }
@@ -1198,10 +1198,10 @@ void SettingsWindow::DrawWindowSource() {
                         "The window may be covered, but not minimized."));
   TextDisabledWrapped(T("Ist der Titel weg, nimmt qBlank ein anderes Fenster desselben Programms.",
                         "If the title is gone, qBlank takes another window of the same program."));
-  TextDisabledWrapped(T("Ältere Spiele im exklusiven Vollbild lassen sich nicht aufnehmen; im "
-                        "randlosen Fenster geht es.",
-                        "Older games in exclusive fullscreen cannot be captured; borderless "
-                        "windowed works."));
+  TextDisabledWrapped(T("Für Spiele im exklusiven Vollbild müssen die Vollbildoptimierungen von "
+                        "Windows an sein.",
+                        "To capture games in exclusive fullscreen, make sure Windows' fullscreen "
+                        "optimizations are on."));
   TextDisabledWrapped(T("Ton: im Reiter Ton „Systemton ohne qBlank“ hinzufügen.",
                         "Sound: add “System sound without qBlank” on the Audio tab."));
 }
