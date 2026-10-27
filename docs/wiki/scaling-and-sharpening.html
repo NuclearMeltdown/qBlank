@@ -103,9 +103,9 @@ horizontal pixel count and it resolves every output pixel to the console's own
 pixel instead of to a fraction of one.</p>
       <h3 id="the-problem-it-solves">The problem it solves</h3>
       <p>A capture card samples the active line at a fixed rate — 720 samples for BT.601,
-whatever the source is doing. A SNES draws <strong>256</strong> pixels across that same line,
-so each console pixel lands on about <strong>2.8 samples</strong>. Not a whole number, and
-already low-pass filtered by the card.</p>
+whatever the source is doing. A SNES draws <strong>256</strong> pixels across most of that
+line, so each console pixel lands on about <strong>2.5 samples</strong>. Not a whole number,
+and already low-pass filtered by the card.</p>
       <p>Scale that straight to a window and the pixel boundaries fall wherever the
 arithmetic puts them: some console pixels come out three output blocks wide,
 some four, and the edges between them are soft in a way that changes across the
@@ -170,6 +170,16 @@ known that is a least squares problem: every pixel one flat value, the blur
 measured (<a href="#how-blurred">above</a>). Its answer is a fixed weighting of the
 samples by their distance from the pixel's centre, worked out once per grid (<code>GridKernel()</code>, 8 knots, logged as
 <code>rebuild weights</code>), clamped to what the pixel's own samples span.</p>
+      <h3 id="even-blocks">Even blocks</h3>
+      <p>Which console pixel a screen pixel shows was, until 7.2.2, the one under its
+centre. At a scale that is not whole that gives blocks of two widths: at 4.6
+screen pixels per console pixel, some came out four wide and some five. Integer
+scaling did not help, as it makes only the lines whole.</p>
+      <p>Now a screen pixel that straddles a boundary is shared by area between the two
+console pixels. Every block covers the same width, 4.6 in that example, and the
+one pixel at its edge is the mix. Rows the same way. At a whole scale nothing
+straddles and the blocks stay hard. At most three more reads, only on boundary
+pixels.</p>
       <h3 id="cleanup-per-console-pixel">Cleanup per console pixel</h3>
       <p>The card still hands one colour over as many: it desaturates by position, and
 overshoots for about two pixels behind a big step. On analogue SDR sources
@@ -225,9 +235,8 @@ horizontal grid quietly making the picture worse.</p>
 it, deliberately. That number is about vertical. Knowing how many lines a console
 drew does not turn the 720 samples along each one back into the ones the card
 originally took.</p>
-      <p>Pairs with integer scaling, which does the other half of the same job: the grid
-keeps the blocks even across a line, integer scaling keeps them even down the
-picture.</p>
+      <p>Pairs with integer scaling: with whole lines no row needs a mixed pixel, so the
+blocks are hard top and bottom as well.</p>
       <p>The same number also feeds the <a href="#square-pixels">square pixels</a> aspect mode.
 Here it decides where the edges sit; there it decides what shape the picture
 is. Unticking <strong>Snap edges to the grid</strong> keeps the shape and drops the
@@ -292,22 +301,14 @@ plenty of people prefer the square one.</p>
 how often the console switched it is nowhere in the signal. So the number comes
 from <em>Source width</em> under <a href="#the-native-pixel-grid">the native pixel grid</a> — the
 same setting, read a second way.</p>
-      <p>That setting counts across the <strong>whole</strong> active line, while the aspect is about
-the <strong>cropped</strong> picture, so it is scaled in the same proportion first. Without
-that step a GameCube would come out at 640 ÷ 448 = 1,43 instead of the 1,33
-every other mode shows it at.</p>
-      <p>Measured on a PAL60 GameCube, source 720×480 cropped to 668×448, window
-1895×1115:</p>
-      <div class="tbl"><table>
-<tr><th>Source width</th><th>Columns after crop</th><th>Aspect</th><th>Picture</th></tr>
-<tr><td>640 · GameCube</td><td>594</td><td>1,325</td><td>1478×1115</td></tr>
-<tr><td>256 · SNES</td><td>238</td><td>0,530</td><td>591×1115</td></tr>
-<tr><td>not specified</td><td>668</td><td>1,491</td><td>1663×1115</td></tr>
-</table></div>
-      <p>The 640 row lands on the same shape as <code>Source</code>, which is the point: on a
-console that already draws square pixels, the two modes agree. The 256 row is
-that same 448-line frame with a 256-column grid claimed over it — nonsense for
-this signal, and exactly right as arithmetic.</p>
+      <p>The console does not draw across the whole line the card samples. Its 256 or
+320 pixels take about 47.7 of the 53.3 µs, whatever the dot clock: a SNES puts
+256 of its 341 dots per line on 858 samples (525 lines) or 864 (625 lines), so
+644 or 649 of the 720 — the <a href="#where-the-grid-is">measured</a> 2.534 per pixel. On
+an analogue source of up to 576 lines the count is spread over that share of
+the source width, then scaled with the crop.</p>
+      <p>Until 7.2.2 it was spread over all 720, and every pixel came out a tenth too
+narrow: a SNES at 256×224 showed at about 1,03 instead of 256 ÷ 224 = 1,14.</p>
       <h3 id="not-specified">Not specified</h3>
       <p>The first entry in <em>Source width</em> used to read "off". It does not switch
 anything off any more: with no number given, square pixels falls back to the
