@@ -2361,16 +2361,14 @@ void SettingsWindow::DrawImageTab() {
   Anchor("nativewidth");
   ImGui::SameLine();
   HelpMarker(T("Die echte waagerechte Auflösung der Konsole. Die Karte tastet mit fester Rate "
-               "ab, meist 720, ein SNES-Pixel liegt also auf etwa 2,8 Proben. Mit der echten "
-               "Breite fällt jedes Ausgabepixel auf genau ein Konsolenpixel statt zwischen "
-               "zwei.\n\n"
+               "ab, meist 720, ein SNES-Pixel liegt also auf etwa 2,5 Proben. Mit der echten "
+               "Breite wird jedes Konsolenpixel ein scharfer Block, alle gleich breit.\n\n"
                "Ersetzt den Filter oben. Am besten mit Integer-Skalierung.\n\n"
                "Das Seitenverhältnis „Quadratische Pixel“ nutzt denselben Wert für die "
                "Bildform.",
                "The console's real horizontal resolution. The card samples at a fixed rate, "
-               "usually 720, so one SNES pixel spans about 2.8 samples. With the real width, "
-               "each output pixel lands on exactly one console pixel instead of between "
-               "two.\n\n"
+               "usually 720, so one SNES pixel spans about 2.5 samples. With the real width, "
+               "each console pixel becomes a sharp block, all the same width.\n\n"
                "Replaces the filter above. Best with integer scaling.\n\n"
                "The \"Square pixels\" aspect ratio uses the same value for the picture "
                "shape."));

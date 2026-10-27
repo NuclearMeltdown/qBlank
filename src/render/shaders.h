@@ -2548,8 +2548,8 @@ float3 Sharpen(float3 c, float2 uv, float amount) {
 // Told where the console's pixels sit -- measured on the CPU from the count the
 // setting gives, see AnalyzePixelGrid -- every output pixel can be resolved to
 // the *console's* pixel instead: work out which one it belongs to, and average
-// exactly the samples that pixel covers. The grid comes back, and with integer
-// scaling every block is the same width again.
+// exactly the samples that pixel covers. The grid comes back, and every block
+// is the same width again.
 //
 // This is not what an OSSC does and cannot be. An OSSC samples the analogue
 // waveform at the console's own dot clock, so it recovers the pixels before
@@ -2583,13 +2583,12 @@ R"HLSL(float NativeKnot(int i) {
   return c == 0 ? q.x : c == 1 ? q.y : c == 2 ? q.z : q.w;
 }
 
-float3 SampleNativeGrid(float2 uv) {
+// Console pixel n, counted from gNativeOffset, on one row of the intermediate.
+float3 NativePixel(float n, int row) {
   float span = gNativeSpan;
-  float n = floor((uv.x * gSrcSize.x - gNativeOffset) / span);
   float x0 = gNativeOffset + n * span;
   float x1 = x0 + span;
 
-  int row = clamp((int)(uv.y * gSrcSize.y), 0, (int)gSrcSize.y - 1);
   if (gGrid.y > 0) return texBlocks.Load(int3(clamp((int)n + 1, 0, gGrid.y - 1), row, 0)).rgb;
   int first = (int)floor(x0);
   int maxX = (int)gSrcSize.x - 1;
@@ -2630,14 +2629,56 @@ float3 SampleNativeGrid(float2 uv) {
     if ((float)x >= x1) break;
     // How much of this source sample the console pixel actually covers. The
     // ends are partial, which is the whole reason for weighting rather than
-    // simply averaging whole samples: at 2.8 samples per pixel the boundaries
-    // land inside a sample two times out of three.
+    // simply averaging whole samples: at 2.5 samples per pixel nearly every
+    // boundary lands inside a sample.
     float cover = min((float)x + 1.0, x1) - max((float)x, x0);
     if (cover <= 0.0) continue;
     sum += texSrc.Load(int3(clamp(x, 0, maxX), row, 0)).rgb * cover;
     weight += cover;
   }
   return sum / max(weight, 1e-4);
+}
+
+// Which console pixel a screen pixel shows. The one under its centre alone
+// gives blocks of two widths whenever the scale is not whole -- at 4.6 screen
+// pixels per console pixel some come out four wide and some five, and integer
+// scaling does not help, as it makes only the lines whole. A screen pixel that
+// straddles a boundary is shared by area instead: every block then covers the
+// same width, and the one pixel at its edge is the mix. Rows the same way, for
+// the heights. Where one screen pixel spans more than one boundary the window
+// is smaller than the console's picture, and the centre decides as before.
+float3 SampleNativeGrid(float2 uv) {
+  float2 foot = 0.5 * gSrcSize / gDstSize;  // half a screen pixel, in texels
+  float2 pos = uv * gSrcSize;
+  float xa = (pos.x - foot.x - gNativeOffset) / gNativeSpan;
+  float xb = (pos.x + foot.x - gNativeOffset) / gNativeSpan;
+  float n0 = floor(xa), n1 = floor(xb);
+  float wx = 0.0;
+  if (n1 == n0 + 1.0) wx = (xb - n1) / (xb - xa);
+  else if (n1 != n0) n0 = floor(0.5 * (xa + xb));
+
+  int maxRow = (int)gSrcSize.y - 1;
+  float ya = pos.y - foot.y, yb = pos.y + foot.y;
+  int r0 = (int)floor(ya), r1 = (int)floor(yb);
+  float wy = 0.0;
+  if (r1 == r0 + 1) wy = (yb - (float)r1) / (yb - ya);
+  else if (r1 != r0) r0 = (int)pos.y;
+  r0 = clamp(r0, 0, maxRow);
+  r1 = clamp(r1, 0, maxRow);
+
+  // At a whole scale the edges of the screen pixel sit on the boundaries
+  // themselves, and rounding must not turn that into a fetch for nothing.
+  if (wx > 0.999) { n0 = n1; wx = 0.0; }
+  if (wy > 0.999) { r0 = r1; wy = 0.0; }
+
+  float3 c = NativePixel(n0, r0);
+  if (wx > 0.001) c = lerp(c, NativePixel(n1, r0), wx);
+  if (wy > 0.001) {
+    float3 d = NativePixel(n0, r1);
+    if (wx > 0.001) d = lerp(d, NativePixel(n1, r1), wx);
+    c = lerp(c, d, wy);
+  }
+  return c;
 }
 
 // ---------------------------------------------------------------------------
