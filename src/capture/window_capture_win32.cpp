@@ -313,16 +313,19 @@ bool Win32WindowCapture::Start(const CaptureTarget& target, bool cursor, uint64_
     if (error) *error = T("Kein Fenster gewählt.", "No window chosen.");
     return false;
   }
+  // One that is not minimized before one that is: a program may keep a second
+  // window down there while the one in use is up.
   const std::vector<Candidate> found = Candidates();
   const Candidate* chosen = nullptr;
-  for (const Candidate& c : found) {
-    if (!chosen && _stricmp(c.info.app.c_str(), target.app.c_str()) == 0 &&
-        c.info.title == target.title) {
-      chosen = &c;
+  for (int pass = 0; pass < 4 && !chosen; ++pass) {
+    const bool exact = pass % 2 == 0;
+    const bool iconic = pass >= 2;
+    for (const Candidate& c : found) {
+      if (!chosen && _stricmp(c.info.app.c_str(), target.app.c_str()) == 0 &&
+          (!exact || c.info.title == target.title) && (::IsIconic(c.hwnd) != FALSE) == iconic) {
+        chosen = &c;
+      }
     }
-  }
-  for (const Candidate& c : found) {
-    if (!chosen && _stricmp(c.info.app.c_str(), target.app.c_str()) == 0) chosen = &c;
   }
   // Waiting for a program is no error; it goes in no log, as it is asked again
   // every few seconds.

@@ -1335,18 +1335,23 @@ void App::Tick() {
 
   // While the settings dialog is open the user is presumably fixing exactly
   // this, so retrying behind their back only produces noise and blocks the
-  // device they are about to pick.
-  if (captureState_ == CaptureState::Reconnecting && !settings_.isOpen() &&
+  // device they are about to pick. A screen or a window blocks nothing and is
+  // cheap to look for, and the program may start or come back any moment: it
+  // is looked for meanwhile too, and without backing off. A failed start opens
+  // the settings, so a program started after qBlank was never found.
+  const bool screen = OnScreen();
+  if (captureState_ == CaptureState::Reconnecting && (screen || !settings_.isOpen()) &&
       ClockTicks() >= nextRetryQpc_) {
-    ++retryCount_;
+    const int attempt = ++retryCount_;
     std::string error;
     if (StartCapture(&error)) {
-      CAP_LOG("Reconnected after %d attempts", retryCount_);
+      CAP_LOG("Reconnected after %d attempts", attempt);
       Toast(T("Wieder verbunden", "Reconnected"));
     } else {
       captureError_ = error;
       // Back off once it is clear this is not a brief hiccup.
-      const double wait = retryCount_ >= kRetryBackoffAfter ? kRetrySlowSeconds : kRetrySeconds;
+      const double wait =
+          !screen && retryCount_ >= kRetryBackoffAfter ? kRetrySlowSeconds : kRetrySeconds;
       nextRetryQpc_ = ClockTicks() + SecondsToTicks(wait);
     }
   }
