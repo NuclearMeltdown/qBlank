@@ -71,7 +71,7 @@ instead of a card. Everything after the capture is the same: the passes, the
 <a href="recording.html">recording</a>, the <a href="recording.html#replay">replay</a>, screenshots, the
 camera. What is about a card, the video standard and the card input, is
 hidden. Since 7.1 an HDR monitor comes in <a href="#hdr">HDR</a>.</p>
-      <figure class="ui"><img src="../shots/screen.png" alt="The Source tab with Screen as picture source: monitor, mouse pointer, preview, hide qBlank from the capture" width="528" height="364" loading="lazy"></figure>
+      <figure class="ui"><img src="../shots/screen.png" alt="The Source tab with Screen as picture source: monitor, mouse pointer, preview, hide qBlank from the capture" width="604" height="364" loading="lazy"></figure>
     </section>
 
     <section id="screen">
@@ -163,19 +163,26 @@ want an HDR screen.</p>
 
     <section id="exclusive-fullscreen">
       <h2>Exclusive fullscreen</h2>
-      <p>Older games in exclusive fullscreen own the screen, and Windows shares that
+      <p>Windows' fullscreen optimizations, on by default, compose a game in exclusive
+fullscreen like a borderless window. The game still changes the display mode
+and minimises on Alt+Tab, yet both captures see it: F.E.A.R. 2 came through
+Desktop Duplication and Windows.Graphics.Capture alike.</p>
+      <p>With the optimizations off for a game (<em>Disable fullscreen optimizations</em> in
+the .exe's compatibility settings), it owns the screen, and Windows shares that
 picture with no capture. qBlank cannot get past it, so it says so:</p>
       <ul>
 <li>After <strong>2 s</strong> without a frame it asks <code>SHQueryUserNotificationState</code>. Silence
 alone says little: a desktop at rest sends nothing either.</li>
 <li><code>QUNS_RUNNING_D3D_FULL_SCREEN</code> on the captured screen, or the window's program
 in front: a toast, <em>A game holds the picture in exclusive fullscreen</em>, and the
-advice to switch the game to windowed or borderless.</li>
+advice to turn the optimizations on or switch the game to windowed or
+borderless.</li>
+<li>A game that already sent pictures in that state is composed, and its loading
+screens are silent too: it raises no toast.</li>
 <li>Over once frames flow again. A stray one now and then does not count;
 Desktop Duplication lets the odd one through meanwhile.</li>
 </ul>
-      <p>Tested with F.E.A.R. 2. A hook into the game, as OBS's game capture does, is
-not part of qBlank.</p>
+      <p>A hook into the game, as OBS's game capture does, is not part of qBlank.</p>
     </section>
 
     <section id="platforms">

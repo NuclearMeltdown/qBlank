@@ -84,7 +84,7 @@
         <tr><td>Deinterlacing</td><td>Läuft, wenn das Bild als interlaced gemessen wird</td><td>Pro Quelle von Hand gewählt</td></tr>
         <tr><td>Videonorm</td><td>Automatisch gefunden</td><td>Im Treiberdialog der Karte</td></tr>
         <tr><td>Composite-Dot-Crawl</td><td>Filter eingebaut</td><td>&ndash;</td></tr>
-        <tr><td>Ältere Spiele im exklusiven Vollbild</td><td>&ndash;</td><td>Spielaufnahme</td></tr>
+        <tr><td>Exklusives Vollbild, Vollbildoptimierungen aus</td><td>&ndash;</td><td>Spielaufnahme</td></tr>
         <tr><td>Replay-Puffer</td><td>Arbeitsspeicher oder Platte, bis 30&nbsp;Minuten</td><td>Arbeitsspeicher</td></tr>
         <tr><td>Streamen</td><td>&ndash;</td><td>Ja</td></tr>
         <tr><td>Systeme</td><td>Windows 10 und 11, 64 Bit</td><td>Windows, macOS, Linux</td></tr>
@@ -193,7 +193,7 @@
         <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
         <tr><td>Bildschirm</td><td>Desktop Duplication</td><td><em>Monitoraufnahme</em>: Automatisch, <em>Veraltet (DXGI)</em> oder <em>Modern (WGC)</em></td></tr>
         <tr><td>Fenster</td><td>Windows.Graphics.Capture</td><td><em>Fensteraufnahme</em>: <em>Veraltet (BitBlt)</em> oder <em>Modern (WGC)</em></td></tr>
-        <tr><td>Ältere Spiele im exklusiven Vollbild</td><td>Nicht möglich, und qBlank sagt es; im randlosen Fenster geht es</td><td><em>Spielaufnahme</em> hängt sich ins Spiel</td></tr>
+        <tr><td>Exklusives Vollbild</td><td>Mit eingeschalteten Vollbildoptimierungen von Windows; ohne sie nicht möglich, und qBlank sagt es</td><td><em>Spielaufnahme</em> hängt sich ins Spiel</td></tr>
         <tr><td>Im Spiel</td><td>Nichts; nur was Windows jedem Programm anbietet</td><td>Die Spielaufnahme lädt einen Hook hinein; ein <em>Anti-Cheat-Kompatibilitäts-Hook</em> ist wählbar</td></tr>
         <tr><td>Fenster weg</td><td>Ein anderes Fenster desselben Programms</td><td><em>Übereinstimmungspriorität</em>: nur Titel, gleicher Typ oder gleiches Programm</td></tr>
         <tr><td>Rahmen</td><td>Immer abgeschnitten</td><td>Haken <em>Client-Bereich</em></td></tr>
@@ -221,7 +221,7 @@
         <li>qBlank: <em>Vorschau</em> aus zeigt eine kleine Anzeige mit Auflösung, Bildrate und Aufnahmezeit und zeichnet seltener. <em>qBlank auf der Aufnahme verbergen</em> ist beim Bildschirm ab Werk an. Es hält qBlank aus jeder Bildschirmaufnahme heraus, auch aus Remote Play und Remotedesktop.</li>
       </ul>
       <figure class="ui">
-        <img src="shots/screen.png" width="528" height="386" loading="lazy" alt="Der Reiter Quelle mit Bildschirm als Bildquelle: der Hauptmonitor gewählt, Mauszeiger, Vorschau und qBlank auf der Aufnahme verbergen eingeschaltet, dazu die Hinweise zum exklusiven Vollbild und zum Ton">
+        <img src="shots/screen.png" width="604" height="364" loading="lazy" alt="Der Reiter Quelle mit Bildschirm als Bildquelle: der Hauptmonitor gewählt, Mauszeiger, Vorschau und qBlank auf der Aufnahme verbergen eingeschaltet, dazu die Hinweise zum exklusiven Vollbild und zum Ton">
         <figcaption>Quelle &rarr; Bildschirm: Monitor, Zeiger, Vorschau, qBlank verbergen.</figcaption>
       </figure>
       <figure class="ui panel">
@@ -307,7 +307,7 @@
         <li>Szenen, geschichtete Quellen, Overlays, Text, Übergänge, Studio-Modus.</li>
         <li>Mehrere Quellen zugleich, etwa eine Kamera über dem Spiel.</li>
         <li>Streamen zu Twitch, YouTube und anderen.</li>
-        <li>Spielaufnahme für Spiele im exklusiven Vollbild.</li>
+        <li>Spielaufnahme, auch für exklusives Vollbild ohne die Vollbildoptimierungen von Windows.</li>
         <li>Ton eines einzelnen Programms.</li>
         <li>Audio- und Videofilter pro Quelle.</li>
         <li>Nach Zeit oder von Hand teilen, mehr Container.</li>

@@ -86,7 +86,7 @@
         <tr><td>Deinterlacing</td><td>Runs when the picture is measured as interlaced</td><td>Chosen by hand per source</td></tr>
         <tr><td>Video standard</td><td>Found automatically</td><td>Set in the card driver's dialog</td></tr>
         <tr><td>Composite dot crawl</td><td>Filters built in</td><td>&ndash;</td></tr>
-        <tr><td>Older games in exclusive fullscreen</td><td>&ndash;</td><td>Game Capture</td></tr>
+        <tr><td>Exclusive fullscreen, Windows' optimizations off</td><td>&ndash;</td><td>Game Capture</td></tr>
         <tr><td>Replay buffer</td><td>Memory or disk, up to 30&nbsp;minutes</td><td>Memory</td></tr>
         <tr><td>Streaming</td><td>&ndash;</td><td>Yes</td></tr>
         <tr><td>Systems</td><td>Windows 10 and 11, 64-bit</td><td>Windows, macOS, Linux</td></tr>
@@ -195,7 +195,7 @@
         <tr><th></th><th>qBlank</th><th>OBS Studio</th></tr>
         <tr><td>Screen</td><td>Desktop Duplication</td><td><em>Display Capture</em>: Automatic, <em>Legacy (DXGI)</em> or <em>Modern (WGC)</em></td></tr>
         <tr><td>Window</td><td>Windows.Graphics.Capture</td><td><em>Window Capture</em>: <em>Legacy (BitBlt)</em> or <em>Modern (WGC)</em></td></tr>
-        <tr><td>Older games in exclusive fullscreen</td><td>Not possible, and qBlank says so; borderless windowed works</td><td><em>Game Capture</em> hooks into the game</td></tr>
+        <tr><td>Exclusive fullscreen</td><td>With Windows' fullscreen optimizations on; with them off not possible, and qBlank says so</td><td><em>Game Capture</em> hooks into the game</td></tr>
         <tr><td>Inside the game</td><td>Nothing; only what Windows offers every program</td><td>Game Capture loads a hook into it; an <em>anti-cheat compatibility hook</em> is an option</td></tr>
         <tr><td>Window lost</td><td>Another window of the same program</td><td><em>Window Match Priority</em>: title only, same type, or same program</td></tr>
         <tr><td>Border</td><td>Always cut off</td><td><em>Client Area</em> box</td></tr>
@@ -223,7 +223,7 @@
         <li>qBlank: <em>Preview</em> off shows a small panel with resolution, frame rate and recording time, and redraws less often. <em>Hide qBlank from the capture</em> is on by default for the screen. It keeps qBlank out of every screen capture, Remote Play and Remote Desktop included.</li>
       </ul>
       <figure class="ui">
-        <img src="shots/screen.png" width="528" height="364" loading="lazy" alt="The Source tab with Screen as picture source: the primary monitor picked, mouse pointer, preview and hiding qBlank from the capture switched on, and the notes on exclusive fullscreen and sound">
+        <img src="shots/screen.png" width="604" height="364" loading="lazy" alt="The Source tab with Screen as picture source: the primary monitor picked, mouse pointer, preview and hiding qBlank from the capture switched on, and the notes on exclusive fullscreen and sound">
         <figcaption>Source &rarr; Screen: monitor, pointer, preview, hide qBlank.</figcaption>
       </figure>
       <figure class="ui panel">
@@ -309,7 +309,7 @@
         <li>Scenes, layered sources, overlays, text, transitions, Studio Mode.</li>
         <li>Several sources at once, such as a camera over the game.</li>
         <li>Streaming to Twitch, YouTube and others.</li>
-        <li>Game Capture for games in exclusive fullscreen.</li>
+        <li>Game Capture, also for exclusive fullscreen with Windows' optimizations off.</li>
         <li>Sound from a single program.</li>
         <li>Audio and video filters per source.</li>
         <li>Splitting by time or by hand, more containers.</li>

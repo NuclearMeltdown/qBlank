@@ -72,7 +72,7 @@ code does and what was measured. This page is the list.
 - *Source → Window*: one program's window through Windows.Graphics.Capture — covered is fine, minimised is not; found again when it reopens.
 - Mouse pointer optional; a preview, or a status panel that draws less.
 - qBlank hides itself from the screen capture — optional, so Remote Play can still see it.
-- A notice when a game in exclusive fullscreen keeps the picture away; borderless windowed works.
+- Games in exclusive fullscreen too, with Windows' fullscreen optimizations on; a notice when they are off.
 - Sound through the recording source *System sound without qBlank*.
 
 **Automatic video standard** · [wiki](../../wiki/Automatic-video-standard)
