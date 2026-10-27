@@ -78,7 +78,7 @@ followed without touching the settings.</p>
       <p>The setting is one <code>long</code> in the profile:</p>
       <div class="tbl"><table>
 <tr><th>Value</th><th>Meaning</th></tr>
-<tr><td><code>0</code></td><td>Leave alone — never call <code>put_TVFormat</code></td></tr>
+<tr><td><code>0</code></td><td>Don't change — never call <code>put_TVFormat</code></td></tr>
 <tr><td><code>-1</code></td><td>Automatic</td></tr>
 <tr><td>anything else</td><td>That standard, set once when the graph starts</td></tr>
 </table></div>
@@ -632,11 +632,11 @@ calls the same function. Each says something different:</p>
 <tr><th>How it ended</th><th>The second line</th></tr>
 <tr><td>The round changed the standard</td><td><em>Corrected by colour — was NTSC 4.43</em></td></tr>
 <tr><td>The round confirmed it</td><td><em>The colour confirms it — no change</em></td></tr>
-<tr><td>The measurement alone was enough</td><td><em>The colour checks out — no change</em></td></tr>
-<tr><td>The round was void but the reading stood on its own</td><td><em>The comparison was unusable, but the colour stands on its own — no change</em></td></tr>
+<tr><td>The measurement alone was enough</td><td><em>The colour is correct — no change</em></td></tr>
+<tr><td>The round was void but the reading stood on its own</td><td><em>Comparison unusable, the colour is correct on its own — no change</em></td></tr>
 <tr><td>Nothing to compare against at this line count</td><td><em>No other standard with 525 lines — no change</em></td></tr>
 <tr><td>Undecided, and another attempt is coming</td><td><em>The scene has too little colour — trying again in 3 s</em></td></tr>
-<tr><td>Undecided after three attempts</td><td><em>Nothing decides — the source is probably black and white</em></td></tr>
+<tr><td>Undecided after three attempts</td><td><em>No decision possible — the source is probably black and white</em></td></tr>
 <tr><td>Discarded three times over</td><td><em>The picture moved every time — no reliable comparison</em></td></tr>
 <tr><td>The picture stayed black past the 30 s deadline</td><td><em>The picture stayed too dark to compare — no change</em></td></tr>
 <tr><td>No standard locked at all</td><td><em>No standard locks — there is probably no signal</em></td></tr>
