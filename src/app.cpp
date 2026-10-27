@@ -653,17 +653,25 @@ void App::CheckExclusiveFullscreen() {
   const uint64_t fresh = stats.received >= exclusiveReceived_ ? stats.received - exclusiveReceived_
                                                               : stats.received;
   exclusiveReceived_ = stats.received;
+  const bool exclusive = screen_->exclusiveFullscreen();
+  // A loading screen of such a game is silent too. A stray picture now and then
+  // does not count: DDA lets the odd one through meanwhile.
+  if (!exclusive) {
+    exclusiveComposed_ = false;
+  } else if (exclusiveWas_ && fresh >= 10) {
+    exclusiveComposed_ = true;
+  }
+  exclusiveWas_ = exclusive;
   if (screenExclusive_) {
-    // Over once pictures flow again or the game is out of the way. A stray one
-    // now and then does not count: DDA lets the odd one through meanwhile.
-    screenExclusive_ = fresh < 10 && screen_->exclusiveFullscreen();
+    // Over once pictures flow again or the game is out of the way.
+    screenExclusive_ = fresh < 10 && exclusive;
     return;
   }
   // A desktop at rest sends nothing either, so silence alone says little.
   const double silentMs = stats.lastArrivalAgeMs >= 0.0
                               ? stats.lastArrivalAgeMs
                               : TicksToSeconds(now - captureStartQpc_) * 1000.0;
-  if (silentMs < 2000.0 || !screen_->exclusiveFullscreen()) return;
+  if (silentMs < 2000.0 || !exclusive || exclusiveComposed_) return;
   screenExclusive_ = true;
   CAP_LOG("Screen capture: a game holds %s in exclusive fullscreen", screenLabel_.c_str());
   Toast(ExclusiveFullscreenHint(), {}, true);

@@ -353,6 +353,10 @@ class App {
   bool screenExclusive_ = false;
   int64_t exclusiveCheckQpc_ = 0;
   uint64_t exclusiveReceived_ = 0;
+  // Windows' fullscreen optimizations compose most such games anyway: once a
+  // whole second of it brought pictures, a pause is the game's, not Windows'.
+  bool exclusiveWas_ = false;
+  bool exclusiveComposed_ = false;
   AudioEngine audio_;
   SettingsWindow settings_;
   FrameDelayLine delayLine_;
