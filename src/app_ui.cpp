@@ -232,7 +232,7 @@ float App::DrawPixelArtNotice() {
       DrawNotice(Format(T("Sieht nach Pixelgrafik aus, etwa %d Pixel breit. Breite der Quelle einstellen?",
                           "Looks like pixel art, about %d pixels wide. Set the source width?"),
                         width),
-                 T("Einstellen", "Set"), T("Ignorieren", "Ignore"), &height, T("Zeigen", "Show me"));
+                 T("Einstellen", "Set"), T("Ignorieren", "Ignore"), &height, T("Zeigen", "Show"));
   if (answer == NoticeAnswer::Primary) {
     CAP_LOG("Pixel art suggestion taken: source width %d", width);
     ImageSettings& image = config_.active().image;
@@ -481,7 +481,7 @@ void App::DrawSettingsWindowed() {
 
   if (settings_.isOpen() != settingsHost_.visible()) {
     if (settings_.isOpen()) {
-      settingsHost_.Show(AppNameUtf8() + T(" – Einstellungen", " – Settings"));
+      settingsHost_.Show(AppNameUtf8() + T(" — Einstellungen", " — Settings"));
     } else {
       settingsHost_.Hide();
     }
@@ -672,12 +672,10 @@ void App::DrawUi() {
       // Idee kommt, ins Bild zu klicken, findet es nie.
       DrawIdleScreen(
           idleIcon_.id(), idleIconSize_,
-          firstRun_ ? T("Willkommen, bitte zuerst eine Quelle wählen: Capture-Karte, Bildschirm "
-                        "oder Fenster.\n"
-                        "F2 öffnet die Einstellungen, oder Rechtsklick für das Kontextmenü.",
-                        "Welcome, please pick a source first: a capture card, a screen or a "
-                        "window.\n"
-                        "Press F2 to open settings, or right click for the context menu.")
+          firstRun_ ? T("Bitte eine Quelle wählen: Capture-Karte, Bildschirm oder Fenster.\n"
+                        "F2 öffnet die Einstellungen, Rechtsklick das Kontextmenü.",
+                        "Pick a source: capture card, screen or window.\n"
+                        "F2 opens the settings, right-click the context menu.")
                     : T("Kein Gerät aktiv — Rechtsklick oder F2 öffnet die Einstellungen.",
                         "No device active — right-click or press F2 for the settings."));
     }
@@ -1162,7 +1160,7 @@ void App::DrawContextMenu() {
     if (ImGui::MenuItem(T("Automatisch", "Automatic"), nullptr, cap.videoStandard == -1)) {
       cap.videoStandard = -1;
     }
-    if (ImGui::MenuItem(T("Nicht ändern", "Leave alone"), nullptr, cap.videoStandard == 0)) {
+    if (ImGui::MenuItem(T("Nicht ändern", "Don't change"), nullptr, cap.videoStandard == 0)) {
       cap.videoStandard = 0;
     }
     ImGui::Separator();
@@ -1288,10 +1286,10 @@ void App::DrawContextMenu() {
     if (ImGui::MenuItem(T("Standbild", "Freeze"), sc(HotkeyAction::Freeze), frozen_)) {
       ToggleFreeze();
     }
-    WrappedTooltip(T("Hält das Bild an, damit man Filter in Ruhe einstellen kann. Die Filter "
-                     "laufen weiter, nur die Quelle steht.",
-                     "Holds the picture so filters can be set in peace. The filters keep "
-                     "running; only the source stands still."));
+    WrappedTooltip(T("Hält das Bild an, um Filter einzustellen. Die Filter laufen weiter, nur "
+                     "die Quelle steht.",
+                     "Freezes the picture for adjusting filters. The filters keep running; "
+                     "only the source is paused."));
     // Die Richtung gleich mit, statt sie im Einstellungsfenster zu suchen. Die
     // Taste schaltet den Vergleich in der zuletzt gewaehlten Richtung, deshalb
     // steht sie am Menue und nicht an einer der beiden.
@@ -1304,12 +1302,12 @@ void App::DrawContextMenu() {
                            "Splits the picture: every filter off on one side, on on the other. "
                            "Deinterlacing runs on both sides, and the divider can be dragged in "
                            "the picture. Choose it again to switch off.");
-      if (ImGui::MenuItem(T("Senkrecht – links ungefiltert", "Vertical – unfiltered on the left"),
+      if (ImGui::MenuItem(T("Senkrecht — links ungefiltert", "Vertical — unfiltered on the left"),
                           nullptr, compare_ && !across)) {
         ChooseCompare(false);
       }
       WrappedTooltip(hint);
-      if (ImGui::MenuItem(T("Waagerecht – oben ungefiltert", "Horizontal – unfiltered on top"),
+      if (ImGui::MenuItem(T("Waagerecht — oben ungefiltert", "Horizontal — unfiltered on top"),
                           nullptr, compare_ && across)) {
         ChooseCompare(true);
       }
@@ -1337,9 +1335,9 @@ void App::DrawContextMenu() {
       cropTool_.DetectCrop();
     }
     WrappedTooltip(T("Schneidet den schwarzen Rand weg, den die Karte mitliefert. Braucht ein "
-                     "richtiges Bild — auf Schwarz gemessen kommt Unsinn heraus.",
-                     "Crops the black border the card delivers. Needs a real picture — measured "
-                     "on black it produces nonsense."));
+                     "echtes Bild, kein Schwarz.",
+                     "Crops the black border the card delivers. Needs a real picture, not "
+                     "black."));
 
     // Und daneben dasselbe fuer die Norm. Der Grund, es hier anzubieten, ist
     // derselbe wie beim Rand: ausgeloest wird es, weil man etwas *sieht* -- ein
@@ -1349,10 +1347,10 @@ void App::DrawContextMenu() {
                         sc(HotkeyAction::DetectStandard))) {
       standardSearch_.RescanVideoStandard();
     }
-    WrappedTooltip(T("Sucht die Videonorm neu, auch wenn die eingestellte hält. Für den Fall, "
-                     "dass die Farben falsch sind, ohne dass es sich messen ließe.",
-                     "Searches for the video standard again, even when the current one holds. "
-                     "For colours that are wrong in a way no measurement catches."));
+    WrappedTooltip(T("Sucht die Videonorm neu, auch wenn die eingestellte hält. Für falsche "
+                     "Farben, die die Messung nicht erkennt.",
+                     "Searches for the video standard again, even if the current one holds. "
+                     "For wrong colours the measurement does not catch."));
 
     // Und die dritte Messung derselben Art. Sie steht hier vor allem deshalb,
     // weil sie sonst nur im Einstellungsfenster zu erreichen waere -- und wer im
@@ -1361,10 +1359,12 @@ void App::DrawContextMenu() {
                         sc(HotkeyAction::RemeasureRange))) {
       RemeasureRange();
     }
-    WrappedTooltip(T("Das Urteil über voll oder begrenzt steht, bis sich das Bildformat ändert. "
-                     "Nach einer Umstellung im Treiber der Karte hiermit neu messen.",
-                     "The verdict on full or limited holds until the picture format changes. "
-                     "After changing something in the card's driver, measure again here."));
+    WrappedTooltip(T("Die Messung von vollem oder begrenztem Bereich gilt, bis sich das "
+                     "Bildformat ändert. Nach einer Änderung im Treiber der Karte hiermit neu "
+                     "messen.",
+                     "The full or limited range measurement holds until the picture format "
+                     "changes. After changing the card's driver settings, measure again "
+                     "here."));
   }
 
   if (ImGui::MenuItem(T("Aufnahme neu starten", "Restart capture"), sc(HotkeyAction::RestartCapture))) RestartAll(true);

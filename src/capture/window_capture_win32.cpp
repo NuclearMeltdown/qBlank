@@ -338,8 +338,8 @@ bool Win32WindowCapture::Start(const CaptureTarget& target, bool cursor, uint64_
   }
   if (::IsIconic(chosen->hwnd)) {
     if (error) {
-      *error = T("Das Fenster ist minimiert und liefert so kein Bild.",
-                 "The window is minimized and sends no picture that way.");
+      *error = T("Das Fenster ist minimiert und liefert kein Bild.",
+                 "The window is minimized and delivers no picture.");
     }
     return false;
   }

@@ -175,7 +175,7 @@ long VideoStandardGroupPick(int index, long available) {
 }
 
 std::string VideoStandardSettingName(long setting) {
-  if (setting == 0) return T("Nicht ändern", "Leave alone");
+  if (setting == 0) return T("Nicht ändern", "Don't change");
   if (setting == -1) return T("Automatisch", "Automatic");
   const int index = VideoStandardIndexOf(setting);
   return index < 0 ? T("Unbekannt", "Unknown") : VideoStandardName(index);

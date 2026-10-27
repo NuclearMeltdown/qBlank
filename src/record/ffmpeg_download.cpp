@@ -38,7 +38,7 @@ std::string FetchText(FetchError error, int status) {
   switch (error) {
     case FetchError::NoNetwork: return T("keine Netzwerkverbindung", "no network connection");
     case FetchError::NoServer: return T("GitHub nicht erreichbar", "GitHub could not be reached");
-    case FetchError::HttpStatus: return Format(T("GitHub antwortete mit %d", "GitHub answered %d"), status);
+    case FetchError::HttpStatus: return Format(T("GitHub antwortete mit %d", "GitHub returned %d"), status);
     case FetchError::Unreadable: return T("Antwort nicht lesbar", "the answer could not be read");
     default: return T("keine Antwort", "no answer");
   }
@@ -235,7 +235,7 @@ void FfmpegDownloader::Run(std::filesystem::path targetFolder, bool versionOnly)
   };
 
   // --- which release, and which file of it ---
-  SetMessage(T("Frage Version ab ...", "Checking the version ..."));
+  SetMessage(T("Version wird abgefragt ...", "Checking the version ..."));
   FetchError fetchError = FetchError::None;
   int status = 0;
   std::string tag;

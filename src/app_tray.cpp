@@ -40,11 +40,11 @@ void App::UpdateTray() {
   // whether recording, replay or language have changed -- no string to build
   // for that every frame.
   const bool replay = recorder_.replaying();
-  const char* state = recorder_.filePaused() ? T(" – Aufnahme pausiert", " – Recording paused")
+  const char* state = recorder_.filePaused() ? T(" — Aufnahme pausiert", " — Recording paused")
                       : recorder_.recording()
-                          ? (replay ? T(" – Aufnahme und Replay laufen", " – Recording, replay on")
-                                    : T(" – Aufnahme läuft", " – Recording"))
-                      : replay ? T(" – Replay läuft", " – Replay on")
+                          ? (replay ? T(" — Aufnahme und Replay laufen", " — Recording, replay on")
+                                    : T(" — Aufnahme läuft", " — Recording"))
+                      : replay ? T(" — Replay läuft", " — Replay on")
                                : "";
   if (!tray_.shown()) {
     if (!tray_.Show(AppNameUtf8() + state)) {

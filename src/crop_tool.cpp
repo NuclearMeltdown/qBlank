@@ -15,8 +15,8 @@ CropTool::CropTool(Config& config, VideoRenderer& renderer, Host& host)
 void CropTool::DetectCrop() {
   int left = 0, top = 0, right = 0, bottom = 0;
   if (!renderer_.contentBounds(&left, &top, &right, &bottom)) {
-    host_.Toast(T("Noch nichts gemessen. Einen Moment warten.",
-            "Nothing measured yet. Give it a moment."));
+    host_.Toast(T("Noch nichts gemessen, bitte kurz warten.",
+            "Nothing measured yet, please wait."));
     return;
   }
   const VideoFormatInfo format = renderer_.sourceFormat();
@@ -52,12 +52,12 @@ void CropTool::DetectCrop() {
   if (partW * partH < 0.5 || partW < 0.4 || partH < 0.4) {
     char text[240];
     std::snprintf(text, sizeof(text),
-                  T("Da blieben nur %.0f Prozent des Bildes stehen (%.0f x %.0f). Das sieht "
-                    "nach einem Logo auf Schwarz aus, nicht nach einem Rand -- erst ein "
-                    "richtiges Bild der Konsole abwarten.",
-                    "That would leave only %.0f per cent of the picture (%.0f x %.0f). It "
-                    "looks like a logo on black rather than a border -- wait for a real "
-                    "picture from the console first."),
+                  T("Es blieben nur %.0f Prozent des Bildes (%.0f x %.0f), vermutlich ein "
+                    "Logo auf Schwarz statt eines Rands. Erst ein echtes Bild der Konsole "
+                    "abwarten.",
+                    "That would keep only %.0f per cent of the picture (%.0f x %.0f), likely "
+                    "a logo on black rather than a border. Wait for a real picture from the "
+                    "console."),
                   partW * partH * 100.0, partW * 100.0, partH * 100.0);
     host_.Toast(text);
     CAP_LOG("Crop discarded: only %dx%d of %dx%d left (%.0f %% of the area)", keptW, keptH,

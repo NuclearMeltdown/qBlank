@@ -54,7 +54,7 @@ void StartupNotices::DrawUpdatePrompt() {
   const UpdateStatus st = updater_.status();
   ImGui::Text(T("%s %s ist verfügbar.", "%s %s is available."), AppNameUtf8().c_str(),
               st.latestVersion.c_str());
-  ImGui::TextDisabled(T("Installiert ist %s.", "This build is %s."), Updater::currentVersion());
+  ImGui::TextDisabled(T("Installiert: %s.", "Installed: %s."), Updater::currentVersion());
   ImGui::Spacing();
 
   switch (st.state) {
@@ -63,8 +63,8 @@ void StartupNotices::DrawUpdatePrompt() {
       break;
     case UpdateStatus::State::Ready:
       ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s",
-                         T("Eingesetzt. Ein Neustart übernimmt sie.",
-                           "Installed. A restart picks it up."));
+                         T("Installiert. Wirkt nach einem Neustart.",
+                           "Installed. Takes effect after a restart."));
       break;
     case UpdateStatus::State::Failed:
       ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.35f, 1.0f), "%s", UpdateErrorText(st).c_str());
@@ -211,12 +211,12 @@ void StartupNotices::DrawCrashNotice() {
   }
   ImGui::Spacing();
   ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
-  ImGui::TextUnformatted(T("Die Sitzung hat im Protokoll keine Endzeile: meist ein Absturz, "
-                           "sonst Task-Manager oder Stromausfall. Was zuletzt passiert ist, "
-                           "steht dort über der nachgetragenen Zeile \"ended abnormally\".",
-                           "The session has no end line in the log: usually a crash, otherwise "
-                           "the task manager or a power cut. What happened last is right above "
-                           "the \"ended abnormally\" line added there now."));
+  ImGui::TextUnformatted(T("Der Sitzung fehlt im Protokoll die Endzeile: meist ein Absturz, "
+                           "sonst Task-Manager oder Stromausfall. Was zuletzt geschah, steht "
+                           "über der nachgetragenen Zeile \"ended abnormally\".",
+                           "The session has no end line in the log: usually a crash, "
+                           "otherwise the Task Manager or a power cut. The last events are "
+                           "right above the added \"ended abnormally\" line."));
   ImGui::PopTextWrapPos();
   ImGui::Spacing();
 

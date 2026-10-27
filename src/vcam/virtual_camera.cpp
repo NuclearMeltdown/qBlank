@@ -109,8 +109,8 @@ bool WriteFilterDll(std::string* error) {
 
   std::vector<uint8_t> data(kVcamFilter.unpackedSize);
   if (!Inflate(kVcamFilter, data.data())) {
-    ReportError(error, CAP_SAID(T("Die Kameraquelle in dieser qBlank-Fassung ist beschädigt.",
-                                  "The camera source in this build of qBlank is damaged.")));
+    ReportError(error, CAP_SAID(T("Die Kameraquelle in dieser qBlank-Version ist beschädigt.",
+                                  "The camera source in this qBlank version is damaged.")));
     return false;
   }
   const DWORD bytes = (DWORD)data.size();
@@ -161,8 +161,8 @@ bool RunRegsvr(bool remove, std::string* error) {
     CAP_ERR("Camera: ShellExecuteEx(runas, regsvr32) failed, error %lu", (unsigned long)err);
     ReportError(error,
                 CAP_SAID(err == ERROR_CANCELLED
-                             ? T("Abgebrochen -- ohne Administratorrechte geht es nicht.",
-                                 "Cancelled -- this cannot be done without administrator rights.")
+                             ? T("Abgebrochen: Ohne Administratorrechte geht es nicht.",
+                                 "Cancelled: administrator rights are required.")
                              : T("regsvr32 ließ sich nicht starten.", "regsvr32 could not be started.")));
     return false;
   }
@@ -180,8 +180,8 @@ bool RunRegsvr(bool remove, std::string* error) {
     auto why = [code]() {
       return code == 3   ? T("die DLL ließ sich nicht laden", "the DLL would not load")
              : code == 4 ? T("der Einstiegspunkt fehlt", "the entry point is missing")
-             : code == 5 ? T("abgelehnt -- vermutlich fehlen Administratorrechte",
-                             "refused -- probably missing administrator rights")
+             : code == 5 ? T("abgelehnt — vermutlich fehlen Administratorrechte",
+                             "refused — probably missing administrator rights")
                          : T("unbekannter Grund", "reason unknown");
     };
     return ReportError(

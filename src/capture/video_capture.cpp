@@ -15,12 +15,11 @@ namespace {
 std::string BusyMessage(const DeviceRef& device) {
   const std::string name = device.name.empty() ? device.id : device.name;
   return T("Das Gerät '", "Device '") + name +
-         T("' wird bereits von einem anderen Programm benutzt. Die meisten Karten geben "
-           "ihren Videopin nur einmal her — schließe die andere qBlank-Instanz, OBS oder "
-           "das Hersteller-Tool. qBlank versucht es von allein weiter.",
-           "' is already in use by another program. Most cards hand out their video pin "
-           "only once, so close the other qBlank window, OBS or the vendor tool. qBlank "
-           "keeps retrying on its own.");
+         T("' wird bereits von einem anderen Programm benutzt. Die meisten Karten lassen nur "
+           "einen Zugriff zu: die andere qBlank-Instanz, OBS oder das Hersteller-Tool "
+           "schließen. qBlank versucht es weiter.",
+           "' is in use by another program. Most cards allow only one user: close the other "
+           "qBlank window, OBS or the vendor tool. qBlank keeps retrying.");
 }
 
 // The settings window probes from a thread of its own, so a probe can meet a

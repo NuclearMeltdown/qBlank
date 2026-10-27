@@ -44,17 +44,16 @@ cap::SettingsAnswer AskAboutSettings(const cap::ForeignSettings& found, bool hav
                                            "Found settings from %s"),
                                     label.c_str());
   q.body = haveOwn
-               ? cap::Format(cap::T("Neben dem Programm liegen die Einstellungen von %s und die "
-                                    "dieser Version. Beide enthalten Profile, und nur du weisst, "
-                                    "in welcher die Arbeit steckt.",
-                                    "Next to the program are the settings from %s and the ones "
-                                    "this build wrote. Both hold profiles, and only you know "
-                                    "which of them has the work in it."),
+               ? cap::Format(cap::T("Neben dem Programm liegen die Einstellungen von %s und "
+                                    "die dieser Version, jede mit eigenen Profilen. Bitte "
+                                    "eine wählen.",
+                                    "The settings from %s and from this version are both next "
+                                    "to the program, each with its own profiles. Choose one."),
                              label.c_str())
-               : cap::Format(cap::T("Neben dem Programm liegen Einstellungen von %s. Sie lassen "
-                                    "sich mitsamt allen Profilen weiterverwenden.",
-                                    "Next to the program are settings from %s. They can be "
-                                    "carried over, profiles and all."),
+               : cap::Format(cap::T("Neben dem Programm liegen Einstellungen von %s. Sie "
+                                    "lassen sich samt aller Profile übernehmen.",
+                                    "Settings from %s were found next to the program. They "
+                                    "can be taken over, including all profiles."),
                              label.c_str());
 
   cap::StartupQuestion::Row other;
@@ -66,7 +65,8 @@ cap::SettingsAnswer AskAboutSettings(const cap::ForeignSettings& found, bool hav
   if (haveOwn) {
     cap::StartupQuestion::Row own;
     own.label = mine + ".json";
-    own.detail = cap::Format(cap::T("%s, diese Version", "%s, this build"), mine.c_str()) + "  ·  " +
+    own.detail = cap::Format(cap::T("%s, diese Version", "%s, this version"), mine.c_str()) +
+                 "  ·  " +
                  cap::ShortDateAndTime(
                      cap::LocalTimeFrom(cap::FileWriteTime(cap::Config::FilePath())));
     q.rows.push_back(own);
@@ -76,11 +76,10 @@ cap::SettingsAnswer AskAboutSettings(const cap::ForeignSettings& found, bool hav
   q.rejectLabel = haveOwn ? cap::Format(cap::T("Bei %s.json bleiben", "Stay with %s.json"),
                                         mine.c_str())
                           : std::string(cap::T("Neu anfangen", "Start fresh"));
-  q.footnote = cap::T("Die andere Datei wird als .bak beiseitegelegt, gelöscht wird nichts. "
-                      "Dieses Fenster zu schließen entscheidet nichts – die Frage kommt beim "
-                      "nächsten Start wieder.",
-                      "The other file is set aside as .bak, nothing is deleted. Closing this "
-                      "window decides nothing – the question comes back at the next start.");
+  q.footnote = cap::T("Die andere Datei bleibt als .bak erhalten, gelöscht wird nichts. "
+                      "Schließen verschiebt die Frage auf den nächsten Start.",
+                      "The other file is kept as .bak; nothing is deleted. Closing this "
+                      "window postpones the choice to the next start.");
 
   switch (cap::AskAtStartup(q)) {
     case cap::StartupAnswer::Accept:

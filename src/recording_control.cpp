@@ -165,8 +165,8 @@ void RecordingControl::SaveCachedEncoders() {
   if (!IsAutoEncoder(rec.encoder) && (!chosen || !chosen->available)) {
     CAP_WARN("Chosen encoder is not available, back to automatic");
     rec.encoder = RecordEncoder::Auto;
-    host_.Toast(T("Der gewählte Encoder funktioniert hier nicht, zurück auf Automatisch.",
-            "The selected encoder does not work here, back to Automatic."));
+    host_.Toast(T("Der gewählte Encoder funktioniert hier nicht; auf Automatisch umgestellt.",
+            "The selected encoder does not work here; switched to Automatic."));
   }
 }
 
@@ -194,8 +194,8 @@ void RecordingControl::StartRecording() {
     if (RelocateFfmpeg()) {
       recordWhenLocated_ = true;
     } else {
-      host_.Toast(T("Encoder werden noch geprüft, gleich nochmal.",
-                    "Still testing encoders, try again in a moment."));
+      host_.Toast(T("Encoder werden noch geprüft, gleich erneut versuchen.",
+                    "Still testing encoders, try again shortly."));
     }
     return;
   }
@@ -205,8 +205,8 @@ void RecordingControl::StartRecording() {
   }
 
   if (probing_.load(std::memory_order_relaxed)) {
-    host_.Toast(T("Encoder werden noch geprüft, gleich nochmal.",
-            "Still testing encoders, try again in a moment."));
+    host_.Toast(T("Encoder werden noch geprüft, gleich erneut versuchen.",
+            "Still testing encoders, try again shortly."));
     return;
   }
   const EncoderInfo* usable = ffmpeg_.Resolve(config_.record.encoder);
@@ -216,8 +216,8 @@ void RecordingControl::StartRecording() {
     // settings end up with the complete list rather than the first answer that
     // happened to work.
     StartEncoderProbe(true);
-    host_.Toast(T("Encoder werden geprüft, gleich nochmal.",
-            "Testing encoders, try again in a moment."));
+    host_.Toast(T("Encoder werden geprüft, gleich erneut versuchen.",
+            "Testing encoders, try again shortly."));
     return;
   }
 
@@ -537,8 +537,8 @@ void RecordingControl::LaunchRecording() {
   // HDR asked for and not given: only NVENC keeps ten bits losslessly.
   if (IsLosslessEncoder(pendingSettings_.encoder) && config_.app.recordHdr &&
       renderer_.sourceHdr() && !recorder_.hdr()) {
-    host_.Toast(T("Aufnahme läuft, in SDR: verlustfrei geht HDR nur mit NVENC.",
-                  "Recording, in SDR: lossless HDR takes NVENC."));
+    host_.Toast(T("Aufnahme läuft in SDR: Verlustfreies HDR braucht NVENC.",
+                  "Recording in SDR: lossless HDR requires NVENC."));
     return;
   }
   // 4:4:4 asked for and not given: the encoder did not pass it at this depth,

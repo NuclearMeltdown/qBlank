@@ -25,8 +25,8 @@ bool DevicePropertyPages::Open(const VideoCapture& capture, const std::string& t
     return false;
   }
   if (!capture.hasOwnDialog()) {
-    ReportError(error, CAP_SAID(T("Diese Karte bringt keinen eigenen Konfigurationsdialog mit.",
-                       "This card brings no configuration dialog of its own.")));
+    ReportError(error, CAP_SAID(T("Diese Karte hat keinen eigenen Konfigurationsdialog.",
+                       "This card has no configuration dialog of its own.")));
     return false;
   }
 

@@ -1466,8 +1466,8 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     colourCheckedStandard_ = current;
     standardForceColourUntilQpc_ = 0;
     FinishManualStandardSearch(
-        current, T("Dieser Eingang führt keinen Farbträger — der Lock entscheidet allein",
-                   "This input carries no colour subcarrier — the lock decides on its own"));
+        current, T("Dieser Eingang führt keinen Farbträger — nur der Lock entscheidet",
+                   "This input carries no colour subcarrier — only the lock decides"));
     return;
   }
 
@@ -1750,8 +1750,8 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
       // Hierher kommt ein Suchlauf von Hand nur, wenn seine Frist abgelaufen
       // ist, bevor ein Bild zum Vergleichen da war -- und dann ist das hier
       // die Antwort: gemessen wurde, es sprach nichts dagegen.
-      FinishManualStandardSearch(current, T("Die Farbe stimmt — es bleibt dabei",
-                                            "The colour checks out — no change"));
+      FinishManualStandardSearch(current, T("Die Farbe stimmt — keine Änderung",
+                                            "The colour is correct — no change"));
       return;
     }
 
@@ -2340,8 +2340,8 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
     colourProven_ = true;
     colourDarksClean_ = true;
     FinishManualStandardSearch(
-        origin, T("Der Vergleich war unbrauchbar, die Farbe stimmt für sich — es bleibt dabei",
-                  "The comparison was unusable, but the colour stands on its own — no change"));
+        origin, T("Vergleich unbrauchbar, die Farbe stimmt für sich — keine Änderung",
+                  "Comparison unusable, the colour is correct on its own — no change"));
     return;
   }
 
@@ -2375,8 +2375,8 @@ void VideoStandardSearch::VerifyStandardColour(int64_t now) {
         origin, sceneChanged
                     ? T("Das Bild war jedesmal in Bewegung — kein verlässlicher Vergleich",
                         "The picture moved every time — no reliable comparison")
-                    : T("Nichts entscheidet — die Quelle ist wohl schwarzweiß",
-                        "Nothing decides — the source is probably black and white"));
+                    : T("Keine Entscheidung möglich — die Quelle ist wohl schwarzweiß",
+                        "No decision possible — the source is probably black and white"));
     return;
   }
   const double wait = sceneChanged ? kColourMotionRetrySeconds

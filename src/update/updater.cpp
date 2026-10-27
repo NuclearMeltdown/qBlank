@@ -68,16 +68,16 @@ std::string UpdateErrorText(const UpdateStatus& status) {
       return T("Keine Download-Adresse.", "No download address.");
     case UpdateError::NotAProgram:
       return T("Die heruntergeladene Datei ist kein Programm.",
-               "What came back is not a program.");
+               "The downloaded file is not a program.");
     case UpdateError::WriteFailed:
       return T("Konnte nicht in den Programmordner schreiben.",
                "Could not write to the program folder.");
     case UpdateError::MoveAsideFailed:
-      return T("Die alte Version ließ sich nicht beiseite legen.",
-               "The old build could not be moved aside.");
+      return T("Die alte Version ließ sich nicht beiseitelegen.",
+               "The old version could not be moved aside.");
     case UpdateError::InsertFailed:
-      return T("Die neue Version ließ sich nicht einsetzen.",
-               "The new build could not be put in place.");
+      return T("Die neue Version ließ sich nicht installieren.",
+               "The new version could not be installed.");
     default:
       return "";
   }

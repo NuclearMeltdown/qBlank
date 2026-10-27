@@ -91,10 +91,10 @@ Said RemuxOne(const Libav& av, const std::filesystem::path& input,
                                  "UT Video and uncompressed recordings do not fit in an MP4. "
                                  "Editors read the AVI as it is.")));
       }
-      return finish(CAP_SAID(T("Dieses Format passt nicht in eine MP4. Nur Umpacken geht hier "
-                               "nicht, das müsste neu kodiert werden.",
-                               "This format does not fit in an MP4. Rewrapping cannot help; it "
-                               "would have to be re-encoded.")));
+      return finish(CAP_SAID(T("Dieses Format passt nicht in eine MP4 und müsste neu kodiert "
+                               "werden.",
+                               "This format does not fit in an MP4 and would have to be "
+                               "re-encoded.")));
     }
     AVStream* target = av.avformat_new_stream(out, nullptr);
     if (!target) return finish(CAP_SAID(T("Kein Speicher.", "Out of memory.")));

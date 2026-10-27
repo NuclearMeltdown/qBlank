@@ -738,9 +738,9 @@ SettingsWindow::Result SettingsWindow::Draw(const DeviceProbeResult* liveCaps,
     // source or another setting, says no right now. Better to say so than to
     // land on the tab and leave the reader searching it by eye.
     if (jumpKey_ && ++jumpWait_ > 8) {
-      searchNote_ = Format(T("„%s“ ist gerade ausgeblendet – hängt an der Quelle "
+      searchNote_ = Format(T("„%s“ ist gerade ausgeblendet — hängt an der Quelle "
                              "oder einer anderen Einstellung.",
-                             "“%s” is hidden right now – it depends on the source "
+                             "“%s” is hidden right now — it depends on the source "
                              "or another setting."),
                            jumpLabel_);
       searchNoteTime_ = ImGui::GetTime();
@@ -937,12 +937,11 @@ void SettingsWindow::DrawUpdateSection() {
                   &app.checkUpdatesOnStart);
   Anchor("updatestartup");
   ImGui::SameLine();
-  HelpMarker(T("Fragt die Releases auf GitHub ab, und bei einem ffmpeg, das qBlank selbst "
-               "geladen hat, auch gyan.dev nach dessen neuester Version. Heruntergeladen wird "
-               "nichts, solange du es nicht verlangst.",
-               "Asks GitHub for the newest release, and gyan.dev for the newest ffmpeg when "
-               "qBlank downloaded the one in use. Nothing is downloaded until you ask for "
-               "it."));
+  HelpMarker(T("Fragt GitHub nach der neuesten qBlank-Version und, wenn qBlank das ffmpeg "
+               "selbst geladen hat, nach dem neuesten ffmpeg. Heruntergeladen wird nur auf "
+               "Anfrage.",
+               "Checks GitHub for the latest qBlank release and, if qBlank downloaded the "
+               "ffmpeg in use, for the latest ffmpeg. Nothing is downloaded without asking."));
 
   if (!updater_) return;
   const UpdateStatus st = updater_->status();
@@ -989,10 +988,10 @@ void SettingsWindow::DrawUpdateSection() {
   if (st.state == UpdateStatus::State::Failed) {
     ImGui::Spacing();
     ImGui::TextWrapped("%s",
-                       T("Von Hand geht es weiterhin: die aktuelle Version liegt auf der "
-                         "Release-Seite und auf der Website.",
-                         "By hand still works: the current build is on the release page and "
-                         "on the website."));
+                       T("Manuell: Die aktuelle Version liegt auf der Release-Seite und auf "
+                         "der Website.",
+                         "Manual download: the current version is on the release page and the "
+                         "website."));
     if (ImGui::Button(T("Releases öffnen", "Open releases"))) OpenUrl(ReleasePageUrl(st));
     ImGui::SameLine();
     if (ImGui::Button(T("Website öffnen", "Open website"))) OpenUrl(WebsiteUrl());
@@ -1006,11 +1005,11 @@ void SettingsWindow::DrawUpdateSection() {
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    HelpMarker(Format(T("Ersetzt %s.exe. Die bisherige Version wird beiseite gelegt und beim "
-                        "nächsten Start entfernt, damit ein misslungenes Update nichts kaputt "
-                        "macht.",
-                        "Replaces %s.exe. The previous build is moved aside and removed on the "
-                        "next start, so a failed update breaks nothing."),
+    HelpMarker(Format(T("Ersetzt %s.exe. Die bisherige Version wird beiseitegelegt und beim "
+                        "nächsten Start entfernt, damit ein misslungenes Update nichts "
+                        "beschädigt.",
+                        "Replaces %s.exe. The previous version is moved aside and removed on "
+                        "the next start, so a failed update breaks nothing."),
                       AppNameUtf8().c_str())
                    .c_str());
   }
@@ -1096,8 +1095,8 @@ void SettingsWindow::DrawScreenSource() {
   std::string preview = primary;
   if (!c.screen.empty() && !screens_.empty()) {
     // Unplugged, the capture falls back to the primary monitor.
-    preview = T("Nicht angeschlossen – es läuft der Hauptmonitor",
-                "Not connected – the primary monitor runs instead");
+    preview = T("Nicht angeschlossen — es läuft der Hauptmonitor",
+                "Not connected — the primary monitor runs instead");
     for (size_t i = 0; i < screens_.size(); ++i) {
       if (screens_[i].id == c.screen) preview = name(i);
     }
@@ -1122,21 +1121,20 @@ void SettingsWindow::DrawScreenSource() {
   Anchor("screencursor");
   ImGui::Checkbox(T("Vorschau", "Preview"), &c.screenPreview);
   Anchor("screenpreview");
-  HelpMarker(T("Zeigt im Fenster, was aufgenommen wird: ob es der richtige Bildschirm ist "
-               "oder nur Schwarz ankommt. Aus zeigt das Fenster nur Auflösung, Bildrate und "
-               "Aufnahmezeit und zeichnet seltener.",
-               "Shows in the window what is being captured: whether it is the right screen "
-               "or only black arrives. Off, the window shows just resolution, frame rate and "
-               "recording time, and redraws less often."));
+  HelpMarker(T("Zeigt das aufgenommene Bild im Fenster, um zu prüfen, ob der richtige "
+               "Bildschirm ankommt. Aus: nur Auflösung, Bildrate und Aufnahmezeit; das "
+               "Fenster zeichnet seltener.",
+               "Shows the captured picture in the window, to check it is the right screen. "
+               "Off: only resolution, frame rate and recording time; the window redraws less "
+               "often."));
   ImGui::Checkbox(T("qBlank auf der Aufnahme verbergen", "Hide qBlank from the capture"),
                   &c.screenHideSelf);
   Anchor("screenhideself");
-  HelpMarker(T("Windows verbirgt qBlank dann vor jeder Bildschirmaufnahme, auch vor Remote Play "
-               "und Remotedesktop. Aus ist es dort zu sehen; steht es auf dem aufgenommenen "
-               "Bildschirm, nimmt es sich dann selbst mit auf.",
-               "Windows then hides qBlank from every screen capture, Remote Play and Remote "
-               "Desktop included. Off, it shows there; standing on the captured screen, it then "
-               "records itself too."));
+  HelpMarker(T("Verbirgt qBlank vor jeder Bildschirmaufnahme, auch vor Remote Play und "
+               "Remotedesktop. Aus: Liegt qBlank auf dem aufgenommenen Bildschirm, nimmt es "
+               "sich selbst mit auf.",
+               "Hides qBlank from all screen captures, including Remote Play and Remote "
+               "Desktop. Off: if qBlank is on the captured screen, it records itself."));
 
   ImGui::Spacing();
   TextDisabledWrapped(T("Für Spiele im exklusiven Vollbild müssen die Vollbildoptimierungen von "
@@ -1186,12 +1184,12 @@ void SettingsWindow::DrawWindowSource() {
   Anchor("screencursor");
   ImGui::Checkbox(T("Vorschau", "Preview"), &c.screenPreview);
   Anchor("screenpreview");
-  HelpMarker(T("Zeigt im Fenster, was aufgenommen wird: ob es das richtige Fenster ist "
-               "oder nur Schwarz ankommt. Aus zeigt das Fenster nur Auflösung, Bildrate und "
-               "Aufnahmezeit und zeichnet seltener.",
-               "Shows in the window what is being captured: whether it is the right window "
-               "or only black arrives. Off, the window shows just resolution, frame rate and "
-               "recording time, and redraws less often."));
+  HelpMarker(T("Zeigt das aufgenommene Bild im Fenster, um zu prüfen, ob das richtige Fenster "
+               "ankommt. Aus: nur Auflösung, Bildrate und Aufnahmezeit; das Fenster zeichnet "
+               "seltener.",
+               "Shows the captured picture in the window, to check it is the right window. "
+               "Off: only resolution, frame rate and recording time; the window redraws less "
+               "often."));
 
   ImGui::Spacing();
   TextDisabledWrapped(T("Das Fenster darf verdeckt sein, aber nicht minimiert.",
@@ -1223,10 +1221,10 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     ImGui::BeginDisabled(!CanCaptureWindows());
     ImGui::RadioButton(T("Fenster", "Window"), &source, (int)VideoSource::Window);
     ImGui::EndDisabled();
-    HelpMarker(T("Bildschirm nimmt einen Monitor auf, wie Windows ihn zeigt, etwa für Spiele "
-                 "am PC; Fenster nur ein Programmfenster. Die Karte ist solange zu.",
-                 "Screen captures a monitor as Windows shows it, for games on the PC say; "
-                 "Window just one program's window. The card is closed meanwhile."));
+    HelpMarker(T("Bildschirm nimmt einen ganzen Monitor auf, etwa für PC-Spiele, Fenster ein "
+                 "einzelnes Programmfenster. Die Capture-Karte ist solange freigegeben.",
+                 "Screen captures a whole monitor, e.g. for PC games; Window captures a "
+                 "single program window. The capture card is released meanwhile."));
     p.capture.source = (VideoSource)source;
   }
   if (p.capture.source == VideoSource::Screen) {
@@ -1263,16 +1261,14 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     Anchor("input");
     ImGui::SameLine();
     HelpMarker(
-        T("Was hinten an der Karte steckt. Auslesen lässt sich das nicht, und davon hängt "
-          "ab, was hier überhaupt erscheint: eine Videonorm gibt es nur analog, die "
-          "Composite-Filter nur, wo Helligkeit und Farbe durch dieselbe Leitung laufen.\n\n"
-          "Wer nicht weiß, welches Kabel er hat: die Liste beschreibt jeden Stecker, einfach "
-          "darüberfahren.",
-          "What is plugged into the card. It cannot be read out, and it decides what appears "
-          "here at all: a video standard exists only on analogue inputs, the composite "
-          "filters only where brightness and colour share one wire.\n\n"
-          "If you do not know which cable you have, hover the entries — each one describes "
-          "the plug."));
+        T("Was an der Karte steckt. Lässt sich nicht auslesen und bestimmt, welche "
+          "Einstellungen erscheinen: die Videonorm nur bei analogen Eingängen, die "
+          "Composite-Filter nur, wo Helligkeit und Farbe eine Leitung teilen.\n\n"
+          "Jeder Eintrag beschreibt beim Darüberfahren seinen Stecker.",
+          "What is plugged into the card. It cannot be detected and decides which settings "
+          "appear: the video standard only on analogue inputs, the composite filters only "
+          "where brightness and colour share one wire.\n\n"
+          "Hover an entry to see which plug it is."));
     // Und dieselbe Beschreibung noch einmal fest darunter. Der Tooltip hilft
     // dem, der schon sucht; hier steht sie fuer den, der die Liste gar nicht
     // erst aufklappt, weil er nicht weiss, dass die Frage ihn betrifft.
@@ -1362,18 +1358,12 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   }
   Anchor("cardreinit");
   WrappedTooltip(
-      T("Gibt die Karte ganz frei, sucht sie neu und beginnt von vorn.\n\n"
-        "Videonorm und Format gehen dabei auf automatisch zurück: beide gehören zu "
-        "dem Eingang, der vorher angeschlossen war. Wer von analog auf digital "
-        "umsteckt, hinge sonst an einer PAL-Einstellung fest, die über HDMI nichts "
-        "bedeutet.\n\n"
-        "Gerät und Eingang bleiben -- das sind Entscheidungen, keine Messungen.",
-        "Releases the card completely, finds it again and starts over.\n\n"
-        "The video standard and the format go back to automatic: both belong to "
-        "whichever input was plugged in before. Move from analogue to digital and "
-        "you would otherwise be stuck on a PAL setting that means nothing over "
-        "HDMI.\n\n"
-        "The device and the input stay -- those are decisions, not measurements."));
+      T("Gibt die Karte frei, öffnet sie neu und beginnt von vorn.\n\n"
+        "Videonorm und Format gehen auf automatisch zurück, da beide zum vorherigen Eingang "
+        "gehören. Gerät und Eingang bleiben.",
+        "Releases the card, reopens it and starts over.\n\n"
+        "Video standard and format return to automatic, since both belong to the previous "
+        "input. Device and input are kept."));
 
   if (!caps.error.empty()) {
     ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.35f, 1.0f), "%s", caps.error.c_str());
@@ -1390,7 +1380,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     ImGui::SetNextItemWidth(-1.0f);
     if (ImGui::BeginCombo("##vstandard",
                           VideoStandardPickerName(p.capture.videoStandard).c_str())) {
-      if (ImGui::Selectable(T("Nicht ändern", "Leave alone"), p.capture.videoStandard == 0)) {
+      if (ImGui::Selectable(T("Nicht ändern", "Don't change"), p.capture.videoStandard == 0)) {
         p.capture.videoStandard = 0;
       }
       if (ImGui::Selectable(T("Automatisch", "Automatic"), p.capture.videoStandard == -1)) {
@@ -1410,12 +1400,11 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     }
     Anchor("vstandard");
     WrappedTooltip(
-        T("Zusammengefasst zu den Normen, die am Kabel wirklich verschieden aussehen -- "
-          "die Buchstaben hinter PAL und SECAM betreffen nur die Übertragung im "
-          "Fernsehkanal. Automatisch probiert sie durch, bis der Decoder einrastet.",
-          "Grouped by what actually looks different over a cable -- the letters behind PAL "
-          "and SECAM only concern broadcasting in a television channel. Automatic tries "
-          "them until the decoder locks."));
+        T("Zusammengefasst nach dem, was sich am Kabel unterscheidet; die Buchstaben hinter "
+          "PAL und SECAM betreffen nur die Fernsehübertragung. Automatisch probiert sie "
+          "durch, bis der Decoder einrastet.",
+          "Grouped by what differs over a cable; the letters after PAL and SECAM only matter "
+          "for TV broadcasting. Automatic tries each until the decoder locks."));
 
     // Nur bei "Automatisch": die Region ordnet die Suche, und wo nicht gesucht
     // wird, ordnet sie nichts. Ein Regler, der gerade nichts tut, ist ein
@@ -1428,14 +1417,12 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
       }
       ImGui::SameLine();
       HelpMarker(
-          T("In welchem Land du wohnst. Die Karte meldet nur die Zeilenfrequenz — PAL 60 "
-            "und NTSC M haben beide 525 Zeilen bei 60 Hz und unterscheiden sich allein in "
-            "der Farbe. Wer zuerst probiert wird, gewinnt also, und das entscheidet sich "
-            "hier. Gefunden werden am Ende alle Normen, nur langsamer.",
-            "Where you live. The card only reports the line frequency — PAL 60 and NTSC M "
-            "both have 525 lines at 60 Hz and differ only in colour. So whichever is tried "
-            "first wins, and this decides which. Every standard is still found in the end, "
-            "just more slowly."));
+          T("Dein Land. Es legt fest, welche Norm zuerst probiert wird: Die Karte meldet nur "
+            "die Zeilenfrequenz, und PAL 60 und NTSC M haben beide 525 Zeilen bei 60 Hz. "
+            "Andere Normen werden trotzdem gefunden, nur langsamer.",
+            "Your country. It sets which standard is tried first: the card only reports the "
+            "line frequency, and PAL 60 and NTSC M both have 525 lines at 60 Hz. Other "
+            "standards are still found, just more slowly."));
       // Was "Automatisch" hier gerade heisst. Sonst ist die haeufigste
       // Einstellung die einzige, die nichts ueber sich sagt.
       if (cfg().app.videoRegion == VideoRegion::Auto) {
@@ -1506,7 +1493,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     ImGui::TextDisabled(T("Diese Karte hat keine umschaltbaren Eingänge.",
                           "This card has no switchable inputs."));
   } else {
-    std::string current = T("Nicht ändern", "Leave alone");
+    std::string current = T("Nicht ändern", "Don't change");
     if (p.capture.crossbarInput >= 0 &&
         p.capture.crossbarInput < (int)caps.crossbarInputs.size()) {
       current = caps.crossbarInputs[(size_t)p.capture.crossbarInput].name;
@@ -1519,7 +1506,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     }
     ImGui::SetNextItemWidth(-1.0f);
     if (ImGui::BeginCombo("##crossbar", current.c_str())) {
-      if (ImGui::Selectable(T("Nicht ändern", "Leave alone"), p.capture.crossbarInput < 0)) {
+      if (ImGui::Selectable(T("Nicht ändern", "Don't change"), p.capture.crossbarInput < 0)) {
         p.capture.crossbarInput = -1;
       }
       for (size_t i = 0; i < caps.crossbarInputs.size(); ++i) {
@@ -1793,18 +1780,18 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
   }
   Anchor("fps");
   ImGui::SameLine();
-  HelpMarker(T("\"Rate des Signals\" nimmt, was die Videonorm vorgibt — 50 Hz bei PAL und "
-               "SECAM, 59,94 bei NTSC, glatte 60 bei PAL 60 — und steht nur da, wo die Norm "
-               "bekannt ist. \"Höchste verfügbare\" nimmt das Maximum der Karte, und das ist "
-               "oft mehr, als die Quelle hat.\n\n"
-               "Beide folgen einem Moduswechsel der Quelle; in Klammern steht, worauf sie "
-               "gerade hinauslaufen, darunter, was der Treiber meldet.",
-               "\"The signal's rate\" takes what the video standard prescribes — 50 Hz for PAL "
-               "and SECAM, 59.94 for NTSC, a flat 60 for PAL 60 — and is only offered where "
-               "the standard is known. \"Highest available\" takes the card's maximum, which "
-               "is often more than the source has.\n\n"
-               "Both follow the source through a mode change; the brackets say what they "
-               "come to right now, below them is what the driver reports."));
+  HelpMarker(T("\"Rate des Signals\" nimmt die Rate der Videonorm: 50 Hz bei PAL und SECAM, "
+               "59,94 bei NTSC, 60 bei PAL 60. Nur verfügbar, wenn die Norm bekannt ist. "
+               "\"Höchste verfügbare\" nimmt das Maximum der Karte, oft mehr, als die Quelle "
+               "liefert.\n\n"
+               "Beide folgen Moduswechseln der Quelle. In Klammern steht der aktuelle Wert, "
+               "darunter, was der Treiber meldet.",
+               "\"The signal's rate\" uses the video standard's rate: 50 Hz for PAL and "
+               "SECAM, 59.94 for NTSC, 60 for PAL 60. Only offered when the standard is "
+               "known. \"Highest available\" uses the card's maximum, often more than the "
+               "source delivers.\n\n"
+               "Both follow mode changes of the source. The brackets show the current value, "
+               "the line below what the driver reports."));
   ImGui::EndDisabled();
 
   ImGui::Checkbox(T("Werte von Hand eingeben", "Enter values manually"), &customFormat_);
@@ -2052,15 +2039,14 @@ void SettingsWindow::DrawImageTab() {
     ImGui::PopID();
     ImGui::SameLine();
     HelpMarker(
-        T("Das Fenster zeigt nicht-quadratische Pixel umsonst — es zeichnet in ein "
-          "Rechteck der richtigen Form. Eine Datei kann das nicht, sie ist ein Raster. "
-          "Also wird beim Hinausgehen mit dem Filter von oben umgerechnet, und aus "
-          "720x576 wird 768x576.\n\nÜber HDMI entfällt der Durchgang: dort sind die "
-          "Pixel schon quadratisch.",
-          "The window shows non-square pixels for free — it draws into a rectangle of "
-          "the right shape. A file cannot; it is a grid. So the picture is resampled on "
-          "its way out with the filter chosen above, and 720x576 leaves as 768x576.\n\n"
-          "Over HDMI the pass is skipped: those pixels are already square."));
+        T("Das Fenster zeichnet nicht-quadratische Pixel direkt, Dateien brauchen "
+          "quadratische. Aufnahme, Screenshot und Kamera werden deshalb mit dem Filter oben "
+          "umgerechnet: Aus 720x576 wird 768x576.\n\n"
+          "Über HDMI entfällt das, dort sind die Pixel schon quadratisch.",
+          "The window draws non-square pixels directly; files need square ones. Recordings, "
+          "screenshots and the camera are therefore resampled with the filter above: 720x576 "
+          "becomes 768x576.\n\n"
+          "Skipped over HDMI, where pixels are already square."));
   }
 
   int rotation = (int)img.rotation;
@@ -2156,17 +2142,13 @@ void SettingsWindow::DrawImageTab() {
   ImGui::PopID();
   ImGui::SameLine();
   HelpMarker(
-      T("Aus ist Absicht: die beiden Stellungen sind nicht gleichwertig. Sauber "
-        "aufnehmen und später nachbearbeiten kostet nichts. Mit angehobenem Kontrast "
-        "aufnehmen klemmt dagegen die Lichter auf Vollausschlag und drückt die Tiefen "
-        "auf null, und das holt kein Nachbearbeiten zurück.\n\nAn ist richtig, wenn die "
-        "Aufnahme so hochgeladen wird, wie sie herauskommt. Die Anzeige bekommt die "
-        "Regler in jedem Fall.",
-        "Off on purpose: the two positions are not equivalent. Recording clean and "
-        "grading later costs nothing. Recording with contrast raised clips the highlights "
-        "to full scale and crushes the shadows to zero, and no amount of editing brings "
-        "those back.\n\nOn is right when the recording gets uploaded exactly as it comes "
-        "out. The display gets the controls either way."));
+      T("Standardmäßig aus: Sauber aufnehmen und später anpassen verliert nichts, mit "
+        "angehobenem Kontrast aufnehmen schneidet Lichter und Tiefen dauerhaft ab.\n\n"
+        "An, wenn Aufnahmen unbearbeitet hochgeladen werden. Die Anzeige nutzt die Regler "
+        "immer.",
+        "Off by default: recording clean and adjusting later loses nothing, while recording "
+        "with raised contrast clips highlights and shadows for good.\n\n"
+        "Turn on if recordings are uploaded unedited. The display always uses the controls."));
 
   // Halbbilder. Nicht danach gezeigt, ob die Quelle analog ist, sondern danach,
   // ob sie ueberhaupt Halbbilder hat -- 1080i und 480i gibt es auch ueber HDMI,
@@ -2199,13 +2181,10 @@ void SettingsWindow::DrawImageTab() {
   // Kammlinien nicht zu unterscheiden.
   if (interlaceDoubtful_) {
     TextWarningWrapped(
-        T("Bei dieser Auflösung ist das ungewöhnlich. Zeigt die Quelle gerade ein Bild "
-          "oder Video mit feinen Zeilenmustern, kann die Erkennung darauf hereinfallen. "
-          "Sieht das Bild richtig aus, ignoriere das; sonst stelle Deinterlacing hier "
-          "von Hand ab.",
-          "Unusual at this resolution. If the source is showing a picture or video with "
-          "fine line patterns, the detection can be fooled by it. If the picture looks "
-          "right, ignore this; otherwise turn deinterlacing off by hand here."));
+        T("Ungewöhnlich bei dieser Auflösung. Feine Linienmuster im Bild können die Erkennung "
+          "täuschen. Sieht das Bild falsch aus, Deinterlacing hier abschalten.",
+          "Unusual at this resolution. Fine line patterns in the picture can fool the "
+          "detection. If the picture looks wrong, turn deinterlacing off here."));
   }
 
   int deint = (int)img.deinterlace;
@@ -2286,12 +2265,12 @@ void SettingsWindow::DrawImageTab() {
                   &img.cropPerFormat);
   Anchor("cropperres");
   ImGui::SameLine();
-  HelpMarker(T("Dieselbe Quelle kann zwei Bildgrößen liefern — ein PAL-GameCube 576 Zeilen und im "
-               "60-Hz-Modus 480 —, und an beiden hängt ein anderer Rand. Angehakt behält jede "
-               "Größe ihren eigenen Zuschnitt, statt beim Wechsel zurückgesetzt zu werden.",
-               "One source can deliver two picture sizes — a PAL GameCube 576 lines and 480 in "
-               "60 Hz mode — with a different border on each. Ticked, every size keeps its own "
-               "crop instead of being reset on the change."));
+  HelpMarker(T("Eine Quelle kann zwei Bildgrößen liefern, etwa ein PAL-GameCube 576 Zeilen "
+               "und im 60-Hz-Modus 480, jede mit eigenem Rand. Angehakt behält jede Größe "
+               "ihren Zuschnitt, statt beim Wechsel zurückgesetzt zu werden.",
+               "One source can deliver two picture sizes, e.g. a PAL GameCube 576 lines and "
+               "480 in 60 Hz mode, each with its own border. Ticked, each size keeps its crop "
+               "instead of being reset on a change."));
   if (img.cropPerFormat && !img.cropVariants.empty()) {
     std::string sizes;
     for (const CropForFormat& v : img.cropVariants) {
@@ -2352,22 +2331,20 @@ void SettingsWindow::DrawImageTab() {
   }
   Anchor("nativewidth");
   ImGui::SameLine();
-  HelpMarker(T("Wie viele Pixel die Konsole waagerecht wirklich zeichnet. Die Karte tastet "
-               "mit fester Rate ab, meist 720 -- ein SNES-Pixel landet damit auf 2,8 "
-               "Proben. Ist die Zahl bekannt, wird jedes Ausgabepixel dem richtigen "
-               "Konsolenpixel zugeordnet statt irgendwo dazwischen.\n\n"
-               "Ersetzt den Filter oben, weil die Zuordnung selbst schon die Entscheidung "
-               "ist. Am besten mit Integer-Skalierung.\n\n"
-               "Das Seitenverhältnis „Quadratische Pixel“ nimmt dieselbe Zahl: dort bestimmt "
-               "sie die Form des Bildes, hier die Lage der Kanten.",
-               "How many pixels the console really draws across. The card samples at a "
-               "fixed rate, usually 720 -- so one SNES pixel lands on about 2.8 samples. "
-               "Given the real number, every output pixel resolves to the console's pixel "
-               "instead of somewhere between two of them.\n\n"
-               "Replaces the filter above, because the mapping is the decision. Best with "
-               "integer scaling.\n\n"
-               "The \"Square pixels\" aspect ratio uses the same number: there it sets the "
-               "shape of the picture, here the position of the edges."));
+  HelpMarker(T("Die echte waagerechte Auflösung der Konsole. Die Karte tastet mit fester Rate "
+               "ab, meist 720, ein SNES-Pixel liegt also auf etwa 2,8 Proben. Mit der echten "
+               "Breite fällt jedes Ausgabepixel auf genau ein Konsolenpixel statt zwischen "
+               "zwei.\n\n"
+               "Ersetzt den Filter oben. Am besten mit Integer-Skalierung.\n\n"
+               "Das Seitenverhältnis „Quadratische Pixel“ nutzt denselben Wert für die "
+               "Bildform.",
+               "The console's real horizontal resolution. The card samples at a fixed rate, "
+               "usually 720, so one SNES pixel spans about 2.8 samples. With the real width, "
+               "each output pixel lands on exactly one console pixel instead of between "
+               "two.\n\n"
+               "Replaces the filter above. Best with integer scaling.\n\n"
+               "The \"Square pixels\" aspect ratio uses the same value for the picture "
+               "shape."));
 
   // Die Zahl hat zwei Aufgaben, und nicht jeder will beide: wer nur die Form
   // fuer "Quadratische Pixel" braucht, will die Kanten nicht mitgezogen haben.
@@ -2410,13 +2387,12 @@ void SettingsWindow::DrawImageTab() {
                             "dot crawl, noise, and a soft top end."));
     } else {
       TextDisabledWrapped(
-          Format(T("%s führt Helligkeit und Farbe getrennt. Punktkriechen, Regenbogenmuster "
-                   "und der weiche Bildrand entstehen dort gar nicht erst, die Filter "
-                   "dagegen fehlen deshalb. Was bleibt, ist Rauschen — das hat jede "
-                   "analoge Leitung.",
-                   "%s keeps brightness and colour apart. Dot crawl, rainbow patterns and "
-                   "the soft top end never arise there, so the filters against them are "
-                   "gone. What remains is noise — every analogue line has it."),
+          Format(T("%s führt Helligkeit und Farbe getrennt: Punktkriechen, Regenbogenmuster "
+                   "und weiche Kanten entstehen nicht, die Filter dagegen entfallen. Es "
+                   "bleibt nur Rauschen, wie bei jeder analogen Verbindung.",
+                   "%s carries brightness and colour separately, so dot crawl, rainbow "
+                   "patterns and soft edges do not occur and their filters are hidden. Only "
+                   "noise remains, as on any analogue connection."),
                  AnalogConnectorName((int)connector_))
               .c_str());
     }
@@ -2428,11 +2404,11 @@ void SettingsWindow::DrawImageTab() {
       Anchor("chromasoft");
       ResetOnRightClick(img.chromaSoft, kImage.chromaSoft);
       ImGui::SameLine();
-      HelpMarker(T("Regenbogenmuster über feinen Strukturen. Weichzeichnet die Farbe "
-                   "seitlich; die Schärfe bleibt, weil Composite ohnehin keine feinen "
-                   "Farbdetails überträgt.",
-                   "Rainbow patterns over fine detail. Blurs colour sideways; sharpness "
-                   "stays, because composite carries no fine colour detail anyway."));
+      HelpMarker(T("Regenbogenmuster über feinen Strukturen. Zeichnet die Farbe waagerecht "
+                   "weich; die Schärfe bleibt, da Composite ohnehin keine feinen Farbdetails "
+                   "überträgt.",
+                   "Rainbow patterns over fine detail. Blurs colour horizontally; sharpness "
+                   "is kept, as composite carries no fine colour detail anyway."));
 
       // Kein zweiter Filter, sondern eine Bedingung auf den darüber: derselbe
       // Weichzeichner, nur nicht mehr überall. Deshalb eingerückt und deshalb
@@ -2448,16 +2424,12 @@ void SettingsWindow::DrawImageTab() {
       ImGui::Unindent();
       ImGui::EndDisabled();
       ImGui::SameLine();
-      HelpMarker(T("Zeichnet die Farbe nur dort weich, wo die Helligkeit genug auf der "
-                   "Trägerfrequenz trägt, dass der Decoder Farbe erfunden haben kann -- "
-                   "über Dithering, feinen Rastern, Ziegelmauern.\n\n"
-                   "Ohne den Haken zahlt das ganze Bild für ein Muster, das nur an "
-                   "wenigen Stellen steht.",
-                   "Softens colour only where the brightness carries enough at the carrier "
-                   "frequency for the decoder to have invented some -- over dithering, fine "
-                   "patterns, brickwork.\n\n"
-                   "Without this the whole picture pays for a pattern that is only in a few "
-                   "places."));
+      HelpMarker(T("Zeichnet die Farbe nur dort weich, wo feine Helligkeitsdetails "
+                   "Falschfarben erzeugen können, etwa bei Dithering, feinen Rastern und "
+                   "Mauerwerk. Aus: Das ganze Bild wird weichgezeichnet.",
+                   "Softens colour only where fine brightness detail can produce false "
+                   "colour, e.g. dithering, fine patterns and brickwork. Off: the whole "
+                   "picture is softened."));
     }
 
     // Vor dem Mitteln, weil es vor ihm laeuft: das Mitteln und alles danach
@@ -2471,15 +2443,14 @@ void SettingsWindow::DrawImageTab() {
       }
       Anchor("extendedhistory");
       ImGui::SameLine();
-      HelpMarker(T("Sieht zwölf Bilder zurück und rechnet das Punktkriechen aus jedem Bild "
-                   "heraus, bevor die Filter darunter es lesen -- auch dort, wo sich etwas "
-                   "bewegt oder überblendet. Greift, wo das Kriechen sich alle zwei oder "
-                   "vier Bilder wiederholt: PAL, PAL 60, PAL-M, PAL-N, NTSC. Kostet "
-                   "Rechenzeit auf der Grafikkarte, aber kein Bild Verzögerung.",
-                   "Looks twelve frames back and takes the dot crawl out of every frame "
-                   "before the filters below read it -- also where something moves or "
-                   "fades. Works where the crawl repeats every two or four frames: PAL, "
-                   "PAL 60, PAL-M, PAL-N, NTSC. Costs GPU time, but no frame of delay."));
+      HelpMarker(T("Nutzt die letzten zwölf Bilder, um Punktkriechen vor den Filtern darunter "
+                   "zu entfernen, auch bei Bewegung und Überblendungen. Wirkt, wo sich das "
+                   "Kriechen alle zwei oder vier Bilder wiederholt: PAL, PAL 60, PAL-M, "
+                   "PAL-N, NTSC. Kostet GPU-Zeit, keine Verzögerung.",
+                   "Uses the last twelve frames to remove dot crawl before the filters below, "
+                   "including in motion and fades. Works where the crawl repeats every two or "
+                   "four frames: PAL, PAL 60, PAL-M, PAL-N, NTSC. Costs GPU time, adds no "
+                   "latency."));
     }
 
     // Two controls, because they are two different bargains and pretending
@@ -2521,29 +2492,25 @@ void SettingsWindow::DrawImageTab() {
     // dieser Eingang nicht hat -- und genau daran sah die Liste aus, als sei der
     // Dot-Crawl-Filter bloss halb verschwunden.
     if (!composite) {
-      HelpMarker(T("Mittelt über vier Bilder und nimmt das Rauschen dort vollständig heraus, "
-                   "wo sich nichts bewegt -- ohne einen Deut Schärfe zu kosten. Wo sich "
-                   "etwas bewegt, lässt es los; das nimmt der Haken darunter auf.",
-                   "Averages over four frames and takes the noise out entirely wherever "
-                   "nothing is moving, at no cost in sharpness at all. Where something moves "
-                   "it lets go; the box below picks that up."));
+      HelpMarker(T("Mittelt über vier Bilder und entfernt das Rauschen in ruhenden Bereichen "
+                   "vollständig, ohne Schärfe zu kosten. Bewegte Bereiche bleiben "
+                   "ausgenommen; dafür sind die Optionen darunter.",
+                   "Averages four frames and removes noise completely in still areas, without "
+                   "losing sharpness. Moving areas are left out; the options below handle "
+                   "them."));
     } else {
-      HelpMarker(T("Mittelt über einen vollen Umlauf des Farbträgers und entfernt das "
-                   "Punktkriechen dort vollständig, wo sich nichts bewegt -- ohne einen Deut "
-                   "Schärfe zu kosten. Der Umlauf wird je Quelle gemessen: vier Bilder bei PAL, "
-                   "zwei bei NTSC nach Lehrbuch, drei bei Konsolen mit eigenem Takt. Über die "
-                   "falsche Zahl gemittelt, bliebe ein Teil des Musters stehen.\n\n"
-                   "Fest angehakt, sobald der Regler darunter über null steht: sonst "
-                   "bezahlt der Demodulator auch an ruhenden Stellen Schärfe für etwas, "
-                   "das hier umsonst ist.",
-                   "Averages over one full cycle of the colour subcarrier and removes the "
-                   "crawl entirely wherever nothing is moving, at no cost in sharpness at all. "
-                   "The cycle is measured per source: four frames for PAL, two for NTSC by "
-                   "the book, three on consoles with a clock of their own. Averaged over the "
-                   "wrong number, part of the pattern would stay.\n\n"
-                   "Held on whenever the slider below is above zero: otherwise the "
-                   "demodulator pays sharpness on the still parts too, for something that "
-                   "is free here."));
+      HelpMarker(T("Mittelt über einen vollen Umlauf des Farbträgers und entfernt "
+                   "Punktkriechen in ruhenden Bereichen vollständig, ohne Schärfe zu kosten. "
+                   "Der Umlauf wird je Quelle gemessen: vier Bilder bei PAL, zwei bei NTSC "
+                   "nach Norm, drei bei Konsolen mit eigenem Takt.\n\n"
+                   "Immer an, solange der Regler darunter über null steht, damit der "
+                   "Demodulator in ruhenden Bereichen keine Schärfe kostet.",
+                   "Averages over one full cycle of the colour subcarrier and removes dot "
+                   "crawl completely in still areas, without losing sharpness. The cycle is "
+                   "measured per source: four frames for PAL, two for standard NTSC, three on "
+                   "consoles with their own clock.\n\n"
+                   "Always on while the slider below is above zero, so the demodulator costs "
+                   "no sharpness in still areas."));
     }
 
     // Derselbe Filter an einem anderen Arbeitspunkt, nicht ein zweiter Filter.
@@ -2566,41 +2533,34 @@ void SettingsWindow::DrawImageTab() {
     // Artefakt sitzt. Rauschen bewegt sich nicht, es steht ueberall, und die
     // Frage schrumpft auf die eine Haelfte, die uebrig bleibt.
     if (!composite) {
-      HelpMarker(T("Wo die Mittelung bei Bewegung loslässt. Mitteln über Bewegung ist "
-                   "Schmieren -- der Haken verschiebt den Tausch also nur, weg ist er "
-                   "nie.\n\n"
-                   "Aus: das Gatter hält lange fest, entrauscht auch noch langsame Bewegung "
-                   "und zieht dafür eine Fahne hinter wandernden Kanten her.\n\n"
-                   "An: das Gatter lässt nach vier von 255 Stufen los. Bewegte Kanten bleiben "
-                   "sauber, dafür bleibt ihr Rauschen stehen -- das nimmt der Haken darunter "
-                   "auf.",
-                   "Where the averaging lets go of moving parts. Averaging across movement is "
-                   "smearing -- this only moves where the trade happens, it never removes "
-                   "it.\n\n"
-                   "Off: the gate holds on late, denoises slow movement as well, and drags a "
-                   "trail behind travelling edges for it.\n\n"
-                   "On: the gate lets go within four levels out of 255. Moving edges stay "
-                   "clean, their noise stays with them -- and the box below picks that up."));
+      HelpMarker(T("Wo die Mittelung bei Bewegung aufhört. Mitteln über Bewegung verschmiert; "
+                   "der Haken verschiebt nur den Kompromiss.\n\n"
+                   "Aus: Hält länger fest und entrauscht auch langsame Bewegung, zieht aber "
+                   "Fahnen hinter bewegten Kanten.\n\n"
+                   "An: Lässt ab vier von 255 Stufen Unterschied los. Bewegte Kanten bleiben "
+                   "sauber, behalten aber ihr Rauschen; das übernimmt die Option darunter.",
+                   "Where averaging stops in motion. Averaging moving areas smears them; this "
+                   "only shifts the trade-off.\n\n"
+                   "Off: holds longer and also denoises slow motion, but leaves trails behind "
+                   "moving edges.\n\n"
+                   "On: lets go from a difference of four levels out of 255. Moving edges "
+                   "stay clean but keep their noise; the option below handles that."));
     } else {
-      HelpMarker(T("Wo die Mittelung bei Bewegung loslässt. Mitteln über Bewegung ist "
-                   "Schmieren -- der Haken verschiebt den Tausch also nur, weg ist er "
-                   "nie.\n\n"
-                   "Aus: das Gatter hält lange fest. Punktkriechen bewegt sich selbst, ein "
-                   "empfindliches Gatter schaltet den Filter also genau dort ab, wo das "
-                   "Artefakt sitzt. Der Preis ist die Fahne hinter langsam wandernden "
-                   "Kanten.\n\n"
-                   "An: das Gatter lässt nach vier von 255 Stufen los. Bewegte Kanten bleiben "
-                   "sauber, an langsamen Stellen bleibt etwas Kriechen stehen -- dort nimmt "
-                   "der Regler darunter die Arbeit wieder auf.",
-                   "Where the averaging lets go of moving parts. Averaging across movement is "
-                   "smearing -- this only moves where the trade happens, it never removes "
-                   "it.\n\n"
-                   "Off: the gate holds on late. Dot crawl crawls, so a sensitive gate "
-                   "switches the filter off exactly where the artefact is. The price is the "
-                   "trail behind slowly travelling edges.\n\n"
-                   "On: the gate lets go within four levels out of 255. Moving edges stay "
-                   "clean, slow parts keep some crawl -- and there the slider below picks "
-                   "the work back up."));
+      HelpMarker(T("Wo die Mittelung bei Bewegung aufhört. Mitteln über Bewegung verschmiert; "
+                   "der Haken verschiebt nur den Kompromiss.\n\n"
+                   "Aus: Hält länger fest. Punktkriechen bewegt sich selbst, ein "
+                   "empfindliches Gatter schaltete den Filter also genau dort ab. Preis: "
+                   "Fahnen hinter langsam bewegten Kanten.\n\n"
+                   "An: Lässt ab vier von 255 Stufen Unterschied los. Bewegte Kanten bleiben "
+                   "sauber, langsame Bereiche behalten etwas Kriechen; das übernimmt der "
+                   "Regler darunter.",
+                   "Where averaging stops in motion. Averaging moving areas smears them; this "
+                   "only shifts the trade-off.\n\n"
+                   "Off: holds longer. Dot crawl moves by itself, so a sensitive gate would "
+                   "switch the filter off exactly there. The cost is trails behind slowly "
+                   "moving edges.\n\n"
+                   "On: lets go from a difference of four levels out of 255. Moving edges "
+                   "stay clean, slow areas keep some crawl; the slider below handles that."));
     }
 
     // Die andere Hälfte des Bildes. Der Haken darüber entscheidet, *wo* die
@@ -2620,53 +2580,33 @@ void SettingsWindow::DrawImageTab() {
     // nichts aendert, und kein Regler darunter, dem er zuarbeitet. Was bleibt,
     // ist genau das, wofuer er gebaut wurde.
     if (!composite) {
-      HelpMarker(T("Sucht für jeden Punkt, wohin er sich seit den letzten drei Bildern "
-                   "bewegt hat, und mittelt entlang dieser Spur statt quer dazu. Damit "
-                   "verschwindet das Rauschen auch dort, wo sich etwas bewegt -- der Haken "
-                   "darüber lässt Bewegung ja gerade los.\n\n"
-                   "Jedes der drei Bilder wird einzeln gefragt, ob die Bewegung auch zu ihm "
-                   "passt; eines, das widerspricht, bleibt draußen. Deshalb hinterlässt ein "
-                   "Objekt, das dreht oder stehenbleibt, keine Spur.\n\n"
-                   "Kostet Rechenzeit auf der Grafikkarte -- auf diesem Eingang der einzige "
-                   "Filter, der nennenswert etwas kostet.",
-                   "Searches, for every point, where it has moved to over the last three "
-                   "frames, and averages along that trail instead of across it. Noise then "
-                   "goes away where something is moving as well -- which is exactly what the "
-                   "box above lets go of.\n\n"
-                   "Each of the three frames is asked separately whether the movement fits it "
-                   "too, and one that disagrees is left out. That is why an object that turns "
-                   "or stops leaves no trail.\n\n"
-                   "Costs time on the graphics card -- on this input the only filter that "
-                   "costs anything worth mentioning."));
+      HelpMarker(T("Verfolgt jeden Punkt über die letzten drei Bilder und mittelt entlang "
+                   "seiner Bewegung; so verschwindet Rauschen auch in bewegten Bereichen.\n\n"
+                   "Bilder, die nicht zur Bewegung passen, bleiben außen vor, daher ziehen "
+                   "drehende oder anhaltende Objekte keine Spur.\n\n"
+                   "Kostet GPU-Zeit; auf diesem Eingang der einzige Filter mit nennenswerten "
+                   "Kosten.",
+                   "Tracks each point over the last three frames and averages along its "
+                   "motion, so noise is also removed in moving areas.\n\n"
+                   "Frames that do not match the motion are left out, so objects that turn or "
+                   "stop leave no trail.\n\n"
+                   "Costs GPU time; the only filter on this input with a notable cost."));
     } else {
-      HelpMarker(T("Sucht für jeden Punkt, wohin er sich seit den letzten drei Bildern "
-                   "bewegt hat, und mittelt entlang dieser Spur statt quer dazu. Damit "
-                   "verschwindet das Rauschen auch dort, wo sich etwas bewegt.\n\n"
-                   "Gegen Punktkriechen hilft es nicht, und das ist kein Versäumnis: das "
-                   "Muster hängt am Raster, nicht am Bild -- ein verschobenes Bild bringt "
-                   "eine verschobene Trägerphase mit. Der Filter ist deshalb auf den Träger "
-                   "gesperrt und rührt das Kriechen weder an noch auf. Dem Regler darunter "
-                   "hilft er trotzdem: der schätzt das Muster aus den Bildpunkten, und "
-                   "Rauschen verdirbt genau diese Schätzung.\n\n"
-                   "Jedes der drei Bilder wird einzeln gefragt, ob die Bewegung auch zu ihm "
-                   "passt; eines, das widerspricht, bleibt draußen. Deshalb hinterlässt ein "
-                   "Objekt, das dreht oder stehenbleibt, keine Spur.\n\n"
-                   "Kostet Rechenzeit auf der Grafikkarte -- etwa so viel wie der Regler "
-                   "darunter.",
-                   "Searches, for every point, where it has moved to over the last three "
-                   "frames, and averages along that trail instead of across it. Noise then "
-                   "goes away where something is moving as well.\n\n"
-                   "It does not help against dot crawl, and that is not an omission: the "
-                   "pattern is fixed to the raster, not to the picture -- a shifted frame "
-                   "brings a shifted carrier phase with it. So the filter is notched out at "
-                   "the carrier and neither removes the crawl nor stirs it up. It still "
-                   "helps the slider below: that one estimates the pattern from the pixels, "
-                   "and noise is what spoils that estimate.\n\n"
-                   "Each of the three frames is asked separately whether the movement fits it "
-                   "too, and one that disagrees is left out. That is why an object that turns "
-                   "or stops leaves no trail.\n\n"
-                   "Costs time on the graphics card -- about as much as the slider "
-                   "below."));
+      HelpMarker(T("Verfolgt jeden Punkt über die letzten drei Bilder und mittelt entlang "
+                   "seiner Bewegung; so verschwindet Rauschen auch in bewegten Bereichen.\n\n"
+                   "Gegen Punktkriechen hilft es nicht, das Muster hängt am Raster, nicht am "
+                   "Bild. Es hilft aber dem Regler darunter, dessen Schätzung unter Rauschen "
+                   "leidet.\n\n"
+                   "Bilder, die nicht zur Bewegung passen, bleiben außen vor, daher ziehen "
+                   "drehende oder anhaltende Objekte keine Spur.\n\n"
+                   "Kostet GPU-Zeit, etwa so viel wie der Regler darunter.",
+                   "Tracks each point over the last three frames and averages along its "
+                   "motion, so noise is also removed in moving areas.\n\n"
+                   "Does not remove dot crawl, which is tied to the raster, not the picture. "
+                   "It helps the slider below, whose estimate suffers from noise.\n\n"
+                   "Frames that do not match the motion are left out, so objects that turn or "
+                   "stop leave no trail.\n\n"
+                   "Costs GPU time, about as much as the slider below."));
     }
 
     if (composite) {
@@ -2698,18 +2638,16 @@ void SettingsWindow::DrawImageTab() {
       Anchor("cleanmove");
       ResetOnRightClick(img.dotNotch, kImage.dotNotch);
       ImGui::SameLine();
-      HelpMarker(T("Rechnet den Farbträger aus der Helligkeit heraus -- das Einzige, was gegen "
-                   "Punktkriechen an bewegten Stellen hilft, und es kostet Schärfe. Weiter "
-                   "rechts heißt gründlicher und weicher; die Zeile darunter sagt, wo man "
-                   "gerade steht.\n\n"
-                   "Braucht die richtige Trägerfrequenz, und die kommt aus der Videonorm im "
-                   "Reiter Quelle. Steht die falsch, sinkt die Wirkung von rund 70 auf 34 "
-                   "Prozent.",
-                   "Works the colour subcarrier back out of the brightness -- the only thing "
-                   "that helps against crawl on moving parts, and it costs sharpness. Further "
-                   "right is more thorough and softer; the line below says where you are.\n\n"
-                   "It needs the right carrier frequency, and that comes from the video "
-                   "standard on the Source tab. Set wrong, it drops from about 70 % to 34 %."));
+      HelpMarker(T("Entfernt den Farbträger aus der Helligkeit. Der einzige Filter gegen "
+                   "Punktkriechen in bewegten Bereichen; kostet Schärfe. Weiter rechts ist "
+                   "gründlicher und weicher, die Zeile darunter zeigt die aktuelle Stufe.\n\n"
+                   "Braucht die richtige Trägerfrequenz aus der Videonorm im Reiter Quelle. "
+                   "Steht sie falsch, sinkt die Wirkung von rund 70 auf 34 Prozent.",
+                   "Removes the colour subcarrier from the brightness. The only filter "
+                   "against dot crawl in moving areas; costs sharpness. Further right is "
+                   "stronger and softer, the line below shows the current level.\n\n"
+                   "Needs the right carrier frequency from the video standard on the Source "
+                   "tab. Set wrong, the effect drops from about 70 % to 34 %."));
 
       // What the number amounts to, because a number on its own says nothing and
       // this is a trade the user should be able to see rather than infer.
@@ -2735,32 +2673,22 @@ void SettingsWindow::DrawImageTab() {
       Anchor("bandwidth");
       ResetOnRightClick(img.bandwidthRestore, kImage.bandwidthRestore);
       ImGui::SameLine();
-      HelpMarker(T("Composite überträgt Helligkeit nur bis zum Farbträger, und beide Enden "
-                   "der Kette laufen schon davor weich aus. Genau dieses Band hebt der "
-                   "Regler wieder an -- keine Kantenanhebung, sondern das, was die "
-                   "Übertragung nachweislich gedämpft hat.\n\n"
-                   "Nicht dasselbe wie \"Schärfen\" unter Skalierung: das arbeitet danach an "
-                   "der Fenstergröße und macht Kanten kontrastreicher, dieser hier in den "
-                   "Bildpunkten der Quelle.\n\n"
-                   "Um den Träger herum ist er gesperrt, nicht nur genau darauf -- "
-                   "Punktkriechen ist kein einzelner Ton, sondern ein ganzes Band. Und er "
-                   "hält sich zurück, wo die Zeile wirklich Energie auf der Trägerfrequenz "
-                   "führt: dort ist Detail von Kriechen nicht zu unterscheiden.\n\n"
-                   "Nur waagerecht: senkrecht ist das Bild durch die Zeilenzahl begrenzt, "
-                   "und daran ändert kein Filter etwas.",
-                   "Composite carries brightness only up to the colour subcarrier, and both "
-                   "ends of the chain already roll off before it. That is the band this "
-                   "lifts back up -- not edge enhancement, but what the transmission "
-                   "demonstrably attenuated.\n\n"
-                   "Not the same as \"Sharpen\" under Scaling: that works afterwards at the "
-                   "window's size and gives edges more contrast, this one works in the "
-                   "source's own samples.\n\n"
-                   "It is blocked around the carrier, not merely on it -- dot crawl is not a "
-                   "single tone but a whole band. And it holds back wherever the line really "
-                   "does carry energy at the carrier frequency: there, detail and crawl "
-                   "cannot be told apart.\n\n"
-                   "Horizontal only: vertically the picture is limited by the line count, "
-                   "and no filter changes that."));
+      HelpMarker(T("Composite dämpft Helligkeitsdetails zum Farbträger hin. Der Regler hebt "
+                   "dieses Band wieder an: Er stellt Details wieder her, statt Kanten "
+                   "nachzuschärfen.\n\n"
+                   "Anders als \"Schärfen\" unter Skalierung, das bei Fenstergröße den "
+                   "Kantenkontrast erhöht, arbeitet er auf den Bildpunkten der Quelle.\n\n"
+                   "Um den Träger herum und wo die Zeile echte Energie auf der Trägerfrequenz "
+                   "führt, hält er sich zurück: Dort sind Detail und Kriechen nicht zu "
+                   "unterscheiden. Nur waagerecht.",
+                   "Composite attenuates brightness detail towards the colour subcarrier. "
+                   "This lifts that band back up, restoring detail rather than sharpening "
+                   "edges.\n\n"
+                   "Unlike \"Sharpen\" under Scaling, which adds edge contrast at window "
+                   "size, this works on the source's own samples.\n\n"
+                   "It holds back around the carrier and wherever the line carries real "
+                   "energy at the carrier frequency, where detail and crawl cannot be told "
+                   "apart. Horizontal only."));
     }  // Composite-only
   }
 
@@ -2819,31 +2747,22 @@ void SettingsWindow::DrawImageTab() {
   }
   Anchor("crtlines");
   ImGui::SameLine();
-  HelpMarker(Format(T("Wie viele Bildzeilen die Konsole wirklich zeichnet. Nötig, sobald mehr "
-               "ankommen: eine Karte, die erst bei 720p anfängt, oder ein Dongle mit "
-               "eigenem Skalierer liefert 1080 Zeilen von einer Konsole, die 480 gezeichnet "
-               "hat. Ohne die Angabe rechnet %s mit den Zeilen, die ankommen, und die "
-               "Lücken sitzen zu dicht oder fallen ganz aus.\n\n"
-               "PAL hat mehr Zeilen als NTSC — 576 gegen 480, halbhoch 288 gegen 240. "
-               "Dieselbe Konsole liefert je nach Region eine andere Zahl.\n\n"
-               "PAL60 ist die Ausnahme: eine PAL-Konsole im 60-Hz-Modus zeichnet das "
-               "NTSC-Raster, also 240 oder 480. Die Farbe bleibt PAL, die Zeilen nicht.\n\n"
-               "Automatisch nimmt, was die Karte meldet. Wo sie die echte Auflösung "
-               "liefert, ist das richtig — die Angabe ist für die Fälle, wo sie es nicht "
-               "kann.\n\n"
-               "Gilt nur senkrecht. Waagerecht ist es „Breite der Quelle“ beim Zuschnitt.",
-               "How many picture lines the console really draws. Needed as soon as more "
-               "arrive: a card that starts at 720p, or a dongle with a scaler of its own, "
-               "hands over 1080 lines from a console that drew 480. Without the number "
-               "%s counts the lines it receives, and the gaps land too close together "
-               "or not at all.\n\n"
-               "PAL has more lines than NTSC — 576 against 480, half height 288 against "
-               "240. The same console gives a different number by region.\n\n"
-               "PAL60 is the exception: a PAL console in 60 Hz mode draws the NTSC raster, "
-               "so 240 or 480. The colour stays PAL, the lines do not.\n\n"
-               "Automatic takes what the card reports. Where it delivers the real "
-               "resolution that is correct -- this is for the cases where it cannot.\n\n"
-               "Vertical only. Horizontally it is \"Source width\" over at the crop."),
+  HelpMarker(Format(T("Wie viele Zeilen die Konsole wirklich zeichnet. Nötig, wenn mehr "
+               "ankommen, etwa von einer Karte ab 720p oder einem Dongle mit eigenem "
+               "Skalierer: 1080 Zeilen von einer Konsole, die 480 gezeichnet hat. Ohne die "
+               "Angabe nimmt %s die empfangene Zeilenzahl, und die Lücken liegen falsch.\n\n"
+               "PAL: 576 oder 288, NTSC: 480 oder 240. PAL 60 nutzt das NTSC-Raster.\n\n"
+               "Automatisch nimmt, was die Karte meldet; das stimmt, wenn sie die echte "
+               "Auflösung liefert.\n\n"
+               "Nur senkrecht; waagerecht ist es „Breite der Quelle“ beim Zuschnitt.",
+               "The number of lines the console really draws. Needed when more arrive, e.g. "
+               "from a card that starts at 720p or a dongle with its own scaler: 1080 lines "
+               "from a console that drew 480. Without it %s uses the received line count and "
+               "the gaps land in the wrong place.\n\n"
+               "PAL: 576 or 288, NTSC: 480 or 240. PAL 60 uses the NTSC raster.\n\n"
+               "Automatic uses what the card reports, which is correct when it delivers the "
+               "real resolution.\n\n"
+               "Vertical only; horizontally it is \"Source width\" in the crop section."),
                     AppNameUtf8().c_str())
                  .c_str());
 
@@ -2852,12 +2771,11 @@ void SettingsWindow::DrawImageTab() {
   Anchor("scanlines");
   ResetOnRightClick(img.scanlines, kImage.scanlines);
   ImGui::SameLine();
-  HelpMarker(T("Dunkelt die Lücken zwischen den Zeilen der Quelle ab. Unter doppelter Höhe "
-               "im Fenster bleibt es aus -- sonst gäbe es Moiré statt Zeilen. Die "
-               "Helligkeit wird ausgeglichen.",
-               "Darkens the gaps between the source's own lines. Stays off below twice the "
-               "height in the window, or there would be moiré instead of lines. Brightness "
-               "is compensated."));
+  HelpMarker(T("Dunkelt die Lücken zwischen den Zeilen der Quelle ab. Unter doppelter "
+               "Quellhöhe im Fenster aus, um Moiré zu vermeiden. Die Helligkeit wird "
+               "ausgeglichen.",
+               "Darkens the gaps between the source's lines. Off below twice the source "
+               "height in the window, to avoid moiré. Brightness is compensated."));
 
   // Der Satz, der frueher gefehlt hat. Er steht auch bei Reglerstellung null da:
   // wer sich fragt, ob es sich lohnt, den Schieber anzufassen, bekommt die
@@ -2867,10 +2785,10 @@ void SettingsWindow::DrawImageTab() {
                                 "Rotated — scanlines stay off, they would run sideways."));
   } else if (scanlineRoom_ > 0.0f && scanlineRoom_ < 2.0f) {
     TextDisabledWrapped(
-        Format(T("Kein Platz: das Fenster zeigt %.1f Zeilen je Bildzeile, nötig sind 2. Fenster "
-                 "vergrößern — oder stimmt die Zeilenzahl oben?",
-                 "No room: the window shows %.1f rows per picture line, 2 are needed. Make the "
-                 "window bigger -- or is the line count above right?"),
+        Format(T("Zu wenig Platz: %.1f Fensterzeilen je Bildzeile, nötig sind 2. Fenster "
+                 "vergrößern oder die Zeilenzahl oben prüfen.",
+                 "Not enough room: %.1f window rows per picture line, 2 are needed. Enlarge "
+                 "the window or check the line count above."),
                scanlineRoom_)
             .c_str());
   }
@@ -2912,27 +2830,27 @@ void SettingsWindow::DrawImageTab() {
   ImGui::SameLine();
   HelpMarker(T("Teilt das Bild: links (bei waagerechter Linie oben) ohne Composite-Filter, "
                "Schärfen, Bildregler, natives Raster und Bildröhre, rechts (unten) mit. "
-               "Deinterlacing, Zuschnitt und Farbe laufen auf beiden Seiten.\n\n"
+               "Deinterlacing, Zuschnitt und Farbe gelten für beide Seiten.\n\n"
                "Die Trennlinie lässt sich im Bild mit der Maus ziehen. Sie liegt im Raster "
-               "der Quelle und dreht sich deshalb mit dem Bild.\n\n"
-               "Geht nicht während einer Aufnahme und wird beim Start einer Aufnahme "
-               "abgeschaltet: Aufnahme und virtuelle Kamera bekämen sonst ein halb "
-               "gefiltertes Bild. Gilt nur bis zum Beenden.",
-               "Splits the picture: on the left (on top, with a horizontal divider) without "
-               "composite filters, sharpening, picture controls, native pixel grid and CRT "
-               "effects, on the right (below) with them. Deinterlacing, crop and colour run "
-               "on both sides.\n\n"
-               "The divider can be dragged with the mouse in the picture. It sits in the "
-               "source's own grid, so it turns with the picture.\n\n"
-               "Not available while recording, and switched off when one starts: the "
-               "recording and the virtual camera would otherwise get a half filtered "
-               "picture. Lasts until you quit."));
+               "der Quelle und dreht sich mit dem Bild.\n\n"
+               "Nicht während einer Aufnahme verfügbar und beim Aufnahmestart abgeschaltet, "
+               "damit Aufnahme und virtuelle Kamera das voll gefilterte Bild bekommen. Wird "
+               "nicht gespeichert.",
+               "Splits the picture: left (top with a horizontal divider) without composite "
+               "filters, sharpening, picture controls, native pixel grid and CRT effects, "
+               "right (bottom) with them. Deinterlacing, crop and colour apply to both "
+               "sides.\n\n"
+               "Drag the divider in the picture with the mouse. It sits in the source's grid "
+               "and rotates with the picture.\n\n"
+               "Unavailable while recording and switched off when a recording starts, so "
+               "recordings and the virtual camera get the fully filtered picture. Not "
+               "saved."));
 
   ImGui::BeginDisabled(!compareOn_);
   ImGui::Indent();
   const char* axisNames[] = {
-      T("Senkrecht – links ungefiltert", "Vertical – unfiltered on the left"),
-      T("Waagerecht – oben ungefiltert", "Horizontal – unfiltered on top")};
+      T("Senkrecht — links ungefiltert", "Vertical — unfiltered on the left"),
+      T("Waagerecht — oben ungefiltert", "Horizontal — unfiltered on top")};
   int axis = img.compareHorizontal ? 1 : 0;
   ImGui::SetNextItemWidth(-260.0f);
   if (ImGui::Combo(T("Richtung", "Direction"), &axis, axisNames, 2)) {
@@ -2986,12 +2904,10 @@ void SettingsWindow::DrawImageTab() {
     ImGui::SameLine();
     if (ImGui::SmallButton(T("Neu messen", "Measure again"))) rangeRemeasureRequested_ = true;
     ImGui::SameLine();
-    HelpMarker(T("Die Messung steht fest, bis sich das Bildformat ändert. Eine Einstellung im "
-                 "Treiber der Karte ändert es nicht — nach so einer Umstellung hier neu "
-                 "messen lassen.",
-                 "The measurement is held until the picture format changes. A setting in the "
-                 "card's own driver does not change it — after such a change, measure again "
-                 "here."));
+    HelpMarker(T("Die Messung gilt, bis sich das Bildformat ändert. Nach einer Änderung im "
+                 "Treiber der Karte hier neu messen.",
+                 "The measurement holds until the picture format changes. After changing the "
+                 "card's driver settings, measure again here."));
     if (rangeNumbers_ && !rangeNumbers_->empty()) {
       ImGui::TextDisabled("%s", rangeNumbers_->c_str());
     }
@@ -3006,29 +2922,23 @@ void SettingsWindow::DrawImageTab() {
                           "Analogue input, yet full range — black is not sitting on 16."));
     ImGui::SameLine();
     HelpMarker(Format(
-        T("An Composite, S-Video oder Tuner gilt BT.601, und die legt Schwarz auf 16. Kommt es "
-          "stattdessen unten am Anschlag an, hat etwas davor den Bereich gestreckt, "
-          "üblicherweise die Karte selbst.\n\n"
-          "Fürs Bild ist das kein Schaden: %s misst den Bereich und stellt sich darauf "
-          "ein. Was beim Strecken über die Enden hinausgefallen ist, ist aber weg, bevor "
-          "%s das Bild sieht — kein Regler holt es zurück, und in der Aufnahme fehlt es "
-          "ebenso. Ob überhaupt etwas hinausgefallen ist, lässt sich von hier nicht "
-          "feststellen.\n\n"
-          "Umstellen lässt sich der Bereich nur im Treiber der Karte, im Reiter Quelle unter "
-          "„Karte konfigurieren …“, meist als „Colour Range“ oder „Video Range“. Die "
-          "Bezeichnung führt leicht in die Irre: bei manchen Karten meint sie, was am Eingang "
-          "erwartet wird, und dann reicht „Full“ das Signal unverändert durch.",
-          "Composite, S-Video and tuner inputs carry BT.601, which puts black on 16. When it "
-          "arrives at the bottom rail instead, something upstream stretched the range, usually "
-          "the card itself.\n\n"
-          "The picture is not harmed by that: %s measures the range and adapts. But "
-          "whatever the stretch pushed past the ends is gone before %s sees the frame — "
-          "nothing brings it back, and it is missing from recordings just the same. Whether "
-          "anything was pushed past at all cannot be determined from here.\n\n"
-          "Only the card's own driver can change the range, on the Source tab under "
-          "\"Configure card ...\", usually as \"Colour Range\" or \"Video Range\". The label "
-          "misleads easily: on some cards it means what is expected at the input, and then "
-          "\"Full\" is what passes the signal through untouched."),
+        T("Composite, S-Video und Tuner nutzen BT.601 mit Schwarz auf 16. Liegt Schwarz auf "
+          "0, hat etwas davor den Bereich gestreckt, meist die Karte selbst.\n\n"
+          "%s misst den Bereich und stellt sich darauf ein. Was beim Strecken abgeschnitten "
+          "wurde, ist verloren, bevor %s das Bild sieht, auch in Aufnahmen. Ob etwas "
+          "abgeschnitten wurde, lässt sich nicht feststellen.\n\n"
+          "Ändern lässt sich der Bereich nur im Treiber der Karte: Reiter Quelle, „Karte "
+          "konfigurieren …“, meist „Colour Range“ oder „Video Range“. Bei manchen Karten "
+          "bezeichnet das den erwarteten Eingangsbereich, und „Full“ reicht das Signal "
+          "unverändert durch.",
+          "Composite, S-Video and tuner inputs use BT.601 with black at 16. Black at 0 means "
+          "something upstream stretched the range, usually the card itself.\n\n"
+          "%s measures the range and adapts. Anything clipped by the stretch is lost before "
+          "%s sees the frame, also in recordings. Whether anything was clipped cannot be "
+          "detected.\n\n"
+          "Only the card's driver can change the range: Source tab, \"Configure card ...\", "
+          "usually \"Colour Range\" or \"Video Range\". On some cards this names the expected "
+          "input range, and \"Full\" passes the signal through unchanged."),
         AppNameUtf8().c_str(), AppNameUtf8().c_str())
                    .c_str());
   }
@@ -3365,12 +3275,10 @@ void SettingsWindow::DrawHdrBlock() {
     }
     Anchor("hdrin");
     ImGui::SameLine();
-    HelpMarker(T("Automatisch glaubt, was der Treiber in den Medientyp schreibt. Die "
-                 "meisten Karten schreiben dort nichts -- dann bleibt es bei SDR und muss "
-                 "hier von Hand gesetzt werden.",
-                 "Automatic believes what the driver put in the media type. Most cards put "
-                 "nothing there, in which case it stays on SDR and has to be set here by "
-                 "hand."));
+    HelpMarker(T("Automatisch folgt dem Medientyp des Treibers. Die meisten Karten melden "
+                 "dort nichts; dann bleibt es bei SDR und muss hier von Hand gesetzt werden.",
+                 "Automatic follows the driver's media type. Most cards report nothing there; "
+                 "then it stays SDR and must be set here by hand."));
   } else {
     TextDisabledWrapped(
         T("Analoge Quelle: HDR gibt es dort nicht. Was bleibt, betrifft die Anzeige.",
@@ -3387,12 +3295,10 @@ void SettingsWindow::DrawHdrBlock() {
   }
   Anchor("hdrout");
   ImGui::SameLine();
-  HelpMarker(T("Automatisch schaltet nur um, wenn die Anzeige im HDR-Modus läuft UND die "
-               "Quelle wirklich HDR ist. Sonst wird das Bild auf die Anzeige "
-               "heruntergerechnet, was auf einem gewöhnlichen Monitor genau richtig ist.",
-               "Automatic switches over only when the display is in HDR mode AND the source "
-               "really is HDR. Otherwise the picture is mapped down to the display, which "
-               "is exactly right on an ordinary monitor."));
+  HelpMarker(T("Automatisch schaltet nur um, wenn die Anzeige im HDR-Modus läuft und die "
+               "Quelle HDR ist. Sonst wird das Bild auf die Anzeige heruntergerechnet.",
+               "Automatic switches only when the display is in HDR mode and the source is "
+               "HDR. Otherwise the picture is tone mapped to the display."));
 
   // Weiß und Spitze eines HDR-Bildschirms kennt Windows.
   if (!linear) {
@@ -3402,11 +3308,10 @@ void SettingsWindow::DrawHdrBlock() {
     Anchor("paperwhite");
     ResetOnRightClick(app.paperWhiteNits, kApp.paperWhiteNits);
     ImGui::SameLine();
-    HelpMarker(T("Wie hell gewöhnliches Weiß herauskommt -- ein Blatt Papier im Bild, nicht "
-                 "die hellste Stelle. 203 ist der Wert, gegen den HDR-Material üblicherweise "
-                 "abgemischt wird.",
-                 "How bright ordinary white comes out -- a sheet of paper in the picture, not "
-                 "the brightest spot. 203 is what HDR material is usually graded against."));
+    HelpMarker(T("Helligkeit von gewöhnlichem Weiß, etwa Papier, nicht der hellsten Stelle. "
+                 "203 ist der übliche HDR-Referenzwert.",
+                 "Brightness of ordinary white, such as paper, not of the brightest "
+                 "highlight. 203 is the usual HDR reference."));
   }
 
   // Auch das gehört der Quelle, also weg bei einer analogen: was ein SNES an
@@ -3420,15 +3325,12 @@ void SettingsWindow::DrawHdrBlock() {
     Anchor("sourcepeak");
     ResetOnRightClick(app.sourcePeakNits, kApp.sourcePeakNits);
     ImGui::SameLine();
-    HelpMarker(T("Wie hell die Quelle an ihrer hellsten Stelle wird. DirectShow überträgt "
-                 "das nirgends, auslesen lässt es sich also nicht -- und es zählt: nimmt man "
-                 "10000 an, wo die Quelle nur 1000 erreicht, landet Papierweiß auf einem "
-                 "SDR-Monitor bei 63 statt 88 nits, das Bild wird zu dunkel. 1000 passt für "
-                 "Konsolen.",
-                 "How bright the source gets at its brightest. DirectShow carries this "
-                 "nowhere, so it cannot be read -- and it matters: assume 10000 where the "
-                 "source only reaches 1000 and paper white lands at 63 nits instead of 88 on "
-                 "an SDR monitor, darkening the picture. 1000 suits consoles."));
+    HelpMarker(T("Spitzenhelligkeit der Quelle. DirectShow meldet sie nicht. Zu hoch macht "
+                 "das Bild dunkler: 10000 bei einer 1000-Nits-Quelle setzt Papierweiß auf "
+                 "einem SDR-Monitor auf 63 statt 88 Nits. 1000 passt für Konsolen.",
+                 "Peak brightness of the source. DirectShow does not report it. Too high "
+                 "darkens the picture: 10000 for a 1000-nit source puts paper white at 63 "
+                 "instead of 88 nits on an SDR monitor. 1000 suits consoles."));
   }
 
   ImGui::Spacing();
@@ -3442,15 +3344,14 @@ void SettingsWindow::DrawHdrBlock() {
   ImGui::Checkbox(T("Aufnahme", "Recording"), &app.recordHdr);
   Anchor("hdrrec");
   ImGui::SameLine();
-  HelpMarker(T("Nimmt in zehn Bit auf der PQ-Kurve auf, mit BT.2020 und den Farbangaben, "
-               "die eine Datei als HDR lesbar machen. Braucht einen Encoder, der zehn Bit "
-               "kann -- bei HEVC und AV1 üblich, bei H.264 selten -- und einen Player, der "
-               "PQ versteht. Ohne den Haken wird das heruntergerechnete Bild aufgenommen, "
+  HelpMarker(T("Nimmt in 10 Bit mit PQ und BT.2020 auf, mit den Farbangaben, die die Datei "
+               "als HDR kennzeichnen. Braucht einen 10-Bit-Encoder (bei HEVC und AV1 üblich, "
+               "bei H.264 selten) und einen Player mit PQ. Aus: das heruntergerechnete Bild, "
                "das überall läuft.",
-               "Records in ten bits on the PQ curve, BT.2020, with the colour description "
-               "that makes a file readable as HDR. Needs an encoder that does ten bits -- "
-               "usual for HEVC and AV1, rare for H.264 -- and a player that understands PQ. "
-               "Without it the tone mapped picture is recorded, which plays anywhere."));
+               "Records 10-bit PQ with BT.2020 and the colour tags that mark the file as HDR. "
+               "Needs a 10-bit encoder (usual for HEVC and AV1, rare for H.264) and a player "
+               "that supports PQ. Off: records the tone mapped picture, which plays "
+               "anywhere."));
 
   ImGui::Checkbox(T("Screenshots", "Screenshots"), &app.screenshotHdr);
   Anchor("hdrshot");
@@ -3464,33 +3365,33 @@ void SettingsWindow::DrawHdrBlock() {
     }
   }
   ImGui::SameLine();
-  HelpMarker(T("Das eingestellte Bildformat wird dabei übergangen -- PNG und JPEG können "
-               "den Umfang nicht halten.\n\n"
-               "JPEG XR braucht nichts: Windows bringt den Encoder mit und die Fotos-App "
-               "liest es. AVIF lesen alle Browser und das meiste außerhalb von Windows, "
-               "geht aber über ffmpeg -- Screenshots kommen sonst ohne aus.",
-               "The chosen picture format is bypassed -- PNG and JPEG cannot hold the "
+  HelpMarker(T("Das eingestellte Bildformat wird übergangen, da PNG und JPEG den Umfang nicht "
+               "halten.\n\n"
+               "JPEG XR braucht nichts: Windows bringt den Encoder mit, die Fotos-App öffnet "
+               "es. AVIF öffnen alle Browser und das meiste außerhalb von Windows, es braucht "
+               "aber ffmpeg.",
+               "Overrides the chosen picture format, since PNG and JPEG cannot hold the "
                "range.\n\n"
-               "JPEG XR needs nothing: Windows ships the encoder and the Photos app reads "
-               "it. AVIF is read by every browser and by most things outside Windows, but "
-               "it goes through ffmpeg -- which screenshots otherwise never need."));
+               "JPEG XR needs nothing extra: Windows includes the encoder and the Photos app "
+               "opens it. AVIF opens in all browsers and most software outside Windows, but "
+               "needs ffmpeg."));
 
   ImGui::Checkbox(T("Virtuelle Kamera", "Virtual camera"), &app.cameraHdr);
   Anchor("hdrcam");
   ImGui::SameLine();
-  HelpMarker(T("Bietet die Kamera zusätzlich in zehn Bit an; das Programm am anderen Ende "
-               "wählt. Aus mit Absicht: kaum ein Programm weiß heute etwas mit einer "
-               "HDR-Webcam anzufangen, und eines, das die zehn Bit nimmt ohne sie zu "
-               "verstehen, zeigt ein falsches Bild. Wirkt beim nächsten Öffnen der Kamera.",
-               "Offers the camera in ten bits as well; the program at the other end picks. "
-               "Off deliberately: almost nothing today knows what to do with an HDR webcam, "
-               "and something that takes the ten bits without understanding them shows a "
-               "wrong picture. Takes effect the next time the camera is opened."));
+  HelpMarker(T("Bietet die Kamera zusätzlich in 10 Bit an; das empfangende Programm wählt. "
+               "Standardmäßig aus: Kaum ein Programm kann mit einer HDR-Webcam umgehen, und "
+               "eines, das 10 Bit ohne HDR-Unterstützung nimmt, zeigt ein falsches Bild. "
+               "Wirkt beim nächsten Öffnen der Kamera.",
+               "Also offers the camera in 10 bit; the receiving program chooses. Off by "
+               "default: few programs handle HDR webcams, and one that takes 10 bit without "
+               "HDR support shows a wrong picture. Applies the next time the camera is "
+               "opened."));
 
   ImGui::EndDisabled();
   if (!sourceIsHdr) {
-    ImGui::TextDisabled("%s", T("Die Quelle ist SDR -- es gibt nichts zu behalten.",
-                                "The source is SDR -- there is nothing to keep."));
+    ImGui::TextDisabled("%s", T("Die Quelle ist SDR — es gibt nichts zu behalten.",
+                                "The source is SDR — there is nothing to keep."));
   }
 }
 
@@ -3526,10 +3427,10 @@ void SettingsWindow::DrawGeneralTab() {
                   &app.settingsSeparateWindow);
   Anchor("ownwindow");
   ImGui::SameLine();
-  HelpMarker(T("Ein echtes Fenster statt einer Fläche über dem Bild -- verschiebbar auf "
-               "einen zweiten Monitor oder neben die Vorschau.",
-               "A real window instead of a panel over the picture -- movable to a second "
-               "monitor or beside the preview."));
+  HelpMarker(T("Ein eigenes Fenster statt einer Fläche über dem Bild, verschiebbar auf einen "
+               "zweiten Monitor oder neben das Bild.",
+               "A separate window instead of a panel over the picture, movable to a second "
+               "monitor or beside the picture."));
 
   ImGui::Spacing();
   ImGui::SeparatorText(T("Darstellung", "Appearance"));
@@ -3591,12 +3492,12 @@ void SettingsWindow::DrawGeneralTab() {
   ImGui::Checkbox(T("Symbol im Infobereich", "Icon in the notification area"), &app.trayIcon);
   Anchor("tray");
   ImGui::SameLine();
-  HelpMarker(T("Ein Symbol neben der Uhr. Linksklick holt das Fenster nach vorn, Rechtsklick "
-               "öffnet ein Menü mit den Befehlen, die unten angehakt sind. Das Fenster behält "
-               "seinen Knopf in der Taskleiste.",
-               "An icon by the clock. A left click brings the window to the front, a right "
-               "click opens a menu with the commands ticked below. The window keeps its "
-               "taskbar button."));
+  HelpMarker(T("Ein Symbol im Infobereich der Taskleiste. Linksklick holt das Fenster nach "
+               "vorn, Rechtsklick öffnet ein Menü mit den unten angehakten Befehlen. Der "
+               "Knopf in der Taskleiste bleibt.",
+               "An icon in the notification area. Left click brings the window to the front, "
+               "right click opens a menu with the commands ticked below. The taskbar button "
+               "stays."));
   ImGui::BeginDisabled(!app.trayIcon);
   ImGui::Indent();
   ImGui::TextDisabled("%s", T("Im Menü, außer Anzeigen und Beenden:",
@@ -3660,9 +3561,10 @@ void SettingsWindow::DrawGeneralTab() {
   shortcutButton(ShortcutPlace::Desktop, &shortcutDesktop_, T("Auf den Desktop", "Add to the desktop"),
                  T("Vom Desktop entfernen", "Remove from the desktop"), "shortcutdesktop");
   ImGui::SameLine();
-  HelpMarker(Format(T("Verknüpfungen zu %s an dem Ort, an dem es gerade liegt. Wird es "
-                      "verschoben, einfach neu anlegen.",
-                      "Shortcuts to %s where it is now. If it is moved, just add them again."),
+  HelpMarker(Format(T("Verknüpfungen zu %s am aktuellen Ort. Nach dem Verschieben neu "
+                      "anlegen.",
+                      "Shortcuts to %s at its current location. Add them again after "
+                      "moving it."),
                     AppNameUtf8().c_str())
                  .c_str());
   if (shortcutFailed_) {
@@ -3679,16 +3581,16 @@ void SettingsWindow::DrawGeneralTab() {
       &app.logToFile);
       Anchor("log");
   ImGui::SameLine();
-  HelpMarker(T("Nur zur Fehlersuche. Alles landet in dieser einen Datei neben dem Programm, "
-               "jede Sitzung zwischen einer Start- und einer Endzeile mit Version und Uhrzeit. "
-               "Fehlt die Endzeile, wurde das Programm nicht normal beendet: Das meldet es "
-               "beim nächsten Start und trägt sie nach.\n\n"
-               "Aufgeräumt wird beim Start, immer ganze Sitzungen. Wirkt beim nächsten Start.",
-               "For troubleshooting only. Everything goes into this one file next to the "
-               "program, each session between a start and an end line with version and time. "
-               "A session without its end line did not close normally; the next start says "
-               "so and adds the line.\n\n"
-               "Cleaned up at start, whole sessions only. Takes effect on the next start."));
+  HelpMarker(T("Zur Fehlersuche. Schreibt eine Datei neben das Programm; jede Sitzung steht "
+               "zwischen einer Start- und einer Endzeile mit Version und Uhrzeit. Fehlt die "
+               "Endzeile, wurde das Programm nicht normal beendet; der nächste Start meldet "
+               "das und trägt sie nach.\n\n"
+               "Gekürzt wird beim Start, immer um ganze Sitzungen. Wirkt beim nächsten Start.",
+               "For troubleshooting. Writes one file next to the program; each session sits "
+               "between a start and an end line with version and time. A missing end line "
+               "means the program did not exit normally; the next start reports it and adds "
+               "the line.\n\n"
+               "Trimmed at start, by whole sessions only. Applies on the next start."));
 
   LogRetention& keep = app.logRetention;
   ImGui::BeginDisabled(!app.logToFile);
@@ -3778,10 +3680,8 @@ void SettingsWindow::DrawDisplayTab() {
                   &app.preventSleep);
   Anchor("nosleep");
   ImGui::SameLine();
-  HelpMarker(Format(T("Hält den Bildschirm wach, solange %s läuft -- beim Zusehen drückt "
-                      "niemand eine Taste.",
-                      "Keeps the screen awake while %s is running -- nobody presses a key "
-                      "while watching."),
+  HelpMarker(Format(T("Verhindert, dass sich der Bildschirm abschaltet, solange %s läuft.",
+                      "Keeps the screen from turning off while %s is running."),
                     AppNameUtf8().c_str())
                  .c_str());
 
@@ -4039,10 +3939,10 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::BeginDisabled(!ready);
 
   ImGui::TextWrapped(
-      T("Aufgenommen wird das Bild in Quellauflösung, nach Zuschnitt und Deinterlacing, vor der "
-        "Fensterskalierung. Die Fenstergröße hat keinen Einfluss auf das Ergebnis.",
-        "Recording captures the picture at source resolution, after crop and deinterlacing, "
-        "before window scaling. Window size does not affect the result."));
+      T("Aufgenommen wird in Quellauflösung, nach Zuschnitt und Deinterlacing, vor der "
+        "Fensterskalierung. Die Fenstergröße hat keinen Einfluss.",
+        "Records at source resolution, after crop and deinterlacing, before window scaling. "
+        "The window size has no effect."));
   ImGui::Spacing();
 
   // ---- output ----
@@ -4091,10 +3991,8 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::SameLine();
   HelpMarker(pcm ? T("AVI nimmt den Ton unverändert auf (PCM).",
                      "AVI keeps the sound as it is (PCM).")
-                 : T("AAC, je Tonspur. Neben dem Bild fällt sie bei der Dateigröße kaum ins "
-                     "Gewicht.",
-                     "AAC, per audio track. Next to the picture it barely adds to the file "
-                     "size."));
+                 : T("AAC, je Tonspur. Fällt bei der Dateigröße kaum ins Gewicht.",
+                     "AAC, per audio track. Barely affects the file size."));
 
   // Die Bitrate stand frueher hier und steht jetzt im Reiter Encoder, direkt
   // unter der Ratensteuerung. Getrennt waren die beiden nicht zu verstehen: bei
@@ -4209,14 +4107,13 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
                   &rec.largeBuffer);
   Anchor("buffer");
   ImGui::SameLine();
-  HelpMarker(T("Was die Platte noch nicht geschrieben hat, wartet im Arbeitsspeicher, sonst bis "
-               "512 MB. Belegt wird er nur, solange die Platte hinterherhängt, und nie mehr, als "
-               "gerade frei ist, abzüglich 2 GB Reserve. Ist er voll, endet die Aufnahme, und was "
-               "drin ist, wird noch geschrieben.",
-               "What the disk has not written yet waits in memory, otherwise up to 512 MB. It is "
-               "only used while the disk lags behind, and never more than is free right now, "
-               "less a 2 GB reserve. When it is full the recording stops, and what is in it is "
-               "still written."));
+  HelpMarker(T("Was die Platte noch nicht geschrieben hat, wartet im Arbeitsspeicher, ohne "
+               "den Haken bis 512 MB. Belegt nur, solange die Platte hinterherhängt, nie mehr "
+               "als der freie Speicher abzüglich 2 GB. Ist er voll, endet die Aufnahme, und "
+               "der Inhalt wird noch geschrieben.",
+               "Data the disk has not written yet waits in memory, up to 512 MB without this. "
+               "Used only while the disk falls behind, never more than free memory minus 2 "
+               "GB. When full, the recording stops and the buffer is still written."));
   ImGui::BeginDisabled(!rec.largeBuffer);
   MemorySlider("##buffersize", &rec.bufferGb, kRecord.bufferGb,
                T("Puffergröße (GB)", "Buffer size (GB)"),
@@ -4240,12 +4137,11 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::Checkbox(T("Bedienoberfläche mit aufnehmen", "Include the interface"),
                   &rec.screenshotIncludeUi);
   Anchor("shotui");
-  HelpMarker(T("Speichert das fertige Fenster statt des Bildes: mit Leiste, Meldungen und "
-               "allem, was gerade darauf liegt, und in der Größe des Fensters. Immer SDR -- "
-               "bei HDR-Ausgabe wird das reine Bild gespeichert.",
-               "Saves the finished window instead of the picture: the bar, the messages and "
-               "whatever else is on it, at the size of the window. Always SDR -- with HDR "
-               "output the picture alone is saved."));
+  HelpMarker(T("Speichert das ganze Fenster statt des Bildes, mit Leiste und Meldungen, in "
+               "Fenstergröße. Immer SDR; bei HDR-Ausgabe wird nur das Bild gespeichert.",
+               "Saves the whole window instead of the picture, including the bar and "
+               "messages, at window size. Always SDR; with HDR output only the picture is "
+               "saved."));
   ImGui::Spacing();
 
   int shot = (int)rec.screenshotFormat;
@@ -4272,12 +4168,12 @@ void SettingsWindow::DrawRecordTab(FfmpegInfo* ffmpeg) {
   ImGui::SeparatorText(T("Nach MP4 umpacken", "Rewrap to MP4"));
   Anchor("remux");
 
-  ImGui::TextWrapped(T("Legt MKV-Dateien ohne Neukodierung in eine MP4 um, auch verlustfreie "
-                       "H.265-Aufnahmen. Dauert Sekunden und kostet keine Qualität. Das Original "
-                       "bleibt erhalten. UT Video und Unkomprimiert passen nicht in eine MP4.",
-                       "Puts MKV files into an MP4 without re-encoding, lossless H.265 included. "
-                       "Takes seconds and costs no quality. The original is kept. UT Video and "
-                       "uncompressed do not fit in an MP4."));
+  ImGui::TextWrapped(T("Packt MKV-Dateien ohne Neukodierung in MP4 um, auch verlustfreie "
+                       "H.265-Aufnahmen. Dauert Sekunden und kostet keine Qualität; das "
+                       "Original bleibt. UT Video und Unkomprimiert passen nicht in MP4.",
+                       "Rewraps MKV files as MP4 without re-encoding, lossless H.265 "
+                       "included. Takes seconds and costs no quality; the original is kept. "
+                       "UT Video and uncompressed do not fit in MP4."));
   ImGui::Spacing();
 
   const bool remuxBusy = remuxer_.busy();
@@ -4342,12 +4238,12 @@ void SettingsWindow::DrawReplayTab(FfmpegInfo* ffmpeg) {
     return text;
   };
   ImGui::TextWrapped(
-      "%s", Format(T("Hält die letzten Sekunden bereit, mit dem Encoder aus dem Reiter Encoder. "
-                     "Erst %s macht daraus einen Clip, im Unterordner clips des Aufnahmeordners. "
-                     "Neben einer Aufnahme läuft es mit, ohne zweiten Encoder.",
-                     "Keeps the last seconds at hand, on the encoder from the Encoder tab. Only %s "
-                     "makes a clip of them, in the clips subfolder of the recording folder. Beside "
-                     "a recording it runs along, without a second encoder."),
+      "%s", Format(T("Hält die letzten Sekunden mit dem Encoder aus dem Reiter Encoder "
+                     "bereit. %s speichert sie als Clip im Unterordner clips des "
+                     "Aufnahmeordners. Läuft neben einer Aufnahme ohne zweiten Encoder mit.",
+                     "Keeps the last seconds, using the encoder from the Encoder tab. %s "
+                     "saves them as a clip in the clips subfolder of the recording folder. "
+                     "Runs alongside a recording without a second encoder."),
                    action(HotkeyAction::ReplaySave).c_str())
                 .c_str());
   ImGui::Spacing();
@@ -4372,12 +4268,12 @@ void SettingsWindow::DrawReplayTab(FfmpegInfo* ffmpeg) {
   Anchor("replaystore");
   ImGui::SameLine();
   if (ImGui::RadioButton(T("Platte", "Disk"), rec.replayOnDisk)) rec.replayOnDisk = true;
-  HelpMarker(T("Auf der Platte liegt es im Aufnahmeordner unter clips\\.replay und braucht keinen "
-               "Arbeitsspeicher. Für eine schnelle SSD: der Encoder schreibt ständig mit. Es lässt "
-               "Platz für einen Clip aus allem, was es hält.",
-               "On disk it lives in the recording folder under clips\\.replay and takes no memory. "
-               "For a fast SSD: the encoder writes all the time. It leaves room for a clip of all "
-               "it holds."));
+  HelpMarker(T("Liegt im Aufnahmeordner unter clips\\.replay und braucht keinen "
+               "Arbeitsspeicher. Für eine schnelle SSD, da der Encoder ständig schreibt. Hält "
+               "Platz für einen Clip in voller Länge frei.",
+               "Stored in the recording folder under clips\\.replay, using no memory. For a "
+               "fast SSD, as the encoder writes continuously. Keeps space free for a clip of "
+               "the full length."));
 
   // What the length costs, by the same estimate as the time left on the
   // recording tab. Should the room run out first, the replay holds less.
@@ -4501,18 +4397,18 @@ void SettingsWindow::DrawEncoderTab(FfmpegInfo* ffmpeg) {
     }
   }
   if (tested && rec.encoder == RecordEncoder::SvtAv1) {
-    TextDisabledWrapped(T("Braucht viel Prozessor. Kommt er nicht mit, eine schnellere Stufe "
-                          "wählen; eine Grafikkarte mit AV1 schafft dasselbe ohne die Last.",
-                          "Takes a lot of CPU. If it cannot keep up, pick a faster step; a "
-                          "graphics card with AV1 does the same without the load."));
+    TextDisabledWrapped(T("Braucht viel Prozessorleistung. Kommt sie nicht mit, eine "
+                          "schnellere Voreinstellung oder eine Grafikkarte mit AV1 nutzen.",
+                          "CPU-heavy. If it cannot keep up, choose a faster preset or a "
+                          "graphics card with AV1."));
   }
 
   if (!tested) {
     ImGui::TextWrapped(
-        T("Welche Encoder gehen, hängt an der Grafikkarte. Einmal prüfen — das Ergebnis "
-          "bleibt gespeichert und wird nur bei einem Hardwarewechsel neu gebraucht.",
-          "Which encoders work depends on the graphics card. Test once — the result is "
-          "kept and is only needed again after a hardware change."));
+        T("Welche Encoder gehen, hängt von der Grafikkarte ab. Einmal prüfen; das Ergebnis "
+          "bleibt bis zu einem Hardwarewechsel gespeichert.",
+          "Available encoders depend on the graphics card. Test once; the result is kept "
+          "until the hardware changes."));
   } else if (!chosenOk) {
     ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.35f, 1.0f), "%s",
                        T("Der gespeicherte Encoder ist hier nicht verfügbar.",
@@ -4674,14 +4570,14 @@ void SettingsWindow::DrawVirtualCameraBlock() {
   const auto status = (CameraSink::Setup)vcamStatus_;
 
   ImGui::TextWrapped(
-      "%s", Format(T("Gibt das Bild als Webcam an andere Programme weiter -- OBS, Discord, "
-                     "Teams, den Browser. Die Kamera heißt \"%s\" und "
-                     "steht ab dem Installieren dauerhaft in der Geräteliste. Läuft %s "
-                     "gerade nicht, zeigt sie einen Hinweis statt eines Bildes.",
-                     "Offers the picture to other programs as a webcam -- OBS, Discord, "
-                     "Teams, the browser. The camera is called \"%s\" "
-                     "and stays in the device list once installed. While %s is not "
-                     "running it shows a notice instead of a picture."),
+      "%s", Format(T("Stellt das Bild als Webcam für andere Programme bereit, etwa OBS, "
+                     "Discord, Teams oder den Browser. Die Kamera heißt \"%s\" und bleibt "
+                     "nach der Installation in der Geräteliste. Läuft %s nicht, zeigt sie "
+                     "einen Hinweis.",
+                     "Provides the picture as a webcam to other programs, such as OBS, "
+                     "Discord, Teams or a browser. The camera is named \"%s\" and stays in "
+                     "the device list once installed. While %s is not running, it shows a "
+                     "notice."),
                    CameraSink::DeviceName().c_str(), AppNameUtf8().c_str())
                 .c_str());
   ImGui::Spacing();
@@ -4691,21 +4587,19 @@ void SettingsWindow::DrawVirtualCameraBlock() {
     ImGui::TextWrapped(
         "%s",
         status == CameraSink::Setup::Stale
-            ? Format(T("Die Kameraquelle ist registriert, zeigt aber ins Leere -- vermutlich "
-                       "wurde %s verschoben. Einmal neu installieren setzt das gerade.",
-                       "The camera source is registered but points nowhere -- %s was probably "
-                       "moved. Installing once more puts that right."),
+            ? Format(T("Die Kameraquelle ist registriert, ihre Datei fehlt aber; vermutlich "
+                       "wurde %s verschoben. Erneut installieren behebt das.",
+                       "The camera source is registered, but its file is missing; %s was "
+                       "probably moved. Install again to fix this."),
                      AppNameUtf8().c_str())
                   .c_str()
-            : T("Einmalig zu installieren. Die Kameraquelle wird von jedem Programm "
-                "geladen, das die Kamera öffnet, muss also systemweit registriert werden "
-                "-- dafür fragt Windows nach Administratorrechten, das Benutzen danach "
-                "nicht mehr. Die Quelle steckt im Programm und wird beim Installieren "
-                "danebengelegt.",
-                "To be installed once. The camera source is loaded by every program that "
-                "opens the camera, so it has to be registered machine-wide -- Windows asks "
-                "for administrator rights for that, using it afterwards does not. The "
-                "source travels inside the program and is laid down when installing."));
+            : T("Einmal zu installieren. Jedes Programm, das die Kamera öffnet, lädt ihre "
+                "Quelle, daher wird sie systemweit registriert. Dafür braucht es "
+                "Administratorrechte, für die Nutzung nicht. Die Quelle steckt im Programm "
+                "und wird beim Installieren daneben abgelegt.",
+                "Install once. Every program that opens the camera loads its source, so it is "
+                "registered system-wide. This needs administrator rights; using it does not. "
+                "The source is built into the program and placed next to it on install."));
     ImGui::Spacing();
     if (ImGui::Button(T("Kamera installieren", "Install camera"), ImVec2(Px(200.0f), 0.0f))) {
       virtualCameraRequest_ = 1;
@@ -4761,16 +4655,15 @@ void SettingsWindow::DrawVirtualCameraBlock() {
   }
 
   ImGui::Spacing();
-  TextDisabledWrapped(T("Das Bild geht so hinaus, wie es hier ankommt -- gleiche Auflösung, "
-                        "gleiche Bildrate. Wer weniger verlangt, bekommt es seitenrichtig "
-                        "eingepasst, schwarze Balken füllen den Rest. Sein Format wählt ein "
-                        "Programm beim Öffnen der Kamera und behält es dann: wechselt die "
-                        "Quelle, dort neu öffnen.",
-                        "The picture goes out as it arrives here -- same resolution, same "
-                        "frame rate. Anything asking for less gets it fitted with its shape "
-                        "kept, black bars fill the rest. A program picks its format when it "
-                        "opens the camera and keeps it: if the source changes, reopen it "
-                        "there."));
+  TextDisabledWrapped(T("Ausgegeben wird das Bild wie hier: gleiche Auflösung und Bildrate. "
+                        "Programme, die weniger verlangen, bekommen es seitenrichtig "
+                        "eingepasst, mit schwarzen Balken. Ein Programm wählt das Format beim "
+                        "Öffnen der Kamera; nach einem Quellwechsel die Kamera dort neu "
+                        "öffnen.",
+                        "The output matches the picture here: same resolution and frame rate. "
+                        "Programs requesting less get it fitted with black bars. A program "
+                        "picks the format when it opens the camera; after a source change, "
+                        "reopen the camera there."));
 
   ImGui::Spacing();
   if (ImGui::Button(T("Kamera deinstallieren", "Uninstall camera"), ImVec2(Px(200.0f), 0.0f))) {
@@ -4808,14 +4701,12 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   }
   Anchor("ratecontrol");
   ImGui::SameLine();
-  HelpMarker(T("Konstant hält die Datenrate stabil -- das will man beim Streamen. Variabel "
-               "gibt bewegten Stellen mehr und darf bis auf das Anderthalbfache "
-               "hochgehen. Feste Qualität ignoriert die Datenrate ganz: die Datei wird so "
-               "groß, wie das Bild es verlangt.",
-               "Constant keeps the data rate steady, which is what streaming wants. "
-               "Variable gives busy moments more and may peak at half again. Constant "
-               "quality ignores the data rate entirely: the file comes out as large as the "
-               "picture demands."));
+  HelpMarker(T("Konstant hält die Datenrate stabil, fürs Streamen. Variabel gibt bewegten "
+               "Szenen mehr, bis zum Anderthalbfachen. Feste Qualität ignoriert die "
+               "Datenrate; die Dateigröße folgt dem Bild.",
+               "Constant keeps the data rate steady, for streaming. Variable gives busy "
+               "scenes more, up to 1.5 times the rate. Constant quality ignores the data "
+               "rate; the file size follows the picture."));
   if (encoder && encoder->id == RecordEncoder::SvtAv1 &&
       rec.rateControl != RateControl::Quality) {
     TextDisabledWrapped(rec.rateControl == RateControl::Cbr
@@ -4859,9 +4750,9 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   }
   ImGui::SameLine();
   HelpMarker(byQuality
-                 ? T("Bei fester Qualität ohne Wirkung -- dort entscheidet der Regler "
+                 ? T("Bei fester Qualität ohne Wirkung — dort entscheidet der Regler "
                      "darunter, wie groß die Datei wird.",
-                     "Ignored at constant quality -- there the setting below decides how "
+                     "Ignored at constant quality — there the setting below decides how "
                      "large the file gets.")
                  : T("In kbit/s. Für 720x576 sind 6000 bis 12000 der übliche Bereich. Die "
                      "Zahl lässt sich rechts auch eintippen.",
@@ -4878,11 +4769,10 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   ResetOnRightClick(rec.qualityLevel, kRecord.qualityLevel);
   ImGui::SameLine();
   HelpMarker(byQuality
-                 ? T("Die Skala unterscheidet sich zwischen den Encodern leicht. 18 bis 24 ist "
-                     "der übliche Bereich; darunter wächst die Datei schnell, ohne dass man "
-                     "viel sieht.",
-                     "The scale differs a little between encoders. 18 to 24 is the usual range; "
-                     "below that the file grows quickly for little that anyone can see.")
+                 ? T("Die Skala unterscheidet sich je Encoder leicht. Üblich sind 18 bis 24; "
+                     "darunter wächst die Datei schnell bei kaum sichtbarem Gewinn.",
+                     "The scale differs slightly between encoders. 18 to 24 is typical; lower "
+                     "values grow the file quickly for little visible gain.")
                  : T("Nur bei fester Qualität. Sonst entscheidet die Bitrate darüber.",
                      "Constant quality only. Otherwise the bitrate decides."));
   ImGui::EndDisabled();
@@ -4904,7 +4794,7 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   ImGui::SameLine();
   HelpMarker(amf ? T("AMF kennt nur drei Stufen; die sieben hier fallen darauf zusammen.",
                      "AMF has three steps; these seven fold onto them.")
-                 : T("Langsamer heißt besseres Bild bei gleicher Datenrate -- und mehr Last. "
+                 : T("Langsamer heißt besseres Bild bei gleicher Datenrate — und mehr Last. "
                      "Automatisch überlässt es dem Encoder.",
                      "Slower means a better picture at the same data rate, and more load. "
                      "Automatic leaves it to the encoder."));
@@ -4941,22 +4831,22 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   ImGui::Checkbox(T("Alle Encoder-Chips", "All encoder chips"), &rec.allEncoderChips);
   Anchor("encoderchips");
   ImGui::SameLine();
-  HelpMarker(T("Teilt jedes Bild auf die NVENC-Chips der Karte auf. Mit zwei (etwa RTX 4080) "
-               "gut 60 % mehr Bilder je Sekunde, bei gleicher Datenrate etwas weniger "
+  HelpMarker(T("Teilt jedes Bild auf die NVENC-Chips der Grafikkarte auf. Mit zwei (etwa RTX "
+               "4080) über 60 % mehr Bilder je Sekunde, bei gleicher Datenrate etwas weniger "
                "Qualität. Mit einem Chip ohne Wirkung. Nur H.265 und AV1.",
-               "Splits every picture across the card's NVENC chips. With two (an RTX 4080, "
-               "say) over 60 % more frames per second, at the same data rate a little less "
-               "quality. No effect with one chip. H.265 and AV1 only."));
+               "Splits each frame across the graphics card's NVENC chips. With two (e.g. RTX "
+               "4080), over 60 % more frames per second, with slightly lower quality at the "
+               "same data rate. No effect with one chip. H.265 and AV1 only."));
   ImGui::EndDisabled();
 
   ImGui::BeginDisabled(!nvenc && !amf && !qsv);
   ImGui::Checkbox(T("Vorausschau", "Look-ahead"), &rec.lookAhead);
   Anchor("lookahead");
   ImGui::SameLine();
-  HelpMarker(T("Der Encoder sieht ein Stück in die Zukunft und verteilt die Bits besser. "
-               "Kostet etwas Verzögerung -- beim Aufnehmen egal, beim Streamen nicht.",
-               "The encoder looks a little way ahead and spreads its bits better. Costs some "
-               "delay -- which does not matter for recording and does for streaming."));
+  HelpMarker(T("Der Encoder schaut voraus und verteilt die Bits besser. Kostet Verzögerung: "
+               "Beim Aufnehmen egal, beim Streamen nicht.",
+               "The encoder looks ahead and distributes bits better. Adds delay, which "
+               "matters for streaming, not for recording."));
   // QuickSync takes a depth for H.265 and AV1; its H.264 look-ahead has none.
   const bool depthKnown = nvenc || (qsv && encoder->ffmpegName.compare(0, 4, "h264") != 0);
   ImGui::BeginDisabled(!depthKnown || !rec.lookAhead);
@@ -4976,10 +4866,10 @@ void SettingsWindow::DrawEncoderBlock(const EncoderInfo* encoder) {
   ImGui::Checkbox(T("Adaptive Quantisierung", "Adaptive quantisation"), &rec.adaptiveQuant);
   Anchor("aq");
   ImGui::SameLine();
-  HelpMarker(T("Gibt den Stellen mehr Bits, an denen das Auge hinsieht -- Flächen und "
-               "Verläufe -- und nimmt sie dort weg, wo ohnehin Unruhe ist.",
-               "Gives more bits to where the eye looks -- flat areas and gradients -- and "
-               "takes them from where there is already busyness."));
+  HelpMarker(T("Gibt Flächen und Verläufen, wo Artefakte auffallen, mehr Bits und unruhigen "
+               "Bereichen weniger.",
+               "Gives more bits to flat areas and gradients, where artefacts show, and fewer "
+               "to busy areas."));
   ImGui::EndDisabled();
 
   if (!nvenc && !amf && !qsv) {
@@ -5067,12 +4957,12 @@ void SettingsWindow::DrawHotkeysTab() {
   ImGui::Checkbox(T("Systemweite Tasten", "System-wide shortcuts"), &global.on);
   Anchor("globalkeys");
   ImGui::SameLine();
-  HelpMarker(T("Die Tasten der Spalte Systemweit wirken überall, auch mitten im Spiel. Solange "
-               "qBlank läuft, gehört die Kombination ihm allein; kein anderes Programm bekommt "
-               "sie. Eine schon vergebene steht rot da.",
-               "The keys in the System-wide column work everywhere, in the middle of a game too. "
-               "While qBlank runs, the combination is its alone; no other program gets it. One "
-               "already taken shows red."));
+  HelpMarker(T("Die Tasten der Spalte Systemweit wirken überall, auch im Spiel. Solange "
+               "qBlank läuft, bekommt kein anderes Programm die Kombination. Eine bereits "
+               "vergebene steht rot da.",
+               "Keys in the System-wide column work everywhere, including in games. While "
+               "qBlank runs, no other program receives the combination. One already in use is "
+               "shown in red."));
 
   // Both columns; whether the system-wide keys are held stays as it is.
   if (ImGui::Button(T("Alle zurücksetzen", "Reset all"))) {
@@ -5124,16 +5014,14 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
   Config& c = cfg();
   ImGui::Spacing();
   ImGui::TextWrapped(
-      T("Ein Profil hält alles: Gerät, Eingang, Videonorm, Format sowie sämtliche Bild- "
-        "und Toneinstellungen. Am besten eines pro Konsole -- ein SNES über Composite "
-        "will andere Filter als eine Switch über HDMI.\n\n"
-        "Einmal einrichten, dann mit Strg+Zahl umschalten, statt bei jedem Kabelwechsel "
-        "dieselben Regler von Hand zu suchen.",
-        "A profile holds everything: device, input, video standard, format and every "
-        "picture and audio setting. Best one per console -- a SNES over composite wants "
-        "different filters from a Switch over HDMI.\n\n"
-        "Set them up once, then switch with Ctrl+number instead of hunting for the same "
-        "controls by hand every time a cable changes."));
+      T("Ein Profil speichert Gerät, Eingang, Videonorm, Format und alle Bild- und "
+        "Toneinstellungen. Am besten eines pro Konsole, da ein SNES über Composite andere "
+        "Filter braucht als eine Switch über HDMI.\n\n"
+        "Umschalten mit Strg+Zahl.",
+        "A profile stores device, input, video standard, format and all picture and audio "
+        "settings. Ideally one per console, as a SNES over composite needs different filters "
+        "than a Switch over HDMI.\n\n"
+        "Switch with Ctrl+number."));
   ImGui::Spacing();
 
   // Nur was der Decoder wirklich kann, und nur wenn ueberhaupt einer im Spiel
@@ -5173,14 +5061,13 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
     ImGui::OpenPopup("rename_profile");
   }
   Anchor("profsave");
-  WrappedTooltip(T("Legt ein neues Profil mit allem an, was gerade eingestellt ist -- Gerät, "
-                   "Eingang, Format, Bild und Ton. Danach gleich den Namen eintippen, am "
-                   "besten den der Konsole.\n\n"
-                   "Das aktuelle Profil bleibt, wie es war.",
-                   "Creates a new profile holding everything as it stands -- device, input, "
-                   "format, picture and audio. Type the name straight away, ideally the "
-                   "console's.\n\n"
-                   "The profile you were on stays as it was."));
+  WrappedTooltip(T("Legt ein Profil aus den aktuellen Einstellungen an: Gerät, Eingang, "
+                   "Format, Bild und Ton. Danach einen Namen eintippen, etwa den der "
+                   "Konsole.\n\n"
+                   "Das bisherige Profil bleibt unverändert.",
+                   "Creates a profile from the current settings: device, input, format, "
+                   "picture and audio. Then type a name, e.g. the console's.\n\n"
+                   "The current profile is not changed."));
   ImGui::SameLine();
   if (ImGui::Button(T("Umbenennen", "Rename"))) {
     renameTarget_ = c.activeProfile;
@@ -5237,20 +5124,20 @@ void SettingsWindow::DrawProfilesTab(const DeviceProbeResult& caps) {
 
     if (pinned) {
       ImGui::TextWrapped(
-          T("Nicht möglich, solange dieses Profil eine feste Videonorm hat: gesucht wird nur "
-            "bei „Automatisch“, und was nicht gesucht wird, wird auch nicht erkannt.",
-            "Not possible while this profile pins a video standard: the search only runs on "
-            "\"Automatic\", and what is not searched for is not detected either."));
+          T("Nicht möglich, solange dieses Profil eine feste Videonorm hat: Erkannt wird nur "
+            "bei „Automatisch“.",
+            "Not possible while this profile uses a fixed video standard: detection only runs "
+            "on \"Automatic\"."));
     } else {
       ImGui::TextWrapped(
           "%s",
           Format(
-              T("Wird diese Norm erkannt, schaltet %s von selbst hierher — dasselbe Gerät und "
-                "denselben Eingang vorausgesetzt, und nicht während einer Aufnahme. Ein von Hand "
-                "gewähltes Profil bleibt, bis sich die Quelle wirklich ändert.",
-                "When this standard is detected, %s switches here on its own — same device and "
-                "same input, and never during a recording. A profile chosen by hand stays until "
-                "the source really changes."),
+              T("Wird diese Norm erkannt, schaltet %s automatisch auf dieses Profil, bei "
+                "gleichem Gerät und Eingang und nie während einer Aufnahme. Ein von Hand "
+                "gewähltes Profil bleibt, bis sich die Quelle ändert.",
+                "When this standard is detected, %s switches to this profile automatically, "
+                "on the same device and input and never during a recording. A profile chosen "
+                "by hand stays until the source changes."),
               AppNameUtf8().c_str())
               .c_str());
     }

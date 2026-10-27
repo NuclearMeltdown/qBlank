@@ -640,7 +640,7 @@ void Install() {
   }
   if (data.size() < 256 * 1024 || data[0] != 'M' || data[1] != 'Z') {
     Fail(T("Was heruntergeladen wurde, ist kein Programm.",
-           "What came down is not a program."));
+           "The download is not a program."));
     return;
   }
 
@@ -648,7 +648,7 @@ void Install() {
   const std::wstring self = ExePath();
   const std::wstring target = folder + assetName;
 
-  SetStatus(T("Wird eingesetzt", "Putting it in place"));
+  SetStatus(T("Wird installiert", "Installing"));
 
   if (SameText(target, self)) {
     // The release still carries the old name: this is an update, not a rename.
@@ -659,14 +659,14 @@ void Install() {
     if (!WriteFileWhole(fresh, data) ||
         !::MoveFileExW(self.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING)) {
       ::DeleteFileW(fresh.c_str());
-      Fail(T("Die neue Fassung ließ sich nicht einsetzen.",
-             "The new build could not be put in place."));
+      Fail(T("Die neue Version ließ sich nicht installieren.",
+             "The new version could not be installed."));
       return;
     }
     if (!::MoveFileExW(fresh.c_str(), self.c_str(), MOVEFILE_REPLACE_EXISTING)) {
       ::MoveFileExW(old.c_str(), self.c_str(), MOVEFILE_REPLACE_EXISTING);
-      Fail(T("Die neue Fassung ließ sich nicht einsetzen.",
-             "The new build could not be put in place."));
+      Fail(T("Die neue Version ließ sich nicht installieren.",
+             "The new version could not be installed."));
       return;
     }
   } else {
@@ -688,7 +688,7 @@ void Install() {
   }
 
   if (!SameText(target, self)) {
-    SetStatus(T("Verknüpfungen werden umgehängt", "Pointing the shortcuts at it"));
+    SetStatus(T("Verknüpfungen werden aktualisiert", "Updating shortcuts"));
     RepointShortcuts(self, target);
 
     // The build that started all this. The 3.7 updater moved it aside before it
@@ -762,13 +762,13 @@ void Check() {
                 : Format(T("%s %s ist da", "%s %s is out"), newName.c_str(), release.tag.c_str());
     g_state.body =
         renamed
-            ? Format(T("Gleiches Programm, neuer Name. Diese Datei holt %s %s und richtet alles "
-                       "so ein, dass nichts verloren geht.",
-                       "Same program, new name. This file fetches %s %s and sets things up so "
-                       "nothing is lost."),
+            ? Format(T("Gleiches Programm, neuer Name. Diese Datei lädt %s %s herunter und "
+                       "richtet es ein, ohne dass etwas verloren geht.",
+                       "Same program, new name. This file downloads %s %s and sets it up "
+                       "without losing anything."),
                      newName.c_str(), release.tag.c_str())
-            : Format(T("Diese Datei holt %s %s und setzt es ein.",
-                       "This file fetches %s %s and puts it in place."),
+            : Format(T("Diese Datei lädt %s %s herunter und installiert es.",
+                       "This file downloads %s %s and installs it."),
                      newName.c_str(), release.tag.c_str());
 
     g_state.bullets.clear();
@@ -788,14 +788,14 @@ void Check() {
           "whether to take them over."));
     if (camera) {
       g_state.bullets.push_back(
-          T("Die virtuelle Kamera wird abgemeldet -- dafür fragt Windows nach Administratorrechten. "
+          T("Die virtuelle Kamera wird abgemeldet — dafür fragt Windows nach Administratorrechten. "
             "In den Einstellungen lässt sie sich mit einem Klick wieder anmelden.",
-            "The virtual camera is unregistered -- Windows will ask for administrator rights for "
+            "The virtual camera is unregistered — Windows will ask for administrator rights for "
             "that. One click in the settings puts it back."));
     }
     g_state.bullets.push_back(
-        Format(T("Diese Datei bleibt nicht liegen: %s räumt sie beim ersten Start weg.",
-                 "This file does not stay behind: %s clears it away at its first start."),
+        Format(T("Diese Datei entfernt %s beim ersten Start.",
+                 "%s removes this file at its first start."),
                newName.c_str()));
 
     g_state.status.clear();
@@ -831,8 +831,8 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int) {
   {
     std::lock_guard<std::mutex> lock(g_state.mutex);
     g_state.heading = T("Einen Moment", "One moment");
-    g_state.body = T("Es wird nachgesehen, welche Fassung es inzwischen gibt.",
-                     "Asking which build there is by now.");
+    g_state.body = T("Neueste Version wird abgefragt.",
+                     "Checking for the latest version.");
     g_state.status = T("Verbindung wird aufgebaut", "Connecting");
     g_state.secondary = T("Abbrechen", "Cancel");
     g_state.pageUrl = Releases().releasePage;

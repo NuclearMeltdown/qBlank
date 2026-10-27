@@ -164,7 +164,8 @@ bool CopyScreenshotToClipboard(const Window* owner, const uint8_t* pixels, int w
   // On success the clipboard owns the block; on failure it never took it.
   if (!ok) {
     ::GlobalFree(handle);
-    return fail(CAP_SAID(T("Zwischenablage abgelehnt.", "The clipboard refused it.")));
+    return fail(CAP_SAID(T("Die Zwischenablage hat das Bild abgelehnt.",
+                           "The clipboard rejected the image.")));
   }
   return true;
 }
