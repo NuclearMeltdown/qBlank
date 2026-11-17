@@ -128,6 +128,13 @@ each other:</p>
       <p><code>CapsModel::SetNativeStandard()</code> hands both to the model, and <code>PickDefault()</code>
 then caps the resolution to that raster. Where nothing is known, or nothing on
 offer fits underneath, the largest still wins exactly as it did.</p>
+      <p>Among formats of the same size, uncompressed ones are preferred: they need no
+decoder in the graph. That preference ends where it costs frames. An MS2109
+dongle offers YUY2 1080p at 5 fps next to MJPG 1080p at 60, and the 5 fps used to
+win. An uncompressed entry now loses its bonus when another entry offers at least
+as much picture at a higher rate. Only uncompressed entries and MJPG, whose
+decoder comes with Windows, count as that other entry; H.264 does not. Under a
+known video standard the standard sets the rate, so the bonus stays there.</p>
       <p>It is worth asking only where the picture goes through the analogue decoder, so
 the connector decides whether to ask at all. <code>ConnectorFollowsVideoStandard()</code>
 is true for composite, S-Video, tuner, SCART and AUX, false for component, VGA
