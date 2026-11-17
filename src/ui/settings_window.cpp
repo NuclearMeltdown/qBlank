@@ -395,9 +395,12 @@ const DeviceProbeResult& SettingsWindow::CapsFor(const DeviceRef& device,
   static const DeviceProbeResult kEmpty;
   if (device.empty()) return kEmpty;
 
-  // The running device is already open; probing it again would fail.
+  // The running device is already open; probing it again would fail. Told by
+  // its id: two sticks of one make share a name ("USB Video" twice), and the
+  // second one is not the first. The name only where there is no id.
   if (liveCaps && liveCaps->ok && !liveCaps->device.id.empty() &&
-      (liveCaps->device.id == device.id || liveCaps->device.name == device.name)) {
+      (device.id.empty() ? liveCaps->device.name == device.name
+                         : liveCaps->device.id == device.id)) {
     return *liveCaps;
   }
 
@@ -1304,11 +1307,28 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
     TextDisabledWrapped(SignalInputLook(input));
   }
 
-  const char* preview = p.capture.video.name.empty()
-                            ? T("— nichts ausgewählt —", "— nothing selected —")
-                            : p.capture.video.name.c_str();
+  // Two sticks of one make share a name ("USB Video" twice); a number tells
+  // them apart, in the list and in the box.
+  auto shownName = [this](size_t i) {
+    const std::string& name = videoDevices_[i].name;
+    int before = 0, total = 0;
+    for (size_t j = 0; j < videoDevices_.size(); ++j) {
+      if (videoDevices_[j].name != name) continue;
+      if (j < i) ++before;
+      ++total;
+    }
+    return total > 1 ? Format("%s (%d)", name.c_str(), before + 1) : name;
+  };
+  std::string preview = p.capture.video.name.empty()
+                            ? std::string(T("— nichts ausgewählt —", "— nothing selected —"))
+                            : p.capture.video.name;
+  for (size_t i = 0; i < videoDevices_.size(); ++i) {
+    if (!p.capture.video.id.empty() && videoDevices_[i].id == p.capture.video.id) {
+      preview = shownName(i);
+    }
+  }
   ImGui::SetNextItemWidth(-150.0f);
-  if (ImGui::BeginCombo("##videodev", preview)) {
+  if (ImGui::BeginCombo("##videodev", preview.c_str())) {
     if (videoDevices_.empty()) {
       ImGui::TextDisabled(listsBusy_ ? T("Suche Geräte …", "Looking for devices …")
                                      : T("Keine Videogeräte gefunden", "No video devices found"));
@@ -1327,9 +1347,13 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
       }
       ImGui::Separator();
     }
-    for (const VideoDeviceInfo& d : videoDevices_) {
+    for (size_t i = 0; i < videoDevices_.size(); ++i) {
+      const VideoDeviceInfo& d = videoDevices_[i];
       const bool selected = (d.id == p.capture.video.id);
-      if (ImGui::Selectable(d.name.c_str(), selected) && !selected) {
+      // One ImGui id per entry, not per name: two entries of one name were one
+      // item, and a click on the second one went to the first.
+      ImGui::PushID((int)i);
+      if (ImGui::Selectable(shownName(i).c_str(), selected) && !selected) {
         p.capture.video = DeviceRef{d.name, d.id, ""};
         p.capture.format = FormatSel{};  // format belongs to the old card
         // Und die Videonorm ebenso, aus genau demselben Grund. Auf dieser Karte
@@ -1342,6 +1366,7 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
         embeddedAudioForDevice_.clear();
       }
       if (selected) ImGui::SetItemDefaultFocus();
+      ImGui::PopID();
     }
     ImGui::EndCombo();
   }
@@ -1540,10 +1565,12 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
       }
       for (size_t i = 0; i < caps.crossbarInputs.size(); ++i) {
         const bool selected = ((int)i == p.capture.crossbarInput);
+        ImGui::PushID((int)i);  // two jacks of one kind can share a name
         if (ImGui::Selectable(caps.crossbarInputs[i].name.c_str(), selected)) {
           p.capture.crossbarInput = (int)i;
         }
         if (selected) ImGui::SetItemDefaultFocus();
+        ImGui::PopID();
       }
       ImGui::EndCombo();
     }
@@ -1631,11 +1658,13 @@ void SettingsWindow::DrawSourceTab(const DeviceProbeResult& caps) {
         const bool selected =
             (p.capture.audioSource == AudioSource::Manual && d.id == p.capture.audio.id);
         std::string label = d.name + (d.cardAudio ? "   [" + d.via + "]" : "");
+        ImGui::PushID(&d);  // one item per device, not per name
         if (ImGui::Selectable(label.c_str(), selected)) {
           p.capture.audioSource = AudioSource::Manual;
           p.capture.audio = d.ToRef();
         }
         if (selected) ImGui::SetItemDefaultFocus();
+        ImGui::PopID();
       }
       ImGui::EndCombo();
     }
@@ -2994,8 +3023,10 @@ void SettingsWindow::DrawAudioTab() {
     }
     for (const AudioDeviceInfo& d : audioOutputs_) {
       const bool selected = (d.id == audio.output.id);
+      ImGui::PushID(&d);  // one item per device, not per name
       if (ImGui::Selectable(d.name.c_str(), selected)) audio.output = d.ToRef();
       if (selected) ImGui::SetItemDefaultFocus();
+      ImGui::PopID();
     }
     ImGui::EndCombo();
   }
@@ -3149,11 +3180,13 @@ void SettingsWindow::DrawRecordSources(bool screen) {
           for (const AudioDeviceInfo& d : devices) {
             if (d.cardAudio) continue;
             const bool selected = here && d.id == source.device.id;
+            ImGui::PushID(&d);  // one item per device, not per name
             if (ImGui::Selectable(d.name.c_str(), selected)) {
               source.kind = kind;
               source.device = d.ToRef();
             }
             if (selected) ImGui::SetItemDefaultFocus();
+            ImGui::PopID();
           }
           ImGui::PopID();
         };

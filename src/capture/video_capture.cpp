@@ -28,13 +28,32 @@ std::string BusyMessage(const DeviceRef& device) {
 std::mutex cardsMutex;
 std::vector<std::pair<const VideoCapture*, VideoDeviceInfo>> streaming;
 
-// Matched the way the settings window tells the running device: by id, or by
-// name when the id is not to be had.
+// Whether the card a reference opens is running, resolved the way
+// CaptureDevice::Open resolves it: by id, and by name only when no card carries
+// that id. A name alone does not say which card it is -- two sticks of one make
+// are both "USB Video" -- so a running card of the same name is asked about
+// only when the id does not settle it, and only then is the list read.
 bool IsStreaming(const DeviceRef& device) {
-  return std::any_of(streaming.begin(), streaming.end(), [&](const auto& s) {
-    return (!device.id.empty() && s.second.id == device.id) ||
-           (!device.name.empty() && s.second.name == device.name);
-  });
+  auto runs = [](const std::string& id) {
+    return std::any_of(streaming.begin(), streaming.end(),
+                       [&](const auto& s) { return s.second.id == id; });
+  };
+  if (!device.id.empty() && runs(device.id)) return true;
+  if (device.name.empty() ||
+      std::none_of(streaming.begin(), streaming.end(),
+                   [&](const auto& s) { return s.second.name == device.name; })) {
+    return false;
+  }
+  const std::vector<VideoDeviceInfo> cards = EnumerateVideoDevices();
+  if (!device.id.empty() &&
+      std::any_of(cards.begin(), cards.end(),
+                  [&](const VideoDeviceInfo& c) { return c.id == device.id; })) {
+    return false;  // another card of the same name
+  }
+  for (const VideoDeviceInfo& c : cards) {
+    if (c.name == device.name) return runs(c.id);
+  }
+  return false;
 }
 
 // Welche Videonorm bei dieser Quelle ankommt, oder 0, wenn es sich nicht sagen

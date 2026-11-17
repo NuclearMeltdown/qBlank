@@ -512,12 +512,27 @@ bool DShowAudioCapture::Start(const DeviceRef& device, AudioSinkFn sink, std::st
                          HrToString(hr)));
 
   // The device reference points at a DirectShow audio input; look it up by the
-  // same rules as a video device.
+  // same rules as a video device: by id, and by name only when no input carries
+  // that id. Two sticks of one make share a name, and the first of them is not
+  // the one asked for.
   ComPtr<IBaseFilter> source;
-  for (const DShowDeviceInfo& d : EnumerateAudioCaptureDShowDevices()) {
-    if (d.id == device.id || (!device.name.empty() && d.name == device.name)) {
-      source = CreateFilterFromMoniker(d);
-      if (source) break;
+  const std::vector<DShowDeviceInfo> inputs = EnumerateAudioCaptureDShowDevices();
+  bool found = false;
+  if (!device.id.empty()) {
+    for (const DShowDeviceInfo& d : inputs) {
+      if (d.id == device.id) {
+        source = CreateFilterFromMoniker(d);
+        found = true;
+        break;
+      }
+    }
+  }
+  if (!found && !device.name.empty()) {
+    for (const DShowDeviceInfo& d : inputs) {
+      if (d.name == device.name) {
+        source = CreateFilterFromMoniker(d);
+        if (source) break;
+      }
     }
   }
   if (!source) {
