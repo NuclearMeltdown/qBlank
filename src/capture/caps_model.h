@@ -96,7 +96,8 @@ class CapsModel {
 
   // Picks a sensible starting format: the largest resolution the incoming
   // signal actually has, at the highest advertised frame rate, preferring
-  // uncompressed formats.
+  // uncompressed formats -- but not where they come at fewer frames than a
+  // format that is otherwise just as good.
   //
   // "The largest the signal has" rather than "the largest on offer", and the
   // difference only shows on a card that is not pinned to one resolution: such

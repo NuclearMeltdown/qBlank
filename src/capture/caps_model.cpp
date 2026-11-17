@@ -298,8 +298,15 @@ FormatSel CapsModel::PickDefault(const std::string& preferSubtype) const {
   // dafuer der Schlupf. Der laesst 576 unter 625 durch und 720 nirgends.
   const int activeLines = nativeLines_ >= 600 ? 576 : (nativeLines_ > 0 ? 480 : 0);
 
-  FormatSel best;
-  long long bestScore = -1;
+  // Everything except the renderer bonus and the rate, entry by entry; the
+  // renderer bonus needs all of them to be decided (below).
+  struct Scored {
+    long long base;  // wish, raster, line and area
+    double fps;
+    bool showable;  // without a decoder, or with the one Windows brings for MJPG
+  };
+  std::vector<Scored> scored;
+  scored.reserve(entries_.size());
   for (const CapsEntry& e : entries_) {
     // A named subtype beats everything below it, and everything below it still
     // decides between the entries that carry it. The area term tops out around
@@ -315,8 +322,6 @@ FormatSel CapsModel::PickDefault(const std::string& preferSubtype) const {
     // bekommt jeder Eintrag dieselbe Null und es bleibt beim Groessten.
     const long long fitBonus =
         (activeLines > 0 && e.height > 0 && e.height <= activeLines + 16) ? 1LL << 41 : 0;
-    // Prefer formats the renderer can take without a decoder in the graph.
-    const long long formatBonus = e.rendererOk ? 1LL << 40 : 0;
     // Unter dem Raster entscheidet sonst wieder die Flaeche, und die groesste
     // ist dort 768x576 -- eine Zeile, die dieselben 720 Abtastwerte auf 768
     // breitgerechnet hat, damit die Pixel quadratisch werden. Genau das soll
@@ -326,15 +331,39 @@ FormatSel CapsModel::PickDefault(const std::string& preferSubtype) const {
     // niemand eine an, bleibt es bei Null und die Flaeche entscheidet weiter.
     const long long lineBonus =
         (activeLines > 0 && e.width >= 704 && e.width <= 720) ? 1LL << 39 : 0;
-    const double fps = e.maxFps > 0.0 ? e.maxFps : e.defaultFps;
-    const long long score = wishBonus + fitBonus + formatBonus + lineBonus +
-                            (long long)e.width * e.height * 1000 + (long long)(fps * 10);
+    scored.push_back({wishBonus + fitBonus + lineBonus + (long long)e.width * e.height * 1000,
+                      e.maxFps > 0.0 ? e.maxFps : e.defaultFps,
+                      e.rendererOk || e.subtypeLabel == "MJPG"});
+  }
+
+  FormatSel best;
+  long long bestScore = -1;
+  for (size_t i = 0; i < entries_.size(); ++i) {
+    const CapsEntry& e = entries_[i];
+    const Scored& s = scored[i];
+    // Prefer formats the renderer can take without a decoder in the graph, but
+    // not at the price of frames: where an entry that can be shown is at least
+    // as good on everything else and runs faster, the bonus goes. The MS2109
+    // sticks offer YUY2 1080p at 5 fps next to MJPG 1080p at 60. Under a known
+    // standard the standard sets the rate, not the list, so the bonus stays
+    // there. Half a frame of slack keeps 59,94 level with 60.
+    bool formatBonus = e.rendererOk;
+    if (formatBonus && activeLines == 0) {
+      for (const Scored& o : scored) {
+        if (o.showable && o.base >= s.base && o.fps > s.fps + 0.5) {
+          formatBonus = false;
+          break;
+        }
+      }
+    }
+    const long long score =
+        s.base + (formatBonus ? 1LL << 40 : 0) + (long long)(s.fps * 10);
     if (score > bestScore) {
       bestScore = score;
       best.subtype = e.subtypeLabel;
       best.width = e.width;
       best.height = e.height;
-      best.fps = fps;
+      best.fps = s.fps;
       best.forced = false;
     }
   }
