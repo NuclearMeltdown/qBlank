@@ -275,7 +275,7 @@ build.bat
 - `build.bat keep` retains the build tree, `build.bat debug` builds a debug configuration.
 - Settings live in `qBlank.json` beside the executable; nothing goes into the registry.
 - Prebuilt executables are attached to each [release](../../releases). [Building](../../wiki/Building)
-- Or install through winget: `winget install qBlank` (coming soon — the package is still in review).
+- Or install through winget: `winget install qBlank`.
 
 ## Why DirectShow
 

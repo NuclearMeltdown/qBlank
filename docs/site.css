@@ -120,6 +120,7 @@ h1{font-size:clamp(2.6rem,7vw,4.2rem);font-weight:700;letter-spacing:-.03em;marg
   color:var(--accent-soft);white-space:nowrap;user-select:none;
 }
 .soon.ver{text-transform:none;letter-spacing:.02em}
+.soon:empty{display:none}
 @media (max-width:420px){
   .cmd{padding-left:14px;font-size:.84rem}
   .soon{margin-left:6px;padding:4px 7px;letter-spacing:.03em}

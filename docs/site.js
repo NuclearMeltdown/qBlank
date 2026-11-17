@@ -180,10 +180,9 @@ function L(en, german) { return de ? german : en; }
   });
 })();
 
-// The note beside the winget command. Until the package is merged into the
-// community repository it says "coming soon"; from then on its folder there
-// lists the versions, and the note names the newest instead. Read from
-// winget-pkgs itself, so nothing here has to change on the day of the merge.
+// The note beside the winget command names the newest version in the
+// community repository, read from winget-pkgs itself. It stays empty (and
+// hidden) when that request fails.
 (function(){
   var note = document.querySelector('.cmd .soon');
   if (!note) return;
